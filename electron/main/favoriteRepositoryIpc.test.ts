@@ -315,6 +315,64 @@ describe('registerFavoriteRepositoryIpc', () => {
       })
   })
 
+  it('publishes changes committed by a main-process sync service without a renderer command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const send = vi.fn()
+    let changed: ((result: { accountMid: string; revision: number; affectedFolderIds: string[]; affectedAids: number[] }) => void) | undefined
+    const service = {
+      onChanged: vi.fn((listener) => { changed = listener }),
+      commit: vi.fn()
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), send
+    })
+    const subscriptionId = await ipcMain.invoke('favorite-repository:subscribe', 7, '100', 'bilimi-logical:music') as string
+
+    changed?.({ accountMid: '100', revision: 9, affectedFolderIds: ['bilimi-logical:music'], affectedAids: [1] })
+
+    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({ subscriptionId, revision: 9, pageInvalidated: true }))
+  })
+
+  it('does not double-publish renderer commits when the repository service already emits them', async () => {
+    const ipcMain = new FakeIpcMain()
+    const send = vi.fn()
+    let changed: ((result: { accountMid: string; revision: number; affectedFolderIds: string[]; affectedAids: number[] }) => void) | undefined
+    const result = { accountMid: '100', revision: 3, affectedFolderIds: ['folder-a'], affectedAids: [1] }
+    const service = {
+      onChanged: vi.fn((listener) => { changed = listener }),
+      commit: vi.fn(async () => { changed?.(result); return result })
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), send
+    })
+    await ipcMain.invoke('favorite-repository:subscribe', 7, '100', 'folder-a')
+
+    await ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'command-1', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'One', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }
+    })
+
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns account-scoped read-only organization recovery records to a library reader', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { getOrganizationChanges: vi.fn().mockResolvedValue([
+      { id: 'run-1:append-1:succeeded', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: ['source'], afterFolderIds: ['remote-music'], addedFolderIds: ['remote-music'], removedFolderIds: ['source'], status: 'succeeded', recordedAt: '2026-07-21T00:00:00.000Z' }
+    ]) }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => false, isTrustedReader: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-organization-changes', 8, '100')).resolves.toEqual([
+      expect.objectContaining({ runId: 'run-1', afterFolderIds: ['remote-music'] })
+    ])
+  })
+
   it('allows a library-only sender to read a page but not commit a repository command', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {

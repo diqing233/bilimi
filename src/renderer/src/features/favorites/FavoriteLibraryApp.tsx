@@ -67,6 +67,7 @@ const text = {
   saveMemo: '\u4fdd\u5b58\u5907\u6ce8',
   transcriptionState: '\u8f6c\u5199\u72b6\u6001',
   actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u5931\u8d25\u3002'
+  , organizationHistory: '\u6574\u7406\u8bb0\u5f55', noOrganizationHistory: '\u6682\u65e0\u6574\u7406\u8bb0\u5f55\u3002'
 } as const
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
@@ -97,6 +98,7 @@ export function FavoriteLibraryApp() {
   const [detailOpen, setDetailOpen] = useState(true)
   const [error, setError] = useState<string>()
   const [selectedAids, setSelectedAids] = useState<number[]>([])
+  const [organizationChanges, setOrganizationChanges] = useState<Array<{ id: string; aid: number; status: string; beforeFolderIds: string[]; afterFolderIds: string[] }>>([])
   const requestIdRef = useRef(0)
 
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
@@ -148,6 +150,8 @@ export function FavoriteLibraryApp() {
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
+      void (api as (typeof api & FavoriteLibraryDesktopExtensions))?.getFavoriteRepositoryOrganizationChanges?.(mid)
+        ?.then((changes) => { if (refreshId === requestIdRef.current) setOrganizationChanges(changes) })
       await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
     } catch {
       if (refreshId === requestIdRef.current) setError(text.cannotRead)
@@ -245,6 +249,10 @@ export function FavoriteLibraryApp() {
         <div><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
         {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
       </header>
+      <section className="favorite-library__organization-history" aria-label={text.organizationHistory}>
+        <h2>{text.organizationHistory}</h2>
+        {organizationChanges.length ? <ul>{organizationChanges.slice(-5).reverse().map((change) => <li key={change.id}>#{change.aid}：{change.status === 'succeeded' ? '已确认' : change.status === 'failed' ? '失败' : '待确认'}（{change.beforeFolderIds.length} → {change.afterFolderIds.length}）</li>)}</ul> : <p>{text.noOrganizationHistory}</p>}
+      </section>
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
       <div className="favorite-library__layout">
         <nav className="favorite-library__nav" aria-label={text.navigation}>
@@ -331,7 +339,7 @@ export function FavoriteLibraryApp() {
               if (!api.openFavoriteLibraryVideo) throw new Error(text.unavailable)
               await api.openFavoriteLibraryVideo(accountMid, detail.aid)
             })}>{text.openVideo}</button> : null}
-            {detail.pendingStates.length ? <p>{text.pendingStates}{detail.pendingStates.join('\u3001')}</p> : null}
+            {detail.pendingStates.length ? <p>{text.pendingStates}{formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p> : null}
           </aside>
         ) : null}
       </div>

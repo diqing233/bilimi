@@ -104,6 +104,7 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
     Array.isArray(snapshot.folders) && !!snapshot.memberships && typeof snapshot.memberships === 'object' &&
     Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords) &&
     (snapshot.organizationRecords === undefined || Array.isArray(snapshot.organizationRecords)) &&
+    (snapshot.organizationBatches === undefined || Array.isArray(snapshot.organizationBatches)) &&
     (snapshot.organizationMigrationInitialized === undefined || typeof snapshot.organizationMigrationInitialized === 'boolean')
 }
 
@@ -156,6 +157,7 @@ function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): Account
     ...snapshot,
     libraryMirrors: snapshot.libraryMirrors ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
+    organizationBatches: snapshot.organizationBatches ?? [],
     organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false
   }
 }
@@ -187,6 +189,7 @@ export class FavoriteRepositoryService {
   private writeTail = Promise.resolve()
   private pendingWriteCount = 0
   private readonly syncCheckpointState = new Map<string, SyncCheckpointState>()
+  private readonly changeListeners = new Set<(result: FavoriteRepositoryCommandResult) => void>()
 
   constructor(private readonly options: {
     root: string
@@ -232,6 +235,16 @@ export class FavoriteRepositoryService {
         }
       } : {})
     }
+  }
+
+  async getOrganizationChanges(accountMid: string) {
+    const account = normalizeAccountMid(accountMid)
+    return this.queue(async () => clone((await this.load(account)).repository.snapshot.organizationBatches ?? []))
+  }
+
+  onChanged(listener: (result: FavoriteRepositoryCommandResult) => void) {
+    this.changeListeners.add(listener)
+    return () => this.changeListeners.delete(listener)
   }
 
   async getFolderPage(
@@ -296,11 +309,13 @@ export class FavoriteRepositoryService {
       if (command.type === 'record-sync-result') {
         await this.appendSyncJournal(account, { command: clone(command), acceptedAt })
         this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
+        this.emitChange(result)
         return clone(result)
       }
       if (command.type === 'upsert-physical-shard-binding') {
         await this.appendBindingJournal(account, { command: clone(command), acceptedAt })
         this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
+        this.emitChange(result)
         return clone(result)
       }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
@@ -309,6 +324,7 @@ export class FavoriteRepositoryService {
       await rm(this.bindingJournalPath(account), { force: true })
       this.syncCheckpointState.delete(account)
       this.cache.set(account, persisted)
+      this.emitChange(result)
       return clone(result)
     }).finally(() => {
       this.pendingWriteCount--
@@ -404,6 +420,10 @@ export class FavoriteRepositoryService {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
+  private emitChange(result: FavoriteRepositoryCommandResult) {
+    for (const listener of this.changeListeners) listener(clone(result))
+  }
+
   private snapshotFromResult(result: FavoriteRepositoryCommandResult): AccountFavoriteRepositorySnapshot {
     const { commandId: _commandId, affectedFolderIds: _affectedFolderIds, affectedAids: _affectedAids, ...snapshot } = result
     return snapshot
@@ -442,6 +462,11 @@ export class FavoriteRepositoryService {
       const mirror = snapshot.libraryMirrors?.[String(aid)]
       if (!mirror || mirror.status === 'never' || mirror.status === 'refreshing') addState(aid, 'unsynced')
       if (mirror?.status === 'failed') addState(aid, 'failed')
+    }
+    for (const record of snapshot.syncRecords) {
+      const state = record.status === 'pending' ? 'unsynced'
+        : record.status === 'failed' || record.status === 'result-unknown' ? record.status : undefined
+      if (state) for (const aid of record.affectedAids) addState(aid, state)
     }
     for (const item of this.options.getTranscriptionItems?.() ?? []) {
       if (item.accountMid !== snapshot.accountMid || !['pending', 'running', 'failed'].includes(item.status)) continue

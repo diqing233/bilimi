@@ -184,6 +184,42 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('marks trusted source-scan metadata synced and keeps only actionable work pending after organization', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'scan-1', folders: [{ id: 'bilibili:source', title: 'Source', remoteFolderId: 'source' }],
+        memberAidsByFolderId: { 'bilibili:source': Array.from({ length: 243 }, (_, index) => index + 1) },
+        videos: Array.from({ length: 243 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, tags: [], updatedAt: '2026-07-21T00:00:00.000Z' })) }
+    })
+    for (const aid of Array.from({ length: 15 }, (_, index) => index + 221)) {
+      await service.commit('100', { id: `local-${aid}`, accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror', payload: { aid, status: 'never', metadataRevision: 1 } })
+    }
+    await service.recordSyncCheckpoint('100', 'failed', { id: 'failed', commandId: 'failed', status: 'failed', affectedAids: [236, 237, 238, 239, 240], updatedAt: '2026-07-21T00:00:00.000Z' })
+    await service.recordSyncCheckpoint('100', 'unknown', { id: 'unknown', commandId: 'unknown', status: 'result-unknown', affectedAids: [241, 242, 243], updatedAt: '2026-07-21T00:00:00.000Z' })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 23 })
+  })
+
+  it('persists account-isolated organization recovery records across a repository restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'change', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'run-1:append-1:succeeded', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: ['source'], afterFolderIds: ['remote-music'], addedFolderIds: ['remote-music'], removedFolderIds: ['source'],
+        status: 'succeeded', recordedAt: '2026-07-21T00:00:00.000Z'
+      } }
+    })
+
+    await expect(new FavoriteRepositoryService({ root }).getOrganizationChanges('100')).resolves.toEqual([
+      expect.objectContaining({ runId: 'run-1', aid: 1, beforeFolderIds: ['source'], afterFolderIds: ['remote-music'] })
+    ])
+    await expect(new FavoriteRepositoryService({ root }).getOrganizationChanges('200')).resolves.toEqual([])
+  })
+
   it('clears only Bilibili mirror folders and mirror-only videos while preserving local repository data', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })

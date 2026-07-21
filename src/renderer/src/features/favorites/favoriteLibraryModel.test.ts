@@ -24,6 +24,12 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMirrorStatus([])).toBe('已同步')
   })
 
+  it('does not expose internal pending-state enum values in reader-facing labels', () => {
+    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'])).toMatch(/确认/)
+    expect(formatFavoriteLibraryMirrorStatus(['continuation'])).toMatch(/等待/)
+    expect(formatFavoriteLibraryMirrorStatus(['failed'])).not.toContain('failed')
+  })
+
   it('returns one global-search row per aid and retains every folder membership', () => {
     expect(buildLibrarySearchRows([
       { video: video(1), folderId: 'b' },

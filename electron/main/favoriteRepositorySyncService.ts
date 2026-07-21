@@ -2,6 +2,7 @@ import {
   createAccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryFrozenSyncOperation,
   type FavoriteRepositoryFrozenSyncPlan,
+  type FavoriteRepositoryOrganizationChange,
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
@@ -304,6 +305,7 @@ export class FavoriteRepositorySyncService {
       const attempt = record.attempt ?? 1
       if (desiredState) {
         records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'succeeded', attempt, 'reconciled-confirmed', 'reconciled'))
+        await this.projectConfirmedOperation(account, plan, operation, 'succeeded')
       } else if (safeToRepeat) {
         records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'pending', attempt, retryReadyReason, 'reconciled'))
       } else {
@@ -346,16 +348,19 @@ export class FavoriteRepositorySyncService {
           : await this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
         this.assertObservedAccount(accountMid, result.observedAccountMid)
         records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
+        await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded')
       } catch (error) {
+        const status = isConfirmedRemoteRejection(error) ? 'failed' : 'result-unknown'
         records.set(operation.operationKey, await this.writeRecord(
           accountMid,
           plan,
           operation,
-          isConfirmedRemoteRejection(error) ? 'failed' : 'result-unknown',
+          status,
           attempt,
           error instanceof Error ? error.message : String(error),
           'result'
         ))
+        await this.projectConfirmedOperation(accountMid, plan, operation, status)
         const run = this.summarize(plan, Array.from(records.values()))
         await this.writeWorkspace(accountMid, withWorkspaceStatus(
           snapshot.workspace!, run.status === 'result-unknown' ? 'reconciling' : 'frozen', plan
@@ -392,6 +397,41 @@ export class FavoriteRepositorySyncService {
       issuedAt: this.now(),
       type: 'record-organization-protections',
       payload: { records }
+    })
+  }
+
+  /** Applies only a confirmed remote fact to the local warehouse projection. */
+  private async projectConfirmedOperation(
+    accountMid: string,
+    plan: FavoriteRepositoryFrozenSyncPlan,
+    operation: FavoriteRepositoryFrozenSyncOperation,
+    status: FavoriteRepositoryOrganizationChange['status']
+  ) {
+    const beforeFolderIds = [...new Set(operation.beforeFolderIds ?? [])].sort()
+    const afterFolderIds = status === 'succeeded'
+      ? operation.kind === 'append'
+        ? [...new Set([...beforeFolderIds, ...operation.folderIds])].sort()
+        : beforeFolderIds.filter((folderId) => !operation.folderIds.includes(folderId))
+      : beforeFolderIds
+    const change: FavoriteRepositoryOrganizationChange = {
+      id: `${plan.id}:${operation.operationKey}:${status}`,
+      runId: plan.id,
+      workspaceId: plan.workspaceId,
+      accountMid,
+      aid: operation.aid,
+      beforeFolderIds,
+      afterFolderIds,
+      addedFolderIds: afterFolderIds.filter((folderId) => !beforeFolderIds.includes(folderId)),
+      removedFolderIds: beforeFolderIds.filter((folderId) => !afterFolderIds.includes(folderId)),
+      status,
+      recordedAt: this.now()
+    }
+    await this.options.repository.commit(accountMid, {
+      id: `favorite-sync-projection:${change.id}`,
+      accountMid,
+      issuedAt: this.now(),
+      type: 'record-organization-change',
+      payload: { change }
     })
   }
 

@@ -37,6 +37,7 @@ import type {
 import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositoryLibraryVideoDetail,
+  FavoriteRepositoryOrganizationChanges,
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
@@ -110,6 +111,7 @@ type BilimiDesktopApi = {
     accountMid: string,
     aid: number
   ) => Promise<FavoriteRepositoryLibraryVideoDetail>
+  getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
   enqueueFavoriteLibraryTranscription?: (
     accountMid: string,

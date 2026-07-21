@@ -76,12 +76,18 @@ export function compileFrozenFavoriteSyncPlan(
   }
 
   const operations = new Map<number, Set<string>>()
+  const beforeFoldersByAid = new Map<number, Set<string>>()
   const occupiedAidsByFolder = new Map<string, Set<number>>()
   const occupiedCountsByFolder = new Map<string, number>()
   for (const shards of shardsByLedger.values()) {
     for (const shard of shards) {
       occupiedAidsByFolder.set(shard.remoteFolderId, new Set(shard.memberAids))
       occupiedCountsByFolder.set(shard.remoteFolderId, shard.memberCount)
+      for (const aid of shard.memberAids) {
+        const folders = beforeFoldersByAid.get(aid) ?? new Set<string>()
+        folders.add(shard.remoteFolderId)
+        beforeFoldersByAid.set(aid, folders)
+      }
     }
   }
   for (const classification of [...input.classifications].sort((left, right) => left.aid - right.aid)) {
@@ -122,7 +128,8 @@ export function compileFrozenFavoriteSyncPlan(
         operationKey: `append:${aid}:${[...folderIds].sort().join(',')}`,
         aid,
         kind: 'append' as const,
-        folderIds: [...folderIds].sort()
+        folderIds: [...folderIds].sort(),
+        beforeFolderIds: [...(beforeFoldersByAid.get(aid) ?? [])].sort()
       }))
     }
   }

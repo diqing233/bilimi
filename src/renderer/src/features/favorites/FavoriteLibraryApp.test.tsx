@@ -113,6 +113,22 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(saveFavoriteLibraryArchiveMemo).toHaveBeenCalledWith('100', 1, '新备注'))
   })
 
+  it('renders pending reasons in Chinese instead of repository enum values', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 1, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '等待确认', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['result-unknown'] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '等待确认', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['result-unknown'], mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('等待确认'))
+    const detail = await screen.findByRole('complementary', { name: text.detail })
+    expect(detail).toHaveTextContent('同步状态待确认')
+    expect(detail).not.toHaveTextContent('result-unknown')
+  })
+
   it('renders account-scoped navigation, one paged virtual list, and a collapsible detail pane', async () => {
     const getPage = vi.fn(async (_accountMid: string, scope: { kind: string; folderId?: string }) => ({
       version: 1 as const, accountMid: '100', revision: 2,

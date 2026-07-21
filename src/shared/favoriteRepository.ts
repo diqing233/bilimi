@@ -67,6 +67,8 @@ export type FavoriteRepositoryFrozenSyncOperation = {
   aid: number
   kind: 'append' | 'remove'
   folderIds: string[]
+  /** Trusted remote membership observed while the immutable plan was frozen. */
+  beforeFolderIds?: string[]
 }
 
 export type FavoriteRepositoryFrozenSyncPlan = {
@@ -119,6 +121,21 @@ export type FavoriteRepositoryOrganizationRecord = {
   aid: number
   targetFolderIds: string[]
   completedAt: string
+}
+
+/** Immutable, account-scoped recovery evidence; it never authorizes a remote write. */
+export type FavoriteRepositoryOrganizationChange = {
+  id: string
+  runId: string
+  workspaceId: string
+  accountMid: string
+  aid: number
+  beforeFolderIds: string[]
+  afterFolderIds: string[]
+  addedFolderIds: string[]
+  removedFolderIds: string[]
+  status: 'succeeded' | 'failed' | 'result-unknown'
+  recordedAt: string
 }
 
 export type FavoriteRepositoryPage<T> = {
@@ -224,6 +241,13 @@ export type FavoriteRepositoryCommand =
       type: 'record-organization-protections'
       payload: { records: FavoriteRepositoryOrganizationRecord[]; markMigrationInitialized?: boolean; replace?: boolean }
     }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'record-organization-change'
+      payload: { change: FavoriteRepositoryOrganizationChange }
+    }
 
 export type AccountFavoriteRepositorySnapshot = {
   version: 1
@@ -238,6 +262,7 @@ export type AccountFavoriteRepositorySnapshot = {
   workspace?: FavoriteRepositoryWorkspace
   syncRecords: FavoriteRepositorySyncRecord[]
   organizationRecords: FavoriteRepositoryOrganizationRecord[]
+  organizationBatches: FavoriteRepositoryOrganizationChange[]
   organizationMigrationInitialized: boolean
 }
 
@@ -316,7 +341,8 @@ function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: strin
     if (typeof record.operationKey !== 'string' || !record.operationKey.trim() || operationKeys.has(record.operationKey) ||
       !Number.isSafeInteger(record.aid) || Number(record.aid) <= 0 ||
       (record.kind !== 'append' && record.kind !== 'remove') || !Array.isArray(record.folderIds)) return false
-    if (!record.folderIds.length || record.folderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim())) return false
+    if (!record.folderIds.length || record.folderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim()) ||
+      (record.beforeFolderIds !== undefined && (!Array.isArray(record.beforeFolderIds) || record.beforeFolderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim())))) return false
     operationKeys.add(record.operationKey)
     return true
   })
@@ -333,6 +359,18 @@ function isOrganizationRecord(value: unknown) {
     Number.isSafeInteger(record.aid) && record.aid > 0 && Array.isArray(record.targetFolderIds) &&
     record.targetFolderIds.every((id) => typeof id === 'string' && Boolean(id.trim())) &&
     typeof record.completedAt === 'string' && !Number.isNaN(Date.parse(record.completedAt))
+}
+
+function isOrganizationChange(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  const folderIds = ['beforeFolderIds', 'afterFolderIds', 'addedFolderIds', 'removedFolderIds']
+  return typeof record.id === 'string' && !!record.id.trim() && typeof record.runId === 'string' && !!record.runId.trim() &&
+    typeof record.workspaceId === 'string' && !!record.workspaceId.trim() && typeof record.accountMid === 'string' &&
+    Number.isSafeInteger(record.aid) && Number(record.aid) > 0 &&
+    folderIds.every((key) => Array.isArray(record[key]) && (record[key] as unknown[]).every((id) => typeof id === 'string' && !!id.trim())) &&
+    ['succeeded', 'failed', 'result-unknown'].includes(String(record.status)) &&
+    typeof record.recordedAt === 'string' && !Number.isNaN(Date.parse(record.recordedAt))
 }
 
 function normalizeFolderMembers(memberAidsByFolderId: Record<string, number[]>) {
@@ -487,6 +525,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.markMigrationInitialized !== undefined && typeof payload.markMigrationInitialized !== 'boolean') ||
         (payload.replace !== undefined && typeof payload.replace !== 'boolean')) invalidCommand()
       return
+    case 'record-organization-change':
+      if (!isOrganizationChange(payload.change) || normalizedAccountMid((payload.change as FavoriteRepositoryOrganizationChange).accountMid) !== normalizedAccountMid(record.accountMid)) invalidCommand()
+      return
     default:
       invalidCommand()
   }
@@ -508,6 +549,7 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     physicalShards: [],
     syncRecords: [],
     organizationRecords: [],
+    organizationBatches: [],
     organizationMigrationInitialized: false
   }
 }
@@ -529,6 +571,7 @@ export function applyFavoriteRepositoryCommand(
   let workspace = snapshot.workspace
   let syncRecords = [...snapshot.syncRecords]
   let organizationRecords = [...snapshot.organizationRecords]
+  let organizationBatches = [...(snapshot.organizationBatches ?? [])]
   let organizationMigrationInitialized = snapshot.organizationMigrationInitialized
   let videos = { ...snapshot.videos }
   let libraryMirrors = { ...snapshot.libraryMirrors }
@@ -637,6 +680,15 @@ export function applyFavoriteRepositoryCommand(
           updatedAt: existing?.updatedAt ?? video.updatedAt
         }
       }
+      for (const aid of mirroredAids) {
+        const existing = libraryMirrors[String(aid)]
+        libraryMirrors[String(aid)] = {
+          aid,
+          status: 'synced',
+          metadataRevision: Math.max(1, existing?.metadataRevision ?? 0),
+          lastSyncedAt: normalizedAcceptedAt
+        }
+      }
       affectedFolderIds = [...folderIds].sort()
       affectedAids = [...mirroredAids].sort((left, right) => left - right)
       break
@@ -667,6 +719,7 @@ export function applyFavoriteRepositoryCommand(
       physicalShards = []
       syncRecords = []
       organizationRecords = []
+      organizationBatches = []
       organizationMigrationInitialized = false
       workspace = undefined
       break
@@ -791,6 +844,41 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
       break
     }
+    case 'record-organization-change': {
+      const change = command.payload.change
+      const existing = organizationBatches.find((record) => record.id === change.id)
+      if (existing) break
+      const normalizeFolders = (ids: string[]) => [...new Set(ids.map((id) => id.trim()).filter(Boolean))].sort()
+      const beforeFolderIds = normalizeFolders(change.beforeFolderIds)
+      const afterFolderIds = normalizeFolders(change.afterFolderIds)
+      const addedFolderIds = normalizeFolders(change.addedFolderIds)
+      const removedFolderIds = normalizeFolders(change.removedFolderIds)
+      const remoteToShard = new Map(physicalShards.filter((shard) => shard.remoteFolderId).map((shard) => [shard.remoteFolderId!, shard]))
+      for (const remoteFolderId of new Set([...beforeFolderIds, ...afterFolderIds])) {
+        const shard = remoteToShard.get(remoteFolderId)
+        if (!shard) continue
+        const logicalFolderId = `bilimi-logical:${shard.logicalLedgerId}`
+        const nextMembership = (folderId: string, include: boolean) => {
+          const members = new Set(memberships[folderId] ?? [])
+          if (include) members.add(change.aid)
+          else members.delete(change.aid)
+          memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
+        }
+        const include = afterFolderIds.includes(remoteFolderId)
+        nextMembership(shard.folderId, include)
+        const anyLogicalMember = physicalShards
+          .filter((candidate) => candidate.logicalLedgerId === shard.logicalLedgerId)
+          .some((candidate) => (candidate.remoteFolderId ? afterFolderIds.includes(candidate.remoteFolderId) : false) || (memberships[candidate.folderId] ?? []).includes(change.aid))
+        nextMembership(logicalFolderId, anyLogicalMember)
+        affectedFolderIds.push(shard.folderId, logicalFolderId)
+      }
+      organizationBatches = [...organizationBatches, {
+        ...change, accountMid: snapshot.accountMid, beforeFolderIds, afterFolderIds, addedFolderIds, removedFolderIds,
+        recordedAt: normalizedTimestamp(change.recordedAt)
+      }].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id))
+      affectedAids = [change.aid]
+      break
+    }
   }
 
   return {
@@ -805,6 +893,7 @@ export function applyFavoriteRepositoryCommand(
     workspace,
     syncRecords,
     organizationRecords,
+    organizationBatches,
     organizationMigrationInitialized,
     commandId: command.id,
     affectedFolderIds,

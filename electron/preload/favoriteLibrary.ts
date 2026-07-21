@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   FavoriteRepositoryLibraryPage,
   FavoriteRepositoryLibraryVideoDetail,
+  type FavoriteRepositoryOrganizationChanges,
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
@@ -37,6 +38,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   ) => ipcRenderer.invoke('favorite-repository:get-library-page', accountMid, scope, options) as Promise<FavoriteRepositoryLibraryPage>,
   getFavoriteRepositoryLibraryVideoDetail: (accountMid: string, aid: number) =>
     ipcRenderer.invoke('favorite-repository:get-library-video-detail', accountMid, aid) as Promise<FavoriteRepositoryLibraryVideoDetail>,
+  getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   enqueueFavoriteLibraryTranscription: (accountMid: string, input: { aids: number[]; summarizeWithDeepSeek?: boolean }) =>

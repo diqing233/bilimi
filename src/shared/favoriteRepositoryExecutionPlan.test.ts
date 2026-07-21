@@ -17,6 +17,19 @@ describe('compileFrozenFavoriteSyncPlan', () => {
     }))
   })
 
+  it('captures the frozen trusted remote membership before any write is attempted', () => {
+    const result = compileFrozenFavoriteSyncPlan({
+      accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,
+      createdAt: '2026-07-20T00:00:00.000Z',
+      classifications: [{ aid: 1, targetLedgerIds: ['music'] }],
+      shards: [{ logicalLedgerId: 'music', remoteFolderId: 'remote-music', memberAids: [1] }]
+    })
+
+    expect(result.plan?.operations).toEqual([
+      expect.objectContaining({ aid: 1, beforeFolderIds: ['remote-music'] })
+    ])
+  })
+
   it('rejects an unbound logical ledger instead of passing its local id to Bilibili', () => {
     expect(compileFrozenFavoriteSyncPlan({
       accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,

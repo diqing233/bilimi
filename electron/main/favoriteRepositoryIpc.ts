@@ -4,6 +4,7 @@ import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
   FavoriteRepositoryFolder,
+  FavoriteRepositoryOrganizationChange,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
@@ -66,6 +67,7 @@ export type FavoriteRepositoryLibraryRow = {
 }
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
+export type FavoriteRepositoryOrganizationChanges = FavoriteRepositoryOrganizationChange[]
 
 export type FavoriteLibraryArchiveSummary = {
   status: '未入档' | '已入档'
@@ -275,6 +277,9 @@ export function registerFavoriteRepositoryIpc(options: {
     return true
   }
 
+  const servicePublishesChanges = typeof options.service.onChanged === 'function'
+  options.service.onChanged?.(publish)
+
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
@@ -327,6 +332,12 @@ export function registerFavoriteRepositoryIpc(options: {
       transcription: options.getTranscriptionSummary?.(accountMid, detail.video.aid) ?? { status: '未转写' }
     } satisfies FavoriteRepositoryLibraryVideoDetail
   })
+  options.ipcMain.handle('favorite-repository:get-organization-changes', async (event, requestedAccountMid: string) => {
+    assertReader(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.service.getOrganizationChanges(accountMid)
+  })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
   ) => {
@@ -334,7 +345,7 @@ export function registerFavoriteRepositoryIpc(options: {
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     const result = await options.service.commit(accountMid, commandForAccount(requestedCommand, accountMid))
-    publish(result)
+    if (!servicePublishesChanges) publish(result)
     return result
   })
   options.ipcMain.handle('favorite-repository:subscribe', async (event, requestedAccountMid: string, folderId?: string) => {

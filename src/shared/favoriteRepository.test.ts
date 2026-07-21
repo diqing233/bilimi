@@ -237,6 +237,36 @@ describe('account favorite repository contracts', () => {
     ])
   })
 
+  it('keeps each organization recovery record immutable and projects a confirmed remove from logical membership', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),
+      memberships: { 'bilimi:music:001': [1], 'bilimi-logical:music': [1] },
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: 'remote-music', remoteTitle: 'Music', bindingState: 'bound' as const }]
+    }
+    const first = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'change-1', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'run-1:remove-1:succeeded', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: ['remote-music'], afterFolderIds: [], addedFolderIds: [], removedFolderIds: ['remote-music'],
+        status: 'succeeded', recordedAt: '2026-07-20T00:00:01.000Z'
+      } }
+    }, '2026-07-20T00:00:01.000Z')
+    const second = applyFavoriteRepositoryCommand(first, {
+      id: 'change-2', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'run-2:append-2:result-unknown', runId: 'run-2', workspaceId: 'workspace-2', accountMid: '100', aid: 2,
+        beforeFolderIds: [], afterFolderIds: [], addedFolderIds: [], removedFolderIds: [],
+        status: 'result-unknown', recordedAt: '2026-07-20T00:00:02.000Z'
+      } }
+    }, '2026-07-20T00:00:02.000Z')
+
+    expect(first.memberships).toMatchObject({ 'bilimi:music:001': [], 'bilimi-logical:music': [] })
+    expect(second.organizationBatches).toEqual([
+      expect.objectContaining({ id: 'run-1:remove-1:succeeded', beforeFolderIds: ['remote-music'], removedFolderIds: ['remote-music'] }),
+      expect.objectContaining({ id: 'run-2:append-2:result-unknown', status: 'result-unknown' })
+    ])
+  })
+
   it('rejects malformed command data at the shared IPC boundary', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '100',

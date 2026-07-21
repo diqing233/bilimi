@@ -193,6 +193,74 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('200')).resolves.toMatchObject({ organizationRecords: [] })
   })
 
+  it('projects confirmed writes into logical warehouse memberships and durable change records', async () => {
+    const repository = await createRepository()
+    const frozenPlan = {
+      ...plan(),
+      operations: [{ operationKey: 'move-1', aid: 1, kind: 'append' as const, folderIds: ['remote-music', 'remote-games'] }]
+    }
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'games-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'games', logicalTitle: 'Games', shardNumber: 2, memberAids: [], remoteTitle: 'Games 02', bindingState: 'bound', remoteFolderId: 'remote-games' }
+    })
+    await repository.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'One copy', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: {
+        'bilimi:music:001': [1], 'bilimi:games:002': [1],
+        'bilimi-logical:music': [1], 'bilimi-logical:games': [1]
+      },
+      organizationBatches: [expect.objectContaining({
+        runId: 'run-1', aid: 1, beforeFolderIds: [], afterFolderIds: ['remote-games', 'remote-music'],
+        addedFolderIds: ['remote-games', 'remote-music'], removedFolderIds: [], status: 'succeeded'
+      })]
+    })
+    expect((await repository.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).items).toEqual([])
+  })
+
+  it('projects reconciliation-confirmed remote membership but never fabricates an absent write', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: 'remote-a' }
+    })
+    await repository.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'A', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: { ...workspace(), frozenSyncPlan: plan() }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockRejectedValueOnce(new Error('timeout')), remove: vi.fn(), readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [1] } }) },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await service.executeFrozenPlan('100', plan())
+    await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ memberships: { 'bilimi-logical:music': [1] } })
+  })
+
   it('does not protect an aid whose successful append only targets the staging logical ledger', async () => {
     const repository = await createRepository()
     const stagingPlan = { ...plan(), operations: [{ operationKey: 'append-1', aid: 1, kind: 'append' as const, folderIds: ['remote-inbox'] }] }
