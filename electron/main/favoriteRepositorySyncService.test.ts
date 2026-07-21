@@ -36,11 +36,69 @@ function plan(accountMid = '100'): FrozenFavoriteSyncPlan {
   }
 }
 
+function planWithAppendOperations(count: number, accountMid = '100'): FrozenFavoriteSyncPlan {
+  return {
+    ...plan(accountMid),
+    operations: Array.from({ length: count }, (_, index) => ({
+      operationKey: `append-${index + 1}`,
+      aid: index + 1,
+      kind: 'append' as const,
+      folderIds: ['remote-a']
+    }))
+  }
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
 describe('FavoriteRepositorySyncService', () => {
+  it('uses the legacy cooldown after the twenty-fifth successful remote write', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(27)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const sleep = vi.fn().mockResolvedValue(undefined)
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      sleep,
+      random: () => 0
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(sleep).toHaveBeenCalledWith(15_000)
+  })
+
+  it('applies the twenty-fifth-write cooldown before the first resumed remote write', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(26)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    for (const operation of frozenPlan.operations.slice(0, 25)) {
+      await repository.recordSyncCheckpoint('100', `completed:${operation.operationKey}`, {
+        id: `${frozenPlan.id}:${operation.operationKey}`, commandId: operation.operationKey, status: 'succeeded',
+        affectedAids: [operation.aid], updatedAt: '2026-07-19T00:00:00.000Z', runId: frozenPlan.id,
+        operationKey: operation.operationKey, attempt: 1
+      })
+    }
+    const events: string[] = []
+    const sleep = vi.fn(async (milliseconds: number) => { events.push(`sleep:${milliseconds}`) })
+    const append = vi.fn(async () => { events.push('append'); return { observedAccountMid: '100' } })
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, sleep, random: () => 0
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(events).toEqual(['sleep:15000', 'append'])
+  })
+
   it('abandons a frozen local plan without reverting any remote operation', async () => {
     const repository = await createRepository()
     const frozenPlan = plan()

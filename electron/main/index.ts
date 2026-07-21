@@ -1319,7 +1319,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   oldFavoriteWorkspaceScanService = new OldFavoriteWorkspaceScanService({
     coordinator: oldFavoriteWorkspaceCoordinator,
-    requestRuntime: (request) => requestMainAssistantRuntime(request)
+    requestRuntime: (request) => requestMainAssistantRuntime(request),
+    remoteOperations: favoriteRepositoryRemoteOperations
   })
   oldFavoriteWorkspaceDeepSeekService = new OldFavoriteWorkspaceDeepSeekService({
     coordinator: oldFavoriteWorkspaceCoordinator,

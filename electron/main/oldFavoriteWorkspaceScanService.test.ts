@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
@@ -9,7 +10,9 @@ describe('OldFavoriteWorkspaceScanService', () => {
       recordScanFailure: vi.fn()
     }
     const runtime = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '', reason: 'target-unavailable' })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
 
     await service.start('100', 'full', { clearBilibiliMirror: true })
 
@@ -230,6 +233,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
       recordTagEnrichment: vi.fn().mockResolvedValue(true)
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
@@ -238,7 +242,9 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', aid: 1, tags: ['Technology'] })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
 
     await service.start('100', 'incremental')
 
@@ -248,12 +254,140 @@ describe('OldFavoriteWorkspaceScanService', () => {
     })
   })
 
+  it('waits for an existing same-account remote operation before scanning', async () => {
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
+      recordTagEnrichment: vi.fn().mockResolvedValue(true)
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', aid: 1, tags: ['Technology'] })
+    const remoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
+    let releaseRemoteOperation: (() => void) | undefined
+    const heldRemoteOperation = remoteOperations.run('100', () => new Promise<void>((resolve) => { releaseRemoteOperation = resolve }))
+    const wait = vi.fn().mockResolvedValue(undefined)
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, remoteOperations, wait, random: () => 0
+    })
+
+    await service.start('100', 'incremental')
+
+    expect(runtime).not.toHaveBeenCalled()
+    releaseRemoteOperation?.()
+    await heldRemoteOperation
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith('100', 1, ['Technology'], 'workspace-1'))
+    expect(wait).toHaveBeenCalledWith(650)
+  })
+
+  it('does not send a tag request after its workspace is paused during the pacing delay', async () => {
+    let releaseWait: (() => void) | undefined
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'paused' } }),
+      recordTagEnrichment: vi.fn(), pauseTagEnrichment: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', aid: 1, tags: [] })
+    const wait = vi.fn(() => new Promise<void>((resolve) => { releaseWait = resolve }))
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime, wait })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledOnce())
+    releaseWait?.()
+
+    await vi.waitFor(() => expect(coordinator.getSnapshot).toHaveBeenCalledWith('100'))
+    expect(runtime).not.toHaveBeenCalledWith({ type: 'old-favorite-workspace-read-video-tags', accountMid: '100', target, aid: 1 })
+  })
+
+  it('does not send a queued tag request after its workspace is paused', async () => {
+    let releaseRemoteOperation: (() => void) | undefined
+    let tagStatus: 'running' | 'paused' = 'running'
+    const observedTagStatuses: string[] = []
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockImplementation(async () => {
+        observedTagStatuses.push(tagStatus)
+        return { workspaceId: 'workspace-1', tagEnrichment: { status: tagStatus } }
+      }),
+      recordTagEnrichment: vi.fn(), pauseTagEnrichment: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', aid: 1, tags: [] })
+    const remoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
+    let signalRemoteOperationStarted: (() => void) | undefined
+    const remoteOperationStarted = new Promise<void>((resolve) => { signalRemoteOperationStarted = resolve })
+    const wait = vi.fn(async () => {
+      void remoteOperations.run('100', () => new Promise<void>((resolve) => {
+        signalRemoteOperationStarted?.()
+        releaseRemoteOperation = resolve
+      }))
+      await remoteOperationStarted
+    })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime, remoteOperations, wait })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledOnce())
+    tagStatus = 'paused'
+    releaseRemoteOperation?.()
+
+    await vi.waitFor(() => expect(observedTagStatuses).toEqual(['paused']))
+    expect(runtime).not.toHaveBeenCalledWith({ type: 'old-favorite-workspace-read-video-tags', accountMid: '100', target, aid: 1 })
+  })
+
+  it('hands tag enrichment to a newer workspace after the older queued run exits', async () => {
+    let releaseFirstWait: (() => void) | undefined
+    let activeWorkspaceId = 'workspace-1'
+    const coordinator = {
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([2]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockImplementation(async () => ({ workspaceId: activeWorkspaceId, tagEnrichment: { status: 'running' } })),
+      recordTagEnrichment: vi.fn().mockResolvedValue(true)
+    }
+    const runtime = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100', aid: 2, tags: ['Technology'] })
+    const wait = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirstWait = resolve }))
+      .mockResolvedValue(undefined)
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime, wait })
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+
+    void (service as never as { runTagEnrichment: (accountMid: string, target: typeof target, workspaceId: string) => Promise<void> })
+      .runTagEnrichment('100', target, 'workspace-1')
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledOnce())
+    activeWorkspaceId = 'workspace-2'
+    void (service as never as { runTagEnrichment: (accountMid: string, target: typeof target, workspaceId: string) => Promise<void> })
+      .runTagEnrichment('100', target, 'workspace-2')
+    releaseFirstWait?.()
+
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith('100', 2, ['Technology'], 'workspace-2'))
+  })
+
   it('pauses tag enrichment when its bound Bilibili page navigates instead of leaving a false running state', async () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([1]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
       recordTagEnrichment: vi.fn(),
       pauseTagEnrichment: vi.fn()
     }
@@ -263,7 +397,9 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
       .mockResolvedValueOnce({ status: 'unknown', observedAccountMid: '100', reason: 'target-navigated' })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
 
     await service.start('100', 'incremental')
 
@@ -277,6 +413,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
       recordTagEnrichment: vi.fn().mockResolvedValue(true), recordTagEnrichmentFailure: vi.fn().mockResolvedValue(true), pauseTagEnrichment: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
@@ -287,7 +424,9 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-200--404' })
       .mockResolvedValueOnce({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-200--404' })
       .mockResolvedValueOnce({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-200--404' })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime, tagRetryDelayMs: 0 })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, tagRetryDelayMs: 0, wait: vi.fn().mockResolvedValue(undefined)
+    })
 
     await service.start('100', 'incremental')
 
@@ -303,6 +442,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
       recordTagEnrichment: vi.fn().mockResolvedValue(true), pauseTagEnrichment: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }

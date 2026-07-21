@@ -109,6 +109,7 @@ export class FavoriteRepositorySyncService {
     now?: () => string
     sleep?: (milliseconds: number) => Promise<void>
     pacingMs?: number
+    random?: () => number
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
   }) {}
 
@@ -335,6 +336,8 @@ export class FavoriteRepositorySyncService {
         return this.summarize(plan, Array.from(records.values()))
       }
 
+      const completedCount = Array.from(records.values()).filter((current) => current.status === 'succeeded').length
+      if (completedCount > 0) await this.sleep(completedCount)
       const attempt = (record?.attempt ?? 0) + 1
       records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
       try {
@@ -359,7 +362,6 @@ export class FavoriteRepositorySyncService {
         ), `stopped:${plan.id}`)
         return run
       }
-      if (index < plan.operations.length - 1) await this.sleep()
     }
 
     const complete = this.summarize(plan, Array.from(records.values()))
@@ -477,11 +479,22 @@ export class FavoriteRepositorySyncService {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
-  private async sleep() {
-    const milliseconds = this.options.pacingMs ?? 1_200
+  private async sleep(completedCount: number) {
+    const milliseconds = this.options.pacingMs ?? this.legacyPacingMilliseconds(completedCount)
     if (milliseconds <= 0) return
     if (this.options.sleep) return this.options.sleep(milliseconds)
     await new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
+  private legacyPacingMilliseconds(completedCount: number) {
+    const accelerated = completedCount > 50
+    const cooldownEvery = accelerated ? 60 : 25
+    const cooldown = completedCount > 0 && completedCount % cooldownEvery === 0
+    const range = cooldown
+      ? (accelerated ? { min: 10_000, max: 20_000 } : { min: 15_000, max: 45_000 })
+      : (accelerated ? { min: 600, max: 1_400 } : { min: 1_200, max: 3_000 })
+    const random = Math.max(0, Math.min(1, this.options.random?.() ?? Math.random()))
+    return range.min + Math.floor(random * (range.max - range.min + 1))
   }
 
   private async withRunLock<T>(accountMid: string, runId: string, operation: () => Promise<T>) {
