@@ -40,7 +40,6 @@ describe('OldFavoriteConfirmationStep', () => {
   })
 
   it('shows main-process execution progress while the frozen plan is syncing', () => {
-    const reconcile = vi.fn()
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
@@ -48,12 +47,27 @@ describe('OldFavoriteConfirmationStep', () => {
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
         history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
       }}
-      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={reconcile}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
     expect(screen.getByRole('status')).toHaveTextContent('已完成 3 / 8 条')
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('value', '3')
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('max', '8')
+    expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
+  })
+
+  it('offers reconciliation only after the main process marks the remote result uncertain', () => {
+    const reconcile = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={reconcile}
+    />)
+
     screen.getByRole('button', { name: '对账 B 站结果' }).click()
     expect(reconcile).toHaveBeenCalledOnce()
   })
