@@ -85,6 +85,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     totalItemCount: number
     completedItemCount: number
     pendingItemCount: number
+    failedItemCount: number
   }
   sourceFolders: Array<{
     id: string

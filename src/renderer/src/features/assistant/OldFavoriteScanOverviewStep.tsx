@@ -63,6 +63,8 @@ export function OldFavoriteScanOverviewStep({
   const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
+  const failedTagItemCount = Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
+  const confirmedUntaggedItemCount = Math.max(0, untaggedItemCount - failedTagItemCount)
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
@@ -83,18 +85,21 @@ export function OldFavoriteScanOverviewStep({
         <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
       {scannedItemCount ? <div>
-        <span>标签识别</span>
+        <span>已获取标签</span>
         <progress aria-label="标签识别进度" max={Math.max(scannedItemCount, 1)} value={taggedItemCount} />
-        <span>标签识别 {taggedItemCount} / {scannedItemCount} 条</span>
-        <strong>{untaggedItemCount ? `${untaggedItemCount} 条未识别标签` : '已识别'}</strong>
+        <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
+        <strong>{untaggedItemCount ? `${untaggedItemCount} 条尚未取得标签` : '已识别'}</strong>
       </div> : null}
     </div>
-    {tagEnrichment && tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p>标签补取{tagEnrichment.status === 'paused' ? '已暂停' : '进行中'}：已补取 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
-      {tagEnrichment.status === 'paused'
-        ? <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>
-        : <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>}
-      <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
+    {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
+      <p>标签补取{tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
+      <p>已获取标签 {taggedItemCount} 条；确认无标签 {confirmedUntaggedItemCount} 条；读取失败 {failedTagItemCount} 条。</p>
+      {tagEnrichment.pendingItemCount > 0 ? <>
+        {tagEnrichment.status === 'paused'
+          ? <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>
+          : <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>}
+        <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
+      </> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>

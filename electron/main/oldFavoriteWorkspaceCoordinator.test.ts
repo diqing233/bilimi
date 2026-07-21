@@ -77,6 +77,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('restores tag enrichment journals written before failed tag counts existed', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.beginScan('100', 'full')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [{ aid: 1, title: 'Pending', sourceFolderIds: ['source'] }]
+    })
+    await first.finishScan('100')
+    const workspaceId = (await first.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await store.appendOverlay('100', workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: { status: 'paused', totalItemCount: 1, completedItemCount: 0, pendingAids: [1] }
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'paused', failedItemCount: 0 }
+    })
+  })
+
   it('rebuilds tag recommendations as soon as tag enrichment naturally completes', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -157,6 +184,37 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 2, tags: [] }))
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
+      scan: { taggedItemCount: 1, untaggedItemCount: 1 },
+      planReadiness: { classifiedAidCount: 2, unclassifiedAidCount: 0 }
+    })
+  })
+
+  it('finishes tag enrichment with a visible failed-item count while still classifying the remaining videos', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Tagged item', category: '科技', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Failed tag item', category: '生活', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+    await coordinator.recordTagEnrichmentFailure('100', 2, 'network-failure', workspaceId)
+
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(2)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0, failedItemCount: 1 },
       scan: { taggedItemCount: 1, untaggedItemCount: 1 },
       planReadiness: { classifiedAidCount: 2, unclassifiedAidCount: 0 }
     })

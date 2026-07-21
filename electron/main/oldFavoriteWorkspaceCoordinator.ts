@@ -118,6 +118,7 @@ type TagEnrichment = {
   status: 'running' | 'paused' | 'accepted' | 'complete'
   totalItemCount: number
   pendingAids: number[]
+  failedAids: number[]
 }
 
 function stableTagRecommendationId(tag: string) {
@@ -641,7 +642,8 @@ export class OldFavoriteWorkspaceCoordinator {
       const tagEnrichment: TagEnrichment = {
         status: pendingTagAids.length ? 'running' : 'complete',
         totalItemCount: pendingTagAids.length,
-        pendingAids: pendingTagAids
+        pendingAids: pendingTagAids,
+        failedAids: []
       }
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
@@ -1209,6 +1211,33 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       this.tagEnrichments.set(workspace.accountMid, next)
       if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
+      if (!pendingAids.length) {
+        await this.refreshRecommendationsAfterTagEnrichment(workspace)
+        if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
+          await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+        }
+      }
+      return true
+    })
+  }
+
+  async recordTagEnrichmentFailure(accountMid: string, aid: number, _reason: string, expectedWorkspaceId?: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
+      const enrichment = this.tagEnrichments.get(workspace.accountMid)
+      if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
+      const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      const next: TagEnrichment = {
+        ...enrichment,
+        pendingAids,
+        failedAids: [...new Set([...enrichment.failedAids, aid])].sort((left, right) => left - right),
+        status: pendingAids.length ? 'running' : 'complete'
+      }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+      })
+      this.tagEnrichments.set(workspace.accountMid, next)
       if (!pendingAids.length) {
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
         if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
@@ -1868,7 +1897,8 @@ export class OldFavoriteWorkspaceCoordinator {
             status: enrichment.status,
             totalItemCount: enrichment.totalItemCount,
             completedItemCount: enrichment.totalItemCount - enrichment.pendingAids.length,
-            pendingItemCount: enrichment.pendingAids.length
+            pendingItemCount: enrichment.pendingAids.length,
+            failedItemCount: enrichment.failedAids.length
           }
         })()
       } : {}),

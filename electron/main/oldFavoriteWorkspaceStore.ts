@@ -61,6 +61,7 @@ type Overlay = {
     totalItemCount: number
     completedItemCount: number
     pendingAids: number[]
+    failedAids?: number[]
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
 }
@@ -344,7 +345,12 @@ export class OldFavoriteWorkspaceStore {
             ,...(Number.isSafeInteger(overlay.scanMetadata.untaggedItemCount) ? { untaggedItemCount: overlay.scanMetadata.untaggedItemCount } : {})
           }
         }
-        if (overlay.tagEnrichment) tagEnrichment = clone(overlay.tagEnrichment)
+        if (overlay.tagEnrichment) {
+          tagEnrichment = {
+            ...clone(overlay.tagEnrichment),
+            failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])]
+          }
+        }
         for (const update of overlay.tagUpdates ?? []) tagUpdates.set(update.aid, [...update.tags])
       }
       return {

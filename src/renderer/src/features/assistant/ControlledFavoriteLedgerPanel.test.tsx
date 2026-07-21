@@ -918,8 +918,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect((await screen.findAllByLabelText('旧藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
     expect(screen.getByText('40 / 243 条')).toBeInTheDocument()
-    expect(screen.getByText('标签识别 31 / 40 条')).toBeInTheDocument()
-    expect(screen.getByText('9 条未识别标签')).toBeInTheDocument()
+    expect(screen.getByText('已获取标签 31 / 40 条')).toBeInTheDocument()
+    expect(screen.getByText('9 条尚未取得标签')).toBeInTheDocument()
   })
 
   it('keeps paused tag enrichment visible and lets the user resume or adopt the current tags', async () => {
@@ -953,6 +953,27 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'resume-tag-enrichment' }))
     fireEvent.click(screen.getByRole('button', { name: '采用当前标签' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'accept-current-tags' }))
+  })
+
+  it('separates tag retrieval failures from videos confirmed without tags', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'full' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 1, untaggedItemCount: 2 },
+      tagEnrichment: { status: 'complete' as const, totalItemCount: 2, completedItemCount: 2, pendingItemCount: 0, failedItemCount: 1 },
+      sourceFolders: [], continuationCount: 0, segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview) } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续上次整理' }))
+    fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
+    expect(await screen.findByText('标签补取已完成：已处理 2 / 2 条。')).toBeInTheDocument()
+    expect(screen.getByText('已获取标签 1 条；确认无标签 1 条；读取失败 1 条。')).toBeInTheDocument()
   })
 
   it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {

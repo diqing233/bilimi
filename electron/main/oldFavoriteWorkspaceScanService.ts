@@ -35,6 +35,10 @@ function isRecoverableTagReadFailure(result: RuntimeInventoryResult, accountMid:
     /^(?:remote-api-|network-failure|invalid-response)/.test(result.reason ?? '')
 }
 
+function tagReadFailureReason(result: RuntimeInventoryResult) {
+  return result.reason?.trim() || 'tag-read-failed'
+}
+
 /** Runs a fixed, read-only inventory against the explicitly bound Bilibili tab. */
 export class OldFavoriteWorkspaceScanService {
   private readonly activeScans = new Map<string, {
@@ -44,8 +48,11 @@ export class OldFavoriteWorkspaceScanService {
   private readonly enrichmentRuns = new Map<string, { target: ScanTarget; running: boolean }>()
 
   constructor(private readonly options: {
-    coordinator: OldFavoriteWorkspaceCoordinator
+    coordinator: OldFavoriteWorkspaceCoordinator & {
+      recordTagEnrichmentFailure?: (accountMid: string, aid: number, reason: string, expectedWorkspaceId?: string) => Promise<boolean>
+    }
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
+    tagRetryDelayMs?: number
   }) {}
 
   async start(accountMid: string, mode: OldFavoriteWorkspaceMode, options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
@@ -189,12 +196,23 @@ export class OldFavoriteWorkspaceScanService {
         const aids = await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
         if (!aids.length) return
         const aid = aids[0]
-        const result = await this.options.requestRuntime({
-          type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
-        })
-        if (isRecoverableTagReadFailure(result, accountMid)) {
-          await this.options.coordinator.recordTagEnrichment(accountMid, aid, [], workspaceId)
-          continue
+        let result!: RuntimeInventoryResult
+        let recoverableFailure: RuntimeInventoryResult | undefined
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          result = await this.options.requestRuntime({
+            type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
+          })
+          if (!isRecoverableTagReadFailure(result, accountMid)) break
+          recoverableFailure = result
+          if (attempt < 2) await new Promise<void>((resolve) => setTimeout(resolve, this.options.tagRetryDelayMs ?? 750))
+        }
+        if (recoverableFailure && isRecoverableTagReadFailure(result, accountMid)) {
+          if (this.options.coordinator.recordTagEnrichmentFailure) {
+            await this.options.coordinator.recordTagEnrichmentFailure(accountMid, aid, tagReadFailureReason(result), workspaceId)
+            continue
+          }
+          await this.options.coordinator.pauseTagEnrichment(accountMid)
+          return
         }
         if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
           normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) {
