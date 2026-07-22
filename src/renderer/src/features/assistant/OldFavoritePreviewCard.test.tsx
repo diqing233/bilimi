@@ -84,4 +84,23 @@ describe('OldFavoritePreviewCard', () => {
     expect(apply).toHaveBeenCalledWith(1, ['music', 'knowledge'])
     expect(screen.getByText('分类把握：比较稳')).toBeInTheDocument()
   })
+
+  it('renders the transfer menu in an independent overlay and closes it from outside or Escape', () => {
+    const { container } = render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Floating target', sourceFolderIds: ['source'] }} sourceFolderTitles={['Source folder']}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false} onApplyManualClassification={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '转移 Floating target' }))
+    expect(screen.getByRole('menu', { name: '转移 Floating target' })).toBeInTheDocument()
+    expect(container.querySelector('.favorite-ledger-panel__target-menu')).toBeNull()
+
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menu', { name: '转移 Floating target' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '转移 Floating target' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: '转移 Floating target' })).not.toBeInTheDocument()
+  })
 })

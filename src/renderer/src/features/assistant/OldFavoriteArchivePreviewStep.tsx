@@ -78,6 +78,8 @@ export function OldFavoriteArchivePreviewStep({
   const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) =>
     `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${entry.targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'}`
+  const historyBaselineCursor = snapshot.history.baselineCursor ?? 0
+  const historyEntries = snapshot.history.entries ?? []
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -187,12 +189,12 @@ export function OldFavoriteArchivePreviewStep({
               <span>改动记录</span>
               <div className="favorite-ledger-panel__archive-history-select-control">
               <button type="button" className="favorite-ledger-panel__archive-history-trigger"
-                aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || snapshot.history.length === 0}
+                aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || historyEntries.length === 0}
                 onClick={() => setHistoryOpen((open) => !open)}>
                 <span className="favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
               {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" role="menu" aria-label="改动记录">
-                {snapshot.history.entries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
+                {historyEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
                   disabled={loading || entry.cursor === snapshot.history.cursor} onClick={() => {
                     setHistoryOpen(false)
                     onMoveHistoryCursor(entry.cursor)
@@ -200,10 +202,12 @@ export function OldFavoriteArchivePreviewStep({
               </div> : null}
               </div>
             </label>
-            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor <= historyBaselineCursor} onClick={onUndo}>撤销本次改动</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
           </div>
           <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
+          <button type="button" className="favorite-ledger-panel__archive-history-reset" disabled={loading || snapshot.history.cursor <= historyBaselineCursor}
+            onClick={() => onMoveHistoryCursor(historyBaselineCursor)}>恢复初始改动</button>
         </div>
       </div>
     </div>

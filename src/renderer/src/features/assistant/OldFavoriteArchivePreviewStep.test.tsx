@@ -120,6 +120,35 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(onApplyManualClassifications).toHaveBeenCalledWith([{ aid: 1, targetLedgerIds: [] }])
   })
 
+  it('shows only post-scan changes and restores the automatic-classification baseline', () => {
+    const onMoveHistoryCursor = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['manual'], source: 'manual' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: {
+          cursor: 3, length: 3, baselineCursor: 2,
+          entries: [{ cursor: 3, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'] }]
+        }
+      }}
+      ledgers={[{ id: 'manual', displayName: 'Manual', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={onMoveHistoryCursor}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
+    expect(screen.getByRole('menu', { name: '改动记录' })).toHaveTextContent('人工调整：1 条 → Manual')
+    expect(screen.getByRole('menu', { name: '改动记录' })).not.toHaveTextContent('自动分类')
+    fireEvent.click(screen.getByRole('button', { name: '恢复初始改动' }))
+    expect(onMoveHistoryCursor).toHaveBeenCalledWith(2)
+  })
+
   it('uses the legacy 280px virtual track width for large preview groups', () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']

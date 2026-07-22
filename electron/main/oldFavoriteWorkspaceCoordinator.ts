@@ -40,10 +40,11 @@ type ClassificationJournalEvent = {
   historyCursor: number
 }
 type CursorJournalEvent = { type: 'history-cursor'; historyCursor: number }
+type HistoryBaselineJournalEvent = { type: 'history-baseline'; historyCursor: number }
 type FreezeJournalEvent = { type: 'freeze'; segmentId: string }
 type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
-  FreezeJournalEvent | DiscoveryJournalEvent
+  HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean; selected?: boolean }>
   scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
@@ -677,10 +678,11 @@ export class OldFavoriteWorkspaceCoordinator {
       // Current bridge pages always carry this classification metadata; older
       // recovered staging files do not, so preserve their explicit re-run flow.
       const hasClassificationSignals = [...itemsByAid.values()].some((item) => item.tags !== undefined || item.category !== undefined)
-      return (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals &&
-        tagEnrichment.pendingAids.length === 0
-        ? this.autoClassifyAllSegmentsUnsafe(completed, true)
-        : clone(completed)
+      if ((this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals &&
+        tagEnrichment.pendingAids.length === 0) {
+        return this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyAllSegmentsUnsafe(completed, true))
+      }
+      return clone(completed)
     })
   }
 
@@ -895,6 +897,21 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.autoClassifySegmentsUnsafe(workspace, workspace.segments.map((segment) => segment.id), replaceSystem)
   }
 
+  /** Makes scan-generated system results the durable state behind “恢复初始改动”. */
+  private async checkpointInitialSystemClassificationsUnsafe(workspace: OldFavoriteWorkspace) {
+    const baselineCursor = workspace.historyBaselineCursor ?? 0
+    const initialEntries = workspace.history.slice(baselineCursor, workspace.historyCursor)
+    if (!initialEntries.length || !initialEntries.every((entry) => entry.source === 'system-high' || entry.source === 'system-low')) {
+      return clone(workspace)
+    }
+    const updated = { ...workspace, historyBaselineCursor: workspace.historyCursor }
+    await this.appendEvents(updated, this.currentSegment(updated), [{
+      type: 'history-baseline', historyCursor: updated.historyBaselineCursor
+    }])
+    this.workspaces.set(updated.accountMid, updated)
+    return clone(updated)
+  }
+
   private async autoClassifySegmentsUnsafe(workspace: OldFavoriteWorkspace, segmentIds: string[], replaceSystem: boolean) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
@@ -975,6 +992,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.historyCursor <= (workspace.historyBaselineCursor ?? 0)) return clone(workspace)
       const updated = undoWorkspaceChange(workspace)
       if (updated === workspace) return clone(workspace)
       const readiness = await this.applyReadinessHistoryChange(workspace, workspace.history[workspace.historyCursor - 1], 'undo')
@@ -1254,7 +1272,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (enrichment.status !== 'complete') await this.setTagEnrichmentStatus(workspace.accountMid, 'accepted')
       await this.refreshRecommendationsAfterTagEnrichment(workspace)
       if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-        await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+        await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
       }
     })
   }
@@ -1308,7 +1326,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!pendingAids.length) {
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
         if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
         }
       }
       return true
@@ -1335,7 +1353,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!pendingAids.length) {
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
         if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
         }
       }
       return true
@@ -1362,6 +1380,9 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (!Number.isSafeInteger(targetCursor) || targetCursor < 0 || targetCursor > workspace.history.length) {
         throw new Error('Old favorite workspace history cursor is invalid.')
+      }
+      if (targetCursor < (workspace.historyBaselineCursor ?? 0)) {
+        throw new Error('Old favorite workspace history cursor cannot precede the initial classification baseline.')
       }
       let updated = workspace
       while (updated.historyCursor > targetCursor) updated = undoWorkspaceChange(updated)
@@ -1600,6 +1621,11 @@ export class OldFavoriteWorkspaceCoordinator {
     })).filter((entry) => entry.changes.length > 0)
     const history = marker.status === 'completed' ? [] : recoveredHistory
     const historyCursor = marker.status === 'completed' ? 0 : Math.min(latestCursor, history.length)
+    const historyBaselineEvent = [...events].reverse().find((event): event is HistoryBaselineJournalEvent =>
+      event.type === 'history-baseline')
+    const historyBaselineCursor = marker.status === 'completed'
+      ? 0
+      : Math.min(historyBaselineEvent?.historyCursor ?? 0, history.length)
     const classifications: OldFavoriteWorkspace['classifications'] = {}
     for (const entry of history.slice(0, historyCursor)) {
       for (const change of entry.changes) {
@@ -1635,6 +1661,7 @@ export class OldFavoriteWorkspaceCoordinator {
       classifications,
       history,
       historyCursor,
+      ...(historyBaselineCursor ? { historyBaselineCursor } : {}),
       ...(marker.completionMode ? { completionMode: marker.completionMode } : {})
     }
     this.scanOverviews.set(marker.accountMid, {
@@ -2027,8 +2054,9 @@ export class OldFavoriteWorkspaceCoordinator {
       history: {
         cursor: workspace.historyCursor,
         length: workspace.history.length,
-        entries: workspace.history.map((entry, index) => ({
-          cursor: index + 1,
+        ...(workspace.historyBaselineCursor ? { baselineCursor: workspace.historyBaselineCursor } : {}),
+        entries: workspace.history.slice(workspace.historyBaselineCursor ?? 0).map((entry, index) => ({
+          cursor: (workspace.historyBaselineCursor ?? 0) + index + 1,
           source: entry.source,
           changeCount: entry.changes.length,
           targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort()

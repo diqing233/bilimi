@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceClassification, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 
@@ -24,9 +25,53 @@ export function OldFavoritePreviewCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const [multiSelectOpen, setMultiSelectOpen] = useState(false)
   const [draftTargetLedgerIds, setDraftTargetLedgerIds] = useState<string[]>([])
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const title = item.title?.trim() || `视频 ${item.aid}`
   const targetLedgerIds = classification?.targetLedgerIds ?? []
   const selected = targetLedgerIds.length > 0
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return
+    const updatePosition = () => {
+      const trigger = triggerRef.current
+      const menu = menuRef.current
+      if (!trigger || !menu) return
+      const triggerRect = trigger.getBoundingClientRect()
+      const menuRect = menu.getBoundingClientRect()
+      const gutter = 8
+      const below = triggerRect.bottom + gutter
+      const above = triggerRect.top - menuRect.height - gutter
+      const top = below + menuRect.height <= window.innerHeight || above < gutter ? below : above
+      const left = Math.max(gutter, Math.min(triggerRect.left, window.innerWidth - menuRect.width - gutter))
+      setMenuPosition({ top, left })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [menuOpen, multiSelectOpen])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const closeFromOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (target && !menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) closeMenu()
+    }
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('mousedown', closeFromOutside)
+    document.addEventListener('keydown', closeFromEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeFromOutside)
+      document.removeEventListener('keydown', closeFromEscape)
+    }
+  }, [menuOpen])
 
   function closeMenu() {
     setMenuOpen(false)
@@ -58,7 +103,7 @@ export function OldFavoritePreviewCard({
       <p>分类把握：{classification?.source === 'system-low' ? '不太稳' : '比较稳'}</p>
     </div>
     <div className="favorite-ledger-panel__preview-controls">
-      <button type="button" className="favorite-ledger-panel__target-toggle" data-selected={selected}
+      <button ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={selected}
         aria-label={`转移 ${title}`} aria-expanded={menuOpen} disabled={loading}
         onClick={() => {
           if (menuOpen) closeMenu()
@@ -66,7 +111,8 @@ export function OldFavoritePreviewCard({
         }}>
         转移 <span aria-hidden="true">▾</span>
       </button>
-      {menuOpen ? <div className="favorite-ledger-panel__target-menu" role="menu" aria-label={`转移 ${title}`}>
+      {menuOpen ? createPortal(<div ref={menuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating"
+        style={{ top: menuPosition.top, left: menuPosition.left }} role="menu" aria-label={`转移 ${title}`}>
         {multiSelectOpen ? <div className="favorite-ledger-panel__target-multi" role="group" aria-label={`附加目标 ${title}`}>
           {ledgers.map((ledger) => {
             const checked = draftTargetLedgerIds.includes(ledger.id)
@@ -84,7 +130,7 @@ export function OldFavoritePreviewCard({
             onClick={() => applySingleTarget([ledger.id])}>{ledger.displayName}</button>)}
           <button type="button" role="menuitem" disabled={loading} onClick={openMultiSelect}>多选…</button>
         </>}
-      </div> : null}
+      </div>, document.body) : null}
     </div>
   </article>
 }

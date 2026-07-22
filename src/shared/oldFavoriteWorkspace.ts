@@ -60,6 +60,8 @@ export type OldFavoriteWorkspace = {
   classifications: Record<string, OldFavoriteWorkspaceClassification>
   history: OldFavoriteWorkspaceHistoryEntry[]
   historyCursor: number
+  /** Cursor after scan-generated automatic classification; earlier entries are not user edits. */
+  historyBaselineCursor?: number
   completionMode?: 'bilibili' | 'local'
 }
 
@@ -128,6 +130,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   history: {
     cursor: number
     length: number
+    baselineCursor?: number
     entries: Array<{
       cursor: number
       source: OldFavoriteWorkspaceClassificationSource

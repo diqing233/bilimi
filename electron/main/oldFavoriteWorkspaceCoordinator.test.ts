@@ -2808,6 +2808,60 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('treats initial automatic classification as a durable restore baseline instead of user change history', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      classifyCurrentItems: async (items) => items.map((item) => ({
+        targetLedgerIds: [item.aid === 1 ? 'initial-high' : 'initial-low'],
+        confidence: item.aid === 1 ? 'high' as const : 'low' as const
+      }))
+    })
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'High confidence', tags: ['tag'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Low confidence', tags: ['tag'], sourceFolderIds: ['source'] }
+      ]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['initial-high'], source: 'system-high' },
+        '2': { targetLedgerIds: ['initial-low'], source: 'system-low' }
+      },
+      history: { cursor: 2, length: 2, baselineCursor: 2, entries: [] }
+    })
+
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const changed = await coordinator.getSnapshot('100')
+    if ('recovery' in changed || !changed) throw new Error('workspace unexpectedly unavailable')
+    expect(changed.history).toMatchObject({
+      cursor: 3, length: 3, baselineCursor: 2,
+      entries: [{ cursor: 3, source: 'manual', targetLedgerIds: ['manual'] }]
+    })
+
+    await coordinator.moveHistoryCursor('100', changed.history.baselineCursor)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['initial-high'], source: 'system-high' } },
+      history: { cursor: 2, baselineCursor: 2, entries: [{ cursor: 3, source: 'manual' }] }
+    })
+    await expect(coordinator.moveHistoryCursor('100', 0)).rejects.toThrow('cannot precede the initial classification baseline')
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).getSnapshot('100')).resolves.toMatchObject({
+      history: { cursor: 2, length: 3, baselineCursor: 2, entries: [{ cursor: 3, source: 'manual' }] }
+    })
+  })
+
   it('clears completed workspace classifications and undo history when restoring after Bilibili sync', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

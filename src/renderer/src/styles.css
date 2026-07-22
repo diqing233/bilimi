@@ -4090,6 +4090,13 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.45;
 }
+.favorite-ledger-panel__archive-history-reset {
+  justify-self: start;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+}
 .favorite-ledger-panel__deepseek-archive-heading {
   display: flex;
   flex-wrap: wrap;
@@ -5218,6 +5225,11 @@ body[data-floating-window="true"],
   box-shadow: 0 6px 18px rgba(36, 66, 102, 0.16);
   margin-top: 4px;
   padding: 4px;
+}
+.favorite-ledger-panel__target-menu--floating {
+  position: fixed;
+  z-index: 120;
+  margin-top: 0;
 }
 .favorite-ledger-panel__target-menu > button,
 .favorite-ledger-panel__target-multi label,
