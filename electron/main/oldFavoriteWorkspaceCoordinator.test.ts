@@ -2022,6 +2022,47 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }))
   })
 
+  it('reclaims an unresolved prior target from the remote inventory before freezing a retry', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const createFolder = vi.fn()
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: 'remote-music-1', title: 'bilimi·音乐舞台', memberCount: 8 }]
+          }),
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', shardNumber: 1, memberAids: [],
+      observedAccountMid: '100', inventory: []
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings, now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music-1'] }] }
+    })
+    expect(createFolder).not.toHaveBeenCalled()
+    await expect(bindings.getBindings('100')).resolves.toMatchObject({
+      shards: [expect.objectContaining({ bindingState: 'bound', remoteFolderId: 'remote-music-1' })]
+    })
+  })
+
   it('preserves a Chinese target creation failure without completing the local round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

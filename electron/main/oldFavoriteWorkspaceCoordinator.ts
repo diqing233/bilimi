@@ -1151,7 +1151,12 @@ export class OldFavoriteWorkspaceCoordinator {
         .sort(([left], [right]) => left.localeCompare(right))) {
         const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
         if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
-        const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        // Pending shards are not safe capacity evidence: the prior create may
+        // have failed locally after succeeding remotely. Re-run their ordinal
+        // through the binding service so it can claim one exact remote title.
+        const existing = snapshot.physicalShards.filter((shard) =>
+          shard.logicalLedgerId === logicalLedgerId && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)
+        )
         const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
         const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
         const availableCapacity = existing.reduce((total, shard) => total + Math.max(
