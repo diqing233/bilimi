@@ -45,7 +45,7 @@ describe('FavoriteLedgerOverview', () => {
     ]), { deleteDisabled: false })
   })
 
-  it('moves a first-row ledger after a second-row target while keeping the insertion line above the target', () => {
+  it('keeps a cross-row drag reorder as a local draft until the user explicitly syncs', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'first', displayName: 'First', keywords: [], enabled: true, priority: 10, isDefault: false },
@@ -60,15 +60,17 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.dragOver(fourthChip, { dataTransfer: transfer, clientY: 36 })
     expect(fourthChip).toHaveAttribute('data-drop-position', 'before')
     fireEvent.drop(fourthChip, { dataTransfer: transfer })
+    expect(save).not.toHaveBeenCalled()
+    expect(Array.from(screen.getByRole('region', { name: '收藏夹' })
+      .querySelectorAll('.favorite-ledger-panel__chip-item > button:first-child'))
+      .map((button) => button.textContent)).toEqual(['Second', 'Third', 'Fourth', 'First'])
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
     expect(save).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'second', priority: 10 }),
       expect.objectContaining({ id: 'third', priority: 20 }),
       expect.objectContaining({ id: 'fourth', priority: 30 }),
       expect.objectContaining({ id: 'first', priority: 40 })
     ], { deleteDisabled: false })
-    expect(Array.from(screen.getByRole('region', { name: '收藏夹' })
-      .querySelectorAll('.favorite-ledger-panel__chip-item > button:first-child'))
-      .map((button) => button.textContent)).toEqual(['Second', 'Third', 'Fourth', 'First'])
     expect(fourthChip).not.toHaveAttribute('data-drop-position')
     fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-first'))
     expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')

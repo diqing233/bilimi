@@ -125,7 +125,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     const nextTargetIndex = reordered.findIndex((ledger) => ledger === target)
     const insertionIndex = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
     reordered.splice(insertionIndex, 0, source!)
-    persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
+    setDraftLedgers(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
   const add = () => {
     const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, isDefault: false }
