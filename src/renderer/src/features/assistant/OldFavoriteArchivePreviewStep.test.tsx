@@ -197,7 +197,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
     expect(screen.getByRole('button', { name: '正在取消' })).toBeDisabled()
-    const failedRender = render(<OldFavoriteArchivePreviewStep
+    const canceledRender = render(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
@@ -205,13 +205,13 @@ describe('OldFavoriteArchivePreviewStep', () => {
         recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={true}
-      deepSeekFeedback={{ status: 'failed', message: 'Failed', failures: [{ chunkIndex: 2, affectedVideoCount: 3, message: 'Request failed' }] }}
+      deepSeekFeedback={{ status: 'canceled', message: 'Canceled', failures: [{ chunkIndex: 2, affectedVideoCount: 3, message: 'Request canceled after start' }] }}
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
-    expect(failedRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).not.toBeNull()
+    expect(canceledRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).not.toBeNull()
     expect(screen.getByRole('button', { name: '重试失败批次' })).toBeInTheDocument()
-    failedRender.unmount()
+    canceledRender.unmount()
 
     const completedRender = render(<OldFavoriteArchivePreviewStep
       snapshot={{

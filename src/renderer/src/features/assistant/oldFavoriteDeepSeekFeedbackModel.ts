@@ -49,5 +49,5 @@ export function toDeepSeekFeedbackView(
     }
   }
 
-  return { kind: 'completed', action: 'none', summary: feedback.message, progress, failures }
+  return { kind: 'completed', action: failures.length ? 'retry' : 'none', summary: feedback.message, progress, failures }
 }

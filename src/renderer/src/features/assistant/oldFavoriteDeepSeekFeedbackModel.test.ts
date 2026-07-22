@@ -36,6 +36,16 @@ describe('toDeepSeekFeedbackView', () => {
     })
   })
 
+  it('keeps canceled in-flight batch failures available for retry', () => {
+    const failure = { chunkIndex: 4, affectedVideoCount: 2, message: 'Canceled after request started' }
+
+    expect(toDeepSeekFeedbackView({ status: 'canceled', message: 'Canceled', failures: [failure] }, false)).toMatchObject({
+      kind: 'completed',
+      action: 'retry',
+      failures: [failure]
+    })
+  })
+
   it('does not offer an action after successful completion', () => {
     expect(toDeepSeekFeedbackView({ status: 'completed', message: 'Completed', failures: [] }, false)).toMatchObject({
       kind: 'completed',
