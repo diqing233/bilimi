@@ -163,7 +163,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
   it('replaces the DeepSeek run action with a cancellable current-batch action while running', () => {
     const onCancelDeepSeek = vi.fn()
-    render(<OldFavoriteArchivePreviewStep
+    const { rerender } = render(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
@@ -182,6 +182,21 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(onCancelDeepSeek).toHaveBeenCalledOnce()
     expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
     expect(screen.getByLabelText('DeepSeek 整理反馈')).toHaveClass('favorite-ledger-panel__deepseek-feedback')
+    rerender(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={true}
+      deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段。' }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onCancelDeepSeek={onCancelDeepSeek} deepSeekCancelRequested
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+    expect(screen.getByRole('button', { name: '正在取消' })).toBeDisabled()
     const failedRender = render(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',

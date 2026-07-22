@@ -334,6 +334,9 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.favorite-ledger-panel__deepseek-feedback .favorite-ledger-panel__deepseek-archive-progress-track { width: 100%; box-sizing: border-box;'
     )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-progress-copy { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow: visible;'
+    )
     expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:hover:not(:disabled), .favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
