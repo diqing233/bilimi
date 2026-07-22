@@ -324,12 +324,15 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps DeepSeek archive feedback on one stable muted line', () => {
+  it('keeps DeepSeek archive feedback full-width and readable', () => {
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-archive-status { overflow: hidden; color: var(--porcelain-muted); font-weight: 700; text-overflow: ellipsis; white-space: nowrap;'
+      '.favorite-ledger-panel__deepseek-feedback { width: 100%; min-width: 0; box-sizing: border-box; display: grid; gap: 6px;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-result { width: 100%; min-width: 0;'
+      '.favorite-ledger-panel__deepseek-feedback-copy { min-width: 0; overflow-wrap: anywhere; white-space: normal;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-feedback .favorite-ledger-panel__deepseek-archive-progress-track { width: 100%; box-sizing: border-box;'
     )
     expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')

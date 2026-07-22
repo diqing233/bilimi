@@ -4126,6 +4126,37 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.favorite-ledger-panel__deepseek-feedback {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(31, 99, 181, 0.2);
+  background: rgba(247, 251, 255, 0.72);
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px;
+}
+.favorite-ledger-panel__deepseek-feedback-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  margin: 0;
+  font-weight: 700;
+}
+.favorite-ledger-panel__deepseek-feedback .favorite-ledger-panel__deepseek-archive-progress-track {
+  width: 100%;
+  box-sizing: border-box;
+}
+.favorite-ledger-panel__deepseek-feedback .favorite-ledger-panel__deepseek-result-details {
+  margin-top: 0;
+}
+.favorite-ledger-panel__deepseek-feedback summary {
+  color: var(--porcelain-primary);
+  cursor: pointer;
+}
 .favorite-ledger-panel__deepseek-result {
   width: 100%;
   min-width: 0;

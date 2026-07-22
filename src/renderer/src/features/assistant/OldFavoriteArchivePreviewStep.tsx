@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
+import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 const INITIAL_GROUP_ITEM_LIMIT = 6
@@ -64,7 +65,9 @@ export function OldFavoriteArchivePreviewStep({
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-  const deepSeekRunning = deepSeekFeedback?.status === 'running'
+  const deepSeekFeedbackView = deepSeekFeedback
+    ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
+    : null
   const historySourceLabels = {
     manual: '人工调整',
     deepseek: 'DeepSeek',
@@ -144,37 +147,37 @@ export function OldFavoriteArchivePreviewStep({
                   </button>)}
                 </div> : null}
               </div>
-              {deepSeekRunning ? <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
-                disabled={deepSeekCancelRequested} onClick={onCancelDeepSeek}>
-                {deepSeekCancelRequested ? '正在取消' : '取消 DeepSeek 整理'}
-              </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
-                disabled={!deepSeekAvailable || loading || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
+              <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
+                disabled={!deepSeekAvailable || loading || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
                 DeepSeek 整理
-              </button>}
+              </button>
             </div>
           </div>
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
-          {deepSeekFeedback ? <div className="favorite-ledger-panel__deepseek-archive-status"
-            role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>
-            <p>{deepSeekFeedback.message}</p>
-            {deepSeekFeedback.progress ? (() => {
-              const { completedChunks, totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount } = deepSeekFeedback.progress
-              const completedVideos = successfulVideoCount + failedVideoCount
-              const progressValue = totalChunks > 0 ? Math.round((completedChunks / totalChunks) * 100) : 0
-              return <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedback.status === 'running'}>
-                <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
-                  <span>第 {completedChunks} / {totalChunks} 批</span>
-                  <span>已完成 {completedVideos} / {totalVideoCount} 条视频</span>
-                </div>
-                <div aria-label="DeepSeek 整理进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue}
-                  className="favorite-ledger-panel__deepseek-archive-progress-track" role="progressbar">
-                  <span style={{ width: `${progressValue}%` }} />
-                </div>
+          {deepSeekFeedbackView ? <div className="favorite-ledger-panel__deepseek-feedback"
+            aria-label="DeepSeek 整理反馈" role={deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status'}>
+            <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
+            {deepSeekFeedbackView.progress ? <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedbackView.kind === 'running'}>
+              <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
+                <span>第 {deepSeekFeedbackView.progress.completedChunks} / {deepSeekFeedbackView.progress.totalChunks} 批</span>
+                <span>已完成 {deepSeekFeedbackView.progress.completedVideos} / {deepSeekFeedbackView.progress.totalVideos} 条视频</span>
               </div>
-            })() : null}
-            {deepSeekFeedback.failures?.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
-            {deepSeekFeedback.failures?.length ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
+              <div aria-label="DeepSeek 整理进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={deepSeekFeedbackView.progress.value}
+                className="favorite-ledger-panel__deepseek-archive-progress-track" role="progressbar">
+                <span style={{ width: `${deepSeekFeedbackView.progress.value}%` }} />
+              </div>
+            </div> : null}
+            {deepSeekFeedbackView.failures.length ? <details className="favorite-ledger-panel__deepseek-result-details">
+              <summary>查看失败详情</summary>
+              {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
+            </details> : null}
+            {deepSeekFeedbackView.action === 'cancel' || deepSeekFeedbackView.action === 'cancelling' ? <button
+              type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
+              disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
+              {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消 DeepSeek 整理'}
+            </button> : null}
+            {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
         <div className="favorite-ledger-panel__archive-tool-divider favorite-ledger-panel__archive-tool-divider--full-width" aria-hidden="true" />
