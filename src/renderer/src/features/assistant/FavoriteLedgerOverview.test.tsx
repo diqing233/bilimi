@@ -45,25 +45,30 @@ describe('FavoriteLedgerOverview', () => {
     ]), { deleteDisabled: false })
   })
 
-  it('persists sequential priorities after native drag drop', () => {
+  it('always inserts a dragged ledger above its target after native drag drop', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'first', displayName: 'First', keywords: [], enabled: true, priority: 90, isDefault: false },
       { id: 'second', displayName: 'Second', keywords: [], enabled: true, priority: 40, isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={save} />)
 
-    const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: vi.fn(() => 'first') }
-    fireEvent.dragStart(screen.getByTestId('favorite-ledger-chip-first'), { dataTransfer: transfer })
-    fireEvent.dragOver(screen.getByTestId('favorite-ledger-chip-second'), { dataTransfer: transfer, clientY: -1 })
-    expect(screen.getByTestId('favorite-ledger-chip-second')).toHaveAttribute('data-drop-position', 'after')
-    fireEvent.drop(screen.getByTestId('favorite-ledger-chip-second'), { dataTransfer: transfer })
+    const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: vi.fn(() => 'second') }
+    fireEvent.dragStart(screen.getByTestId('favorite-ledger-chip-second'), { dataTransfer: transfer })
+    const firstChip = screen.getByTestId('favorite-ledger-chip-first')
+    Object.defineProperty(firstChip, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, height: 40 })
+    })
+    fireEvent.dragOver(firstChip, { dataTransfer: transfer, clientY: 36 })
+    expect(firstChip).toHaveAttribute('data-drop-position', 'before')
+    fireEvent.drop(firstChip, { dataTransfer: transfer })
     expect(save).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'second', priority: 10 }),
       expect.objectContaining({ id: 'first', priority: 20 })
     ], { deleteDisabled: false })
-    expect(screen.getByTestId('favorite-ledger-chip-second')).not.toHaveAttribute('data-drop-position')
-    fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-first'))
-    expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')
+    expect(firstChip).not.toHaveAttribute('data-drop-position')
+    fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-second'))
+    expect(screen.getByTestId('favorite-ledger-chip-second')).not.toHaveAttribute('data-dragging')
   })
 
   it('checks managed deletion candidates from 同步 instead of rendering a separate check action', async () => {

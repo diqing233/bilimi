@@ -3734,8 +3734,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__chip-item[data-drop-position] {
   transform: translateY(-1px);
 }
-.favorite-ledger-panel__chip-item[data-drop-position="before"]::before,
-.favorite-ledger-panel__chip-item[data-drop-position="after"]::after {
+.favorite-ledger-panel__chip-item[data-drop-position="before"]::before {
   position: absolute;
   right: 3px;
   left: 3px;
@@ -3744,12 +3743,7 @@ body[data-floating-window="true"],
   background: #1f63b5;
   box-shadow: 0 0 0 1px rgba(220, 238, 255, 0.92);
   content: "";
-}
-.favorite-ledger-panel__chip-item[data-drop-position="before"]::before {
   top: -4px;
-}
-.favorite-ledger-panel__chip-item[data-drop-position="after"]::after {
-  bottom: -4px;
 }
 .favorite-ledger-panel__chip-item[data-drop-position] > button:first-child,
 .favorite-ledger-panel__chip-item[data-drop-position] > .favorite-ledger-panel__chip-action {

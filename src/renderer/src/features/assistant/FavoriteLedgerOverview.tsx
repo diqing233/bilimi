@@ -66,7 +66,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
-  const [dragTarget, setDragTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
+  const [dragTarget, setDragTarget] = useState<string | null>(null)
   useEffect(() => { setDraftLedgers(ledgers); setActiveLedgerId(null); setNewLedger(false); setLedgerListExpanded(false) }, [ledgers])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const activeHasUnsavedChanges = Boolean(active && (newLedger ||
@@ -108,14 +108,12 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     if (!draggedLedgerId || draggedLedgerId === targetId) return setDragTarget(null)
-    const bounds = event.currentTarget.getBoundingClientRect()
-    setDragTarget({ id: targetId, position: event.clientY <= 0 || event.clientY <= bounds.top + bounds.height / 2 ? 'before' : 'after' })
+    setDragTarget(targetId)
   }
   const dropOn = (targetId: string, event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     const sourceId = event.dataTransfer.getData('text/plain') || draggedLedgerId
     setDraggedLedgerId(null)
-    const position = dragTarget?.id === targetId ? dragTarget.position : 'before'
     setDragTarget(null)
     if (!sourceId || sourceId === targetId) return
     const sourceIndex = draftLedgers.findIndex((ledger) => ledger.id === sourceId)
@@ -123,8 +121,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     if (sourceIndex < 0 || targetIndex < 0) return
     const reordered = [...draftLedgers]
     const [source] = reordered.splice(sourceIndex, 1)
-    let insertionIndex = targetIndex + (position === 'after' ? 1 : 0)
-    if (sourceIndex < insertionIndex) insertionIndex -= 1
+    const target = draftLedgers[targetIndex]
+    const insertionIndex = reordered.findIndex((ledger) => ledger === target)
     reordered.splice(insertionIndex, 0, source!)
     persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
@@ -170,10 +168,10 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
-          const dropPosition = dragTarget?.id === ledger.id ? dragTarget.position : undefined
+          const dropPosition = dragTarget === ledger.id ? 'before' : undefined
           return <div key={ledger.id} data-testid={`favorite-ledger-chip-${ledger.id}`} className="favorite-ledger-panel__chip-item" draggable
             data-dragging={draggedLedgerId === ledger.id ? 'true' : undefined} data-drop-position={dropPosition}
-            data-default-system-disabled={disabledBySystem ? 'true' : undefined} aria-label={dropPosition ? `拖放到${displayTitle(ledger.displayName)}${dropPosition === 'before' ? '前' : '后'}` : undefined}
+            data-default-system-disabled={disabledBySystem ? 'true' : undefined} aria-label={dropPosition ? `插入到${displayTitle(ledger.displayName)}上方` : undefined}
             onDragStart={(event) => beginDrag(ledger.id, event)} onDragOver={(event) => dragOver(ledger.id, event)} onDrop={(event) => dropOn(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }}>
             <button type="button" aria-label={displayTitle(ledger.displayName) || ledger.displayName} title={ledger.displayName} aria-pressed={ledger.enabled && !disabledBySystem} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{displayTitle(ledger.displayName) || ledger.displayName}</button>
             <button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled && !disabledBySystem} disabled={!isOperable(ledger)} onClick={() => toggle(ledger.id)}>{disabledBySystem ? '已停用' : ledger.enabled ? '✓' : '+'}</button>
