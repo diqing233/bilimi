@@ -58,6 +58,8 @@ export class OldFavoriteWorkspaceScanService {
     }
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
+    /** A full reorganization replaces the workspace, so its old DeepSeek run must stop after its current request. */
+    cancelDeepSeek?: (accountMid: string) => boolean
     tagRetryDelayMs?: number
     wait?: (milliseconds: number) => Promise<void>
     random?: () => number
@@ -89,6 +91,7 @@ export class OldFavoriteWorkspaceScanService {
   async start(accountMid: string, mode: OldFavoriteWorkspaceMode, options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
+    if (mode === 'full') this.options.cancelDeepSeek?.(account)
     const active = this.activeScans.get(account)
     // An explicit full reorganization must supersede a running incremental scan.
     // The old scan observes its revoked ownership before it can write another page.

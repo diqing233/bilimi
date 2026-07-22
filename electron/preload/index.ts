@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:retry-failed-deepseek', accountMid) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   onOldFavoriteWorkspaceDeepSeekProgress: (callback: (progress: {
     accountMid: string
+    workspaceId: string
     totalChunks: number
     completedChunks: number
     totalVideoCount: number

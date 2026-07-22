@@ -58,6 +58,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
+  const activeDeepSeekWorkspaceId = useRef<string | null>(null)
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
@@ -70,13 +71,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setBackgroundRefreshing(false)
     setDeepSeekFeedback(null)
     setDeepSeekCancelRequested(false)
+    activeDeepSeekWorkspaceId.current = null
   }, [accountMid])
 
   useEffect(() => {
     const subscribe = window.bilimiDesktop?.onOldFavoriteWorkspaceDeepSeekProgress
     if (!accountMid || !subscribe) return
     return subscribe((progress) => {
-      if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid)) return
+      if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid) ||
+        progress.workspaceId !== activeDeepSeekWorkspaceId.current) return
       setDeepSeekFeedback({
         status: 'running',
         message: 'DeepSeek 正在整理当前分段…',
@@ -152,6 +155,11 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
 
+    if (mode === 'full') {
+      activeDeepSeekWorkspaceId.current = null
+      setDeepSeekFeedback(null)
+      setDeepSeekCancelRequested(false)
+    }
     setLoading(true)
     foregroundRequestCount.current += 1
     setLastError(null)
@@ -247,6 +255,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setLoading(true)
     foregroundRequestCount.current += 1
     setDeepSeekCancelRequested(false)
+    activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
     try {
       const result = await organize(accountMid, mode)
@@ -280,7 +289,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
     }
-  }, [accountMid])
+  }, [accountMid, snapshot?.workspaceId])
 
   const cancelCurrentSegmentDeepSeek = useCallback(async () => {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
@@ -304,6 +313,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !retry) return null
     setLoading(true)
     foregroundRequestCount.current += 1
+    activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在重试失败批次…' })
     try {
       const result = await retry(accountMid)
@@ -326,7 +336,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
     }
-  }, [accountMid])
+  }, [accountMid, snapshot?.workspaceId])
 
   const undoClassification = useCallback(() => sendCommand({ type: 'undo-classification' }), [sendCommand])
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])

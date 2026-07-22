@@ -303,20 +303,50 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('renders main-process DeepSeek chunk progress before the final result returns', async () => {
     const pending = deferred<{ snapshot: ReturnType<typeof workspace>; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; referencedConstraintLedgerNames: string[]; failures: [] }>()
-    let publishProgress: ((progress: { accountMid: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }) => void) | undefined
+    let publishProgress: ((progress: { accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }) => void) | undefined
     window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({ ...workspace('100'), status: 'previewing' as const }),
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
       onOldFavoriteWorkspaceDeepSeekProgress: (callback) => { publishProgress = callback; return vi.fn() }
     } as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
+    await waitFor(() => expect(result.current.snapshot?.status).toBe('previewing'))
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
     await waitFor(() => expect(publishProgress).toBeTypeOf('function'))
-    act(() => { publishProgress?.({ accountMid: '100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
+    act(() => { publishProgress?.({ accountMid: '100', workspaceId: 'workspace-100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
 
     expect(result.current.deepSeekFeedback).toMatchObject({
       status: 'running', progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }
     })
+  })
+
+  it('clears DeepSeek feedback for a full reorganization and ignores progress from the replaced workspace', async () => {
+    const oldWorkspace = { ...workspace('100'), workspaceId: 'workspace-old', status: 'previewing' as const }
+    const newWorkspace = { ...workspace('100'), workspaceId: 'workspace-new', status: 'scanning' as const }
+    const deepSeek = deferred<{ snapshot: typeof oldWorkspace; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; referencedConstraintLedgerNames: string[]; failures: [] }>()
+    let publishProgress: ((progress: { accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }) => void) | undefined
+    const command = vi.fn().mockResolvedValue(newWorkspace)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(oldWorkspace),
+      organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(deepSeek.promise),
+      commandOldFavoriteWorkspaceV1: command,
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback) => { publishProgress = callback; return vi.fn() }
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot?.workspaceId).toBe('workspace-old'))
+    await waitFor(() => expect(result.current.snapshot?.status).toBe('previewing'))
+    act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+
+    await act(async () => { await result.current.startScan('full') })
+    expect(result.current.deepSeekFeedback).toBeNull()
+    expect(result.current.snapshot?.workspaceId).toBe('workspace-new')
+
+    act(() => { publishProgress?.({ accountMid: '100', workspaceId: 'workspace-old', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
+    expect(result.current.deepSeekFeedback).toBeNull()
+    expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full' })
   })
 
   it('reports a visible DeepSeek failure when its narrow bridge is unavailable', async () => {

@@ -57,6 +57,7 @@ type BilimiDesktopApi = {
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {
     accountMid: string
+    workspaceId: string
     totalChunks: number
     completedChunks: number
     totalVideoCount: number

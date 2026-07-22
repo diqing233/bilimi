@@ -3,6 +3,25 @@ import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRe
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('cancels an active DeepSeek organization before a full reorganization replaces its workspace', async () => {
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanFailure: vi.fn()
+    }
+    const cancelDeepSeek = vi.fn()
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never,
+      requestRuntime: vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '', reason: 'target-unavailable' }),
+      cancelDeepSeek
+    })
+
+    await service.start('100', 'full')
+
+    expect(cancelDeepSeek).toHaveBeenCalledExactlyOnceWith('100')
+    expect(cancelDeepSeek).toHaveBeenCalledBefore(coordinator.beginScan as never)
+  })
+
   it('passes an explicit Bilibili mirror clear only to a full organization scan', async () => {
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),

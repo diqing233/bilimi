@@ -39,7 +39,7 @@ describe('old favorite workspace coordinator IPC', () => {
     const ipcMain = new FakeIpcMain()
     const deepSeekService = { organizeCurrentSegment: vi.fn().mockResolvedValue(snapshot) }
     registerOldFavoriteWorkspaceCoordinatorIpc({
-      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      ipcMain, coordinator: { getSnapshot: vi.fn().mockResolvedValue(snapshot) } as never, deepSeekService: deepSeekService as never,
       isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
@@ -317,13 +317,13 @@ describe('old favorite workspace coordinator IPC', () => {
       })
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
-      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      ipcMain, coordinator: { getSnapshot: vi.fn().mockResolvedValue(snapshot) } as never, deepSeekService: deepSeekService as never,
       isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'all')).resolves.toEqual(snapshot)
     expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:deepseek-progress', {
-      accountMid: '100', totalChunks: 2, completedChunks: 1, successfulVideoCount: 20, failedVideoCount: 0
+      accountMid: '100', workspaceId: 'workspace-1', totalChunks: 2, completedChunks: 1, successfulVideoCount: 20, failedVideoCount: 0
     })
   })
 
@@ -336,14 +336,14 @@ describe('old favorite workspace coordinator IPC', () => {
       })
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
-      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      ipcMain, coordinator: { getSnapshot: vi.fn().mockResolvedValue(snapshot) } as never, deepSeekService: deepSeekService as never,
       isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100')).resolves.toEqual(snapshot)
     expect(deepSeekService.retryFailedChunks).toHaveBeenCalledWith('100', expect.any(Function))
     expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:deepseek-progress', {
-      accountMid: '100', totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0
+      accountMid: '100', workspaceId: 'workspace-1', totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0
     })
     await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100', { aids: [1] }))
       .rejects.toThrow('arguments are invalid')
