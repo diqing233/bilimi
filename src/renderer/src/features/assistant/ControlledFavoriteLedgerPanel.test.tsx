@@ -93,7 +93,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(checklist).not.toBeNull()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹说明' })).toHaveAttribute('aria-expanded', 'false')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
-    expect(within(checklist as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '取消全选' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '知识学习' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false')

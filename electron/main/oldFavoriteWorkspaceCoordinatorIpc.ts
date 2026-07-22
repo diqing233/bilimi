@@ -35,6 +35,7 @@ type WorkspaceCommand =
   | { type: 'accept-current-tags' }
   | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
+  | { type: 'reclassify-favorite-configuration' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
@@ -96,6 +97,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'auto-classify-current-segment' && Object.keys(candidate).length === 1) {
     return { type: 'auto-classify-current-segment' }
+  }
+  if (candidate.type === 'reclassify-favorite-configuration' && Object.keys(candidate).length === 1) {
+    return { type: 'reclassify-favorite-configuration' }
   }
   if (candidate.type === 'set-recommended-candidates' && Array.isArray(candidate.candidateIds) &&
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
@@ -197,6 +201,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
+    if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)
     if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)

@@ -12,6 +12,7 @@ import type {
   FavoriteArchiveStrategy,
   FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
+  FavoriteAccountPreferences,
   MainWindowCloseBehavior,
   RecommendationKind,
   VideoAudioTranscriptionThreadLimit
@@ -68,6 +69,25 @@ export function normalizeMainWindowCloseBehavior(value: unknown): MainWindowClos
 
 function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
   return normalizeKeywordSuggestions(value)
+}
+
+function normalizeFavoriteAccountPreferenceMap(
+  value: AssistantPreferences['favoriteAccountPreferences']
+): Record<string, FavoriteAccountPreferences> {
+  if (!value || typeof value !== 'object') return {}
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([accountMid, accountPreferences]) => {
+      if (!/^\d+$/u.test(accountMid) || !accountPreferences || !Array.isArray(accountPreferences.favoriteLedgers)) {
+        return []
+      }
+
+      return [[accountMid, {
+        defaultFavoriteSystemEnabled: accountPreferences.defaultFavoriteSystemEnabled !== false,
+        favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers)
+      }]]
+    })
+  )
 }
 
 export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
@@ -128,6 +148,7 @@ export function createInitialAssistantPreferences(
   return {
     favoritesFolderName: persisted?.favoritesFolderName ?? 'bilimi 内库',
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
+    favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(persisted?.favoriteAccountPreferences),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
     petHoverShortcuts: normalizePetHoverShortcuts(persisted?.petHoverShortcuts),
@@ -205,6 +226,32 @@ export function createInitialAssistantPreferences(
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl),
     permissionOnboardingCompleted: Boolean(persisted?.permissionOnboardingCompleted),
     assistantSidebarWidthPx: normalizeAssistantSidebarWidthPx(persisted?.assistantSidebarWidthPx)
+  }
+}
+
+export function favoriteLedgersForAccount(
+  preferences: AssistantPreferences,
+  accountMid: string
+): AssistantPreferences['favoriteLedgers'] {
+  return preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers
+}
+
+export function withFavoriteLedgersForAccount(
+  preferences: AssistantPreferences,
+  accountMid: string,
+  favoriteLedgers: AssistantPreferences['favoriteLedgers']
+): AssistantPreferences {
+  const currentAccount = preferences.favoriteAccountPreferences?.[accountMid]
+
+  return {
+    ...preferences,
+    favoriteAccountPreferences: {
+      ...(preferences.favoriteAccountPreferences ?? {}),
+      [accountMid]: {
+        defaultFavoriteSystemEnabled: currentAccount?.defaultFavoriteSystemEnabled ?? true,
+        favoriteLedgers
+      }
+    }
   }
 }
 

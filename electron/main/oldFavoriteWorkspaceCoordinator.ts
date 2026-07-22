@@ -860,6 +860,16 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Replaces derived system results after an explicit saved rule configuration change. */
+  async reclassifyForFavoriteConfiguration(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      return workspace.status === 'previewing'
+        ? this.autoClassifyAllSegmentsUnsafe(workspace, true)
+        : clone(workspace)
+    })
+  }
+
   private async autoClassifyCurrentSegmentUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
     return this.autoClassifySegmentsUnsafe(workspace, [this.currentSegment(workspace)], replaceSystem)
   }

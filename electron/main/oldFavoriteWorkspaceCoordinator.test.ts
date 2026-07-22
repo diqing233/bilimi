@@ -851,6 +851,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 1 }))
   })
 
+  it('reclassifies every segment while preserving manual and DeepSeek decisions', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem: (item) => ({ targetLedgerIds: [item.aid === 1 ? 'knowledge' : 'music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'One', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Two', sourceFolderIds: ['source'] },
+      { aid: 3, title: 'Three', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }] })
+    const beforeDeepSeek = await coordinator.getSnapshot('100')
+    if ('recovery' in beforeDeepSeek || !beforeDeepSeek.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 3, targetLedgerIds: ['deepseek'] }], {
+      workspaceId: beforeDeepSeek.workspaceId,
+      currentSegmentId: beforeDeepSeek.currentSegment.id,
+      selectedSourceFolderIds: [],
+      classifications: { '2': { targetLedgerIds: ['manual'], source: 'manual' } }
+    })
+
+    await coordinator.reclassifyForFavoriteConfiguration('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ classifications: {
+      '1': { targetLedgerIds: ['knowledge'], source: 'system-high' },
+      '2': { targetLedgerIds: ['manual'], source: 'manual' },
+      '3': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
+    } })
+  })
+
   it('records automatic low-confidence assignments as one-target system-low history', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

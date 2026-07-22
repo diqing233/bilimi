@@ -37,7 +37,8 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
 import {
   createInitialAssistantPreferences,
-  recordAssistantPreferenceFeedback
+  recordAssistantPreferenceFeedback,
+  withFavoriteLedgersForAccount
 } from '../state/assistantState'
 import {
   createPreferenceSaveScheduler,
@@ -2418,9 +2419,11 @@ export function FloatingAssistantApp({
       setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
       setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
     } else {
+      const accountMid = resolvedSnapshot.accountMid
       await persistPreferences({
-        ...preferencesRef.current,
-        favoriteLedgers
+        ...(accountMid
+          ? withFavoriteLedgersForAccount(preferencesRef.current, accountMid, favoriteLedgers)
+          : { ...preferencesRef.current, favoriteLedgers })
       })
     }
 
@@ -2435,6 +2438,22 @@ export function FloatingAssistantApp({
     return saveFavoriteLedgers(favoriteLedgers.map((ledger) =>
       ledger.syncState === 'local-draft' ? { ...ledger, syncState: undefined } : ledger
     ), options)
+  }
+
+  async function setDefaultFavoriteSystemEnabled(enabled: boolean) {
+    const accountMid = resolvedSnapshot.accountMid
+    if (!accountMid) return
+    const current = preferencesRef.current.favoriteAccountPreferences?.[accountMid]
+    await persistPreferencePatch({
+      favoriteAccountPreferences: {
+        ...(preferencesRef.current.favoriteAccountPreferences ?? {}),
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: enabled,
+          favoriteLedgers: current?.favoriteLedgers ?? preferencesRef.current.favoriteLedgers
+        }
+      }
+    })
+    await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(accountMid, { type: 'reclassify-favorite-configuration' })
   }
 
   const refreshOrganizationState = useCallback(async () => {
@@ -2569,8 +2588,10 @@ export function FloatingAssistantApp({
           <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
             <ControlledFavoriteLedgerPanel
             currentAccountMid={resolvedSnapshot.accountMid}
-            ledgers={preferences.favoriteLedgers}
+            ledgers={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ?? preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
+            defaultFavoriteSystemEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+            onDefaultFavoriteSystemEnabledChange={(enabled) => void setDefaultFavoriteSystemEnabled(enabled)}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
             onSyncLedgers={syncFavoriteLedgers}

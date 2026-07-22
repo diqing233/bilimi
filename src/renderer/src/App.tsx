@@ -27,7 +27,11 @@ import {
   type VideoContentContext
 } from './features/recommendation/videoClassifier'
 import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
-import { createInitialAssistantPreferences } from './features/state/assistantState'
+import {
+  createInitialAssistantPreferences,
+  favoriteLedgersForAccount,
+  withFavoriteLedgersForAccount
+} from './features/state/assistantState'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import {
   buildVideoNoteExtractionScript,
@@ -1073,17 +1077,36 @@ export default function App() {
     return (await isBilibiliLoggedIn()) ? null : LOGIN_REQUIRED_RESULT
   }
 
+  function favoriteLedgersForActiveAccount(accountMid: string): FavoriteLedger[] {
+    return accountMid ? favoriteLedgersForAccount(preferences, accountMid) : preferences.favoriteLedgers
+  }
+
+  function preferencesWithFavoriteLedgers(
+    currentPreferences: AssistantPreferences,
+    accountMid: string,
+    favoriteLedgers: FavoriteLedger[]
+  ): AssistantPreferences {
+    return accountMid
+      ? withFavoriteLedgersForAccount(currentPreferences, accountMid, favoriteLedgers)
+      : { ...currentPreferences, favoriteLedgers }
+  }
+
   async function readFavoriteLedgerStatus(): Promise<FavoriteLedgerStatus> {
+    const accountMid = assistantSnapshotCacheRef.current.accountMid || await readBilibiliAccountMid()
+    const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(preferences.favoriteLedgers)
+      buildFavoriteLedgerStatusScript(favoriteLedgers)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = status as FavoriteLedgerStatus
       setPreferences((currentPreferences) =>
         createInitialAssistantPreferences({
-          ...currentPreferences,
-          favoriteLedgers: status.ledgers ?? currentPreferences.favoriteLedgers
+          ...preferencesWithFavoriteLedgers(
+            currentPreferences,
+            accountMid,
+            status.ledgers ?? favoriteLedgers
+          )
         })
       )
 
@@ -1092,7 +1115,7 @@ export default function App() {
 
     const fallbackStatus = {
       ok: false,
-      ledgers: preferences.favoriteLedgers,
+      ledgers: favoriteLedgers,
       missingLedgerIds: [],
       message: status.message
     }
@@ -1106,20 +1129,26 @@ export default function App() {
       return loginFailure
     }
 
+    const accountMid = await readBilibiliAccountMid()
+    const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
+
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(preferences.favoriteLedgers)
+      buildEnsureFavoriteLedgersScript(favoriteLedgers)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferences,
-        favoriteLedgers: result.ledgers
+        ...preferencesWithFavoriteLedgers(preferences, accountMid, result.ledgers)
       })
       setPreferences(nextPreferences)
 
       if (window.bilimiDesktop?.savePreferences) {
         const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences({ favoriteLedgers: result.ledgers })
+          ? await window.bilimiDesktop.patchPreferences(
+              accountMid
+                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
+                : { favoriteLedgers: result.ledgers }
+            )
           : await window.bilimiDesktop.savePreferences(nextPreferences)
         setPreferences(createInitialAssistantPreferences(saved))
       }
@@ -1145,20 +1174,26 @@ export default function App() {
       return loginFailure
     }
 
+    const accountMid = await readBilibiliAccountMid()
+    const previousLedgers = favoriteLedgersForActiveAccount(accountMid)
+
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(nextLedgers, preferences.favoriteLedgers, options)
+      buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers, options)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferences,
-        favoriteLedgers: result.ledgers
+        ...preferencesWithFavoriteLedgers(preferences, accountMid, result.ledgers)
       })
       setPreferences(nextPreferences)
 
       if (window.bilimiDesktop?.savePreferences) {
         const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences({ favoriteLedgers: result.ledgers })
+          ? await window.bilimiDesktop.patchPreferences(
+              accountMid
+                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
+                : { favoriteLedgers: result.ledgers }
+            )
           : await window.bilimiDesktop.savePreferences(nextPreferences)
         setPreferences(createInitialAssistantPreferences(saved))
       }

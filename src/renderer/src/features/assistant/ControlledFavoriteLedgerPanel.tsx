@@ -14,6 +14,8 @@ type ControlledFavoriteLedgerPanelProps = {
   currentAccountMid?: string
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
+  defaultFavoriteSystemEnabled?: boolean
+  onDefaultFavoriteSystemEnabledChange?: (enabled: boolean) => void
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
@@ -53,6 +55,8 @@ export function ControlledFavoriteLedgerPanel({
   currentAccountMid,
   ledgers,
   missingLedgerIds,
+  defaultFavoriteSystemEnabled,
+  onDefaultFavoriteSystemEnabledChange,
   onEnsureLedgers,
   onSaveLedgers,
   onSyncLedgers,
@@ -214,6 +218,9 @@ export function ControlledFavoriteLedgerPanel({
       <FavoriteLedgerOverview
         ledgers={ledgers}
         missingLedgerIds={missingLedgerIds}
+        organizationActive={snapshot?.status === 'previewing'}
+        defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
+        onDefaultFavoriteSystemEnabledChange={onDefaultFavoriteSystemEnabledChange}
         onSaveLedgers={onSaveLedgers}
         onSyncLedgers={onSyncLedgers}
       />

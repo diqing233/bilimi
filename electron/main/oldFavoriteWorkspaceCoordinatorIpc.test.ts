@@ -94,6 +94,21 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes explicit saved favorite configuration reclassification through the trusted coordinator', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      reclassifyForFavoriteConfiguration: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'reclassify-favorite-configuration' })
+    expect(coordinator.reclassifyForFavoriteConfiguration).toHaveBeenCalledWith('100')
+  })
+
   it('accepts only a small start-scan command and returns its immediate scanning snapshot', async () => {
     const ipcMain = new FakeIpcMain()
     const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }

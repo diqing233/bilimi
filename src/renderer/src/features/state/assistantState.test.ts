@@ -3,6 +3,8 @@ import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   createInitialAssistantPreferences,
   createInitialAssistantState,
+  favoriteLedgersForAccount,
+  withFavoriteLedgersForAccount,
   reduceAssistantState,
   recordAssistantPreferenceFeedback
 } from './assistantState'
@@ -162,6 +164,32 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
       'deepseekOldFavoriteAssistanceEnabled'
     )
+  })
+
+  it('keeps favorite ledgers scoped to the active account when replacing them', () => {
+    const firstAccountLedgers = [{
+      id: 'first', displayName: 'bilimi·第一账号', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]
+    const secondAccountLedgers = [{
+      id: 'second', displayName: 'bilimi·第二账号', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]
+    const preferences = createInitialAssistantPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: firstAccountLedgers },
+        '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: secondAccountLedgers }
+      }
+    })
+
+    expect(favoriteLedgersForAccount(preferences, '100')).toEqual(expect.arrayContaining(firstAccountLedgers))
+    expect(favoriteLedgersForAccount(preferences, '100')).not.toEqual(expect.arrayContaining(secondAccountLedgers))
+    expect(withFavoriteLedgersForAccount(preferences, '100', secondAccountLedgers)).toMatchObject({
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) },
+        '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) }
+      }
+    })
   })
 
   it('preserves persisted coin and comment choices', () => {
