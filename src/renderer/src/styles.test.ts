@@ -199,6 +199,12 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.browser-surface--hidden {\n  display: none;')
   })
 
+  it('removes the collapsed favorite library body from the drawer grid', () => {
+    expectStyleSnippet(
+      '.favorite-library-drawer[data-collapsed="true"] .favorite-library-drawer__body { display: none;'
+    )
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 

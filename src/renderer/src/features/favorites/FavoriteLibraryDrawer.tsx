@@ -16,6 +16,8 @@ type FavoriteLibraryDrawerProps = {
   onClose: () => void
 }
 
+type FavoriteLibraryAccount = { mid: string; nickname?: string }
+
 function browserTabHeight() {
   return window.innerWidth <= COMPACT_BROWSER_WIDTH || window.innerHeight <= COMPACT_BROWSER_HEIGHT
     ? COMPACT_BROWSER_TAB_HEIGHT
@@ -42,6 +44,7 @@ function isVisible(element: HTMLElement) {
 export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
+  const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const hasBeenOpenedRef = useRef(open)
   const wasOpenRef = useRef(open)
@@ -126,7 +129,10 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
         }}
       />
       <header className="favorite-library-drawer__header">
-        <strong>收藏库</strong>
+        <div className="favorite-library-drawer__title">
+          <strong>收藏库</strong>
+          {account ? <span>{`当前账号：${account.nickname ?? ''}${account.nickname ? '（' : ''}UID：${account.mid}${account.nickname ? '）' : ''}`}</span> : null}
+        </div>
         <div className="favorite-library-drawer__actions">
           <button
             type="button"
@@ -142,7 +148,7 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
         </div>
       </header>
       <div className="favorite-library-drawer__body" hidden={collapsed}>
-        <FavoriteLibraryApp embedded />
+        <FavoriteLibraryApp embedded onAccountChange={setAccount} />
       </div>
     </section>
   )

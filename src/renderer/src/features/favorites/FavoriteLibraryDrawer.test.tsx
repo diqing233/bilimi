@@ -1,11 +1,18 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryDrawer } from './FavoriteLibraryDrawer'
 
 vi.mock('./FavoriteLibraryApp', () => ({
-  FavoriteLibraryApp: ({ embedded }: { embedded?: boolean }) => {
+  FavoriteLibraryApp: ({
+    embedded,
+    onAccountChange
+  }: {
+    embedded?: boolean
+    onAccountChange?: (account: { mid: string; nickname?: string } | undefined) => void
+  }) => {
     const [selection, setSelection] = useState('all')
+    useEffect(() => onAccountChange?.({ mid: '100', nickname: '小咪' }), [onAccountChange])
     return (
       <div data-testid="favorite-library-content" data-embedded={embedded ? 'true' : 'false'}>
         <label>
@@ -26,6 +33,12 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryDrawer', () => {
+  it('shows the embedded library account beside the drawer title', () => {
+    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+
+    expect(screen.getByText('当前账号：小咪（UID：100）')).toBeInTheDocument()
+  })
+
   it('does not render until opened', () => {
     const { container } = render(<FavoriteLibraryDrawer open={false} onClose={vi.fn()} />)
 

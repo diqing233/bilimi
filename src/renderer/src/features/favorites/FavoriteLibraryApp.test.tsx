@@ -44,12 +44,13 @@ describe('FavoriteLibraryApp', () => {
 
     const root = await screen.findByRole('main', { name: text.library })
     expect(root).toHaveAttribute('data-embedded', 'true')
+    expect(root.querySelector('.favorite-library__header')).not.toBeInTheDocument()
     expect(root.querySelector('.favorite-library__layout')).toHaveAttribute('data-embedded-layout', 'true')
     expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
-    expect(root.children[2]).toHaveClass('favorite-library__layout')
+    expect(root.children[1]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
     expect(favoriteLibraryStyles).toContain(
-      ".favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 4; height: 100%; min-height: 0; }"
+      ".favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 3; height: 100%; min-height: 0; }"
     )
     expect(favoriteLibraryStyles).toContain(
       ".favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }"

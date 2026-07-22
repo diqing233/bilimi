@@ -85,8 +85,16 @@ function scopeForNavigation(id: string): LibraryScope {
   return { kind: 'all' }
 }
 
+type FavoriteLibraryAccount = { mid: string; nickname?: string }
+
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
-export function FavoriteLibraryApp({ embedded = false }: { embedded?: boolean }) {
+export function FavoriteLibraryApp({
+  embedded = false,
+  onAccountChange
+}: {
+  embedded?: boolean
+  onAccountChange?: (account: FavoriteLibraryAccount | undefined) => void
+}) {
   const [accountMid, setAccountMid] = useState<string>()
   const [accountNickname, setAccountNickname] = useState<string>()
   const [summary, setSummary] = useState<FavoriteRepositorySnapshotSummary>()
@@ -100,6 +108,10 @@ export function FavoriteLibraryApp({ embedded = false }: { embedded?: boolean })
   const [selectedAids, setSelectedAids] = useState<number[]>([])
   const [organizationChanges, setOrganizationChanges] = useState<Array<{ id: string; aid: number; status: string; beforeFolderIds: string[]; afterFolderIds: string[] }>>([])
   const requestIdRef = useRef(0)
+
+  useEffect(() => {
+    onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
+  }, [accountMid, accountNickname, onAccountChange])
 
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
   const scopeRef = useRef(scope)
@@ -245,10 +257,12 @@ export function FavoriteLibraryApp({ embedded = false }: { embedded?: boolean })
 
   return (
     <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
-      <header className="favorite-library__header">
+      {!embedded ? (
+        <header className="favorite-library__header">
         <div><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
         {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
-      </header>
+        </header>
+      ) : null}
       <section className="favorite-library__organization-history" aria-label={text.organizationHistory}>
         <h2>{text.organizationHistory}</h2>
         {organizationChanges.length ? <ul>{organizationChanges.slice(-5).reverse().map((change) => <li key={change.id}>#{change.aid}：{change.status === 'succeeded' ? '已确认' : change.status === 'failed' ? '失败' : '待确认'}（{change.beforeFolderIds.length} → {change.afterFolderIds.length}）</li>)}</ul> : <p>{text.noOrganizationHistory}</p>}
