@@ -25,7 +25,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers' | 'prepareForOrganization'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -53,6 +53,21 @@ function deferred<T>() {
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('prepares account targets before an explicit organization scan begins', async () => {
+    const root = await createRoot()
+    const prepareForOrganization = vi.fn().mockResolvedValue(undefined)
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, prepareForOrganization }
+    )
+
+    await coordinator.beginScan('100', 'incremental')
+
+    expect(prepareForOrganization).toHaveBeenCalledOnce()
+    expect(prepareForOrganization).toHaveBeenCalledWith('100')
+  })
+
   it('keeps a new account idle until an explicit scan begins', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-22T00:00:00.000Z' })

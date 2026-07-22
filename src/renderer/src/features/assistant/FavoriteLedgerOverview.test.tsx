@@ -61,6 +61,17 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: /^（未保存）/ })).toBeInTheDocument()
   })
 
+  it('labels a locally saved recommendation as pending sync instead of unsaved', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'recommended-up', displayName: 'bilimi·影视飓风', keywords: ['影视飓风'], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft' }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '（待同步）影视飓风' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '（未保存）影视飓风' })).not.toBeInTheDocument()
+  })
+
   it('keeps an edited ledger marked as unsaved after selecting another ledger', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false },

@@ -87,7 +87,7 @@ export function OldFavoriteScanOverviewStep({
         <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
-      {scannedItemCount ? <div>
+      {!tagEnrichment && scannedItemCount ? <div>
         <span>已获取标签</span>
         <progress aria-label="标签识别进度" max={Math.max(scannedItemCount, 1)} value={taggedItemCount} />
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
@@ -97,12 +97,12 @@ export function OldFavoriteScanOverviewStep({
     {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
       <p>标签补取{tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
       <p>已获取标签 {taggedItemCount} 条；确认无标签 {confirmedUntaggedItemCount} 条；读取失败 {failedTagItemCount} 条。</p>
-      {tagEnrichment.pendingItemCount > 0 ? <>
+      {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'paused'
           ? <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>
           : <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>}
         <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
-      </> : null}
+      </div> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>

@@ -70,7 +70,7 @@ import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinat
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
-import { classifierLedgersForAccount, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
+import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
 import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
@@ -1301,6 +1301,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
         logicalLedgerId
       ),
+    prepareForOrganization: async (accountMid) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const favoriteLedgers = enableDefaultLedgersForOrganization(
+        current.favoriteLedgers,
+        current.defaultFavoriteSystemEnabled
+      )
+      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    },
     saveRecommendedLedgers: async (accountMid, ledgers) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {

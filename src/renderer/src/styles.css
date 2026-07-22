@@ -4514,11 +4514,13 @@ body[data-floating-window="true"],
   display: grid;
   gap: 5px;
 }
-.favorite-ledger-panel__scan-enrichment-status > div {
-  display: flex;
+.favorite-ledger-panel__scan-enrichment-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 .favorite-ledger-panel__scan-enrichment-status button {
+  width: 100%;
   min-height: 26px;
   padding: 3px 8px;
   font-size: 11px;

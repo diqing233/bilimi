@@ -5,13 +5,20 @@ export function classifierLedgersForAccount(
   savedLedgers: FavoriteLedger[],
   defaultFavoriteSystemEnabled: boolean
 ) {
-  return savedLedgers.map((ledger) => ({
-    ...ledger,
-    keywords: [...ledger.keywords],
-    enabled: ledger.isDefault && ledger.id !== 'inbox'
-      ? defaultFavoriteSystemEnabled && ledger.enabled
-      : ledger.enabled
-  }))
+  return savedLedgers
+    .filter((ledger) => defaultFavoriteSystemEnabled || !ledger.isDefault || ledger.id === 'inbox')
+    .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+}
+
+/** Starting an organization round restores all ordinary default targets, never staging. */
+export function enableDefaultLedgersForOrganization(
+  savedLedgers: FavoriteLedger[],
+  defaultFavoriteSystemEnabled: boolean
+) {
+  if (!defaultFavoriteSystemEnabled) return savedLedgers
+  return savedLedgers.map((ledger) => ledger.isDefault && ledger.id !== 'inbox'
+    ? { ...ledger, enabled: true, keywords: [...ledger.keywords] }
+    : ledger)
 }
 
 /** Gives adopted workspace recommendations precedence without mutating saved preferences. */

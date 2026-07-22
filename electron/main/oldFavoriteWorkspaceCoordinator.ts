@@ -240,6 +240,7 @@ export class OldFavoriteWorkspaceCoordinator {
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
+    prepareForOrganization?: (accountMid: string) => Promise<void>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
     now?: () => string
   }) {}
@@ -274,6 +275,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode'], options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
+      await this.options.prepareForOrganization?.(accountMid)
       let workspace = await this.openUnsafe(accountMid)
       if (!workspace) workspace = await this.createScanningWorkspace(accountMid, mode)
       if (isRecoveryRequired(workspace)) throw new Error('Old favorite workspace requires rebuild.')

@@ -56,6 +56,24 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(backup)
     expect(ensure).not.toHaveBeenCalled()
   })
+
+  it('keeps default targets locked while an organization scan is active', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning',
+        mode: 'incremental', segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+        segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      })
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(await screen.findByRole('button', { name: '移出同步 bilimi·知识' })).toBeDisabled()
+  })
+
   it('keeps the default ledger closed behind separate Chinese organize and library entries', async () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
@@ -259,7 +277,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
     expect(screen.queryByText(/未保存/)).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '旋律 节奏' } })
-    expect(screen.getByText(/未保存/)).toBeInTheDocument()
+    expect(screen.getAllByText(/未保存/).length).toBeGreaterThan(0)
   })
 
   it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', () => {

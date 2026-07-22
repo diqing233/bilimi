@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { classifierLedgersForAccount, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
+import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 
 describe('mergeOldFavoriteWorkspaceLedgers', () => {
+  it('enables ordinary defaults for an organization round only when the default system is enabled', () => {
+    const saved = [
+      { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10, isDefault: true },
+      { id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: false, priority: 20, isDefault: true },
+      { id: 'custom', displayName: '自建', keywords: [], enabled: false, priority: 30, isDefault: false }
+    ]
+
+    expect(enableDefaultLedgersForOrganization(saved, true)).toEqual([
+      expect.objectContaining({ id: 'knowledge', enabled: true }),
+      expect.objectContaining({ id: 'inbox', enabled: false }),
+      expect.objectContaining({ id: 'custom', enabled: false })
+    ])
+    expect(enableDefaultLedgersForOrganization(saved, false)).toEqual(saved)
+  })
+
   it('excludes ordinary defaults but retains inbox staging when disabled', () => {
     const ledgers = classifierLedgersForAccount([
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 10, isDefault: true },
@@ -9,10 +24,9 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
       { id: 'custom', displayName: '自建', keywords: [], enabled: true, priority: 30, isDefault: false }
     ], false)
 
-    expect(ledgers).toMatchObject([
-      { id: 'knowledge', enabled: false },
-      { id: 'inbox', enabled: true },
-      { id: 'custom', enabled: true }
+    expect(ledgers).toEqual([
+      expect.objectContaining({ id: 'inbox', enabled: true }),
+      expect.objectContaining({ id: 'custom', enabled: true })
     ])
   })
 
