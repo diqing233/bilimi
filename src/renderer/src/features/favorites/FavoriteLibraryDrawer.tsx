@@ -4,6 +4,7 @@ import { FavoriteLibraryApp } from './FavoriteLibraryApp'
 const DEFAULT_HEIGHT = 360
 const MIN_HEIGHT = 220
 const RESERVED_BROWSER_HEIGHT = 180
+const KEYBOARD_HEIGHT_STEP = 24
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
@@ -19,8 +20,13 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
   const [collapsed, setCollapsed] = useState(false)
   const [height, setHeight] = useState(DEFAULT_HEIGHT)
   const dragStartRef = useRef<{ clientY: number; height: number }>()
+  const hasBeenOpenedRef = useRef(open)
 
-  if (!open) {
+  if (open) {
+    hasBeenOpenedRef.current = true
+  }
+
+  if (!hasBeenOpenedRef.current) {
     return null
   }
 
@@ -31,6 +37,8 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
       data-collapsed={collapsed ? 'true' : 'false'}
       style={collapsed ? undefined : { height: `${height}px` }}
       aria-label="收藏库"
+      aria-hidden={!open || undefined}
+      hidden={!open}
     >
       <div
         className="favorite-library-drawer__resize-handle"
@@ -40,6 +48,7 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
         aria-valuemin={MIN_HEIGHT}
         aria-valuemax={Math.max(MIN_HEIGHT, window.innerHeight - RESERVED_BROWSER_HEIGHT)}
         aria-valuenow={height}
+        tabIndex={0}
         onPointerDown={(event) => {
           dragStartRef.current = { clientY: event.clientY, height }
           event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -55,6 +64,21 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
         }}
         onPointerCancel={() => {
           dragStartRef.current = undefined
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setHeight((current) => clampHeight(current + KEYBOARD_HEIGHT_STEP))
+          } else if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setHeight((current) => clampHeight(current - KEYBOARD_HEIGHT_STEP))
+          } else if (event.key === 'Home') {
+            event.preventDefault()
+            setHeight(MIN_HEIGHT)
+          } else if (event.key === 'End') {
+            event.preventDefault()
+            setHeight(clampHeight(window.innerHeight - RESERVED_BROWSER_HEIGHT))
+          }
         }}
       />
       <header className="favorite-library-drawer__header">
