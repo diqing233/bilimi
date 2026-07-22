@@ -648,6 +648,78 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('shares an in-flight backup for concurrent requests from the same account', async () => {
+    let resolveBackup: ((result: unknown) => void) | undefined
+    const readBilibiliAccountMid = vi.fn().mockResolvedValue('100')
+    const { requestRuntimeDirect } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn((script: string) => {
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return new Promise((resolve) => {
+          resolveBackup = resolve
+        })
+      }
+      if (script.includes('document.cookie')) return Promise.resolve({ hasUserId: true, hasCsrf: true })
+      if (script.includes('__bilimiRepaintVideoAfterHostResize')) return Promise.resolve(true)
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    let first!: Promise<AssistantRuntimeResponsePayload>
+    await act(async () => {
+      first = requestRuntimeDirect({ id: 'backup-one', type: 'ensure-ledgers' })
+      await vi.waitFor(() => expect(resolveBackup).toBeTypeOf('function'))
+    })
+    let second!: Promise<AssistantRuntimeResponsePayload>
+    await act(async () => {
+      second = requestRuntimeDirect({ id: 'backup-two', type: 'ensure-ledgers' })
+      await vi.waitFor(() => expect(readBilibiliAccountMid).toHaveBeenCalledTimes(2))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveBackup?.({
+      ok: true,
+      ledgers: createDefaultFavoriteLedgers(),
+      steps: ['api:ledger:list'],
+      missingTargets: [],
+      message: '册目已备齐。'
+      })
+    })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ ok: true }),
+      expect.objectContaining({ ok: true })
+    ])
+    expect(executeJavaScript.mock.calls.filter(([script]) => script.includes('/x/v3/fav/folder/add'))).toHaveLength(1)
+  })
+
+  it('does not create remote folders when the active account disabled the default favorite system', async () => {
+    const { requestRuntime, notifyPreferencesChanged } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    const accountLedgers = createDefaultFavoriteLedgers()
+    notifyPreferencesChanged(createAppPreferences({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: accountLedgers }
+      }
+    }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'backup-disabled', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: false })
+    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
   it('asks the user to log in before running Bilibili page actions', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {

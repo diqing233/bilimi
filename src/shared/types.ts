@@ -167,6 +167,7 @@ export type FavoriteLedgerStatus = {
   ok: boolean
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
+  backupConflictLedgerIds?: FavoriteLedgerId[]
   message: string
 }
 

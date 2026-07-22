@@ -75,7 +75,7 @@ export class OldFavoriteWorkspaceScanService {
 
   private async tagRequestStillCurrent(accountMid: string, workspaceId: string) {
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
-    return 'workspaceId' in snapshot && snapshot.workspaceId === workspaceId && snapshot.tagEnrichment?.status === 'running'
+    return Boolean(snapshot) && 'workspaceId' in snapshot && snapshot.workspaceId === workspaceId && snapshot.tagEnrichment?.status === 'running'
   }
 
   private requestCurrentTag(accountMid: string, workspaceId: string, request: RuntimeRequest) {
@@ -215,7 +215,7 @@ export class OldFavoriteWorkspaceScanService {
       return
     }
     const snapshot = await this.options.coordinator.getSnapshot(account)
-    if ('workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
+    if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
   }
 
   private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string) {

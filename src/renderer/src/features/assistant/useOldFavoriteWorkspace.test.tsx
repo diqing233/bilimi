@@ -39,6 +39,19 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).not.toHaveProperty('baseline')
   })
 
+  it('treats a new account with no organization round as an idle snapshot, not a read error', async () => {
+    const open = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => {
+      expect(result.current.snapshot).toBeNull()
+      expect(result.current.loading).toBe(false)
+    })
+    expect(result.current.lastError).toBeNull()
+    expect(open).toHaveBeenCalledExactlyOnceWith('100')
+  })
+
   it('clears its snapshot without an account or desktop bridge', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop

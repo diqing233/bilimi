@@ -1337,6 +1337,13 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   oldFavoriteWorkspaceDeepSeekService = new OldFavoriteWorkspaceDeepSeekService({
     coordinator: oldFavoriteWorkspaceCoordinator,
     preferences: () => loadAssistantPreferences(getDesktopStore()),
+    ledgersForAccount: (accountMid) => {
+      const accountPreferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      return classifierLedgersForAccount(
+        accountPreferences.favoriteLedgers,
+        accountPreferences.defaultFavoriteSystemEnabled
+      )
+    },
     generate: (request) => generateDeepSeekResult({
       config: {
         enabled: loadAssistantPreferences(getDesktopStore()).deepseekEnabled,

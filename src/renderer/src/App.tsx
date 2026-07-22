@@ -29,6 +29,7 @@ import {
 import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
 import {
   createInitialAssistantPreferences,
+  effectiveFavoriteLedgersForAccount,
   favoriteLedgersForAccount,
   withFavoriteLedgersForAccount
 } from './features/state/assistantState'
@@ -524,6 +525,7 @@ export default function App() {
     videoContentContext: VideoContentContext
     videoContextUrl?: string
   }>({ accountMid: '', favoriteLedgerStatus: null, videoContentContext: {} })
+  const favoriteLedgerEnsurePromisesRef = useRef(new Map<string, Promise<AssistantAutomationResult>>())
   const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
@@ -1123,13 +1125,7 @@ export default function App() {
     return fallbackStatus
   }
 
-  async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      return loginFailure
-    }
-
-    const accountMid = await readBilibiliAccountMid()
+  async function ensureFavoriteLedgersForAccount(accountMid: string): Promise<AssistantAutomationResult> {
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
 
     const result = await runScript(
@@ -1157,12 +1153,45 @@ export default function App() {
         ok: result.ok,
         ledgers: result.ledgers,
         missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
+        backupConflictLedgerIds: Array.isArray(result.backupConflictLedgerIds)
+          ? result.backupConflictLedgerIds
+          : [],
         message: result.message
       }
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
     }
 
     return result
+  }
+
+  async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
+    }
+
+    const accountMid = await readBilibiliAccountMid()
+    if (accountMid && preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled === false) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: [],
+        message: '默认收藏夹体系已关闭，备册不会创建远端收藏夹。'
+      }
+    }
+    const accountKey = accountMid || '__active-account__'
+    const existing = favoriteLedgerEnsurePromisesRef.current.get(accountKey)
+    if (existing) return existing
+
+    const operation = ensureFavoriteLedgersForAccount(accountMid)
+    favoriteLedgerEnsurePromisesRef.current.set(accountKey, operation)
+    try {
+      return await operation
+    } finally {
+      if (favoriteLedgerEnsurePromisesRef.current.get(accountKey) === operation) {
+        favoriteLedgerEnsurePromisesRef.current.delete(accountKey)
+      }
+    }
   }
 
   async function saveFavoriteLedgers(
@@ -1477,13 +1506,17 @@ export default function App() {
       return loginFailure
     }
 
+    const actionAccountMid = assistantSnapshotCacheRef.current.accountMid || await readBilibiliAccountMid()
+    const actionFavoriteLedgers = actionAccountMid
+      ? effectiveFavoriteLedgersForAccount(preferences, actionAccountMid)
+      : preferences.favoriteLedgers
     const videoContentContext = await readVideoContentContext()
     const archiveTargets = planFavoriteArchiveTargets({
       context: videoContentContext,
-      ledgers: preferences.favoriteLedgers,
+      ledgers: actionFavoriteLedgers,
       multiArchiveMode: preferences.favoriteArchiveMultiMode
     })
-    const localClassification = classifyVideoContent(videoContentContext, preferences.favoriteLedgers)
+    const localClassification = classifyVideoContent(videoContentContext, actionFavoriteLedgers)
     const localTargetLedgerId =
       archiveTargets[0]?.ledgerId ??
       localClassification.ledgerId
@@ -1514,14 +1547,14 @@ export default function App() {
           targetLedgerIds: localTargetLedgerIds,
           primaryLedgerId: localTargetLedgerId,
           displayNames: localTargetLedgerIds.map((ledgerId) =>
-            ledgerDisplayName(preferences.favoriteLedgers, ledgerId)
+            ledgerDisplayName(actionFavoriteLedgers, ledgerId)
           ),
           reason: localClassification.matchedKeywords.length
             ? `本地命中：${localClassification.matchedKeywords.join('、')}`
             : undefined,
           diagnostics: localDiagnostics
         },
-        ledgers: preferences.favoriteLedgers.map((ledger) => {
+        ledgers: actionFavoriteLedgers.map((ledger) => {
           const parsedRules = parseFavoriteLedgerRules(ledger)
           return {
             id: ledger.id,
@@ -1551,7 +1584,7 @@ export default function App() {
         postActionDailyReviewPromise = reviewPromise
       } else {
         const correction = dailyCorrectionFromReview({
-          favoriteLedgers: preferences.favoriteLedgers,
+          favoriteLedgers: actionFavoriteLedgers,
           localTargetLedgerId,
           localTargetLedgerIds,
           reviewResult: reviewBeforeAction.result
@@ -1564,7 +1597,7 @@ export default function App() {
           deepSeekCorrection = correction
         } else {
           resultMessagePrefix = dailyReviewFeedback({
-            favoriteLedgers: preferences.favoriteLedgers,
+            favoriteLedgers: actionFavoriteLedgers,
             localTargetLedgerIds,
             reviewResult: reviewBeforeAction.result
           })
@@ -1620,7 +1653,7 @@ export default function App() {
         submitComment:
           options?.submitComment ??
           (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
-        favoriteLedgers: preferences.favoriteLedgers,
+        favoriteLedgers: actionFavoriteLedgers,
         targetLedgerId,
         targetLedgerIds,
         resultMessagePrefix: undefined
@@ -1716,7 +1749,7 @@ export default function App() {
             undefined
           )
           const correction = dailyCorrectionFromReview({
-            favoriteLedgers: preferences.favoriteLedgers,
+            favoriteLedgers: actionFavoriteLedgers,
             localTargetLedgerId,
             localTargetLedgerIds,
             reviewResult
@@ -1724,7 +1757,7 @@ export default function App() {
 
           if (!correction) {
             publishRuntimeFeedback(dailyReviewFeedback({
-              favoriteLedgers: preferences.favoriteLedgers,
+              favoriteLedgers: actionFavoriteLedgers,
               localTargetLedgerIds,
               reviewResult
             }))
@@ -1757,7 +1790,7 @@ export default function App() {
           try {
             adjustmentResult = await withTimeout(
               runScript(
-                buildFavoriteApiAdjustmentScript(preferences.favoriteLedgers, {
+                buildFavoriteApiAdjustmentScript(actionFavoriteLedgers, {
                   addLedgerIds: correction.targetLedgerIds,
                   removeLedgerIds
                 })
@@ -1781,7 +1814,7 @@ export default function App() {
             }
           }
           const targetNames = correction.targetLedgerIds
-            .map((ledgerId) => ledgerDisplayName(preferences.favoriteLedgers, ledgerId))
+            .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
             .join('、')
 
           if (!adjustmentResult.ok) {
@@ -1826,7 +1859,7 @@ export default function App() {
           undefined
         )
         const correction = dailyCorrectionFromReview({
-          favoriteLedgers: preferences.favoriteLedgers,
+          favoriteLedgers: actionFavoriteLedgers,
           localTargetLedgerId,
           localTargetLedgerIds,
           reviewResult

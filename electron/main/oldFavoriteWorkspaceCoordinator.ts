@@ -94,9 +94,9 @@ function decodeJournalEvent(value: { kind: string }): WorkspaceJournalEvent | un
   }
 }
 
-function isRecoveryRequired(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired):
+function isRecoveryRequired(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null):
 value is OldFavoriteWorkspaceRecoveryRequired {
-  return 'recovery' in value
+  return Boolean(value) && 'recovery' in value
 }
 
 function normalizeAids(aids: number[]) {
@@ -244,14 +244,15 @@ export class OldFavoriteWorkspaceCoordinator {
     now?: () => string
   }) {}
 
-  async open(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired> {
+  async open(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null> {
     return this.queue(() => this.openUnsafe(accountMid))
   }
 
-  async getSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired> {
+  async getSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null> {
     return this.queue(async () => {
       const workspace = await this.openUnsafe(accountMid)
-      return isRecoveryRequired(workspace) ? workspace : await this.createSnapshotWithExecutionProgress(workspace)
+      if (!workspace || isRecoveryRequired(workspace)) return workspace
+      return this.createSnapshotWithExecutionProgress(workspace)
     })
   }
 
@@ -273,7 +274,9 @@ export class OldFavoriteWorkspaceCoordinator {
   async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode'], options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
-      let workspace = await this.requireWorkspace(accountMid)
+      let workspace = await this.openUnsafe(accountMid)
+      if (!workspace) workspace = await this.createScanningWorkspace(accountMid, mode)
+      if (isRecoveryRequired(workspace)) throw new Error('Old favorite workspace requires rebuild.')
       const persistedWorkspace = (await this.options.repository.getSnapshot(workspace.accountMid)).workspace
       const abandonFrozenPlan = mode === 'full' && Boolean(persistedWorkspace?.frozenSyncPlan) &&
         persistedWorkspace?.status !== 'completed'
@@ -705,7 +708,8 @@ export class OldFavoriteWorkspaceCoordinator {
       const currentSegmentId = completed.segments[0]?.id ?? ''
       // This internal test/compatibility entry point represents one selected source.
       // The production scan path persists the real inventory before finalization.
-      const sourceFolders = this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [{
+      const observedSourceFolders = this.scanOverviews.get(completed.accountMid)?.sourceFolders
+      const sourceFolders = observedSourceFolders?.length ? observedSourceFolders : [{
         id: 'legacy-source', title: 'Legacy source', itemCount: options.aids.length, isBilimiWorkFolder: false, selected: true
       }]
       await this.options.workspaceStore.create({
@@ -1462,7 +1466,7 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  private async openUnsafe(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired> {
+  private async openUnsafe(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null> {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const account = snapshot.accountMid
     const cached = this.workspaces.get(account)
@@ -1470,8 +1474,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
     if (snapshot.workspace) return this.restoreFromStore(snapshot.workspace, snapshot.updatedAt)
 
-    const workspace = await this.createScanningWorkspace(account)
-    return clone(workspace)
+    return null
   }
 
   private async createScanningWorkspace(accountMid: string, mode?: OldFavoriteWorkspace['mode']) {
@@ -1626,6 +1629,7 @@ export class OldFavoriteWorkspaceCoordinator {
     if (workspace && snapshot.workspace && this.matchesMarker(workspace, snapshot.workspace)) return workspace
     const opened = await this.openUnsafe(snapshot.accountMid)
     if (isRecoveryRequired(opened)) throw new Error('Old favorite workspace requires rebuild.')
+    if (!opened) throw new Error('Old favorite workspace has not been started.')
     return opened
   }
 

@@ -145,7 +145,7 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   workspaceId: string
 }
 
-export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired
+export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null
 
 export type OldFavoriteWorkspaceDeepSeekFailure = {
   chunkIndex: number

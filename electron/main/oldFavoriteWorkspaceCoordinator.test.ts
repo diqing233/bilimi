@@ -25,14 +25,25 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> & { initializeOnOpen?: boolean } = {}
 ) {
-  return new OldFavoriteWorkspaceCoordinator({
+  const { initializeOnOpen = true, ...coordinatorOptions } = options
+  const coordinator = new OldFavoriteWorkspaceCoordinator({
     repository,
     workspaceStore,
-    ...options,
+    ...coordinatorOptions,
     now: () => '2026-07-19T00:00:00.000Z'
   })
+  if (initializeOnOpen) {
+    const open = coordinator.open.bind(coordinator)
+    vi.spyOn(coordinator, 'open').mockImplementation(async (accountMid) => {
+      const snapshot = await open(accountMid)
+      if (snapshot) return snapshot
+      await coordinator.beginScan(accountMid, 'incremental')
+      return open(accountMid)
+    })
+  }
+  return coordinator
 }
 
 function deferred<T>() {
@@ -42,6 +53,20 @@ function deferred<T>() {
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('keeps a new account idle until an explicit scan begins', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-22T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(coordinator.open('100')).resolves.toBeNull()
+    await expect(coordinator.getSnapshot('100')).resolves.toBeNull()
+    expect((await repository.getSnapshot('100')).workspace).toBeUndefined()
+
+    await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({
+      status: 'scanning', mode: 'incremental'
+    })
+  })
+
   it('persists tag enrichment pause, resume, and current-tag adoption across coordinator restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -480,7 +505,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteFolderId: 'remote-music-1',
       inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -515,7 +540,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteFolderId: 'remote-music-1',
       inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
     })
+    await coordinator.beginScan('100', 'incremental')
     const oldWorkspace = await coordinator.open('100')
+    if (!oldWorkspace || 'recovery' in oldWorkspace) throw new Error('workspace unexpectedly unavailable')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -706,7 +733,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       id: 'prior-protection', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
       payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-20T00:00:00.000Z' }] }
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
 
     await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({
@@ -1139,7 +1166,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         : { targetLedgerIds: ['music'], confidence: 'high' },
       now: () => '2026-07-20T00:00:00.000Z'
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
@@ -1176,7 +1203,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await first.finishScan('100')
     await first.setRecommendedCandidates('100', ['custom-author-up-alpha'])
-    await first.open('200')
+    await expect(first.open('200')).resolves.toBeNull()
 
     const restored = new OldFavoriteWorkspaceCoordinator({
       repository: new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
@@ -1186,9 +1213,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(restored.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
     })
-    await expect(restored.getSnapshot('200')).resolves.toMatchObject({
-      recommendations: { candidates: [], adoptedCandidateIds: [] }
-    })
+    await expect(restored.getSnapshot('200')).resolves.toBeNull()
   })
 
   it('prepares an adopted recommendation for Bilibili binding during confirmation', async () => {
@@ -1524,7 +1549,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1546,7 +1571,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1599,7 +1624,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1659,7 +1684,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1686,7 +1711,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1759,7 +1784,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     const aids = Array.from({ length: 2_001 }, (_, index) => index + 1)
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
@@ -1865,7 +1890,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1898,7 +1923,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       bindingService: bindings, now: () => '2026-07-20T00:00:00.000Z'
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -1920,7 +1945,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: { ensurePhysicalShard }
     })
     const aids = Array.from({ length: 1_001 }, (_, index) => index + 1)
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: aids.map((aid) => ({ aid, targetLedgerIds: ['music'] }))
@@ -1942,7 +1967,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       bindingService: { ensurePhysicalShard },
       resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·你好')
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['custom-saved-ledger'] }]
@@ -1967,7 +1992,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteFolderId: 'remote-music-1',
       inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 999, memberAids: [] }]
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['music'] }]
@@ -1990,7 +2015,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteFolderId: 'remote-music-1',
       inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 999, memberAids }]
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -2014,7 +2039,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteFolderId: 'remote-music-1',
       inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 999, memberAids: [1] }]
     })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['music'] }]
@@ -2038,7 +2063,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       syncService: { executeFrozenPlan, getRun }, now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -2065,7 +2090,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -2101,7 +2126,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
-    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]

@@ -44,6 +44,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
       favoriteArchiveMultiMode: FavoriteArchiveMultiMode
       favoriteLedgers: FavoriteLedger[]
     }, 'deepseekArchiveOrganizationEnabled' | 'favoriteArchiveMultiMode' | 'favoriteLedgers'>
+    ledgersForAccount?: (accountMid: string, preferences: Pick<{
+      favoriteLedgers: FavoriteLedger[]
+    }, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
   }) {}
 
@@ -74,7 +77,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
-    if ('recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     }
     if (retry && (retry.workspaceId !== snapshot.workspaceId || retry.segmentId !== snapshot.currentSegment.id)) {
@@ -115,7 +118,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
           lowConfidence: !snapshot.classifications[String(item.aid)] || snapshot.classifications[String(item.aid)]?.source === 'system-low'
         }
       }),
-      ledgers: preferences.favoriteLedgers
+      ledgers: (this.options.ledgersForAccount?.(accountMid, preferences) ?? preferences.favoriteLedgers)
         .filter((ledger) => ledger.enabled && ledger.id !== 'inbox')
         .map((ledger) => {
           const rules = parseFavoriteLedgerRules(ledger)
@@ -233,7 +236,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     // The mutation returns the internal workspace model. Re-open the authoritative
     // renderer snapshot so post-run UI retains source folders and segment items.
     const next = await this.options.coordinator.getSnapshot(snapshot.accountMid)
-    if ('recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
+    if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
     return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
   }
 

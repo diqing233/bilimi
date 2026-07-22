@@ -113,6 +113,13 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setLastError(null)
     try {
       const next = await open(accountMid)
+      if (!next) {
+        const isCurrent = preserveSnapshot
+          ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
+          : requestVersion.current === version && accountGeneration.current === generation
+        if (isCurrent) setSnapshot(null)
+        return null
+      }
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       const isCurrent = preserveSnapshot
@@ -150,6 +157,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       const next = await command(accountMid, options?.clearBilibiliMirror && mode === 'full'
         ? { type: 'start-scan', mode, clearBilibiliMirror: true }
         : { type: 'start-scan', mode })
+      if (!next) return null
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
@@ -172,6 +180,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const normalizedFolderIds = [...new Set(folderIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
     try {
       const next = await command(accountMid, { type: 'select-source-folders', folderIds: normalizedFolderIds })
+      if (!next) return null
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version) setSnapshot(next)
@@ -191,6 +200,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (reportExecutionFailure) setExecutionError(null)
     try {
       const next = await command(accountMid, commandValue)
+      if (!next) return null
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)

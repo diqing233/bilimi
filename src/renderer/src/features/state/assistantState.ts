@@ -236,6 +236,19 @@ export function favoriteLedgersForAccount(
   return preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers
 }
 
+/** Projects account preferences into the target set used for classification and remote actions. */
+export function effectiveFavoriteLedgersForAccount(
+  preferences: AssistantPreferences,
+  accountMid: string
+): AssistantPreferences['favoriteLedgers'] {
+  const ledgers = favoriteLedgersForAccount(preferences, accountMid)
+  const defaultsEnabled = preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled !== false
+  if (defaultsEnabled) return ledgers
+  return ledgers.map((ledger) => ledger.isDefault && ledger.id !== 'inbox'
+    ? { ...ledger, enabled: false, isDefault: false }
+    : ledger)
+}
+
 export function withFavoriteLedgersForAccount(
   preferences: AssistantPreferences,
   accountMid: string,

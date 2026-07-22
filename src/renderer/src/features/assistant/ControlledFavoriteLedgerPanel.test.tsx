@@ -45,6 +45,17 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
     expect(openFavoritePage).not.toHaveBeenCalled()
   })
+
+  it('disables backup when the default favorite system is turned off', () => {
+    const ensure = vi.fn()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" defaultFavoriteSystemEnabled={false}
+      ledgers={[]} missingLedgerIds={[]} onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
+
+    const backup = screen.getByRole('button', { name: '备册' })
+    expect(backup).toBeDisabled()
+    fireEvent.click(backup)
+    expect(ensure).not.toHaveBeenCalled()
+  })
   it('keeps the default ledger closed behind separate Chinese organize and library entries', async () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),

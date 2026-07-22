@@ -219,21 +219,40 @@ export class FavoriteRepositoryBindingService {
       if (inventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
         throw new Error('Favorite repository remote folder limit is exceeded.')
       }
+      let finalInventory
+      try {
+        finalInventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:inventory-before-create` })
+      } catch {
+        throw new Error('Favorite repository remote folder inventory is unavailable.')
+      }
+      const finalMatches = finalInventory.folders.filter((folder) => folder.title === title)
+      if (finalMatches.length > 1) throw new Error('Favorite repository remote shard title is ambiguous.')
+      if (finalMatches.length === 1) {
+        return this.preparePhysicalShardWithToken(account, {
+          ...input,
+          observedAccountMid: finalInventory.observedAccountMid,
+          remoteFolderId: finalMatches[0].id,
+          inventory: finalInventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+        }, token)
+      }
+      if (finalInventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
+        throw new Error('Favorite repository remote folder limit is exceeded.')
+      }
       try {
         const created = await bridge.createFolder({ accountMid: account, operationKey: `${runId}:create`, title })
         return this.preparePhysicalShardWithToken(account, {
           ...input,
           observedAccountMid: created.observedAccountMid,
           remoteFolderId: created.folder.id,
-          inventory: [...inventory.folders, { ...created.folder, memberAids: [] }]
+          inventory: [...finalInventory.folders, { ...created.folder, memberAids: [] }]
         }, token)
       } catch {
         // The write may have succeeded remotely. Persist only a pending marker
         // and require a later inventory diff before any binding is trusted.
         return this.preparePhysicalShardWithToken(account, {
           ...input,
-          observedAccountMid: inventory.observedAccountMid,
-          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+          observedAccountMid: finalInventory.observedAccountMid,
+          inventory: finalInventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
         }, token)
       }
     } finally {

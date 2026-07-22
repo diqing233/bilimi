@@ -393,6 +393,70 @@ function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
   }
 }
 
+export function resolveFavoriteOrganizationLamp(args: {
+  snapshot: OldFavoriteWorkspaceSnapshot | null
+  defaultFavoriteSystemEnabled: boolean
+  ledgers: FavoriteLedger[]
+  favoriteLedgerStatus: FavoriteLedgerStatus | null
+}): GlobalStatusItem {
+  const organizationStatus = favoriteOrganizationStatus(args.snapshot)
+  if (organizationStatus) return organizationStatus
+
+  if (!args.defaultFavoriteSystemEnabled) {
+    return {
+      label: '整理空闲',
+      detail: '默认收藏夹体系已关闭；暂存和已启用的自建收藏夹仍可用于本地归档预览。',
+      tone: 'idle'
+    }
+  }
+
+  const backupGap = favoriteLedgerBackupGap(args.ledgers)
+  if (args.favoriteLedgerStatus?.backupConflictLedgerIds?.length) {
+    return {
+      label: '备册异常',
+      detail: '发现同名 bilimi 收藏夹，无法安全备册；请先在 B 站手动处理重复收藏夹。',
+      tone: 'error'
+    }
+  }
+  if (args.favoriteLedgerStatus?.missingLedgerIds.length) {
+    return {
+      label: '未备册',
+      detail: `还有 ${args.favoriteLedgerStatus.missingLedgerIds.length} 个 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
+      tone: 'error'
+    }
+  }
+
+  if (backupGap.enabledCount === 0) {
+    return {
+      label: '未备册',
+      detail: `当前没有启用的 bilimi 收藏夹。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
+      tone: 'error'
+    }
+  }
+
+  if (backupGap.enabledWithoutFolderCount > 0) {
+    return {
+      label: '未备册',
+      detail: `还有 ${backupGap.enabledWithoutFolderCount} 个已启用 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
+      tone: 'error'
+    }
+  }
+
+  if (args.favoriteLedgerStatus?.ok) {
+    return {
+      label: '整理空闲',
+      detail: 'bilimi 收藏夹已备齐，可以开始整理旧藏。',
+      tone: 'ok'
+    }
+  }
+
+  return {
+    label: '整理空闲',
+    detail: '暂未检查备册状态。',
+    tone: 'idle'
+  }
+}
+
 function createFallbackSnapshot(): AssistantSnapshot {
   const preferences = createInitialAssistantPreferences()
 
@@ -793,6 +857,9 @@ export function FloatingAssistantApp({
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const settingsBodyRef = useRef<HTMLDivElement | null>(null)
   const mounted = useRef(false)
+
+  useEffect(() => subscribeDeepSeekTasks(setRemoteDeepSeekTasks), [])
+
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
   const inFlightPreferenceSaveRef = useRef<{
@@ -962,50 +1029,19 @@ export function FloatingAssistantApp({
   ])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
-    const organizationStatus = favoriteOrganizationStatus(favoriteOrganizationSnapshot)
-    if (organizationStatus) return organizationStatus
-    const backupGap = favoriteLedgerBackupGap(preferences.favoriteLedgers)
-
-    if (favoriteLedgerStatus?.missingLedgerIds.length) {
-      return {
-        label: '未备册',
-        detail: `还有 ${favoriteLedgerStatus.missingLedgerIds.length} 个 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
-        tone: 'error'
-      }
-    }
-
-    if (backupGap.enabledCount === 0) {
-      return {
-        label: '未备册',
-        detail: `当前没有启用的 bilimi 收藏夹。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
-        tone: 'error'
-      }
-    }
-
-    if (backupGap.enabledWithoutFolderCount > 0) {
-      return {
-        label: '未备册',
-        detail: `还有 ${backupGap.enabledWithoutFolderCount} 个已启用 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
-        tone: 'error'
-      }
-    }
-
-    if (favoriteLedgerStatus?.ok) {
-      return {
-        label: '整理空闲',
-        detail: 'bilimi 收藏夹已备齐，可以开始整理旧藏。',
-        tone: 'ok'
-      }
-    }
-
-    return {
-      label: '整理空闲',
-      detail: '暂未检查备册状态。',
-      tone: 'idle'
-    }
+    const accountMid = snapshot?.accountMid ?? ''
+    return resolveFavoriteOrganizationLamp({
+      snapshot: favoriteOrganizationSnapshot,
+      defaultFavoriteSystemEnabled:
+        preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled ?? true,
+      ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
+      favoriteLedgerStatus
+    })
   }, [
     favoriteLedgerStatus,
     favoriteOrganizationSnapshot,
+    snapshot?.accountMid,
+    preferences.favoriteAccountPreferences,
     preferences.favoriteLedgers
   ])
 

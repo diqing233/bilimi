@@ -2,6 +2,50 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 
 describe('OldFavoriteWorkspaceDeepSeekService', () => {
+  it('rejects DeepSeek organization before an explicit organization round exists', async () => {
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(null),
+      applyDeepSeekClassificationBatch: vi.fn()
+    }
+    const generate = vi.fn()
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [] }),
+      generate
+    })
+
+    await expect(service.organizeCurrentSegment('100')).rejects.toThrow(
+      'Old favorite workspace is not ready for DeepSeek classification.'
+    )
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('uses account-effective ledgers so disabled default targets are excluded from archive DeepSeek', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-100', status: 'previewing',
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot), applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const generate = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize', results: [], keywordSuggestions: []
+    })
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'knowledge', displayName: '默认', keywords: [], enabled: true, isDefault: true }] }),
+      ledgersForAccount: () => [
+        { id: 'knowledge', displayName: '默认', keywords: [], enabled: false, isDefault: true },
+        { id: 'inbox', displayName: '暂存', keywords: [], enabled: true, isDefault: true }
+      ],
+      generate
+    })
+
+    await service.organizeCurrentSegment('100')
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ ledgers: [] }))
+  })
+
   it('filters the legacy low-confidence and unclassified scope in the main process without letting the renderer supply videos', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue({

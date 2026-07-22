@@ -132,7 +132,12 @@ function sharedScriptHelpers(): string {
         const storedFolder = ledger.bilibiliFolderId
           ? folderById.get(String(ledger.bilibiliFolderId))
           : null;
-        const folder = storedFolder || folders.find((candidate) => candidate?.title === ledger.displayName);
+        const titleMatches = folders.filter((candidate) => candidate?.title === ledger.displayName);
+        const folder = storedFolder?.title === ledger.displayName
+          ? storedFolder
+          : titleMatches.length === 1
+            ? titleMatches[0]
+            : null;
         const folderId = findFolderId(folder);
         if (folderId) {
           return { ...ledger, bilibiliFolderId: String(folderId) };
@@ -161,12 +166,17 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
       const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const backupConflictLedgerIds = payload.ledgers.filter((ledger) =>
+        ledger.enabled && ledger.syncState !== 'local-draft' &&
+        folders.filter((folder) => folder?.title === ledger.displayName).length > 1
+      ).map((ledger) => ledger.id);
 
       return {
-        ok: true,
+        ok: backupConflictLedgerIds.length === 0,
         ledgers: nextLedgers,
         missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId).map((ledger) => ledger.id),
-        message: '册目查验已毕。'
+        backupConflictLedgerIds,
+        message: backupConflictLedgerIds.length === 0 ? '册目查验已毕。' : '发现同名 bilimi 收藏夹，请先手动处理重复收藏夹。'
       };
     })();
   `
@@ -200,11 +210,44 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      const duplicateLedgers = payload.ledgers.filter((ledger) =>
+        ledger.enabled && ledger.syncState !== 'local-draft' &&
+        folders.filter((folder) => folder?.title === ledger.displayName).length > 1
+      );
+      if (duplicateLedgers.length > 0) {
+        return {
+          ok: false,
+          ledgers: payload.ledgers,
+          steps,
+          missingTargets: duplicateLedgers.map((ledger) => ledger.id),
+          backupConflictLedgerIds: duplicateLedgers.map((ledger) => ledger.id),
+          message: '发现同名 bilimi 收藏夹，无法安全备册；请先手动处理重复收藏夹。'
+        };
+      }
       const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
         if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
+          continue;
+        }
+
+        const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+        const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
+        const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
+        const recheckedMatches = recheckedFolders.filter((folder) => folder?.title === ledger.displayName);
+        if (recheckedMatches.length > 1) {
+          return {
+            ok: false,
+            ledgers: nextLedgers,
+            steps,
+            missingTargets: [ledger.id],
+            backupConflictLedgerIds: [ledger.id],
+            message: '发现同名 bilimi 收藏夹，无法安全备册；请先手动处理重复收藏夹。'
+          };
+        }
+        if (recheckedMatches.length === 1) {
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(findFolderId(recheckedMatches[0])) };
           continue;
         }
 

@@ -239,6 +239,27 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
   })
 
+  it('claims a shard title that appears in the final inventory recheck instead of creating another folder', async () => {
+    const repository = await createRepository()
+    const readFolderInventory = vi.fn()
+      .mockResolvedValueOnce({ observedAccountMid: '100', folders: [] })
+      .mockResolvedValueOnce({ observedAccountMid: '100', folders: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0 }] })
+    const createFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({ readFolderInventory, createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn() }))
+      }
+    })
+
+    await expect(service.ensurePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: []
+    })).resolves.toMatchObject({ shards: [expect.objectContaining({ remoteFolderId: 'remote-music-1' })] })
+    expect(createFolder).not.toHaveBeenCalled()
+  })
+
   it('creates an adopted recommendation with its visible logical title', async () => {
     const repository = await createRepository()
     const createFolder = vi.fn().mockImplementation(async ({ title }: { title: string }) => ({

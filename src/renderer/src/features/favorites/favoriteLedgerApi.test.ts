@@ -558,9 +558,49 @@ describe('favorite ledger API scripts', () => {
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:game'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
-    expect(requests[1].body).toContain('csrf=csrf-token')
-    expect(requests[1].body).toContain('privacy=0')
-    expect(requests[1].body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
+    const createRequest = requests.find((request) => request.url.includes('/folder/add'))
+    expect(createRequest?.body).toContain('csrf=csrf-token')
+    expect(createRequest?.body).toContain('privacy=0')
+    expect(createRequest?.body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
+  })
+
+  it('claims a title that appears in the creation recheck instead of creating a duplicate', async () => {
+    installCookies()
+    const ledger = createDefaultFavoriteLedgers()[0]
+    let listCount = 0
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        listCount += 1
+        return Response.json({
+          code: 0,
+          data: { list: listCount === 1 ? [] : [{ id: 77, title: ledger.displayName }] }
+        })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+
+    expect(result.ok).toBe(true)
+    expect((result.ledgers as FavoriteLedger[])[0]?.bilibiliFolderId).toBe('77')
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
+  })
+
+  it('stops backup on exact duplicate titles without treating a ·02 volume as a duplicate', async () => {
+    installCookies()
+    const ledger = createDefaultFavoriteLedgers()[0]
+    const secondVolume = { id: 3, title: `${ledger.displayName}·02` }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 1, title: ledger.displayName }, { id: 2, title: ledger.displayName }, secondVolume] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+
+    expect(result).toMatchObject({ ok: false, missingTargets: [ledger.id], backupConflictLedgerIds: [ledger.id] })
   })
 
   it('rejects an overlong enabled ledger before setup can create a remote folder', async () => {

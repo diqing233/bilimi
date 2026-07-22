@@ -235,7 +235,7 @@ export function ControlledFavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
-          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading}
+          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading || defaultFavoriteSystemEnabled === false}
             onClick={() => void onEnsureLedgers().then((result) => {
               if ((result as { ok?: boolean } | undefined)?.ok !== false) return onOpenFavoritePage?.()
             })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"

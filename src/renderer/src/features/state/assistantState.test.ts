@@ -3,12 +3,14 @@ import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   createInitialAssistantPreferences,
   createInitialAssistantState,
+  effectiveFavoriteLedgersForAccount,
   favoriteLedgersForAccount,
   withFavoriteLedgersForAccount,
   reduceAssistantState,
   recordAssistantPreferenceFeedback
 } from './assistantState'
 import type { AssistantAction } from '@shared/types'
+import { classifyVideoContent } from '../recommendation/videoClassifier'
 
 const LIKE_ACTION = '赞' as AssistantAction
 
@@ -190,6 +192,29 @@ describe('assistant state', () => {
         '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) }
       }
     })
+  })
+
+  it('removes ordinary defaults from an account effective target set while retaining staging and custom targets', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: false,
+          favoriteLedgers: [
+            { id: 'knowledge', displayName: 'bilimi·知识', keywords: ['科技'], enabled: true, priority: 10, isDefault: true },
+            { id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 20, isDefault: true },
+            { id: 'custom', displayName: '自建', keywords: ['科技'], enabled: true, priority: 30, isDefault: false }
+          ]
+        }
+      }
+    })
+
+    expect(effectiveFavoriteLedgersForAccount(preferences, '100')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'knowledge', enabled: false, isDefault: false }),
+      expect.objectContaining({ id: 'inbox', enabled: true }),
+      expect.objectContaining({ id: 'custom', enabled: true })
+    ]))
+    expect(classifyVideoContent({ title: '科技视频' }, effectiveFavoriteLedgersForAccount(preferences, '100')))
+      .toMatchObject({ ledgerId: 'custom' })
   })
 
   it('preserves persisted coin and comment choices', () => {
