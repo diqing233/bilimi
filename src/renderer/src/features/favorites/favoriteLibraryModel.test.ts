@@ -86,6 +86,18 @@ describe('favoriteLibraryModel', () => {
     ])
   })
 
+  it('renders legacy local default ledger ids with their Chinese display names', () => {
+    const folders: FavoriteRepositoryFolder[] = [
+      { id: 'local:knowledge', title: 'knowledge', kind: 'local', syncState: 'local-only' },
+      { id: 'local:movie-tv', title: 'movie-tv', kind: 'local', syncState: 'local-only' }
+    ]
+
+    expect(buildFavoriteLibraryNavigation(folders, 0)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ folderId: 'local:knowledge', title: 'bilimi·知识学习' }),
+      expect.objectContaining({ folderId: 'local:movie-tv', title: 'bilimi·影视动漫' })
+    ]))
+  })
+
   it('creates a detail model and carries pagination cursors forward unchanged', () => {
     const row = buildLibrarySearchRows([
       { video: video(1), folderId: 'remote' },

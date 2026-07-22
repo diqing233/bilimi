@@ -1675,6 +1675,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('saves local library folders under resolved display names instead of internal ledger ids', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·我的片单')
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['custom-my-list'] }]
+    })
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: [expect.objectContaining({
+        id: 'local:custom-my-list', title: 'bilimi·我的片单', kind: 'local'
+      })]
+    })
+  })
+
   it('keeps existing local library members when saving a classified segment', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -1997,6 +2020,42 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
       logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', remoteDisplayTitle: 'bilimi·音乐舞台', shardNumber: 1
     }))
+  })
+
+  it('preserves a Chinese target creation failure without completing the local round', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const createFolder = vi.fn().mockRejectedValue(new Error('Bilibili create failed'))
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined),
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·你好'),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['custom-saved-ledger'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('Bilibili create failed')
+    expect(createFolder).toHaveBeenCalledWith(expect.objectContaining({ title: 'bilimi·你好' }))
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.workspace).toMatchObject({ status: 'previewing' })
+    expect(snapshot.workspace?.frozenSyncPlan).toBeUndefined()
   })
 
   it('prepares enough Bilibili shards for a selected target that exceeds one folder', async () => {

@@ -1055,6 +1055,18 @@ export class OldFavoriteWorkspaceCoordinator {
           ])].sort((left, right) => left - right)
         }
       }
+      const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+      const existingLocalTitles = new Map(repository.folders
+        .filter((folder) => folder.kind === 'local')
+        .map((folder) => [folder.id, folder.title]))
+      const localFolderTitles = new Map(await Promise.all(Object.keys(memberAidsByFolderId).map(async (folderId) => {
+        const existingTitle = existingLocalTitles.get(folderId)
+        if (existingTitle) return [folderId, existingTitle] as const
+        if (folderId === 'local:inbox') return [folderId, '暂存'] as const
+        const logicalLedgerId = folderId.slice('local:'.length)
+        return [folderId, await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ??
+          defaultTitles.get(logicalLedgerId) ?? logicalLedgerId] as const
+      })))
       const completed = {
         ...workspace, status: 'completed' as const, classifications: {}, history: [], historyCursor: 0,
         completionMode: 'local' as const
@@ -1081,7 +1093,7 @@ export class OldFavoriteWorkspaceCoordinator {
           }),
           folders: Object.keys(memberAidsByFolderId).map((folderId) => ({
             id: folderId,
-            title: folderId === 'local:inbox' ? '暂存' : folderId.slice('local:'.length),
+            title: localFolderTitles.get(folderId)!,
             kind: 'local' as const,
             syncState: 'local-only' as const
           })),

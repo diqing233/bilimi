@@ -4,6 +4,7 @@ import type {
   FavoriteRepositorySyncRecord,
   FavoriteRepositoryVideo
 } from '../../../../shared/favoriteRepository'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 
 export type FavoriteLibrarySearchEntry = {
   video: FavoriteRepositoryVideo
@@ -36,6 +37,17 @@ export type FavoriteLibraryNavigationItem =
 export type FavoriteLibraryDetail = FavoriteLibraryRow & {
   folders: FavoriteRepositoryFolder[]
   pendingStates: FavoriteLibraryPendingState[]
+}
+
+const defaultLedgerTitlesById = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+
+function displayFolderTitle(folder: FavoriteRepositoryFolder) {
+  const logicalLedgerId = folder.kind === 'local' && folder.id.startsWith('local:')
+    ? folder.id.slice('local:'.length)
+    : undefined
+  return logicalLedgerId && folder.title === logicalLedgerId
+    ? defaultLedgerTitlesById.get(logicalLedgerId) ?? folder.title
+    : folder.title
 }
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
@@ -137,7 +149,7 @@ export function buildFavoriteLibraryNavigation(
       id: `folder:${folder.id}`,
       kind: 'folder' as const,
       folderId: folder.id,
-      title: folder.title,
+      title: displayFolderTitle(folder),
       source: folder.kind
     }))
   return [
@@ -157,7 +169,7 @@ export function buildFavoriteLibraryDetail(
     .map((folderId) => folderById.get(folderId))
     .filter((folder): folder is FavoriteRepositoryFolder => Boolean(folder))
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
-    .map((folder) => ({ ...folder }))
+    .map((folder) => ({ ...folder, title: displayFolderTitle(folder) }))
   return {
     ...createRow(row, row.folderIds),
     folders: matchingFolders,
