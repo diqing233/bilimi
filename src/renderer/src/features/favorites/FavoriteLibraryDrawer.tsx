@@ -3,17 +3,40 @@ import { FavoriteLibraryApp } from './FavoriteLibraryApp'
 
 const DEFAULT_HEIGHT = 360
 const MIN_HEIGHT = 220
-const RESERVED_BROWSER_HEIGHT = 180
 const KEYBOARD_HEIGHT_STEP = 24
+const BROWSER_STACK_MIN_HEIGHT = 180
+const DRAWER_RESIZE_HANDLE_HEIGHT = 6
+const BROWSER_TAB_HEIGHT = 42
+const COMPACT_BROWSER_TAB_HEIGHT = 38
+const COMPACT_BROWSER_WIDTH = 1200
+const COMPACT_BROWSER_HEIGHT = 760
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
   onClose: () => void
 }
 
+function browserTabHeight() {
+  return window.innerWidth <= COMPACT_BROWSER_WIDTH || window.innerHeight <= COMPACT_BROWSER_HEIGHT
+    ? COMPACT_BROWSER_TAB_HEIGHT
+    : BROWSER_TAB_HEIGHT
+}
+
+function maximumHeight() {
+  return Math.max(
+    MIN_HEIGHT,
+    window.innerHeight - browserTabHeight() - DRAWER_RESIZE_HANDLE_HEIGHT - BROWSER_STACK_MIN_HEIGHT
+  )
+}
+
 function clampHeight(height: number) {
-  const maximum = Math.max(MIN_HEIGHT, window.innerHeight - RESERVED_BROWSER_HEIGHT)
+  const maximum = maximumHeight()
   return Math.min(Math.max(height, MIN_HEIGHT), maximum)
+}
+
+function isVisible(element: HTMLElement) {
+  const style = window.getComputedStyle(element)
+  return element.isConnected && !element.closest('[hidden]') && style.display !== 'none' && style.visibility !== 'hidden'
 }
 
 export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerProps) {
@@ -21,12 +44,27 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const hasBeenOpenedRef = useRef(open)
+  const wasOpenRef = useRef(open)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const reconcileHeight = () => setHeight((current) => clampHeight(current))
     window.addEventListener('resize', reconcileHeight)
     return () => window.removeEventListener('resize', reconcileHeight)
   }, [])
+
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      const activeElement = document.activeElement
+      previousFocusRef.current = activeElement instanceof HTMLElement && isVisible(activeElement)
+        ? activeElement
+        : null
+    } else if (!open && wasOpenRef.current) {
+      previousFocusRef.current?.focus()
+      previousFocusRef.current = null
+    }
+    wasOpenRef.current = open
+  }, [open])
 
   if (open) {
     hasBeenOpenedRef.current = true
@@ -52,7 +90,7 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
         aria-label="调整收藏库高度"
         aria-orientation="horizontal"
         aria-valuemin={MIN_HEIGHT}
-        aria-valuemax={Math.max(MIN_HEIGHT, window.innerHeight - RESERVED_BROWSER_HEIGHT)}
+        aria-valuemax={maximumHeight()}
         aria-valuenow={height}
         tabIndex={0}
         onPointerDown={(event) => {
@@ -83,7 +121,7 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
             setHeight(MIN_HEIGHT)
           } else if (event.key === 'End') {
             event.preventDefault()
-            setHeight(clampHeight(window.innerHeight - RESERVED_BROWSER_HEIGHT))
+            setHeight(maximumHeight())
           }
         }}
       />

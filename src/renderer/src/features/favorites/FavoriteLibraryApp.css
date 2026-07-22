@@ -1,5 +1,6 @@
 .favorite-library { box-sizing: border-box; min-height: 100vh; padding: 16px; color: #1f2937; background: #f6f9ff; }
 .favorite-library[data-embedded='true'] { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100%; min-height: 0; padding: 10px; }
+.favorite-library[data-embedded='true'] { container-type: inline-size; }
 .favorite-library__header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid #d6e4fb; }
 .favorite-library__header h1 { margin: 0; font-size: 21px; }
 .favorite-library__header p { margin: 5px 0 12px; color: #64748b; font-size: 13px; }
@@ -35,4 +36,28 @@
 .favorite-library__detail section p { margin: 0; color: #64748b; }
 .favorite-library__detail .favorite-library__open-video { float: none; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; }
 .favorite-library__error { padding: 8px; color: #9d2e2e; background: #ffe8e5; }
-@media (max-width: 760px) { .favorite-library__layout { grid-template-columns: 150px minmax(0, 1fr); }.favorite-library__detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #e1d2c2; } }
+@container (max-width: 760px) {
+  .favorite-library[data-embedded='true'] .favorite-library__layout[data-embedded-layout='true'] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(220px, 1fr) auto;
+    overflow: auto;
+  }
+  .favorite-library[data-embedded='true'] .favorite-library__nav {
+    grid-row: 1;
+    grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+    padding: 8px 0;
+    border-right: 0;
+    border-bottom: 1px solid #dbe7f7;
+  }
+  .favorite-library[data-embedded='true'] .favorite-library__results {
+    grid-row: 2;
+    min-height: 220px;
+  }
+  .favorite-library[data-embedded='true'] .favorite-library__detail {
+    grid-row: 3;
+    max-height: 320px;
+    border-top: 1px solid #dbe7f7;
+    border-left: 0;
+  }
+}
+@media (max-width: 760px) { .favorite-library:not([data-embedded='true']) .favorite-library__layout { grid-template-columns: 150px minmax(0, 1fr); }.favorite-library:not([data-embedded='true']) .favorite-library__detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #e1d2c2; } }

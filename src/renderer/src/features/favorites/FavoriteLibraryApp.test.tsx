@@ -44,6 +44,7 @@ describe('FavoriteLibraryApp', () => {
 
     const root = await screen.findByRole('main', { name: text.library })
     expect(root).toHaveAttribute('data-embedded', 'true')
+    expect(root.querySelector('.favorite-library__layout')).toHaveAttribute('data-embedded-layout', 'true')
     expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
     expect(root.children[2]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
@@ -55,6 +56,15 @@ describe('FavoriteLibraryApp', () => {
     )
     expect(favoriteLibraryStyles).toContain(
       ".favorite-library[data-embedded='true'] .favorite-library__list { height: 100% !important; min-height: 0; }"
+    )
+    expect(favoriteLibraryStyles).toContain(
+      ".favorite-library[data-embedded='true'] { container-type: inline-size; }"
+    )
+    expect(favoriteLibraryStyles).toMatch(
+      /@container\s+\(max-width: 760px\)\s*\{\s*\.favorite-library\[data-embedded='true'\]\s+\.favorite-library__layout\[data-embedded-layout='true'\]\s*\{/
+    )
+    expect(favoriteLibraryStyles).toContain(
+      "@media (max-width: 760px) { .favorite-library:not([data-embedded='true']) .favorite-library__layout"
     )
   })
 

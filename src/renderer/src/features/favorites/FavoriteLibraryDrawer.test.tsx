@@ -52,6 +52,28 @@ describe('FavoriteLibraryDrawer', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it('restores focus to the element that opened the drawer when closed', () => {
+    function DrawerHarness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>打开收藏库</button>
+          <FavoriteLibraryDrawer open={open} onClose={() => setOpen(false)} />
+        </>
+      )
+    }
+
+    render(<DrawerHarness />)
+    const trigger = screen.getByRole('button', { name: '打开收藏库' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const close = screen.getByRole('button', { name: '关闭收藏库' })
+    close.focus()
+    fireEvent.click(close)
+
+    expect(trigger).toHaveFocus()
+  })
+
   it('retains the embedded library state after closing and reopening', () => {
     function DrawerHarness() {
       const [open, setOpen] = useState(false)
@@ -73,6 +95,7 @@ describe('FavoriteLibraryDrawer', () => {
   })
 
   it('clamps a resized height to the available browser workspace', () => {
+    vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
     render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
@@ -82,17 +105,32 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 10 })
     fireEvent.pointerUp(handle, { pointerId: 1 })
 
-    expect(drawer).toHaveStyle({ height: '720px' })
+    expect(drawer).toHaveStyle({ height: '672px' })
+  })
+
+  it('reserves browser stack height with the compact tab bar', () => {
+    vi.stubGlobal('innerWidth', 1200)
+    vi.stubGlobal('innerHeight', 900)
+    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    const drawer = screen.getByTestId('favorite-library-drawer')
+    const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 10 })
+
+    expect(drawer).toHaveStyle({ height: '676px' })
   })
 
   it('clamps its initial height to a short browser workspace', () => {
+    vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 500)
     render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
 
-    expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '320px' })
+    expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '276px' })
   })
 
   it('reclamps its height when the browser workspace becomes shorter', () => {
+    vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
     render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
@@ -106,6 +144,7 @@ describe('FavoriteLibraryDrawer', () => {
   })
 
   it('resizes with keyboard controls within the same bounds as pointer dragging', () => {
+    vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
     render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
@@ -119,6 +158,6 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.keyDown(handle, { key: 'Home' })
     expect(drawer).toHaveStyle({ height: '220px' })
     fireEvent.keyDown(handle, { key: 'End' })
-    expect(drawer).toHaveStyle({ height: '720px' })
+    expect(drawer).toHaveStyle({ height: '672px' })
   })
 })

@@ -254,7 +254,7 @@ export function FavoriteLibraryApp({ embedded = false }: { embedded?: boolean })
         {organizationChanges.length ? <ul>{organizationChanges.slice(-5).reverse().map((change) => <li key={change.id}>#{change.aid}：{change.status === 'succeeded' ? '已确认' : change.status === 'failed' ? '失败' : '待确认'}（{change.beforeFolderIds.length} → {change.afterFolderIds.length}）</li>)}</ul> : <p>{text.noOrganizationHistory}</p>}
       </section>
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
-      <div className="favorite-library__layout">
+      <div className="favorite-library__layout" data-embedded-layout={embedded || undefined}>
         <nav className="favorite-library__nav" aria-label={text.navigation}>
           {navigation.map((item) => (
             <button
