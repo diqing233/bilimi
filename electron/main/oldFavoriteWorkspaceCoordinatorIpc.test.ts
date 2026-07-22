@@ -135,6 +135,7 @@ describe('old favorite workspace coordinator IPC', () => {
     const coordinator = {
       pauseTagEnrichment: vi.fn(),
       resumeTagEnrichment: vi.fn(),
+      retryFailedTagEnrichment: vi.fn(),
       acceptCurrentTags: vi.fn(),
       getSnapshot: vi.fn().mockResolvedValue(snapshot)
     }
@@ -145,13 +146,18 @@ describe('old favorite workspace coordinator IPC', () => {
 
     await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'pause-tag-enrichment' })
     await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'resume-tag-enrichment' })
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'retry-failed-tag-enrichment' })
     await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'accept-current-tags' })
 
     expect(coordinator.pauseTagEnrichment).toHaveBeenCalledWith('100')
     expect(coordinator.resumeTagEnrichment).toHaveBeenCalledWith('100')
+    expect(coordinator.retryFailedTagEnrichment).toHaveBeenCalledWith('100')
     expect(coordinator.acceptCurrentTags).toHaveBeenCalledWith('100')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'accept-current-tags', aids: [1]
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'retry-failed-tag-enrichment', aids: [1]
     })).rejects.toThrow('command is invalid')
   })
 

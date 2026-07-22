@@ -11,6 +11,7 @@ type OldFavoriteScanOverviewStepProps = {
   onSelectSourceFolders: (folderIds: string[]) => void
   onPauseTagEnrichment: () => void
   onResumeTagEnrichment: () => void
+  onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
 }
 
@@ -39,6 +40,7 @@ export function OldFavoriteScanOverviewStep({
   onSelectSourceFolders
   ,onPauseTagEnrichment
   ,onResumeTagEnrichment
+  ,onRetryFailedTagEnrichment
   ,onAcceptCurrentTags
 }: OldFavoriteScanOverviewStepProps) {
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
@@ -95,14 +97,17 @@ export function OldFavoriteScanOverviewStep({
       </div> : null}
     </div>
     {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p>标签补取{tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
+      <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
       <p>已获取标签 {taggedItemCount} 条；确认无标签 {confirmedUntaggedItemCount} 条；读取失败 {failedTagItemCount} 条。</p>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
-        {tagEnrichment.status === 'paused'
-          ? <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>
-          : <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>}
-        <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
+        {tagEnrichment.status === 'running'
+          ? <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
+      {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
+        ? <button type="button" disabled={loading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
+        : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>

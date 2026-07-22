@@ -32,6 +32,7 @@ type WorkspaceCommand =
   | { type: 'redo-classification' }
   | { type: 'pause-tag-enrichment' }
   | { type: 'resume-tag-enrichment' }
+  | { type: 'retry-failed-tag-enrichment' }
   | { type: 'accept-current-tags' }
   | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
@@ -87,7 +88,7 @@ function command(value: unknown): WorkspaceCommand {
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
   }
-  if ((candidate.type === 'pause-tag-enrichment' || candidate.type === 'resume-tag-enrichment' || candidate.type === 'accept-current-tags') &&
+  if ((candidate.type === 'pause-tag-enrichment' || candidate.type === 'resume-tag-enrichment' || candidate.type === 'retry-failed-tag-enrichment' || candidate.type === 'accept-current-tags') &&
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
   }
@@ -146,6 +147,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   resumeTagEnrichment?: (accountMid: string) => Promise<void>
+  retryFailedTagEnrichment?: (accountMid: string) => Promise<void>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
@@ -207,6 +209,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'resume-tag-enrichment') {
       if (options.resumeTagEnrichment) await options.resumeTagEnrichment(accountMid)
       else await options.coordinator.resumeTagEnrichment(accountMid)
+    }
+    if (requested.type === 'retry-failed-tag-enrichment') {
+      if (options.retryFailedTagEnrichment) await options.retryFailedTagEnrichment(accountMid)
+      else await options.coordinator.retryFailedTagEnrichment(accountMid)
     }
     if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)

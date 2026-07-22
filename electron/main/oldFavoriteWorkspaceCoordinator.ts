@@ -1209,6 +1209,26 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(() => this.setTagEnrichmentStatus(accountMid, 'running'))
   }
 
+  async retryFailedTagEnrichment(accountMid: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace tags are not ready.')
+      const current = this.tagEnrichments.get(workspace.accountMid)
+      if (!current?.failedAids.length) return false
+      const next: TagEnrichment = {
+        ...current,
+        status: 'running',
+        pendingAids: [...new Set([...current.pendingAids, ...current.failedAids])].sort((left, right) => left - right),
+        failedAids: []
+      }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+      })
+      this.tagEnrichments.set(workspace.accountMid, next)
+      return true
+    })
+  }
+
   async acceptCurrentTags(accountMid: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -1254,6 +1274,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const next: TagEnrichment = {
         ...enrichment,
         pendingAids,
+        failedAids: enrichment.failedAids.filter((candidate) => candidate !== aid),
         status: pendingAids.length ? 'running' : 'complete'
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -1308,7 +1329,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const workspace = await this.requireWorkspace(accountMid)
     if (workspace.status !== 'previewing') throw new Error('Old favorite workspace tags are not ready.')
     const current = this.tagEnrichments.get(workspace.accountMid)
-    if (!current || current.status === 'complete' || current.status === 'accepted') return false
+    if (!current || current.status === 'complete' || (current.status === 'accepted' && status !== 'running')) return false
     if (status === 'running' && !current.pendingAids.length) return false
     const next: TagEnrichment = { ...current, status }
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {

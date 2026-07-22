@@ -25,6 +25,7 @@ type OldFavoriteGuideProps = {
   onSelectSourceFolders: (folderIds: string[]) => void
   onPauseTagEnrichment: () => void
   onResumeTagEnrichment: () => void
+  onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   ledgers: FavoriteLedger[]
@@ -68,6 +69,7 @@ export function OldFavoriteGuide({
   onSelectSourceFolders,
   onPauseTagEnrichment,
   onResumeTagEnrichment,
+  onRetryFailedTagEnrichment,
   onAcceptCurrentTags,
   onSetRecommendedCandidates,
   ledgers,
@@ -133,6 +135,7 @@ export function OldFavoriteGuide({
       onSelectSourceFolders={onSelectSourceFolders}
       onPauseTagEnrichment={onPauseTagEnrichment}
       onResumeTagEnrichment={onResumeTagEnrichment}
+      onRetryFailedTagEnrichment={onRetryFailedTagEnrichment}
       onAcceptCurrentTags={onAcceptCurrentTags}
     /> : null}
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep

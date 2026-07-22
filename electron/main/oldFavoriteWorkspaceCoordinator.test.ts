@@ -260,6 +260,53 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('resumes only the remaining tag reads after accepting the current tags', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'Tagged', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Pending', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+
+    await coordinator.acceptCurrentTags('100')
+    const classificationCountAfterAccepting = classifyCurrentItem.mock.calls.length
+    await coordinator.resumeTagEnrichment('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0 }
+    })
+    expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(classificationCountAfterAccepting)
+  })
+
+  it('requeues only failed tag reads without reprocessing confirmed empty tags', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'No tags', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Failed', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, [], workspaceId)
+    await coordinator.recordTagEnrichmentFailure('100', 2, 'network-failure', workspaceId)
+
+    await coordinator.retryFailedTagEnrichment('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0 }
+    })
+    expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
+  })
+
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

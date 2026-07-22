@@ -218,6 +218,18 @@ export class OldFavoriteWorkspaceScanService {
     if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
   }
 
+  async retryFailedTagEnrichment(accountMid: string) {
+    const account = normalizeAccountMid(accountMid)
+    if (!account) throw new Error('Old favorite workspace account is invalid.')
+    await this.options.coordinator.retryFailedTagEnrichment(account)
+    const binding = await this.request(account, { type: 'old-favorite-workspace-bind-scan-target', accountMid: account })
+    if (binding.status !== 'ok' || !binding.target || normalizeAccountMid(binding.observedAccountMid) !== account) {
+      return
+    }
+    const snapshot = await this.options.coordinator.getSnapshot(account)
+    if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
+  }
+
   private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string) {
     const current = this.enrichmentRuns.get(accountMid)
     if (current) {

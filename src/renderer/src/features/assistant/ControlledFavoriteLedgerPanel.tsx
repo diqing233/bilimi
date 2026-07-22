@@ -304,6 +304,7 @@ export function ControlledFavoriteLedgerPanel({
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
         onPauseTagEnrichment={() => void workspace.pauseTagEnrichment()}
         onResumeTagEnrichment={() => void workspace.resumeTagEnrichment()}
+        onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
         onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
 

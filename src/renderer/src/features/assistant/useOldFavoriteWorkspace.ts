@@ -313,6 +313,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const autoClassifyCurrentSegment = useCallback(() => sendCommand({ type: 'auto-classify-current-segment' }), [sendCommand])
   const pauseTagEnrichment = useCallback(() => sendCommand({ type: 'pause-tag-enrichment' }), [sendCommand])
   const resumeTagEnrichment = useCallback(() => sendCommand({ type: 'resume-tag-enrichment' }), [sendCommand])
+  const retryFailedTagEnrichment = useCallback(() => sendCommand({ type: 'retry-failed-tag-enrichment' }), [sendCommand])
   const acceptCurrentTags = useCallback(() => sendCommand({ type: 'accept-current-tags' }), [sendCommand])
   const setRecommendedCandidates = useCallback((candidateIds: string[]) => sendCommand({
     type: 'set-recommended-candidates',
@@ -346,7 +347,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
