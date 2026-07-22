@@ -54,10 +54,18 @@ function composeKeywords(ruleText: string, deepSeekConstraint: string, ruleType:
     : rules
 }
 
+function ledgerEditorSnapshot(ledger: FavoriteLedger) {
+  const { priority: _priority, ...snapshot } = ledger
+  return snapshot
+}
+
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
 export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, defaultFavoriteSystemEnabled = true, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
+  const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
+    Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)]))
+  )
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [newLedger, setNewLedger] = useState(false)
   const [deletionCandidates, setDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
@@ -67,10 +75,17 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTarget, setDragTarget] = useState<string | null>(null)
-  useEffect(() => { setDraftLedgers(ledgers); setActiveLedgerId(null); setNewLedger(false); setLedgerListExpanded(false) }, [ledgers])
+  useEffect(() => {
+    setDraftLedgers(ledgers)
+    setSavedLedgerSnapshots(Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+    setActiveLedgerId(null)
+    setNewLedger(false)
+    setLedgerListExpanded(false)
+  }, [ledgers])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
-  const activeHasUnsavedChanges = Boolean(active && (newLedger ||
-    JSON.stringify(active) !== JSON.stringify(ledgers.find((ledger) => ledger.id === active.id))))
+  const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
+    !savedLedgerSnapshots[ledger.id] || JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedLedgerSnapshots[ledger.id])
+  const activeHasUnsavedChanges = Boolean(active && ledgerHasUnsavedChanges(active))
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
   const title = active ? displayTitle(active.displayName) : ''
   const validation = favoriteLedgerNameValidation(active?.displayName ?? '')
@@ -87,6 +102,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const persist = (next: FavoriteLedger[]) => {
     setDraftLedgers(next)
+    setSavedLedgerSnapshots(Object.fromEntries(next.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     void onSaveLedgers(next, { deleteDisabled: false })
   }
   const toggle = (id: string) => {
@@ -135,7 +151,13 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
     setActiveLedgerId(null); setNewLedger(false)
   }
-  const save = () => { if (!valid) return; void onSaveLedgers(draftLedgers, { deleteDisabled: false }); setActiveLedgerId(null); setNewLedger(false) }
+  const save = () => {
+    if (!valid) return
+    setSavedLedgerSnapshots(Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+    void onSaveLedgers(draftLedgers, { deleteDisabled: false })
+    setActiveLedgerId(null)
+    setNewLedger(false)
+  }
   const requestSync = async () => {
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     const disabledIds = draftLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
@@ -169,14 +191,22 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
-          const unsaved = ledger.syncState === 'local-draft' || (newLedger && ledger.id === activeLedgerId)
+          const unsaved = ledger.syncState === 'local-draft' || ledgerHasUnsavedChanges(ledger)
           const ledgerLabel = `${disabledBySystem ? '（已停用）' : unsaved ? '（未保存）' : ''}${displayTitle(ledger.displayName) || ledger.displayName}`
           const dropPosition = dragTarget === ledger.id ? 'before' : undefined
           return <div key={ledger.id} data-testid={`favorite-ledger-chip-${ledger.id}`} className="favorite-ledger-panel__chip-item" draggable
             data-dragging={draggedLedgerId === ledger.id ? 'true' : undefined} data-drop-position={dropPosition}
             data-default-system-disabled={disabledBySystem ? 'true' : undefined} aria-label={dropPosition ? `插入到${displayTitle(ledger.displayName)}上方` : undefined}
             onDragStart={(event) => beginDrag(ledger.id, event)} onDragOver={(event) => dragOver(ledger.id, event)} onDrop={(event) => dropOn(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }}>
-            <button type="button" aria-label={ledgerLabel} title={ledger.displayName} aria-pressed={ledger.enabled && !disabledBySystem} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{ledgerLabel}</button>
+            <button type="button" aria-label={ledgerLabel} title={ledger.displayName} aria-pressed={ledger.enabled && !disabledBySystem} onClick={() => {
+              if (activeLedgerId === ledger.id) {
+                setActiveLedgerId(null)
+                setNewLedger(false)
+                return
+              }
+              setActiveLedgerId(ledger.id)
+              setNewLedger(false)
+            }}>{ledgerLabel}</button>
             <button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled && !disabledBySystem} disabled={!isOperable(ledger)} onClick={() => toggle(ledger.id)}>{ledger.enabled && !disabledBySystem ? '✓' : '+'}</button>
           </div>
         })}</div>

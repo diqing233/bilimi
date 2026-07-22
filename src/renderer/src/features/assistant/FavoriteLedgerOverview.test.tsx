@@ -61,6 +61,34 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: /^（未保存）/ })).toBeInTheDocument()
   })
 
+  it('keeps an edited ledger marked as unsaved after selecting another ledger', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false },
+      { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 20, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '摇滚' } })
+    fireEvent.click(screen.getByRole('button', { name: '知识' }))
+
+    expect(screen.getByRole('button', { name: '（未保存）音乐' })).toBeInTheDocument()
+    expect(screen.getByText('正在编辑：bilimi·知识')).toBeInTheDocument()
+  })
+
+  it('collapses the editor when the active ledger card is selected again', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    const card = screen.getByRole('button', { name: '音乐' })
+    fireEvent.click(card)
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    fireEvent.click(card)
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(card)
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+  })
+
   it('keeps a cross-row drag reorder as a local draft until the user explicitly syncs', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
