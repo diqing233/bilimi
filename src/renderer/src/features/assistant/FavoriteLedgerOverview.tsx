@@ -192,9 +192,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
-          const pendingSync = ledger.syncState === 'local-draft'
-          const unsaved = !pendingSync && ledgerHasUnsavedChanges(ledger)
-          const ledgerLabel = `${disabledBySystem ? '（已停用）' : pendingSync ? '（待同步）' : unsaved ? '（未保存）' : ''}${displayTitle(ledger.displayName) || ledger.displayName}`
+          const unsaved = ledgerHasUnsavedChanges(ledger)
+          const ledgerLabel = `${disabledBySystem ? '（已停用）' : unsaved ? '（未保存）' : ''}${displayTitle(ledger.displayName) || ledger.displayName}`
           const dropPosition = dragTarget === ledger.id ? 'before' : undefined
           return <div key={ledger.id} data-testid={`favorite-ledger-chip-${ledger.id}`} className="favorite-ledger-panel__chip-item" draggable
             data-dragging={draggedLedgerId === ledger.id ? 'true' : undefined} data-drop-position={dropPosition}
