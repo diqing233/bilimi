@@ -84,12 +84,6 @@ import {
   createFavoriteLibraryArchiveSummary,
   createFavoriteLibraryTranscriptionSummary
 } from './favoriteLibrarySummaries'
-import {
-  createFavoriteLibraryWindowOptions,
-  FavoriteLibrarySideBySideLayout,
-  FavoriteLibraryWindowController,
-  installFavoriteLibraryNavigationGuard
-} from './favoriteLibraryWindow'
 import { registerFavoriteLibraryBridgeIpc, type FavoriteLibraryAccount } from './favoriteLibraryBridge'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
@@ -109,7 +103,7 @@ import {
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import type { FloatingAssistantSide } from './floatingSealGeometry'
-import { createFavoriteLibraryPreloadScriptPath, createPreloadScriptPath } from './preloadPath'
+import { createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
@@ -162,7 +156,6 @@ const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
 const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
-const FAVORITE_LIBRARY_QUERY = { window: 'favorite-library' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
@@ -1215,34 +1208,8 @@ async function refreshFavoriteLibraryVideo(accountMid: string, aid: number) {
   }
 }
 
-function createFavoriteLibraryWindow() {
-  const display = screen.getDisplayMatching(mainWindow?.getBounds() ?? screen.getPrimaryDisplay().bounds)
-  const library = new BrowserWindow(
-    createFavoriteLibraryWindowOptions(
-      display.workArea,
-      createFavoriteLibraryPreloadScriptPath(__dirname)
-    )
-  )
-
-  library.removeMenu()
-  favoriteLibrarySideBySideLayout.open(mainWindow, library)
-  library.on('closed', () => {
-    favoriteLibrarySideBySideLayout.close(mainWindow)
-    favoriteLibraryWindowController.clearIfCurrent(library)
-  })
-  loadRendererWindow(library, FAVORITE_LIBRARY_QUERY)
-  // The initial local route is a top-level navigation, so guard only after starting it.
-  installFavoriteLibraryNavigationGuard(library.webContents)
-  return library
-}
-
-const favoriteLibraryWindowController = new FavoriteLibraryWindowController(createFavoriteLibraryWindow)
-const favoriteLibrarySideBySideLayout = new FavoriteLibrarySideBySideLayout()
-
 function isTrustedFavoriteLibraryReader(senderId: number): boolean {
-  const library = favoriteLibraryWindowController.getWindow()
-  return senderId === mainWindow?.webContents.id ||
-    Boolean(library && !library.isDestroyed() && library.webContents.id === senderId)
+  return senderId === mainWindow?.webContents.id
 }
 
 if (singleInstanceGuard) app.whenReady().then(async () => {

@@ -15,8 +15,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(import.meta.dirname, 'electron/preload/index.ts'),
-          favoriteLibrary: resolve(import.meta.dirname, 'electron/preload/favoriteLibrary.ts')
+          index: resolve(import.meta.dirname, 'electron/preload/index.ts')
         }
       }
     },

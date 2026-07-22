@@ -6,6 +6,7 @@ import { registerFavoriteLibraryBridgeIpc } from './favoriteLibraryBridge'
 type Handler = (event: { sender: { id: number } }, ...args: unknown[]) => unknown
 const mainPreloadSource = readFileSync(resolve(process.cwd(), 'electron/preload/index.ts'), 'utf8')
 const mainProcessSource = readFileSync(resolve(process.cwd(), 'electron/main/index.ts'), 'utf8')
+const mainRendererSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/main.tsx'), 'utf8')
 
 function createHarness() {
   const handlers = new Map<string, Handler>()
@@ -28,15 +29,20 @@ function createHarness() {
 }
 
 describe('favorite library bridge IPC', () => {
-  it('exposes the embedded-library bridge from the main preload and opens the main-window drawer', () => {
+  it('exposes the embedded-library bridge from the main preload and opens only the main-window drawer', () => {
     expect(mainPreloadSource).toContain('getFavoriteRepositoryLibraryVideoDetail')
     expect(mainPreloadSource).toContain('syncFavoriteLibrarySelection')
     expect(mainPreloadSource).toContain('onFavoriteLibraryTranscriptionChanged')
     expect(mainPreloadSource).toContain('onOpenFavoriteLibraryDrawer')
     expect(mainProcessSource).toContain("webContents.send('favorite-library:open-drawer')")
-    expect(mainProcessSource).toMatch(
-      /function isTrustedFavoriteLibraryReader\(senderId: number\): boolean \{\s*const library = favoriteLibraryWindowController\.getWindow\(\)\s*return senderId === mainWindow\?\.webContents\.id \|\|/
-    )
+    expect(mainProcessSource).toMatch(/function isTrustedFavoriteLibraryReader\(senderId: number\): boolean \{\s*return senderId === mainWindow\?\.webContents\.id/)
+    expect(mainProcessSource).not.toContain("from './favoriteLibraryWindow'")
+    expect(mainProcessSource).not.toContain('createFavoriteLibraryWindow')
+    expect(mainProcessSource).not.toContain('FavoriteLibrarySideBySideLayout')
+    expect(mainProcessSource).not.toContain('createFavoriteLibraryPreloadScriptPath')
+    expect(mainProcessSource).not.toContain("window: 'favorite-library'")
+    expect(mainRendererSource).not.toContain("from './features/favorites/FavoriteLibraryApp'")
+    expect(mainRendererSource).not.toContain("route.get('window') === 'favorite-library'")
   })
 
   it('returns the current nickname and UID only to the library window', async () => {
