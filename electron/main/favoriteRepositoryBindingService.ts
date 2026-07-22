@@ -246,14 +246,17 @@ export class FavoriteRepositoryBindingService {
           remoteFolderId: created.folder.id,
           inventory: [...finalInventory.folders, { ...created.folder, memberAids: [] }]
         }, token)
-      } catch {
+      } catch (error) {
         // The write may have succeeded remotely. Persist only a pending marker
         // and require a later inventory diff before any binding is trusted.
-        return this.preparePhysicalShardWithToken(account, {
+        // The caller must still see the failed confirmation rather than
+        // continuing with a generic unbound target.
+        await this.preparePhysicalShardWithToken(account, {
           ...input,
           observedAccountMid: finalInventory.observedAccountMid,
           inventory: finalInventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
         }, token)
+        throw error
       }
     } finally {
       pageBridgeManager.release(account, runId)

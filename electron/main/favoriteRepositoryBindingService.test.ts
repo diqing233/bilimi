@@ -286,7 +286,7 @@ describe('FavoriteRepositoryBindingService', () => {
     }))
   })
 
-  it('keeps a created-shard binding pending when the remote result is unknown', async () => {
+  it('keeps a failed created-shard binding pending while preserving the remote failure', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({
       repository, newBindingToken: () => 'a1b2c3',
@@ -301,7 +301,10 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     await expect(service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] }))
-      .resolves.toMatchObject({ shards: [expect.objectContaining({ bindingState: 'pending-reconcile' })] })
+      .rejects.toThrow('network interrupted')
+    await expect(service.getBindings('100')).resolves.toMatchObject({
+      shards: [expect.objectContaining({ bindingState: 'pending-reconcile' })]
+    })
   })
 
   it('reuses the exact generated title when production token generation changes per call', async () => {
