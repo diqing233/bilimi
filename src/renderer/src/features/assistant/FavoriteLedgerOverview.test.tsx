@@ -3,6 +3,29 @@ import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
 describe('FavoriteLedgerOverview', () => {
+  it('uses one bulk toggle that selects and clears the currently operable ledgers', () => {
+    const save = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
+      { id: 'custom-tech', displayName: '科技', keywords: [], enabled: true, priority: 20, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    const toggle = screen.getByTestId('favorite-ledger-cancel-all')
+    expect(toggle).toHaveTextContent('全选')
+    fireEvent.click(toggle)
+    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'music', enabled: true }),
+      expect.objectContaining({ id: 'custom-tech', enabled: true })
+    ]), { deleteDisabled: false })
+
+    expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('取消全选')
+    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'music', enabled: false }),
+      expect.objectContaining({ id: 'custom-tech', enabled: false })
+    ]), { deleteDisabled: false })
+  })
+
   it('keeps required defaults selected when cancel-all clears custom targets during a round', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview
@@ -31,19 +54,48 @@ describe('FavoriteLedgerOverview', () => {
 
     const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: vi.fn(() => 'first') }
     fireEvent.dragStart(screen.getByTestId('favorite-ledger-chip-first'), { dataTransfer: transfer })
+    fireEvent.dragOver(screen.getByTestId('favorite-ledger-chip-second'), { dataTransfer: transfer, clientY: -1 })
+    expect(screen.getByTestId('favorite-ledger-chip-second')).toHaveAttribute('data-drop-position', 'after')
     fireEvent.drop(screen.getByTestId('favorite-ledger-chip-second'), { dataTransfer: transfer })
     expect(save).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'second', priority: 10 }),
       expect.objectContaining({ id: 'first', priority: 20 })
     ], { deleteDisabled: false })
+    expect(screen.getByTestId('favorite-ledger-chip-second')).not.toHaveAttribute('data-drop-position')
+    fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-first'))
+    expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')
+  })
+
+  it('checks managed deletion candidates from 同步 instead of rendering a separate check action', async () => {
+    const sync = vi.fn().mockResolvedValue(undefined)
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3 }
+    ])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    expect(screen.queryByRole('button', { name: '检查待删除收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    expect(await screen.findByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).toBeInTheDocument()
+    expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['music'])
+    expect(sync).not.toHaveBeenCalled()
   })
 
   it('uses the restored cancel-all action to clear the current selection', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview
       ledgers={[
-        { id: 'music', displayName: 'bilimi:音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: false, priority: 10, isDefault: true },
-        { id: 'reading', displayName: 'bilimi:阅读', keywords: ['阅读'], ruleType: 'keyword', enabled: false, priority: 20, isDefault: true }
+        { id: 'music', displayName: 'bilimi:音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: true },
+        { id: 'reading', displayName: 'bilimi:阅读', keywords: ['阅读'], ruleType: 'keyword', enabled: true, priority: 20, isDefault: true }
       ]}
       missingLedgerIds={[]}
       onSaveLedgers={save}

@@ -129,7 +129,7 @@ After successful deletion:
 
 ## UI Behavior
 
-- The switch appears in Settings with detailed caution text and is also reflected in the folder overview.
+- The only operable switch appears in Settings with detailed caution text; the folder overview only reflects disabled defaults.
 - Disabled defaults use disabled controls plus an `已停用` text state; color alone must not communicate the state.
 - Default folders that are locally enabled but unbound show a clear local-only/not-backed-up state rather than appearing unavailable.
 - While tag enrichment blocks preview, show a useful progress/locked state instead of an empty preview.

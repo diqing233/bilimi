@@ -475,6 +475,7 @@ const SETTINGS_JUMP_OPTIONS = [
   { value: 'transcription', label: '视频音频转写速度' },
   { value: 'archive', label: '收藏整理' },
   { value: 'review-actions', label: '批阅动作' },
+  { value: 'favorites', label: '收藏夹体系' },
   { value: 'close', label: '关闭设置' }
 ] as const
 const SETTINGS_SCROLL_SYNC_OFFSET = 32
@@ -2591,7 +2592,6 @@ export function FloatingAssistantApp({
             ledgers={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ?? preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             defaultFavoriteSystemEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
-            onDefaultFavoriteSystemEnabledChange={(enabled) => void setDefaultFavoriteSystemEnabled(enabled)}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
             onSyncLedgers={syncFavoriteLedgers}
@@ -3386,6 +3386,24 @@ export function FloatingAssistantApp({
                 />
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--favorites"
+              data-settings-section="favorites"
+            >
+              <legend>默认收藏夹体系</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="启用默认收藏夹"
+                  checked={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+                  onChange={(event) => void setDefaultFavoriteSystemEnabled(event.currentTarget.checked)}
+                />
+                <span>启用默认收藏夹</span>
+              </label>
+              <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
+              <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
+              <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"

@@ -228,6 +228,32 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('keeps the default favorite system switch in Settings instead of the ledger overview', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        favoriteAccountPreferences: {
+          '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [] }
+        }
+      })
+    })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    expect(screen.queryByRole('checkbox', { name: '启用默认收藏夹' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    const defaultSystem = await screen.findByRole('checkbox', { name: '启用默认收藏夹' })
+    expect(screen.getByText(/未备册也可先按默认逻辑目标等待标签完成后分类预览/)).toBeInTheDocument()
+    expect(defaultSystem).toBeChecked()
+
+    const settingsSections = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-settings-section]')
+    ).map((section) => section.dataset.settingsSection)
+    expect(settingsSections.slice(-2)).toEqual(['favorites', 'close'])
+    expect(
+      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-2).map((option) => option.value)
+    ).toEqual(['favorites', 'close'])
+  })
+
   it('keeps an expanded sidebar on its own page when the pet opens another workspace', async () => {
     const api = installDesktopApi()
     render(<AssistantSidebar />)

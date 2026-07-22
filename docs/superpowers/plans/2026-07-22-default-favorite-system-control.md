@@ -99,7 +99,7 @@ it('persists sequential priorities after native drag drop', () => {
 ```
 
 - [ ] **Step 6: Verify RED.** Run `npm test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx -t "取消全选|sequential priorities"`; expect failure.
-- [ ] **Step 7: Implement compact controls.** Add switch/caution copy, `已停用`, and local-only state. Lock required defaults during a round but allow their rule edits; keep custom/recommendation controls editable. Restore native 1.0.5 drag handlers, persist sequential priorities after drop, then reclassify. Rename `全不选` to `取消全选`; preserve required defaults in a round.
+- [ ] **Step 7: Implement compact controls.** Put the only operable switch and caution copy in Settings; the folder overview only reflects `已停用` and local-only state. Lock required defaults during a round but allow their rule edits; keep custom/recommendation controls editable. Restore native 1.0.5 drag handlers, persist sequential priorities after drop, then reclassify. Use one `全选` / `取消全选` toggle and preserve required defaults in a round.
 - [ ] **Step 8: Verify GREEN.** Run `npm test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.test.tsx`; expect pass.
 - [ ] **Step 9: Commit.**
 

@@ -15,7 +15,6 @@ type ControlledFavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   defaultFavoriteSystemEnabled?: boolean
-  onDefaultFavoriteSystemEnabledChange?: (enabled: boolean) => void
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
@@ -56,7 +55,6 @@ export function ControlledFavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
   defaultFavoriteSystemEnabled,
-  onDefaultFavoriteSystemEnabledChange,
   onEnsureLedgers,
   onSaveLedgers,
   onSyncLedgers,
@@ -76,6 +74,9 @@ export function ControlledFavoriteLedgerPanel({
   const [confirmationPreparing, setConfirmationPreparing] = useState(false)
   const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
   const [confirmationPreparationError, setConfirmationPreparationError] = useState<string | null>(null)
+  const [managedDeletionCandidates, setManagedDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
+  const [managedDeletionReviewOpen, setManagedDeletionReviewOpen] = useState(false)
+  const [managedDeletionConfirmed, setManagedDeletionConfirmed] = useState(false)
   const scanPresentationRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
   const previousWorkspaceStatusRef = useRef<string | null>(null)
@@ -166,10 +167,8 @@ export function ControlledFavoriteLedgerPanel({
     await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
     await startScan('incremental')
   }
-  const confirmAndSync = async () => {
-    if (!snapshot || recovery || confirmationPreparing) return
-    setConfirmationPreparationError(null)
-    setConfirmationPreparing(true)
+  const continueConfirmAndSync = async () => {
+    if (!snapshot || recovery) return
     try {
       if (confirmationNeedsBackup(snapshot, ledgers, missingLedgerIds)) {
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
@@ -185,6 +184,41 @@ export function ControlledFavoriteLedgerPanel({
     } finally {
       setConfirmationPreparing(false)
       setConfirmationPreparationStatus(null)
+    }
+  }
+  const confirmAndSync = async () => {
+    if (!snapshot || recovery || confirmationPreparing) return
+    setConfirmationPreparationError(null)
+    setConfirmationPreparing(true)
+    const disabledLedgerIds = ledgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
+    try {
+      const candidates = currentAccountMid && disabledLedgerIds.length
+        ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(currentAccountMid, disabledLedgerIds)
+        : []
+      if (candidates?.length) {
+        setManagedDeletionCandidates(candidates)
+        setConfirmationPreparing(false)
+        return
+      }
+      await continueConfirmAndSync()
+    } catch (error) {
+      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
+      setConfirmationPreparing(false)
+    }
+  }
+  const confirmManagedDeletionAndSync = async () => {
+    if (!currentAccountMid || !managedDeletionCandidates || !managedDeletionConfirmed) return
+    setConfirmationPreparing(true)
+    try {
+      await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(currentAccountMid, managedDeletionCandidates.map((candidate) => candidate.logicalLedgerId))
+      setManagedDeletionCandidates(null)
+      setManagedDeletionReviewOpen(false)
+      setManagedDeletionConfirmed(false)
+      await continueConfirmAndSync()
+    } catch (error) {
+      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹删除失败，请重试。')
+    } finally {
+      setConfirmationPreparing(false)
     }
   }
   const reconcile = async () => {
@@ -220,10 +254,18 @@ export function ControlledFavoriteLedgerPanel({
         missingLedgerIds={missingLedgerIds}
         organizationActive={snapshot?.status === 'previewing'}
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
-        onDefaultFavoriteSystemEnabledChange={onDefaultFavoriteSystemEnabledChange}
         onSaveLedgers={onSaveLedgers}
         onSyncLedgers={onSyncLedgers}
       />
+      {managedDeletionCandidates && !managedDeletionReviewOpen ? <OldFavoriteModal title="同步变更说明" confirmLabel="继续" onCancel={() => setManagedDeletionCandidates(null)} onConfirm={() => setManagedDeletionReviewOpen(true)}>
+        <p>本次同步有 {managedDeletionCandidates.length} 个 bilimi 管理的收藏夹需要删除。</p>
+        <p>请先确认变更内容；继续后需要进行危险操作确认。</p>
+      </OldFavoriteModal> : null}
+      {managedDeletionCandidates && managedDeletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel="删除并同步" confirmDisabled={!managedDeletionConfirmed || confirmationPreparing} onCancel={() => { setManagedDeletionCandidates(null); setManagedDeletionReviewOpen(false); setManagedDeletionConfirmed(false) }} onConfirm={() => void confirmManagedDeletionAndSync()}>
+        <ul>{managedDeletionCandidates.map((candidate) => <li key={candidate.remoteFolderId}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
+        <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
+        <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
+      </OldFavoriteModal> : null}
       {resumeDialogOpen ? <OldFavoriteModal title="整理旧藏"
         onCancel={() => setResumeDialogOpen(false)}
         extraActions={<>
