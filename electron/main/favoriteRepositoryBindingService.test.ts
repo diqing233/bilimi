@@ -157,6 +157,32 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(createFolder).not.toHaveBeenCalled()
   })
 
+  it('rejects a saved remote id when its expected title is duplicated remotely', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [
+              { id: 'saved-music', title: 'bilimi\u00b7Music', memberCount: 12 },
+              { id: 'duplicate-music', title: 'bilimi\u00b7Music', memberCount: 1 }
+            ]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.ensurePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi\u00b7Music', remoteDisplayTitle: 'bilimi\u00b7Music',
+      preferredRemoteFolderId: 'saved-music', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('ambiguous')
+  })
+
   it('journals a binding without rewriting a 30k repository generation', async () => {
     const repository = await createRepository()
     for (let aid = 1; aid <= 3; aid++) {

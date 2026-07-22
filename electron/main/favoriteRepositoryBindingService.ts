@@ -175,6 +175,7 @@ export class FavoriteRepositoryBindingService {
     logicalLedgerId: string
     logicalTitle: string
     remoteDisplayTitle?: string
+    preferredRemoteFolderId?: string
     shardNumber: number
     memberAids: number[]
   }) {
@@ -187,6 +188,7 @@ export class FavoriteRepositoryBindingService {
     logicalLedgerId: string
     logicalTitle: string
     remoteDisplayTitle?: string
+    preferredRemoteFolderId?: string
     shardNumber: number
     memberAids: number[]
   }) {
@@ -208,6 +210,18 @@ export class FavoriteRepositoryBindingService {
       }
       const existing = inventory.folders.filter((folder) => folder.title === title)
       if (existing.length > 1) throw new Error('Favorite repository remote shard title is ambiguous.')
+      const preferredRemoteFolderId = input.preferredRemoteFolderId?.trim()
+      const preferred = preferredRemoteFolderId
+        ? inventory.folders.find((folder) => folder.id === preferredRemoteFolderId)
+        : undefined
+      if (preferred?.title === title) {
+        return this.preparePhysicalShardWithToken(account, {
+          ...input,
+          observedAccountMid: inventory.observedAccountMid,
+          remoteFolderId: preferred.id,
+          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+        }, token)
+      }
       if (existing.length === 1) {
         return this.preparePhysicalShardWithToken(account, {
           ...input,

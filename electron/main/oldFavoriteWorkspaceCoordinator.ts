@@ -231,6 +231,7 @@ export class OldFavoriteWorkspaceCoordinator {
         logicalLedgerId: string
         logicalTitle: string
         remoteDisplayTitle?: string
+        preferredRemoteFolderId?: string
         shardNumber: number
         memberAids: number[]
       }): Promise<unknown>
@@ -243,6 +244,10 @@ export class OldFavoriteWorkspaceCoordinator {
     markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
+    resolveLedgerBinding?: (accountMid: string, logicalLedgerId: string) => Promise<{
+      remoteFolderId?: string
+      remoteDisplayTitle?: string
+    } | undefined>
     now?: () => string
   }) {}
 
@@ -1184,10 +1189,12 @@ export class OldFavoriteWorkspaceCoordinator {
         const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
         const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
         for (let offset = 0; offset < shardCount; offset += 1) {
+          const savedBinding = await this.options.resolveLedgerBinding?.(preparation.accountMid, logicalLedgerId)
           await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
             logicalLedgerId,
             logicalTitle,
-            remoteDisplayTitle: logicalTitle,
+            remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
+            ...(savedBinding?.remoteFolderId ? { preferredRemoteFolderId: savedBinding.remoteFolderId } : {}),
             shardNumber: nextShardNumber + offset,
             memberAids: []
           })

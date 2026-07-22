@@ -2022,6 +2022,50 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }))
   })
 
+  it('reclaims a saved remote target after the repository was reset', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const createFolder = vi.fn()
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: 'saved-music-folder', title: 'bilimi\u00b7Music', memberCount: 12 }]
+          }),
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi\u00b7Music'),
+      resolveLedgerBinding: vi.fn().mockResolvedValue({
+          remoteFolderId: 'saved-music-folder',
+          remoteDisplayTitle: 'bilimi\u00b7Music'
+      }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
+    expect(createFolder).not.toHaveBeenCalled()
+    await expect(bindings.getBindings('100')).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'saved-music-folder', bindingState: 'bound' })]
+    })
+  })
+
   it('reclaims an unresolved prior target from the remote inventory before freezing a retry', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

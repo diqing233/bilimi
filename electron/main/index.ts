@@ -1268,6 +1268,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
         logicalLedgerId
       ),
+    resolveLedgerBinding: async (accountMid, logicalLedgerId) => {
+      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+        .find((candidate) => candidate.id === logicalLedgerId)
+      if (!ledger) return undefined
+      return {
+        ...(ledger.bilibiliFolderId ? { remoteFolderId: ledger.bilibiliFolderId } : {}),
+        remoteDisplayTitle: ledger.displayName
+      }
+    },
     prepareForOrganization: async (accountMid) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       const favoriteLedgers = enableDefaultLedgersForOrganization(
