@@ -178,10 +178,12 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '取消 DeepSeek 整理' }))
+    const cancelButton = screen.getByRole('button', { name: '取消整理' })
+    expect(cancelButton.closest('.favorite-ledger-panel__deepseek-archive-actions')).not.toBeNull()
+    fireEvent.click(cancelButton)
     expect(onCancelDeepSeek).toHaveBeenCalledOnce()
-    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
-    expect(screen.getByLabelText('DeepSeek 整理反馈')).toHaveClass('favorite-ledger-panel__deepseek-feedback')
+    expect(screen.queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('DeepSeek 整理反馈')).not.toBeInTheDocument()
     rerender(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -209,7 +211,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
-    expect(canceledRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).not.toBeNull()
+    expect(canceledRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).toBeNull()
     expect(screen.getByRole('button', { name: '重试失败批次' })).toBeInTheDocument()
     canceledRender.unmount()
 
@@ -225,7 +227,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
-    expect(completedRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).not.toBeNull()
+    expect(completedRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).toBeNull()
     expect(screen.queryByRole('button', { name: '重试失败批次' })).not.toBeInTheDocument()
     completedRender.unmount()
     expect(screen.queryByRole('button', { name: 'DeepSeek 整理中' })).not.toBeInTheDocument()

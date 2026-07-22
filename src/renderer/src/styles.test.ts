@@ -205,6 +205,16 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('uses the 1.0.5 preview card track without a second sizing shell', () => {
+    expectStyleSnippet('.favorite-ledger-panel__preview-item-shell { display: contents;')
+    expect(normalizedStyles).not.toContain(
+      '.favorite-ledger-panel__preview-item-shell {\n  flex: 0 0 calc(100% - 56px);'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-video a { color: var(--porcelain-deep); text-decoration: none;'
+    )
+  })
+
   it('removes the closed favorite library drawer from layout', () => {
     expectStyleSnippet('.favorite-library-drawer[hidden] { display: none;')
   })

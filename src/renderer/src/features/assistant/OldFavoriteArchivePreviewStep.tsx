@@ -68,6 +68,7 @@ export function OldFavoriteArchivePreviewStep({
   const deepSeekFeedbackView = deepSeekFeedback
     ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
     : null
+  const deepSeekCancellationAction = deepSeekFeedbackView?.action === 'cancel' || deepSeekFeedbackView?.action === 'cancelling'
   const historySourceLabels = {
     manual: '人工调整',
     deepseek: 'DeepSeek',
@@ -137,7 +138,7 @@ export function OldFavoriteArchivePreviewStep({
               }}>
                 <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
                   title={`当前选择：${DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === deepSeekMode)?.label ?? ''}`}
-                  disabled={loading} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
+                  disabled={loading || deepSeekCancellationAction} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
                   <span>整理范围</span><span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
                 </button>
                 {deepSeekScopeOpen ? <div className="favorite-ledger-panel__deepseek-archive-scope-menu" role="menu" aria-label="DeepSeek 处理对象">
@@ -147,16 +148,20 @@ export function OldFavoriteArchivePreviewStep({
                   </button>)}
                 </div> : null}
               </div>
-              <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
+              {deepSeekCancellationAction ? <button
+                type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
+                disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
+                {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
+              </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
                 disabled={!deepSeekAvailable || loading || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
                 DeepSeek 整理
-              </button>
+              </button>}
             </div>
           </div>
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
-          {deepSeekFeedbackView ? <div className="favorite-ledger-panel__deepseek-feedback"
-            aria-label="DeepSeek 整理反馈" role={deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status'}>
+          {deepSeekFeedbackView ? <div className="favorite-ledger-panel__deepseek-result"
+            role={deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status'}>
             <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
             {deepSeekFeedbackView.progress ? <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedbackView.kind === 'running'}>
               <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
@@ -172,11 +177,6 @@ export function OldFavoriteArchivePreviewStep({
               <summary>查看失败详情</summary>
               {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
             </details> : null}
-            {deepSeekFeedbackView.action === 'cancel' || deepSeekFeedbackView.action === 'cancelling' ? <button
-              type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
-              disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
-              {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消 DeepSeek 整理'}
-            </button> : null}
             {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
