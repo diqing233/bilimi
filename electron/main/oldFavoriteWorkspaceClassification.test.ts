@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 
 describe('mergeOldFavoriteWorkspaceLedgers', () => {
-  it('enables ordinary defaults for an organization round only when the default system is enabled', () => {
+  it('enables every default target for an organization round only when the default system is enabled', () => {
     const saved = [
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10, isDefault: true },
       { id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: false, priority: 20, isDefault: true },
@@ -11,7 +11,7 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
 
     expect(enableDefaultLedgersForOrganization(saved, true)).toEqual([
       expect.objectContaining({ id: 'knowledge', enabled: true }),
-      expect.objectContaining({ id: 'inbox', enabled: false }),
+      expect.objectContaining({ id: 'inbox', enabled: true }),
       expect.objectContaining({ id: 'custom', enabled: false })
     ])
     expect(enableDefaultLedgersForOrganization(saved, false)).toEqual(saved)

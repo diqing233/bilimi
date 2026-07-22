@@ -93,7 +93,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     displayTitle(ledger.displayName).toLocaleLowerCase() === title.trim().toLocaleLowerCase())
   const valid = Boolean(active && title.trim() && validation.valid && !duplicate)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
-  const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault && ledger.id !== 'inbox'
+  const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isOperable = (ledger: FavoriteLedger) => !isSystemDisabled(ledger) && !isRoundLocked(ledger)
   const operableLedgers = draftLedgers.filter(isOperable)
   const allOperableLedgersEnabled = operableLedgers.length > 0 && operableLedgers.every((ledger) => ledger.enabled)
@@ -141,7 +141,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     const nextTargetIndex = reordered.findIndex((ledger) => ledger === target)
     const insertionIndex = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
     reordered.splice(insertionIndex, 0, source!)
-    setDraftLedgers(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
+    persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
   const add = () => {
     const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, isDefault: false }

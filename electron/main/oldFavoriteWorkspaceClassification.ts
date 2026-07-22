@@ -10,13 +10,13 @@ export function classifierLedgersForAccount(
     .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
 }
 
-/** Starting an organization round restores all ordinary default targets, never staging. */
+/** Starting an organization round restores every default selection, including staging. */
 export function enableDefaultLedgersForOrganization(
   savedLedgers: FavoriteLedger[],
   defaultFavoriteSystemEnabled: boolean
 ) {
   if (!defaultFavoriteSystemEnabled) return savedLedgers
-  return savedLedgers.map((ledger) => ledger.isDefault && ledger.id !== 'inbox'
+  return savedLedgers.map((ledger) => ledger.isDefault
     ? { ...ledger, enabled: true, keywords: [...ledger.keywords] }
     : ledger)
 }
