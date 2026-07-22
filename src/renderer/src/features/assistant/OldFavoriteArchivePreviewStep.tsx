@@ -169,7 +169,7 @@ export function OldFavoriteArchivePreviewStep({
             {deepSeekFeedback.failures?.length ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
-        <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
+        <div className="favorite-ledger-panel__archive-tool-divider favorite-ledger-panel__archive-tool-divider--full-width" aria-hidden="true" />
         <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
           <div className="favorite-ledger-panel__archive-history-actions">
             <label className="favorite-ledger-panel__archive-history-select">

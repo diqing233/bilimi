@@ -42,6 +42,28 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByRole('button', { name: '新建收藏夹后重新归类' })).not.toBeInTheDocument()
   })
 
+  it('places a full-width dashed divider between DeepSeek organization and change history', () => {
+    const { container } = render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 },
+        continuationCount: 0, sourceFolders: [], segments: [],
+        currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+    />)
+
+    const toolCard = container.querySelector('.favorite-ledger-panel__archive-tool-card')
+    const divider = toolCard?.querySelector('.favorite-ledger-panel__archive-tool-divider--full-width')
+
+    expect(divider).not.toBeNull()
+    expect(divider?.previousElementSibling).toHaveClass('favorite-ledger-panel__deepseek-archive-section')
+    expect(divider?.nextElementSibling).toHaveClass('favorite-ledger-panel__archive-history-section')
+  })
+
   it('restores the legacy change-record entry and groups unmatched and classified videos', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
