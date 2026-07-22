@@ -205,6 +205,10 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('removes the closed favorite library drawer from layout', () => {
+    expectStyleSnippet('.favorite-library-drawer[hidden] { display: none;')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 

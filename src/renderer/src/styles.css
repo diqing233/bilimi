@@ -459,6 +459,9 @@ body[data-floating-window="true"],
   border-top: 1px solid rgba(31, 99, 181, 0.26);
   background: var(--porcelain-surface);
 }
+.favorite-library-drawer[hidden] {
+  display: none;
+}
 .favorite-library-drawer[data-collapsed="true"] {
   height: auto;
   grid-template-rows: auto;
