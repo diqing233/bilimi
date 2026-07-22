@@ -4,6 +4,7 @@ import {
   loadVideoNotes,
   loadVideoNoteArchives,
   loadAssistantPreferences,
+  loadFavoriteAccountPreferences,
   loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
   saveVideoNoteArchiveVersion,
@@ -14,6 +15,7 @@ import {
   saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  saveFavoriteAccountPreferences,
   patchAssistantPreferences,
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
@@ -74,6 +76,7 @@ function createFakeStore(
   const snapshot: DesktopStoreState = {
     favoritesFolderName: initial.favoritesFolderName ?? DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+    favoriteAccountPreferences: initial.favoriteAccountPreferences ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteAccountPreferences,
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
@@ -437,6 +440,30 @@ describe('assistant preference store helpers', () => {
           displayName: 'bilimi·鍏夊奖鐣欑湡'
         })
       ])
+    })
+  })
+
+  it('initializes default favorites once and restores each account configuration', () => {
+    const store = createFakeStore()
+    const customLedgers = [{
+      id: 'custom-tech', displayName: 'bilimi·科技', keywords: ['科技'],
+      enabled: true, priority: 10, isDefault: false
+    }]
+
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({
+      defaultFavoriteSystemEnabled: true,
+      favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers
+    })
+
+    saveFavoriteAccountPreferences(store, '100', {
+      defaultFavoriteSystemEnabled: false,
+      favoriteLedgers: customLedgers
+    })
+
+    expect(loadFavoriteAccountPreferences(store, '200').defaultFavoriteSystemEnabled).toBe(true)
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({
+      defaultFavoriteSystemEnabled: false,
+      favoriteLedgers: expect.arrayContaining(customLedgers)
     })
   })
 

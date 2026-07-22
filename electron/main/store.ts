@@ -36,6 +36,7 @@ import type {
   FavoriteKeywordSuggestion,
   FavoriteKeywordSuggestionAction,
   FavoriteKeywordSuggestionStatus,
+  FavoriteAccountPreferences,
   FavoriteLedger,
   MainWindowCloseBehavior,
   PendingFavoriteQueueItem,
@@ -49,6 +50,7 @@ import type {
 export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
+  favoriteAccountPreferences: Record<string, FavoriteAccountPreferences>
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
@@ -114,9 +116,41 @@ const EMPTY_DEEPSEEK_KEY_STATUS: DeepSeekKeyStatus = {
   protection: 'unavailable'
 }
 
+function normalizeFavoriteAccountMid(accountMid: string) {
+  const trimmed = accountMid.trim()
+  if (!/^\d+$/u.test(trimmed) || BigInt(trimmed) === 0n) throw new Error('Favorite account is invalid.')
+  return BigInt(trimmed).toString()
+}
+
+function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPreferences | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Partial<FavoriteAccountPreferences>
+  if (!Array.isArray(candidate.favoriteLedgers)) return undefined
+  return {
+    defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
+    favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers)
+  }
+}
+
+function normalizeFavoriteAccountPreferenceMap(value: unknown) {
+  if (!value || typeof value !== 'object') return {} as Record<string, FavoriteAccountPreferences>
+  const normalized: Record<string, FavoriteAccountPreferences> = {}
+  for (const [accountMid, preferences] of Object.entries(value)) {
+    try {
+      const account = normalizeFavoriteAccountMid(accountMid)
+      const entry = normalizeFavoriteAccountPreferences(preferences)
+      if (entry) normalized[account] = entry
+    } catch {
+      // Ignore malformed persisted account projections.
+    }
+  }
+  return normalized
+}
+
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoritesFolderName: 'bilimi 内库',
   favoriteLedgers: createDefaultFavoriteLedgers(),
+  favoriteAccountPreferences: {},
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
@@ -361,6 +395,7 @@ export function loadAssistantPreferences(
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
+    favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(store.get('petHoverShortcuts')),
@@ -459,6 +494,7 @@ export function saveAssistantPreferences(
   store.set({
     favoritesFolderName: preferences.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
+    favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(preferences.favoriteAccountPreferences),
     ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
@@ -532,6 +568,40 @@ export function patchAssistantPreferences(
     ...loadAssistantPreferences(store),
     ...patch
   })
+}
+
+/** Reads a durable account setting instead of accepting a renderer-owned projection. */
+export function loadFavoriteAccountPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  accountMid: string
+): FavoriteAccountPreferences {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const preferences = loadAssistantPreferences(store)
+  const existing = preferences.favoriteAccountPreferences[account]
+  if (existing) return {
+    defaultFavoriteSystemEnabled: existing.defaultFavoriteSystemEnabled,
+    favoriteLedgers: normalizeFavoriteLedgers(existing.favoriteLedgers)
+  }
+
+  const initialized: FavoriteAccountPreferences = {
+    defaultFavoriteSystemEnabled: true,
+    favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers)
+  }
+  store.set({ favoriteAccountPreferences: { ...preferences.favoriteAccountPreferences, [account]: initialized } })
+  return initialized
+}
+
+export function saveFavoriteAccountPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  accountMid: string,
+  preferences: FavoriteAccountPreferences
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const normalized = normalizeFavoriteAccountPreferences(preferences)
+  if (!normalized) throw new Error('Favorite account preferences are invalid.')
+  const current = loadAssistantPreferences(store)
+  store.set({ favoriteAccountPreferences: { ...current.favoriteAccountPreferences, [account]: normalized } })
+  return normalized
 }
 
 export function loadDeepSeekApiKeyStatus(

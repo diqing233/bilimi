@@ -986,7 +986,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItems).toHaveBeenCalledTimes(1)
     expect(classifyCurrentItems).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ aid: 1 }), expect.objectContaining({ aid: 2 }), expect.objectContaining({ aid: 3 })]),
-      expect.arrayContaining([expect.objectContaining({ id: 'custom-author-up-alpha' })])
+      expect.arrayContaining([expect.objectContaining({ id: 'custom-author-up-alpha' })]),
+      '100'
     )
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: {

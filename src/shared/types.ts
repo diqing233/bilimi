@@ -187,6 +187,7 @@ export type RecommendationLabel = {
 export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
+  favoriteAccountPreferences?: Record<string, FavoriteAccountPreferences>
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
@@ -223,6 +224,11 @@ export type AssistantPreferences = {
   deepseekBaseUrl: string
   permissionOnboardingCompleted: boolean
   assistantSidebarWidthPx: number | null
+}
+
+export type FavoriteAccountPreferences = {
+  defaultFavoriteSystemEnabled: boolean
+  favoriteLedgers: FavoriteLedger[]
 }
 
 export type AssistantAutomationResult = {

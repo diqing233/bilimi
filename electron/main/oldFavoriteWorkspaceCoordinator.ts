@@ -236,7 +236,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
-    classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[]) => AutomaticClassification[] | Promise<AutomaticClassification[]>
+    classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[], accountMid: string) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
@@ -904,7 +904,7 @@ export class OldFavoriteWorkspaceCoordinator {
             return existing?.source !== 'manual' && existing?.source !== 'deepseek'
           })
         const classifications = classifyMany
-          ? await classifyMany(candidates.map(clone), clone(recommendedLedgers))
+          ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), updated.accountMid)
           : await Promise.all(candidates.map((item) => recommendedLedgers.length
             ? classify!(clone(item), clone(recommendedLedgers))
             : classify!(clone(item))))
