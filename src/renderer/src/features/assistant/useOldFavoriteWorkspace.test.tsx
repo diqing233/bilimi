@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
+import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 
 const workspace = (accountMid: string) => ({
   version: 1 as const,
@@ -266,6 +267,28 @@ describe('useOldFavoriteWorkspace', () => {
 
     expect(organize).toHaveBeenCalledExactlyOnceWith('100', 'low-confidence-and-unclassified')
     expect(result.current.snapshot).toEqual(workspace('100'))
+  })
+
+  it('keeps failed DeepSeek batches retryable when a retry transport request rejects', async () => {
+    const failure = { chunkIndex: 2, affectedVideoCount: 3, message: 'incomplete current-segment' }
+    const organize = vi.fn().mockResolvedValue({
+      snapshot: workspace('100'),
+      progress: { totalChunks: 2, completedChunks: 2, totalVideoCount: 3, successfulVideoCount: 0, failedVideoCount: 3 },
+      failures: [failure]
+    })
+    const retry = vi.fn().mockRejectedValue(new Error('retry transport unavailable'))
+    window.bilimiDesktop = {
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize,
+      retryOldFavoriteWorkspaceDeepSeekV1: retry
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all') })
+    await act(async () => { await result.current.retryFailedDeepSeekChunks() })
+
+    expect(retry).toHaveBeenCalledExactlyOnceWith('100')
+    expect(result.current.deepSeekFeedback).toMatchObject({ status: 'failed', failures: [failure] })
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('retry')
   })
 
   it('requests cancellation through the workspace command without superseding the DeepSeek result', async () => {

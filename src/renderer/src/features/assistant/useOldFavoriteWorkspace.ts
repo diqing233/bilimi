@@ -311,6 +311,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const generation = accountGeneration.current
     const retry = window.bilimiDesktop?.retryOldFavoriteWorkspaceDeepSeekV1
     if (!accountMid || !retry) return null
+    const retryFailures = deepSeekFeedback?.failures ?? []
     setLoading(true)
     foregroundRequestCount.current += 1
     activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
@@ -327,7 +328,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return result.snapshot
     } catch (error) {
       if (requestVersion.current === version && accountGeneration.current === generation) {
-        setDeepSeekFeedback({ status: 'failed', message: deepSeekFailureMessage(error) })
+        setDeepSeekFeedback({ status: 'failed', message: deepSeekFailureMessage(error), failures: retryFailures })
       }
       return null
     } finally {
@@ -336,7 +337,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
     }
-  }, [accountMid, snapshot?.workspaceId])
+  }, [accountMid, deepSeekFeedback?.failures, snapshot?.workspaceId])
 
   const undoClassification = useCallback(() => sendCommand({ type: 'undo-classification' }), [sendCommand])
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
