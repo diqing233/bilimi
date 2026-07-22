@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
-  it('marks the root as embedded and uses a height-bounded embedded layout', async () => {
+  it('places the no-error embedded layout in the flexible row with a bounded result list', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -42,10 +42,19 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp embedded />)
 
-    expect(await screen.findByRole('main', { name: text.library })).toHaveAttribute('data-embedded', 'true')
+    const root = await screen.findByRole('main', { name: text.library })
+    expect(root).toHaveAttribute('data-embedded', 'true')
+    expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
+    expect(root.children[2]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
     expect(favoriteLibraryStyles).toContain(
-      ".favorite-library[data-embedded='true'] .favorite-library__list { height: 100%"
+      ".favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 4; height: 100%; min-height: 0; }"
+    )
+    expect(favoriteLibraryStyles).toContain(
+      ".favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }"
+    )
+    expect(favoriteLibraryStyles).toContain(
+      ".favorite-library[data-embedded='true'] .favorite-library__list { height: 100% !important; min-height: 0; }"
     )
   })
 
