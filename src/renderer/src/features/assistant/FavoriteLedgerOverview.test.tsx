@@ -89,6 +89,19 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText('正在编辑：bilimi·知识')).toBeInTheDocument()
   })
 
+  it('keeps a new unsaved ledger open when an equivalent ledger snapshot rerenders', () => {
+    const ledgers = [{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]
+    const view = render(<FavoriteLedgerOverview ledgers={ledgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '册名' }), { target: { value: '临时草稿' } })
+    view.rerender(<FavoriteLedgerOverview ledgers={ledgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))}
+      missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '（未保存）临时草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('新建收藏夹bilimi·临时草稿')
+  })
+
   it('collapses the editor when the active ledger card is selected again', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }

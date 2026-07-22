@@ -61,6 +61,7 @@ function ledgerEditorSnapshot(ledger: FavoriteLedger) {
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
 export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, defaultFavoriteSystemEnabled = true, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
+  const externalLedgerSignature = JSON.stringify(ledgers)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
@@ -81,7 +82,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     setActiveLedgerId(null)
     setNewLedger(false)
     setLedgerListExpanded(false)
-  }, [ledgers])
+  }, [externalLedgerSignature])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     !savedLedgerSnapshots[ledger.id] || JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedLedgerSnapshots[ledger.id])
