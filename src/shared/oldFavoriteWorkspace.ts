@@ -157,6 +157,8 @@ export type OldFavoriteWorkspaceDeepSeekFailure = {
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
 export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
+  /** Cancellation waits for the in-flight request, then applies only completed batches. */
+  canceled?: boolean
   /** Enabled DeepSeek-constraint ledgers sent with this archive organization request. */
   referencedConstraintLedgerNames: string[]
   progress: {

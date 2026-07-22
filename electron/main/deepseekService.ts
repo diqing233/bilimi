@@ -736,8 +736,7 @@ export async function generateDeepSeekResult(options: {
         temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4,
         ...(options.request.kind === 'favorite-archive-organize'
           ? {
-              response_format: { type: 'json_object' },
-              max_tokens: 2048
+              response_format: { type: 'json_object' }
             }
           : {})
       })

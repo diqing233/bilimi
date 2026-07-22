@@ -316,7 +316,7 @@ describe('DeepSeek main service', () => {
     )
   })
 
-  it('sends JSON response format and a bounded output token budget for archive organization', async () => {
+  it('uses the provider default output budget for archive organization JSON responses', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
         results: [],
@@ -341,10 +341,8 @@ describe('DeepSeek main service', () => {
       max_tokens?: number
     }
 
-    expect(body).toMatchObject({
-      response_format: { type: 'json_object' },
-      max_tokens: 2048
-    })
+    expect(body).toMatchObject({ response_format: { type: 'json_object' } })
+    expect(body.max_tokens).toBeUndefined()
   })
 
   it('marks archive unclassified results invalid when a meaningful video only lacks an exact category', async () => {

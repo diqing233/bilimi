@@ -268,6 +268,29 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
 
+  it('requests cancellation through the workspace command without superseding the DeepSeek result', async () => {
+    const pending = deferred<{ snapshot: ReturnType<typeof workspace>; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; failures: []; canceled: true }>()
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = {
+      organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.cancelCurrentSegmentDeepSeek() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'cancel-deepseek-current-segment' })
+    expect(result.current.deepSeekCancelRequested).toBe(true)
+    pending.resolve({
+      snapshot: workspace('100'), canceled: true,
+      progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }, failures: []
+    })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('canceled'))
+    expect(result.current.snapshot).toEqual(workspace('100'))
+  })
+
   it('requests optional Bilibili mirror clearing only with a full reorganization scan', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

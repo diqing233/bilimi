@@ -5,7 +5,7 @@ import type { DeepSeekArchiveMode } from '@shared/types'
 type WorkspaceView = OldFavoriteWorkspaceView
 
 export type DeepSeekWorkspaceFeedback = {
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'canceled'
   message: string
   progress?: OldFavoriteWorkspaceDeepSeekResult['progress']
   failures?: OldFavoriteWorkspaceDeepSeekFailure[]
@@ -57,6 +57,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [lastError, setLastError] = useState<string | null>(null)
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
+  const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
@@ -68,6 +69,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setLoading(false)
     setBackgroundRefreshing(false)
     setDeepSeekFeedback(null)
+    setDeepSeekCancelRequested(false)
   }, [accountMid])
 
   useEffect(() => {
@@ -244,6 +246,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
     setLoading(true)
     foregroundRequestCount.current += 1
+    setDeepSeekCancelRequested(false)
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
     try {
       const result = await organize(accountMid, mode)
@@ -255,9 +258,11 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         const referencedConstraints = referencedConstraintLedgerNames.length
           ? `本次整理参考了 DeepSeek 约束收藏夹：${referencedConstraintLedgerNames.join('、')}。`
           : '本次整理未带入 DeepSeek 约束收藏夹。'
-        setDeepSeekFeedback(result.failures.length
-          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${referencedConstraints}`, progress: result.progress, failures: result.failures }
-          : { status: 'completed', message: `DeepSeek 整理完成，已更新当前分段。${referencedConstraints}`, progress: result.progress, failures: [] })
+        setDeepSeekFeedback(result.canceled
+          ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${referencedConstraints}`, progress: result.progress, failures: result.failures }
+          : result.failures.length
+            ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${referencedConstraints}`, progress: result.progress, failures: result.failures }
+            : { status: 'completed', message: `DeepSeek 整理完成，已更新当前分段。${referencedConstraints}`, progress: result.progress, failures: [] })
       }
       return next
     } catch (error) {
@@ -269,10 +274,26 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       }
       return null
     } finally {
+      if (accountGeneration.current === generation) setDeepSeekCancelRequested(false)
       if (accountGeneration.current === generation) {
         foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
+    }
+  }, [accountMid])
+
+  const cancelCurrentSegmentDeepSeek = useCallback(async () => {
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return false
+    try {
+      await command(accountMid, { type: 'cancel-deepseek-current-segment' })
+      setDeepSeekCancelRequested(true)
+      setDeepSeekFeedback((current) => current?.status === 'running'
+        ? { ...current, message: '正在结束当前批次，后续批次不会再开始。' }
+        : current)
+      return true
+    } catch {
+      return false
     }
   }, [accountMid])
 
@@ -346,7 +367,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status, snapshot?.tagEnrichment?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

@@ -53,6 +53,24 @@ describe('old favorite workspace coordinator IPC', () => {
       .rejects.toThrow('arguments are invalid')
   })
 
+  it('cancels only the active main-process DeepSeek run through an exact payload-free command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = { getSnapshot: vi.fn().mockResolvedValue(snapshot) }
+    const deepSeekService = { cancelCurrentSegment: vi.fn().mockReturnValue(true) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, deepSeekService: deepSeekService as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'cancel-deepseek-current-segment'
+    })).resolves.toEqual(snapshot)
+    expect(deepSeekService.cancelCurrentSegment).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'cancel-deepseek-current-segment', results: []
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('allows manual classifications without accepting a renderer-claimed DeepSeek source', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

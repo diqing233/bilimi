@@ -315,6 +315,8 @@ export function ControlledFavoriteLedgerPanel({
         onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
         onOrganizeWithDeepSeek={(mode) => void workspace.organizeCurrentSegmentWithDeepSeek(mode)}
         onRetryFailedDeepSeekChunks={() => void workspace.retryFailedDeepSeekChunks()}
+        onCancelDeepSeek={() => void workspace.cancelCurrentSegmentDeepSeek()}
+        deepSeekCancelRequested={workspace.deepSeekCancelRequested}
         onUndoClassification={() => void workspace.undoClassification()}
         onRedoClassification={() => void workspace.redoClassification()}
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}

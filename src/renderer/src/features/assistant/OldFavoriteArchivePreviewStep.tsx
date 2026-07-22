@@ -34,6 +34,8 @@ type OldFavoriteArchivePreviewStepProps = {
   onSelectSegment: (segmentId: string) => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onRetryFailedDeepSeekChunks: () => void
+  onCancelDeepSeek?: () => void
+  deepSeekCancelRequested?: boolean
   onUndo: () => void
   onRedo: () => void
   onMoveHistoryCursor: (cursor: number) => void
@@ -50,6 +52,8 @@ export function OldFavoriteArchivePreviewStep({
   onSelectSegment,
   onOrganizeWithDeepSeek,
   onRetryFailedDeepSeekChunks,
+  onCancelDeepSeek = () => undefined,
+  deepSeekCancelRequested = false,
   onUndo,
   onRedo,
   onMoveHistoryCursor,
@@ -60,6 +64,7 @@ export function OldFavoriteArchivePreviewStep({
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const deepSeekRunning = deepSeekFeedback?.status === 'running'
   const historySourceLabels = {
     manual: '人工调整',
     deepseek: 'DeepSeek',
@@ -120,7 +125,7 @@ export function OldFavoriteArchivePreviewStep({
     </div> : null}
     <div className="favorite-ledger-panel__preview-tools">
       <div className="favorite-ledger-panel__archive-tool-card" role="group" aria-label="归档预览辅助工具">
-        <div className="favorite-ledger-panel__deepseek-archive-section" role="group" aria-label="DeepSeek 辅助整理">
+        <div className="favorite-ledger-panel__deepseek-archive-section favorite-ledger-panel__deepseek-archive-section--full" role="group" aria-label="DeepSeek 辅助整理">
           <div className="favorite-ledger-panel__deepseek-archive-heading">
             <strong>DeepSeek 辅助整理</strong>
             <div className="favorite-ledger-panel__deepseek-archive-actions">
@@ -139,10 +144,13 @@ export function OldFavoriteArchivePreviewStep({
                   </button>)}
                 </div> : null}
               </div>
-              <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
+              {deepSeekRunning ? <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
+                disabled={deepSeekCancelRequested} onClick={onCancelDeepSeek}>
+                {deepSeekCancelRequested ? '正在取消' : '取消 DeepSeek 整理'}
+              </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
                 disabled={!deepSeekAvailable || loading || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
-                {loading ? 'DeepSeek 整理中…' : 'DeepSeek 整理'}
-              </button>
+                DeepSeek 整理
+              </button>}
             </div>
           </div>
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}

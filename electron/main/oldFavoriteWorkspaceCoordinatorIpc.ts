@@ -34,6 +34,7 @@ type WorkspaceCommand =
   | { type: 'resume-tag-enrichment' }
   | { type: 'retry-failed-tag-enrichment' }
   | { type: 'accept-current-tags' }
+  | { type: 'cancel-deepseek-current-segment' }
   | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
   | { type: 'reclassify-favorite-configuration' }
@@ -92,6 +93,9 @@ function command(value: unknown): WorkspaceCommand {
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
   }
+  if (candidate.type === 'cancel-deepseek-current-segment' && Object.keys(candidate).length === 1) {
+    return { type: 'cancel-deepseek-current-segment' }
+  }
   if (candidate.type === 'move-history-cursor' && Number.isSafeInteger(candidate.cursor) && candidate.cursor >= 0 &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'cursor')) {
     return { type: 'move-history-cursor', cursor: candidate.cursor }
@@ -142,7 +146,7 @@ function command(value: unknown): WorkspaceCommand {
 export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   ipcMain: IpcMain
   coordinator: OldFavoriteWorkspaceCoordinator
-  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks'>
+  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks' | 'cancelCurrentSegment'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
@@ -215,6 +219,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       else await options.coordinator.retryFailedTagEnrichment(accountMid)
     }
     if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
+    if (requested.type === 'cancel-deepseek-current-segment') {
+      if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
+      options.deepSeekService.cancelCurrentSegment(accountMid)
+    }
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)

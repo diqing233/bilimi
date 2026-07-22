@@ -17,12 +17,16 @@ import type {
 
 type ArchiveRequest = Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>
 
-const archiveChunkSize = 8
+const archiveChunkSize = 20
 type WorkspaceExpectation = {
   workspaceId: string
   currentSegmentId: string
   selectedSourceFolderIds: string[]
   classifications: Record<string, { targetLedgerIds: string[]; source: string }>
+}
+
+type ActiveDeepSeekRun = {
+  cancelRequested: boolean
 }
 
 function multiArchiveLimit(mode: FavoriteArchiveMultiMode) {
@@ -36,6 +40,7 @@ function uniqueTargets(targets: string[]) {
 /** Builds, validates, and applies a DeepSeek batch entirely in the main process. */
 export class OldFavoriteWorkspaceDeepSeekService {
   private readonly failedRuns = new Map<string, { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }>()
+  private readonly activeRuns = new Map<string, ActiveDeepSeekRun>()
 
   constructor(private readonly options: {
     coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
@@ -55,7 +60,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     mode: DeepSeekArchiveMode = 'all',
     onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
-    return this.organize(accountMid, mode, undefined, onProgress)
+    return this.runOrganize(accountMid, mode, undefined, onProgress)
   }
 
   /** Retries only the main-process remembered failed chunk aids for the active workspace. */
@@ -65,14 +70,38 @@ export class OldFavoriteWorkspaceDeepSeekService {
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const failedRun = this.failedRuns.get(accountMid)
     if (!failedRun?.aids.length) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
-    return this.organize(accountMid, failedRun.mode, failedRun, onProgress)
+    return this.runOrganize(accountMid, failedRun.mode, failedRun, onProgress)
+  }
+
+  cancelCurrentSegment(accountMid: string) {
+    const run = this.activeRuns.get(accountMid)
+    if (!run) return false
+    run.cancelRequested = true
+    return true
+  }
+
+  private async runOrganize(
+    accountMid: string,
+    mode: DeepSeekArchiveMode,
+    retry: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] } | undefined,
+    onProgress: ((progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void) | undefined
+  ) {
+    if (this.activeRuns.has(accountMid)) throw new Error('DeepSeek is already organizing this old favorite segment.')
+    const run: ActiveDeepSeekRun = { cancelRequested: false }
+    this.activeRuns.set(accountMid, run)
+    try {
+      return await this.organize(accountMid, mode, retry, onProgress, run)
+    } finally {
+      if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
+    }
   }
 
   private async organize(
     accountMid: string,
     mode: DeepSeekArchiveMode,
     retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] },
-    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void,
+    run?: ActiveDeepSeekRun
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
@@ -97,7 +126,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }
       return true
     }).filter((item) => !retry || retry.aids.includes(item.aid))
-    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, 0, [], [])
+    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, 0, 0, [], [], false)
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
@@ -142,8 +171,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const totalChunks = Math.ceil(request.videos.length / archiveChunkSize)
     let successfulVideoCount = 0
     let failedVideoCount = 0
+    let completedChunks = 0
     onProgress?.({ totalChunks, completedChunks: 0, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     for (let offset = 0; offset < request.videos.length; offset += archiveChunkSize) {
+      if (run?.cancelRequested) break
       const chunk = { ...request, videos: request.videos.slice(offset, offset + archiveChunkSize) }
       try {
         const result = await this.options.generate(chunk)
@@ -174,7 +205,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
           failedVideoCount += aids.length
         }
         const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid) && !unavailableTargetAids.has(video.aid))
-        if (missing.length) {
+        if (missing.length && !run?.cancelRequested) {
           const retry = { ...chunk, videos: missing }
           try {
             const retried = await this.options.generate(retry)
@@ -191,7 +222,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
             successfulVideoCount += applicable.length
             if (rejectedAids.length) {
               failures.push({
-                chunkIndex: offset / 20 + 1,
+                chunkIndex: offset / archiveChunkSize + 1,
                 aids: rejectedAids,
                 affectedVideoCount: rejectedAids.length,
                 message: 'DeepSeek returned unavailable favorite targets.'
@@ -217,12 +248,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
         })
         failedVideoCount += chunk.videos.length
       }
-      onProgress?.({ totalChunks, completedChunks: offset / archiveChunkSize + 1, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
+      completedChunks = offset / archiveChunkSize + 1
+      onProgress?.({ totalChunks, completedChunks, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     }
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
+    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested))
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -237,7 +269,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     // renderer snapshot so post-run UI retains source folders and segment items.
     const next = await this.options.coordinator.getSnapshot(snapshot.accountMid)
     if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
-    return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
+    return this.finish(accountMid, next, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested))
   }
 
   private finish(
@@ -245,11 +277,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
     snapshot: OldFavoriteWorkspaceSnapshot,
     mode: DeepSeekArchiveMode,
     totalChunks: number,
+    completedChunks: number,
     totalVideoCount: number,
     successfulVideoCount: number,
     failedVideoCount: number,
     failures: OldFavoriteWorkspaceDeepSeekFailure[],
-    referencedConstraintLedgerNames: string[]
+    referencedConstraintLedgerNames: string[],
+    canceled: boolean
   ) {
     const aids = failures.flatMap((failure) => failure.aids)
     if (aids.length && snapshot.currentSegment) {
@@ -259,23 +293,26 @@ export class OldFavoriteWorkspaceDeepSeekService {
     } else {
       this.failedRuns.delete(accountMid)
     }
-    return this.result(snapshot, totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
+    return this.result(snapshot, totalChunks, completedChunks, totalVideoCount, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, canceled)
   }
 
   private result(
     snapshot: OldFavoriteWorkspaceSnapshot,
     totalChunks: number,
+    completedChunks: number,
     totalVideoCount: number,
     successfulVideoCount: number,
     failedVideoCount: number,
     failures: OldFavoriteWorkspaceDeepSeekFailure[],
-    referencedConstraintLedgerNames: string[]
+    referencedConstraintLedgerNames: string[],
+    canceled: boolean
   ): OldFavoriteWorkspaceDeepSeekResult {
     return {
       snapshot,
       referencedConstraintLedgerNames,
-      progress: { totalChunks, completedChunks: totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount },
-      failures
+      progress: { totalChunks, completedChunks, totalVideoCount, successfulVideoCount, failedVideoCount },
+      failures,
+      canceled
     }
   }
 
