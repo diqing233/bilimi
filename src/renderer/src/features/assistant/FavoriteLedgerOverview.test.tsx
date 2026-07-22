@@ -45,6 +45,22 @@ describe('FavoriteLedgerOverview', () => {
     ]), { deleteDisabled: false })
   })
 
+  it('shows disabled and unsaved state in the ledger name while retaining a disabled plus action', () => {
+    render(<FavoriteLedgerOverview
+      defaultFavoriteSystemEnabled={false}
+      ledgers={[{ id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 10, isDefault: true }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '（已停用）知识学习' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·知识学习' })).toHaveTextContent('+')
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·知识学习' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    expect(screen.getByRole('button', { name: /^（未保存）/ })).toBeInTheDocument()
+  })
+
   it('keeps a cross-row drag reorder as a local draft until the user explicitly syncs', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
