@@ -86,7 +86,7 @@ function scopeForNavigation(id: string): LibraryScope {
 }
 
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
-export function FavoriteLibraryApp() {
+export function FavoriteLibraryApp({ embedded = false }: { embedded?: boolean }) {
   const [accountMid, setAccountMid] = useState<string>()
   const [accountNickname, setAccountNickname] = useState<string>()
   const [summary, setSummary] = useState<FavoriteRepositorySnapshotSummary>()
@@ -244,7 +244,7 @@ export function FavoriteLibraryApp() {
   const syncCurrentFolder = currentFolderId && folders.find((folder) => folder.id === currentFolderId)?.kind !== 'bilibili'
 
   return (
-    <main className="favorite-library" aria-label={text.library}>
+    <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
       <header className="favorite-library__header">
         <div><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
         {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}

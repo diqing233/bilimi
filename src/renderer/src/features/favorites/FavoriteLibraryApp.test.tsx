@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryApp } from './FavoriteLibraryApp'
@@ -13,12 +15,40 @@ const text = {
   nextPage: '\u4e0b\u4e00\u9875'
 } as const
 
+const favoriteLibraryStyles = readFileSync(
+  resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'),
+  'utf8'
+)
+
 afterEach(() => {
   cleanup()
   window.bilimiDesktop = undefined
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('marks the root as embedded and uses a height-bounded embedded layout', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-22T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, items: []
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp embedded />)
+
+    expect(await screen.findByRole('main', { name: text.library })).toHaveAttribute('data-embedded', 'true')
+    expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
+    expect(favoriteLibraryStyles).toContain(
+      ".favorite-library[data-embedded='true'] .favorite-library__list { height: 100%"
+    )
+  })
+
   it('keeps internal action failures out of the user-facing alert', async () => {
     const syncFavoriteLibrarySelection = vi.fn().mockRejectedValue(new Error('Error invoking remote method favorite-library:sync-selection'))
     window.bilimiDesktop = {

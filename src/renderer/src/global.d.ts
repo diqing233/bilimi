@@ -135,6 +135,7 @@ type BilimiDesktopApi = {
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
+  onOpenFavoriteLibraryDrawer?: (callback: () => void) => () => void
   onOpenFloatingAssistantWorkspace?: (
     callback: (payload: FloatingAssistantWorkspaceRequest) => void
   ) => () => void

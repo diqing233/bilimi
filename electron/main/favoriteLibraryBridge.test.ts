@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { registerFavoriteLibraryBridgeIpc } from './favoriteLibraryBridge'
 
 type Handler = (event: { sender: { id: number } }, ...args: unknown[]) => unknown
+const mainPreloadSource = readFileSync(resolve(process.cwd(), 'electron/preload/index.ts'), 'utf8')
+const mainProcessSource = readFileSync(resolve(process.cwd(), 'electron/main/index.ts'), 'utf8')
 
 function createHarness() {
   const handlers = new Map<string, Handler>()
@@ -24,6 +28,17 @@ function createHarness() {
 }
 
 describe('favorite library bridge IPC', () => {
+  it('exposes the embedded-library bridge from the main preload and opens the main-window drawer', () => {
+    expect(mainPreloadSource).toContain('getFavoriteRepositoryLibraryVideoDetail')
+    expect(mainPreloadSource).toContain('syncFavoriteLibrarySelection')
+    expect(mainPreloadSource).toContain('onFavoriteLibraryTranscriptionChanged')
+    expect(mainPreloadSource).toContain('onOpenFavoriteLibraryDrawer')
+    expect(mainProcessSource).toContain("webContents.send('favorite-library:open-drawer')")
+    expect(mainProcessSource).toMatch(
+      /function isTrustedFavoriteLibraryReader\(senderId: number\): boolean \{\s*const library = favoriteLibraryWindowController\.getWindow\(\)\s*return senderId === mainWindow\?\.webContents\.id \|\|/
+    )
+  })
+
   it('returns the current nickname and UID only to the library window', async () => {
     const { handlers } = createHarness()
 

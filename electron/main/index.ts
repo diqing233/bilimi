@@ -834,8 +834,7 @@ function createMainWindow() {
 }
 
 function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot) {
-  const libraryWindow = favoriteLibraryWindowController.getWindow()
-  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow(), libraryWindow]
+  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
 
   for (const target of targets) {
     if (!target || target.isDestroyed()) {
@@ -843,7 +842,7 @@ function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscripti
     }
 
     target.webContents.send('video-audio:transcription-queue-changed', snapshot)
-    if (target === libraryWindow) target.webContents.send('favorite-library:transcription-changed')
+    if (target === mainWindow) target.webContents.send('favorite-library:transcription-changed')
   }
 }
 
@@ -1242,7 +1241,8 @@ const favoriteLibrarySideBySideLayout = new FavoriteLibrarySideBySideLayout()
 
 function isTrustedFavoriteLibraryReader(senderId: number): boolean {
   const library = favoriteLibraryWindowController.getWindow()
-  return Boolean(library && !library.isDestroyed() && library.webContents.id === senderId)
+  return senderId === mainWindow?.webContents.id ||
+    Boolean(library && !library.isDestroyed() && library.webContents.id === senderId)
 }
 
 if (singleInstanceGuard) app.whenReady().then(async () => {
@@ -1418,7 +1418,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   ipcMain.handle('favorite-library:open', (event) => {
     assertTrustedOldFavoriteAssistantSender(event)
-    favoriteLibraryWindowController.open()
+    ensureMainWindowForAssistantRuntime().webContents.send('favorite-library:open-drawer')
   })
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
@@ -1426,8 +1426,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       clearTimeout(accountChangeTimer)
       accountChangeTimer = setTimeout(() => {
         notifyFloatingAssistantSnapshotChanged()
-        const library = favoriteLibraryWindowController.getWindow()
-        if (library && !library.isDestroyed()) library.webContents.send('bilibili:account-changed')
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bilibili:account-changed')
       }, 150)
     }
   })
