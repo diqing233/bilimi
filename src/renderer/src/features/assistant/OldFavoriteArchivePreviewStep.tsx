@@ -1,7 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
@@ -64,6 +64,8 @@ export function OldFavoriteArchivePreviewStep({
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const historyTriggerRef = useRef<HTMLButtonElement>(null)
+  const [historyMenuPosition, setHistoryMenuPosition] = useState({ top: 0, left: 0 })
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const deepSeekFeedbackView = deepSeekFeedback
     ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
@@ -80,6 +82,29 @@ export function OldFavoriteArchivePreviewStep({
     `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${entry.targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'}`
   const historyBaselineCursor = snapshot.history.baselineCursor ?? 0
   const historyEntries = snapshot.history.entries ?? []
+  const currentHistoryEntry = historyEntries.find((entry) => entry.cursor === snapshot.history.cursor)
+  const previousHistoryEntries = historyEntries.filter((entry) => entry.cursor !== snapshot.history.cursor)
+  const currentHistoryLabel = currentHistoryEntry ? historyLabel(currentHistoryEntry) : '初始自动分类'
+  useLayoutEffect(() => {
+    if (!historyOpen || !historyTriggerRef.current) return
+    const updateHistoryMenuPosition = () => {
+      const triggerRect = historyTriggerRef.current?.getBoundingClientRect()
+      if (!triggerRect) return
+      const gutter = 8
+      const menuWidth = Math.min(360, window.innerWidth - gutter * 2)
+      setHistoryMenuPosition({
+        top: triggerRect.bottom + 4,
+        left: Math.max(gutter, Math.min(triggerRect.right - menuWidth, window.innerWidth - menuWidth - gutter))
+      })
+    }
+    updateHistoryMenuPosition()
+    window.addEventListener('resize', updateHistoryMenuPosition)
+    window.addEventListener('scroll', updateHistoryMenuPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateHistoryMenuPosition)
+      window.removeEventListener('scroll', updateHistoryMenuPosition, true)
+    }
+  }, [historyOpen])
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -188,17 +213,24 @@ export function OldFavoriteArchivePreviewStep({
             <label className="favorite-ledger-panel__archive-history-select">
               <span>改动记录</span>
               <div className="favorite-ledger-panel__archive-history-select-control">
-              <button type="button" className="favorite-ledger-panel__archive-history-trigger"
+              <button ref={historyTriggerRef} type="button" className="favorite-ledger-panel__archive-history-trigger"
                 aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || historyEntries.length === 0}
                 onClick={() => setHistoryOpen((open) => !open)}>
                 <span className="favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
-              {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" role="menu" aria-label="改动记录">
-                {historyEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
-                  disabled={loading || entry.cursor === snapshot.history.cursor} onClick={() => {
+              {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
+                <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>
+                {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
+                  disabled={loading} onClick={() => {
                     setHistoryOpen(false)
                     onMoveHistoryCursor(entry.cursor)
                   }}>{historyLabel(entry)}</button>)}
+                <div className="favorite-ledger-panel__archive-history-divider" aria-hidden="true" />
+                <button type="button" role="menuitem" className="favorite-ledger-panel__archive-history-restore"
+                  disabled={loading || snapshot.history.cursor <= historyBaselineCursor} onClick={() => {
+                    setHistoryOpen(false)
+                    onMoveHistoryCursor(historyBaselineCursor)
+                  }}>恢复初始改动</button>
               </div> : null}
               </div>
             </label>
@@ -206,8 +238,6 @@ export function OldFavoriteArchivePreviewStep({
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
           </div>
           <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
-          <button type="button" className="favorite-ledger-panel__archive-history-reset" disabled={loading || snapshot.history.cursor <= historyBaselineCursor}
-            onClick={() => onMoveHistoryCursor(historyBaselineCursor)}>恢复初始改动</button>
         </div>
       </div>
     </div>

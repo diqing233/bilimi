@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
@@ -131,8 +131,11 @@ describe('OldFavoriteArchivePreviewStep', () => {
         classifications: { '1': { aid: 1, targetLedgerIds: ['manual'], source: 'manual' } },
         recommendations: { candidates: [], adoptedCandidateIds: [] },
         history: {
-          cursor: 3, length: 3, baselineCursor: 2,
-          entries: [{ cursor: 3, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'] }]
+          cursor: 3, length: 3, baselineCursor: 1,
+          entries: [
+            { cursor: 3, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'] },
+            { cursor: 2, source: 'deepseek', changeCount: 1, targetLedgerIds: ['manual'] }
+          ]
         }
       }}
       ledgers={[{ id: 'manual', displayName: 'Manual', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
@@ -143,10 +146,36 @@ describe('OldFavoriteArchivePreviewStep', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
-    expect(screen.getByRole('menu', { name: '改动记录' })).toHaveTextContent('人工调整：1 条 → Manual')
-    expect(screen.getByRole('menu', { name: '改动记录' })).not.toHaveTextContent('自动分类')
-    fireEvent.click(screen.getByRole('button', { name: '恢复初始改动' }))
-    expect(onMoveHistoryCursor).toHaveBeenCalledWith(2)
+    const menu = screen.getByRole('menu', { name: '改动记录' })
+    expect(menu.querySelector('.favorite-ledger-panel__archive-history-current')).toHaveTextContent('当前记录：人工调整：1 条 → Manual')
+    expect(menu.querySelector('.favorite-ledger-panel__archive-history-divider')).not.toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: 'DeepSeek：1 条 → Manual' })).toBeInTheDocument()
+    expect(menu).not.toHaveTextContent('自动分类')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '恢复初始改动' }))
+    expect(onMoveHistoryCursor).toHaveBeenCalledWith(1)
+    expect(screen.queryByRole('button', { name: '恢复初始改动' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the right-aligned change-history menu inside the viewport near its left edge', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 1, length: 1, entries: [{ cursor: 1, source: 'manual', changeCount: 1, targetLedgerIds: [] }] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    const trigger = screen.getByRole('button', { name: '查看改动记录' })
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 32, top: 0, bottom: 32 } as DOMRect)
+    fireEvent.click(trigger)
+
+    expect(screen.getByRole('menu', { name: '改动记录' })).toHaveStyle({ left: '8px' })
   })
 
   it('uses the legacy 280px virtual track width for large preview groups', () => {

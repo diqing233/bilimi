@@ -4495,25 +4495,28 @@ body[data-floating-window="true"],
   transform: translateY(-2px) rotate(45deg);
 }
 .favorite-ledger-panel__archive-history-menu {
-  position: absolute;
+  position: fixed;
   z-index: 20;
   top: calc(100% + 4px);
-  left: 0;
-  width: max-content;
-  min-width: min(260px, calc(100vw - 32px));
-  max-width: min(420px, calc(100vw - 32px));
+  right: auto;
+  left: auto;
+  width: min(360px, calc(100vw - 16px));
+  box-sizing: border-box;
   display: grid;
   gap: 2px;
   padding: 6px;
-  border: 1px solid rgba(31, 99, 181, 0.22);
+  border: 2px solid #101820;
   border-radius: 6px;
-  background: #ffffff;
+  background: #f7fbff;
   box-shadow: 0 6px 18px rgba(7, 26, 51, 0.16);
 }
 .favorite-ledger-panel__archive-history-menu button {
   width: 100%;
   min-width: 0;
   padding: 6px 8px;
+  border: 1px solid rgba(31, 99, 181, 0.36);
+  background: #ffffff;
+  color: var(--porcelain-deep);
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
@@ -4613,12 +4616,22 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__archive-history-current {
   min-width: 0;
-  flex: 1 1 auto;
+  padding: 6px 8px 7px;
   overflow: hidden;
-  color: var(--porcelain-text);
-  font-weight: 500;
+  border-bottom: 1px solid #174577;
+  color: var(--porcelain-deep);
+  font-size: 12px;
+  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.favorite-ledger-panel__archive-history-divider {
+  height: 0;
+  margin: 3px 0;
+  border-top: 1px solid rgba(23, 69, 119, 0.55);
+}
+.favorite-ledger-panel__archive-history-restore {
+  font-weight: 800;
 }
 .favorite-ledger-panel__scan-guidance {
   margin: 0 0 7px;
@@ -5219,9 +5232,9 @@ body[data-floating-window="true"],
   max-height: 240px;
   box-sizing: border-box;
   overflow: auto;
-  border: 1px solid rgba(31, 99, 181, 0.24);
+  border: 2px solid #101820;
   border-radius: var(--porcelain-radius-control);
-  background: var(--porcelain-paper);
+  background: #f7fbff;
   box-shadow: 0 6px 18px rgba(36, 66, 102, 0.16);
   margin-top: 4px;
   padding: 4px;
@@ -5237,6 +5250,8 @@ body[data-floating-window="true"],
   min-width: 0;
   min-height: 28px;
   padding: 4px 6px;
+  border: 1px solid rgba(31, 99, 181, 0.36);
+  background: #ffffff;
   color: var(--porcelain-deep);
   font-size: 12px;
   text-align: left;
