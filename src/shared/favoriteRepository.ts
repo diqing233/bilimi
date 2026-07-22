@@ -217,6 +217,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'remove-physical-shard-binding'
+      payload: { remoteFolderId: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'set-workspace'
       payload: FavoriteRepositoryWorkspace
     }
@@ -524,6 +531,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       if (!Array.isArray(payload.records) || !payload.records.every(isOrganizationRecord) ||
         (payload.markMigrationInitialized !== undefined && typeof payload.markMigrationInitialized !== 'boolean') ||
         (payload.replace !== undefined && typeof payload.replace !== 'boolean')) invalidCommand()
+      return
+    case 'remove-physical-shard-binding':
+      if (typeof payload.remoteFolderId !== 'string' || !payload.remoteFolderId.trim()) invalidCommand()
       return
     case 'record-organization-change':
       if (!isOrganizationChange(payload.change) || normalizedAccountMid((payload.change as FavoriteRepositoryOrganizationChange).accountMid) !== normalizedAccountMid(record.accountMid)) invalidCommand()
@@ -842,6 +852,22 @@ export function applyFavoriteRepositoryCommand(
       organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
       organizationMigrationInitialized = organizationMigrationInitialized || command.payload.markMigrationInitialized === true
       affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
+      break
+    }
+    case 'remove-physical-shard-binding': {
+      const remoteFolderId = command.payload.remoteFolderId.trim()
+      const removedShards = physicalShards.filter((shard) => shard.remoteFolderId === remoteFolderId)
+      if (!removedShards.length) throw new Error('Favorite repository remote shard binding was not found.')
+      const removedFolderIds = new Set(removedShards.map((shard) => shard.folderId))
+      affectedFolderIds = [...removedFolderIds].sort()
+      affectedAids = uniquePositiveAids(removedShards.flatMap((shard) => memberships[shard.folderId] ?? [])).sort((left, right) => left - right)
+      physicalShards = physicalShards.filter((shard) => shard.remoteFolderId !== remoteFolderId)
+      folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
+      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
+      organizationRecords = organizationRecords.flatMap((record) => {
+        const targetFolderIds = record.targetFolderIds.filter((folderId) => folderId !== remoteFolderId)
+        return targetFolderIds.length ? [{ ...record, targetFolderIds }] : []
+      })
       break
     }
     case 'record-organization-change': {

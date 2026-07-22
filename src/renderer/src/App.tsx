@@ -858,8 +858,8 @@ export default function App() {
     accountMid: string,
     runId: string,
     target: FavoriteRepositoryPageTarget,
-    action: 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder',
-    input: { accountMid: string; operationKey: string; aid?: number; folderIds?: string[]; title?: string }
+    action: 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder',
+    input: { accountMid: string; operationKey: string; aid?: number; folderIds?: string[]; title?: string; folderId?: string }
   ) {
     favoriteRepositoryPageTargetRef.current ??= createFavoriteRepositoryPageTarget({
       getActiveWebview: getCurrentActiveWebview,

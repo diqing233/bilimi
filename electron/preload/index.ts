@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
+  previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[]) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>,
+  deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[]) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds) as Promise<Array<{ id: string; title: string; memberCount: number }>>,
   organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   retryOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>

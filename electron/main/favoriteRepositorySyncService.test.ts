@@ -53,6 +53,31 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositorySyncService', () => {
+  it('rechecks only managed bound folders before deleting and stops at the first failure', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding-a', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'disabled', logicalTitle: 'Disabled', shardNumber: 1, memberAids: [1], remoteTitle: 'bilimi·Disabled', bindingState: 'bound', remoteFolderId: 'remote-a' }
+    })
+    await repository.commit('100', {
+      id: 'binding-b', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'disabled-b', logicalTitle: 'Disabled B', shardNumber: 1, memberAids: [2], remoteTitle: 'bilimi·Disabled B', bindingState: 'bound', remoteFolderId: 'remote-b' }
+    })
+    const deleteFolder = vi.fn().mockResolvedValueOnce({ observedAccountMid: '100' }).mockRejectedValueOnce(new Error('remote failure'))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-a', title: 'bilimi·Disabled', memberCount: 3 }, { id: 'remote-b', title: 'bilimi·Disabled B', memberCount: 2 }
+        ] }) }, now: () => '2026-07-19T00:00:00.000Z' })
+
+    await expect(service.deleteManagedFolders('100', ['disabled', 'disabled-b'])).rejects.toThrow('remote failure')
+    expect(deleteFolder).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: [expect.objectContaining({ remoteFolderId: 'remote-b' })],
+      videos: {}
+    })
+  })
   it('uses the legacy cooldown after the twenty-fifth successful remote write', async () => {
     const repository = await createRepository()
     const frozenPlan = planWithAppendOperations(27)
@@ -234,7 +259,9 @@ describe('FavoriteRepositorySyncService', () => {
         addedFolderIds: ['remote-games', 'remote-music'], removedFolderIds: [], status: 'succeeded'
       })]
     })
-    expect((await repository.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).items).toEqual([])
+    expect((await repository.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).items).toEqual([
+      expect.objectContaining({ video: expect.objectContaining({ aid: 1 }), pendingStates: ['protected'] })
+    ])
   })
 
   it('projects reconciliation-confirmed remote membership but never fabricates an absent write', async () => {

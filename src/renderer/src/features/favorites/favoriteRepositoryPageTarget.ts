@@ -3,10 +3,11 @@ import {
   type FavoriteRepositoryPageBridgeInput,
   type FavoriteRepositoryFolderCreateInput,
   type FavoriteRepositoryFolderInventoryInput,
+  type FavoriteRepositoryFolderDeleteInput,
   type FavoriteRepositoryPageBridgeReadResult
 } from './favoriteRepositoryPageBridge'
 
-type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
+type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
@@ -37,7 +38,7 @@ export function createFavoriteRepositoryPageTarget(options: {
     async run(
       binding: FavoriteRepositoryPageTarget,
       action: PageBridgeAction,
-      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput
+      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
     ): Promise<FavoriteRepositoryPageBridgeReadResult> {
       const target = options.findWebviewById(binding.webContentsId) ?? null
       if (!target?.executeJavaScript) {
@@ -58,7 +59,9 @@ export function createFavoriteRepositoryPageTarget(options: {
             ? bridge.readMembers(input as FavoriteRepositoryPageBridgeInput)
             : action === 'read-folder-inventory'
               ? bridge.readFolderInventory(input as FavoriteRepositoryFolderInventoryInput)
-              : bridge.createFolder(input as FavoriteRepositoryFolderCreateInput))
+              : action === 'create-folder'
+                ? bridge.createFolder(input as FavoriteRepositoryFolderCreateInput)
+                : bridge.deleteFolder(input as FavoriteRepositoryFolderDeleteInput))
       if (options.getNavigationEpoch(binding.webContentsId, binding.instanceId) !== binding.navigationEpoch) {
         return { status: 'unknown', observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
       }

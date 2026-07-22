@@ -237,6 +237,28 @@ describe('account favorite repository contracts', () => {
     ])
   })
 
+  it('removes a deleted shard binding while retaining local videos and other formal protection targets', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),
+      videos: { '1': { aid: 1, title: 'Kept local', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' } },
+      memberships: { 'bilimi:music:001': [1], 'bilimi:knowledge:001': [1] },
+      physicalShards: [
+        { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: 'remote-music', remoteTitle: 'Music', bindingState: 'bound' as const },
+        { logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteFolderId: 'remote-knowledge', remoteTitle: 'Knowledge', bindingState: 'bound' as const }
+      ],
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-knowledge', 'remote-music'], completedAt: '2026-07-20T00:00:00.000Z' }]
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-music', accountMid: '100', issuedAt: '2026-07-20T00:01:00.000Z', type: 'remove-physical-shard-binding',
+      payload: { remoteFolderId: 'remote-music' }
+    }, '2026-07-20T00:01:00.000Z')
+
+    expect(result.videos['1']).toMatchObject({ title: 'Kept local' })
+    expect(result.organizationRecords).toEqual([expect.objectContaining({ targetFolderIds: ['remote-knowledge'] })])
+    expect(result.physicalShards).toEqual([expect.objectContaining({ remoteFolderId: 'remote-knowledge' })])
+  })
+
   it('keeps each organization recovery record immutable and projects a confirmed remove from logical membership', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),

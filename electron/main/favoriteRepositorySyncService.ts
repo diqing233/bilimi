@@ -46,6 +46,7 @@ export type FavoriteRepositoryPageBridge = {
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
   readFolderInventory(input: { accountMid: string; operationKey: string }): Promise<PageBridgeResult & { folders: FavoriteRepositoryRemoteFolder[] }>
   createFolder(input: { accountMid: string; operationKey: string; title: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
+  deleteFolder(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeResult>
 }
 
 export type FavoriteRepositoryPageBridgeManager = {
@@ -397,6 +398,69 @@ export class FavoriteRepositorySyncService {
       issuedAt: this.now(),
       type: 'record-organization-protections',
       payload: { records }
+    })
+  }
+
+  async deleteManagedFolders(accountMid: string, logicalLedgerIds: string[]) {
+    const account = normalizeAccountMid(accountMid)
+    return this.runRemote(account, async () => {
+      const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
+      const runId = `favorite-delete:${this.now()}`
+      await this.bindPageTarget(account, runId)
+      try {
+        const bridge = this.pageBridge(account, runId)
+        const verified = await this.verifiedManagedFolders(account, requestedLedgerIds, bridge, `${runId}:verify`)
+        for (const { shard, folder } of verified) {
+          await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${folder.id}`, folderId: folder.id })
+          await this.options.repository.commit(account, {
+            id: `favorite-delete:${folder.id}`,
+            accountMid: account,
+            issuedAt: this.now(),
+            type: 'remove-physical-shard-binding',
+            payload: { remoteFolderId: shard.remoteFolderId! }
+          })
+        }
+        return verified.map(({ folder }) => folder)
+      } finally {
+        this.options.pageBridgeManager?.release(account, runId)
+      }
+    })
+  }
+
+  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[]) {
+    const account = normalizeAccountMid(accountMid)
+    return this.runRemote(account, async () => {
+      const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
+      const runId = `favorite-delete-preview:${this.now()}`
+      await this.bindPageTarget(account, runId)
+      try {
+        const verified = await this.verifiedManagedFolders(
+          account, requestedLedgerIds, this.pageBridge(account, runId), `${runId}:inventory`
+        )
+        return verified.map(({ shard, folder }) => ({ logicalLedgerId: shard.logicalLedgerId, ...folder }))
+      } finally {
+        this.options.pageBridgeManager?.release(account, runId)
+      }
+    })
+  }
+
+  private async verifiedManagedFolders(
+    account: string,
+    requestedLedgerIds: Set<string>,
+    bridge: FavoriteRepositoryPageBridge,
+    operationKey: string
+  ) {
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const targets = snapshot.physicalShards.filter((shard) =>
+      shard.bindingState === 'bound' && shard.remoteFolderId && requestedLedgerIds.has(shard.logicalLedgerId)
+    )
+    const inventory = await bridge.readFolderInventory({ accountMid: account, operationKey })
+    if (normalizeAccountMid(inventory.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
+    const foldersById = new Map(inventory.folders.map((folder) => [folder.id, folder]))
+    return targets.map((shard) => {
+      const folder = foldersById.get(shard.remoteFolderId!)
+      if (!folder || folder.title !== shard.remoteTitle) throw new Error('Favorite repository remote folder verification failed.')
+      return { shard, folder }
     })
   }
 

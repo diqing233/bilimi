@@ -51,6 +51,8 @@ type BilimiDesktopApi = {
   openFavoriteLibrary?: () => Promise<void>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
+  previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>
+  deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ id: string; title: string; memberCount: number }>>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {

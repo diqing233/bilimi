@@ -234,7 +234,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[], accountMid: string) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
@@ -868,6 +868,16 @@ export class OldFavoriteWorkspaceCoordinator {
         ? this.autoClassifyAllSegmentsUnsafe(workspace, true)
         : clone(workspace)
     })
+  }
+
+  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[]) {
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    return this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds)
+  }
+
+  async deleteManagedFolderCandidates(accountMid: string, logicalLedgerIds: string[]) {
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    return this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds)
   }
 
   private async autoClassifyCurrentSegmentUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {

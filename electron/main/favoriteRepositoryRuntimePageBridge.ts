@@ -10,9 +10,10 @@ export type FavoriteRepositoryRuntimePageBridgeInput = {
   aid?: number
   folderIds?: string[]
   title?: string
+  folderId?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -98,6 +99,10 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
         const result = await execute('create-folder', input)
         if (!result.folder) throw new Error('Favorite repository page bridge returned incomplete created folder.')
         return { observedAccountMid: result.observedAccountMid, folder: result.folder }
+      },
+      async deleteFolder(input) {
+        const result = await execute('delete-folder', input)
+        return { observedAccountMid: result.observedAccountMid }
       }
     }
   }
