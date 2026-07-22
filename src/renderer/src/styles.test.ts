@@ -205,14 +205,18 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('uses the 1.0.5 preview card track without a second sizing shell', () => {
-    expectStyleSnippet('.favorite-ledger-panel__preview-item-shell { display: contents;')
-    expect(normalizedStyles).not.toContain(
-      '.favorite-ledger-panel__preview-item-shell {\n  flex: 0 0 calc(100% - 56px);'
+  it('keeps preview cards as sized interactive track items with visible borders and menus', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-item-shell { flex: 0 0 calc(100% - 56px); min-width: 0; scroll-snap-align: start;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__preview-video a { color: var(--porcelain-deep); text-decoration: none;'
+      '.favorite-ledger-panel__preview-item-shell > article { box-sizing: border-box; width: 100%; min-width: 0;'
     )
+    expectStyleSnippet('.favorite-ledger-panel__preview-video { box-sizing: border-box; width: 100%;')
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-video a { color: var(--porcelain-deep); text-decoration: underline; text-underline-offset: 2px;'
+    )
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static;')
   })
 
   it('removes the closed favorite library drawer from layout', () => {
@@ -805,7 +809,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; display: grid; grid-template-rows: minmax(116px, 1fr) auto; content-visibility: auto; contain-intrinsic-size: auto 160px; scroll-snap-align: start;')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos article + article { padding-left: 0;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-videos article + article {\n  border-left: 1px dashed')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 116px; display: grid; align-content: start;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video { box-sizing: border-box; width: 100%; min-height: 116px; display: grid; align-content: start;')
     expectStyleSnippet('border: 1px solid rgba(31, 99, 181, 0.16); border-left: 1px solid rgba(31, 99, 181, 0.16); background: rgba(255, 255, 255, 0.72);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video[data-selected="true"] { border-color: rgba(31, 99, 181, 0.24); border-left-color: rgba(31, 99, 181, 0.58); background: rgba(220, 238, 255, 0.5);')
     expect(normalizedStyles).not.toContain('border-right-color: rgba(31, 99, 181, 0.58);')
@@ -814,7 +818,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__preview-controls { position: relative; display: flex; align-items: center;')
-    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: absolute; z-index: 2;')
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto;')
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] {\n  outline:")
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { min-width: 0; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; border-radius: var(--porcelain-radius-control);')
     expectStyleSnippet('border-left: 2px solid rgba(155, 54, 66, 0.68); background: rgba(255, 232, 235, 0.82); color: var(--porcelain-error);')
