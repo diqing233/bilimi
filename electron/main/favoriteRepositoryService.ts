@@ -94,6 +94,52 @@ function pageLimit(limit: number) {
   return limit
 }
 
+function hasAppliedBinding(
+  snapshot: AccountFavoriteRepositorySnapshot,
+  command: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>
+) {
+  const logicalLedgerId = command.payload.logicalLedgerId.trim()
+  const remoteFolderId = command.payload.remoteFolderId?.trim()
+  return snapshot.physicalShards.some((shard) =>
+    shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === command.payload.shardNumber &&
+    shard.bindingState === command.payload.bindingState && shard.remoteFolderId === remoteFolderId
+  )
+}
+
+function hasAppliedWorkspace(
+  snapshot: AccountFavoriteRepositorySnapshot,
+  command: Extract<FavoriteRepositoryCommand, { type: 'set-workspace' }>
+) {
+  const expected = {
+    id: command.payload.id.trim(),
+    accountMid: snapshot.accountMid,
+    status: command.payload.status,
+    baselineRevision: command.payload.baselineRevision,
+    continuationAids: [],
+    workspaceRef: {
+      ...command.payload.workspaceRef,
+      workspaceId: command.payload.id.trim(),
+      accountMid: snapshot.accountMid,
+      status: command.payload.status,
+      baselineRevision: command.payload.baselineRevision,
+      currentSegmentId: command.payload.workspaceRef.currentSegmentId.trim(),
+      checksum: command.payload.workspaceRef.checksum.toLowerCase()
+    },
+    ...(command.payload.frozenSyncPlan ? {
+      frozenSyncPlan: {
+        ...command.payload.frozenSyncPlan,
+        accountMid: snapshot.accountMid,
+        operations: command.payload.frozenSyncPlan.operations.map((operation) => ({
+          ...operation,
+          folderIds: [...new Set(operation.folderIds.map((folderId) => folderId.trim()).filter(Boolean))]
+        }))
+      }
+    } : {}),
+    ...(command.payload.completionMode ? { completionMode: command.payload.completionMode } : {})
+  }
+  return JSON.stringify(snapshot.workspace) === JSON.stringify(expected)
+}
+
 function validSnapshot(value: unknown, accountMid: string): value is AccountFavoriteRepositorySnapshot {
   if (!value || typeof value !== 'object') return false
   const snapshot = value as Partial<AccountFavoriteRepositorySnapshot>
@@ -289,7 +335,16 @@ export class FavoriteRepositoryService {
         repository = this.mergeSyncCheckpoints(repository, await this.loadSyncCheckpointState(account))
       }
       const existing = repository.commandResults[command.id]
-      if (existing) return clone(existing)
+      // A retained command result is reusable only while the current snapshot
+      // still reflects the command's authoritative binding or workspace state.
+      const retainedResultStillApplies = command.type === 'upsert-physical-shard-binding'
+        ? hasAppliedBinding(repository.snapshot, command)
+        : command.type === 'set-workspace'
+          ? hasAppliedWorkspace(repository.snapshot, command)
+          : true
+      if (existing && retainedResultStillApplies) {
+        return clone(existing)
+      }
       if (command.type === 'record-sync-result' && repository.syncCommandIds?.includes(command.id)) {
         return this.duplicateSyncResult(repository.snapshot, command)
       }

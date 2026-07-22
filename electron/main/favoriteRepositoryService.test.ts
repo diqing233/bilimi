@@ -17,6 +17,35 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('reapplies an authoritative workspace transition when a retained command result no longer matches', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const workspace = (status: 'reconciling' | 'frozen') => ({
+      id: 'workspace-1', accountMid: '100', status, baselineRevision: 1, continuationAids: [],
+      workspaceRef: {
+        workspaceId: 'workspace-1', accountMid: '100', status, baselineRevision: 1,
+        currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64)
+      },
+      frozenSyncPlan: {
+        id: 'run-1', workspaceId: 'workspace-1', accountMid: '100', baselineRevision: 1,
+        createdAt: '2026-07-23T00:00:00.000Z',
+        operations: [{ operationKey: 'append:1', kind: 'append' as const, aid: 1, folderIds: ['remote-1'] }]
+      }
+    })
+    const command = {
+      id: 'favorite-sync-workspace:workspace-1:reconciled:run-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z',
+      type: 'set-workspace' as const, payload: workspace('reconciling')
+    }
+
+    await service.commit('100', command)
+    await service.commit('100', {
+      ...command,
+      payload: workspace('frozen')
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'frozen' } })
+  })
+
   it('loads only the requested account and stores folder membership as aid indexes', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

@@ -499,6 +499,70 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
   })
 
+  it('times out a stalled remote write and requires reconciliation instead of leaving execution stuck', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(() => new Promise(() => undefined)),
+        remove: vi.fn(),
+        readMembers: vi.fn()
+      },
+      now: () => '2026-07-19T00:00:00.000Z',
+      remoteWriteTimeoutMs: 5
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'result-unknown' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
+  })
+
+  it('marks a restored write with an unknown result for reconciliation without resubmitting it', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), status: 'executing', frozenSyncPlan: frozenPlan, workspaceRef: { ...workspace().workspaceRef, status: 'executing' } }
+    })
+    await repository.recordSyncCheckpoint('100', 'started:append-1', {
+      id: `${frozenPlan.id}:append-1`, commandId: 'append-1', status: 'pending', affectedAids: [1],
+      updatedAt: '2026-07-19T00:00:00.000Z', reason: 'remote-request-started', runId: frozenPlan.id,
+      operationKey: 'append-1', targetFolderIds: ['remote-a'], attempt: 1
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'result-unknown' })
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
+  })
+
+  it('returns a restored reconciled retry to frozen before rebinding it', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), status: 'executing', frozenSyncPlan: frozenPlan, workspaceRef: { ...workspace().workspaceRef, status: 'executing' } }
+    })
+    await repository.recordSyncCheckpoint('100', 'retry:append-1', {
+      id: `${frozenPlan.id}:append-1`, commandId: 'append-1', status: 'pending', affectedAids: [1],
+      updatedAt: '2026-07-19T00:00:00.000Z', reason: 'reconciled-absent-ready-to-retry', runId: frozenPlan.id,
+      operationKey: 'append-1', targetFolderIds: ['remote-a'], attempt: 1
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'ready-to-resume' })
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'frozen' } })
+  })
+
   it('records a mismatched reconciliation account as result-unknown instead of rejecting reconciliation', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

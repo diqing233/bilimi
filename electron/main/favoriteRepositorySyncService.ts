@@ -114,6 +114,7 @@ export class FavoriteRepositorySyncService {
     random?: () => number
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
     reconciliationReadTimeoutMs?: number
+    remoteWriteTimeoutMs?: number
   }) {}
 
   private pageBridge(accountMid: string, runId: string) {
@@ -124,13 +125,20 @@ export class FavoriteRepositorySyncService {
   }
 
   private async readMembersForReconciliation<T>(read: () => Promise<T>): Promise<T> {
-    const timeoutMs = this.options.reconciliationReadTimeoutMs ?? 12_000
+    return this.withTimeout(read, this.options.reconciliationReadTimeoutMs ?? 12_000, 'reconciliation membership read timed out')
+  }
+
+  private async writeToRemote<T>(write: () => Promise<T>): Promise<T> {
+    return this.withTimeout(write, this.options.remoteWriteTimeoutMs ?? 20_000, 'remote favorite write timed out')
+  }
+
+  private async withTimeout<T>(operation: () => Promise<T>, timeoutMs: number, message: string): Promise<T> {
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
-        read(),
+        operation(),
         new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error('reconciliation membership read timed out')), timeoutMs)
+          timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
         })
       ])
     } finally {
@@ -220,7 +228,11 @@ export class FavoriteRepositorySyncService {
           }
           // A restored/existing run is never rebound here. Callers must use
           // explicit reconciliation before deciding whether it may continue.
-          if (workspace.status === 'executing' && !existingRun.completedOperationCount && existingRun.status === 'running') {
+          if (workspace.status === 'executing' && existingRun.status === 'result-unknown') {
+            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `interrupted-unknown:${plan.id}`)
+          } else if (workspace.status === 'executing' && existingRun.status === 'ready-to-resume') {
+            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'frozen', workspace.frozenSyncPlan), `interrupted-retry-ready:${plan.id}`)
+          } else if (workspace.status === 'executing' && !existingRun.completedOperationCount && existingRun.status === 'running') {
             await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `interrupted-before-request:${plan.id}`)
           }
           return existingRun
@@ -360,9 +372,9 @@ export class FavoriteRepositorySyncService {
       const attempt = (record?.attempt ?? 0) + 1
       records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
       try {
-        const result = operation.kind === 'append'
-          ? await this.pageBridge(accountMid, plan.id).append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
-          : await this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+        const result = await this.writeToRemote(() => operation.kind === 'append'
+          ? this.pageBridge(accountMid, plan.id).append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+          : this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds }))
         this.assertObservedAccount(accountMid, result.observedAccountMid)
         records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
         await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded')

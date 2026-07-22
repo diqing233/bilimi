@@ -1551,7 +1551,17 @@ export class OldFavoriteWorkspaceCoordinator {
     const cached = this.workspaces.get(account)
     if (cached && snapshot.workspace && this.matchesMarker(cached, snapshot.workspace)) return clone(cached)
 
-    if (snapshot.workspace) return this.restoreFromStore(snapshot.workspace, snapshot.updatedAt)
+    if (snapshot.workspace) {
+      const restored = await this.restoreFromStore(snapshot.workspace, snapshot.updatedAt)
+      // A process restart has no page bridge claim. Let the sync service turn an
+      // interrupted run into its durable reconciliation or retry-ready state.
+      if (!isRecoveryRequired(restored) && snapshot.workspace.status === 'executing' && snapshot.workspace.frozenSyncPlan && this.options.syncService) {
+        await this.options.syncService.executeFrozenPlan(snapshot.accountMid, snapshot.workspace.frozenSyncPlan)
+        const current = await this.options.repository.getSnapshot(snapshot.accountMid)
+        if (current.workspace) return this.restoreFromStore(current.workspace, current.updatedAt)
+      }
+      return restored
+    }
 
     return null
   }

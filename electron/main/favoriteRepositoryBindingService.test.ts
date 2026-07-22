@@ -157,6 +157,38 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(createFolder).not.toHaveBeenCalled()
   })
 
+  it('reclaims a saved remote id after a reset retained its prior binding command result', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: 'saved-music', title: 'bilimi·Music', memberCount: 12 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const input = {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·Music', remoteDisplayTitle: 'bilimi·Music',
+      preferredRemoteFolderId: 'saved-music', shardNumber: 1, memberAids: []
+    }
+
+    await service.ensurePhysicalShard('100', input)
+    await repository.commit('100', {
+      id: 'reset-with-stale-binding-result', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'clear-local-repository', payload: {}
+    })
+
+    await expect(service.ensurePhysicalShard('100', input)).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'saved-music', bindingState: 'bound' })]
+    })
+  })
+
   it('rejects a saved remote id when its expected title is duplicated remotely', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({

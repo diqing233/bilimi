@@ -2066,6 +2066,49 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('freezes a saved remote target when a prior reset left only its binding command result', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'saved-music-folder', title: 'bilimi·Music', memberCount: 12 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    await bindings.ensurePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·Music', remoteDisplayTitle: 'bilimi·Music',
+      preferredRemoteFolderId: 'saved-music-folder', shardNumber: 1, memberAids: []
+    })
+    await repository.commit('100', {
+      id: 'reset-with-stale-binding-result', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'clear-local-repository', payload: {}
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings,
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·Music'),
+      resolveLedgerBinding: vi.fn().mockResolvedValue({
+        remoteFolderId: 'saved-music-folder', remoteDisplayTitle: 'bilimi·Music'
+      }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
+  })
+
   it('binds classifications that arrive while confirmation is preparing', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3075,6 +3118,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ).getSnapshot('100')).resolves.toMatchObject({
       status, classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } }, history: { cursor: 1, length: 1 }
     })
+  })
+
+  it('asks the sync authority to recover an interrupted execution when reopening the workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    const plan = {
+      id: 'run-1', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+      createdAt: '2026-07-20T00:00:00.000Z', operations: []
+    }
+    await repository.commit('100', {
+      id: 'interrupted-execution', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker, status: 'executing', workspaceRef: { ...marker.workspaceRef, status: 'executing' }, frozenSyncPlan: plan
+      }
+    })
+    const executeFrozenPlan = vi.fn().mockResolvedValue({ id: plan.id, status: 'ready-to-resume' })
+    const restarted = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan }
+    })
+
+    await restarted.getSnapshot('100')
+
+    expect(executeFrozenPlan).toHaveBeenCalledWith('100', plan)
   })
 
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {

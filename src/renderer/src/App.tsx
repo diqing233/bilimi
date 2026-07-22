@@ -890,7 +890,18 @@ export default function App() {
   async function bindFavoriteRepositoryPageTarget(accountMid: string) {
     const webview = getCurrentActiveWebview()
     const webContentsId = webview?.getWebContentsId?.()
-    const target = typeof webContentsId === 'number' ? favoriteRepositoryTargetStates.current.get(webContentsId) : undefined
+    let target = typeof webContentsId === 'number' ? favoriteRepositoryTargetStates.current.get(webContentsId) : undefined
+    if (!target && typeof webContentsId === 'number') {
+      // A restored guest can finish loading before BiliWebview attaches its
+      // listeners. Recreate state for this active guest only, then still
+      // verify its account and navigation epoch before returning a target.
+      target = {
+        webContentsId,
+        instanceId: webview.getAttribute('data-favorite-repository-instance-id') || `bili-webview-rehydrated:${webContentsId}`,
+        navigationEpoch: 0
+      }
+      favoriteRepositoryTargetStates.current.set(webContentsId, target)
+    }
     if (!target || webview?.isLoading?.() || !webview?.executeJavaScript) {
       return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
     }

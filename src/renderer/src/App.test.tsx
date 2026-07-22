@@ -191,6 +191,27 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('rehydrates the active Bilibili page target when every load event was missed', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const webview = document.querySelector('webview') as Electron.WebviewTag
+    Object.assign(webview, {
+      getWebContentsId: () => 101,
+      executeJavaScript: vi.fn().mockResolvedValue('100')
+    })
+
+    // A restored guest can expose its id after the one-shot fallback and after
+    // both load events have completed. Binding must still remain active-tab only.
+    await expect(app.requestRuntime({
+      id: 'rehydrate-missed-target', type: 'favorite-repository-bind-page-target', accountMid: '100', runId: 'run-1'
+    })).resolves.toMatchObject({
+      status: 'ok', observedAccountMid: '100', target: {
+        webContentsId: 101,
+        instanceId: webview.getAttribute('data-favorite-repository-instance-id'),
+        navigationEpoch: 0
+      }
+    })
+  })
+
   it('reports an unavailable bound Bilibili target as unknown without selecting another tab', async () => {
     const app = renderAppWithRuntimeBridge()
 

@@ -473,6 +473,7 @@ export function BiliWebview({
       id={tabId === 'home' ? 'bilimi-webview' : `bilimi-webview-${tabId}`}
       className={`browser-surface${active ? '' : ' browser-surface--hidden'}`}
       data-active={active ? 'true' : 'false'}
+      data-favorite-repository-instance-id={instanceId.current}
       data-tab-id={tabId}
       src={model.src}
       partition={model.partition}
