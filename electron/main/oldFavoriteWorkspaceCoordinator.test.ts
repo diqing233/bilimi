@@ -2066,6 +2066,117 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('binds classifications that arrive while confirmation is preparing', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const titleRequested = deferred<void>()
+    const releaseTitle = deferred<void>()
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [
+              { id: 'remote-music', title: 'bilimi\u00b7Music', memberCount: 0 },
+              { id: 'remote-knowledge', title: 'bilimi\u00b7Knowledge', memberCount: 0 }
+            ]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      resolveLedgerTitle: vi.fn(async (_accountMid, logicalLedgerId) => {
+        if (logicalLedgerId === 'music') {
+          titleRequested.resolve()
+          await releaseTitle.promise
+          return 'bilimi\u00b7Music'
+        }
+        return 'bilimi\u00b7Knowledge'
+      }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    const freezing = coordinator.freezeForBilibiliExecution('100')
+    await titleRequested.promise
+    const lateClassification = coordinator.applyClassificationBatch('100', {
+      source: 'deepseek', assignments: [{ aid: 2, targetLedgerIds: ['knowledge'] }]
+    })
+    releaseTitle.resolve()
+
+    await expect(freezing).resolves.toMatchObject({
+      status: 'frozen',
+      frozenSyncPlan: {
+        operations: [
+          { aid: 1, folderIds: ['remote-music'] },
+          { aid: 2, folderIds: ['remote-knowledge'] }
+        ]
+      }
+    })
+    await expect(lateClassification).resolves.toMatchObject({ classifications: { '2': { targetLedgerIds: ['knowledge'] } } })
+  })
+
+  it('reclaims a saved remote target when confirming a recovered preview', async () => {
+    const root = await createRoot()
+    const firstRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(firstRepository, new OldFavoriteWorkspaceStore({ root }))
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [{ aid: 1, title: 'Saved', sourceFolderIds: ['source'] }]
+    })
+    await first.finishScan('100')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: 'saved-music-folder', title: 'bilimi\u00b7Music', memberCount: 0 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const recovered = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi\u00b7Music'),
+      resolveLedgerBinding: vi.fn().mockResolvedValue({
+        remoteFolderId: 'saved-music-folder', remoteDisplayTitle: 'bilimi\u00b7Music'
+      }),
+      now: () => '2026-07-20T00:00:01.000Z'
+    })
+
+    await expect(recovered.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
+    await expect(bindings.getBindings('100')).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'saved-music-folder', bindingState: 'bound' })]
+    })
+  })
+
   it('reclaims an unresolved prior target from the remote inventory before freezing a retry', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

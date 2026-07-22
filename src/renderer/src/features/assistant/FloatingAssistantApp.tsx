@@ -393,6 +393,12 @@ function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
   }
 }
 
+export function hasMissingFavoriteLedgerBindings(ledgers: FavoriteLedger[], favoriteLedgerStatus: FavoriteLedgerStatus | null) {
+  const backupGap = favoriteLedgerBackupGap(ledgers)
+  return Boolean(favoriteLedgerStatus?.missingLedgerIds.length) ||
+    backupGap.enabledCount === 0 || backupGap.enabledWithoutFolderCount > 0
+}
+
 export function resolveFavoriteOrganizationLamp(args: {
   snapshot: OldFavoriteWorkspaceSnapshot | null
   defaultFavoriteSystemEnabled: boolean
@@ -1404,11 +1410,9 @@ export function FloatingAssistantApp({
     commentIntentBusy
   const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
   const hasBilibiliPageOpen = BILIBILI_PAGE_PATTERN.test(resolvedSnapshot.activeTabUrl?.trim() ?? '')
-  const favoriteLedgerBackupStatus = favoriteLedgerBackupGap(preferences.favoriteLedgers)
-  const hasMissingFavoriteLedgers =
-    Boolean(favoriteLedgerStatus?.missingLedgerIds.length) ||
-    favoriteLedgerBackupStatus.enabledCount === 0 ||
-    favoriteLedgerBackupStatus.enabledWithoutFolderCount > 0
+  const activeFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
+    preferences.favoriteLedgers
+  const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {
     return favoriteWorkspaceReadinessMessage({
       hasBilibiliPageOpen,

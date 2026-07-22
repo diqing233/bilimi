@@ -1137,7 +1137,9 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
-    const preparation = await this.queue(async () => {
+    await this.stageUnclassifiedSelectedVideos(accountMid)
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const preparation = await this.queue(async () => {
         const workspace = await this.requireWorkspace(accountMid)
         if (workspace.status !== 'previewing' || !workspace.baseline) {
           throw new Error('Old favorite workspace is not ready to freeze.')
@@ -1165,82 +1167,91 @@ export class OldFavoriteWorkspaceCoordinator {
           accountMid: workspace.accountMid,
           logicalTitles,
           assignmentAids
-      }
-    })
-    await this.stageUnclassifiedSelectedVideos(preparation.accountMid)
-    if (this.options.bindingService) {
-      const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
-      for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids)
-        .sort(([left], [right]) => left.localeCompare(right))) {
-        const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
-        if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
-        // Pending shards are not safe capacity evidence: the prior create may
-        // have failed locally after succeeding remotely. Re-run their ordinal
-        // through the binding service so it can claim one exact remote title.
-        const existing = snapshot.physicalShards.filter((shard) =>
-          shard.logicalLedgerId === logicalLedgerId && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)
-        )
-        const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
-        const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
-        const availableCapacity = existing.reduce((total, shard) => total + Math.max(
-          0,
-          1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
-        ), 0)
-        const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
-        const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
-        for (let offset = 0; offset < shardCount; offset += 1) {
-          const savedBinding = await this.options.resolveLedgerBinding?.(preparation.accountMid, logicalLedgerId)
-          await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
-            logicalLedgerId,
-            logicalTitle,
-            remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
-            ...(savedBinding?.remoteFolderId ? { preferredRemoteFolderId: savedBinding.remoteFolderId } : {}),
-            shardNumber: nextShardNumber + offset,
-            memberAids: []
-          })
+        }
+      })
+      if (this.options.bindingService) {
+        const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
+        for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids)
+          .sort(([left], [right]) => left.localeCompare(right))) {
+          const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
+          if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
+          // Pending shards are not safe capacity evidence: the prior create may
+          // have failed locally after succeeding remotely. Re-run their ordinal
+          // through the binding service so it can claim one exact remote title.
+          const existing = snapshot.physicalShards.filter((shard) =>
+            shard.logicalLedgerId === logicalLedgerId && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)
+          )
+          const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
+          const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
+          const availableCapacity = existing.reduce((total, shard) => total + Math.max(
+            0,
+            1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
+          ), 0)
+          const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
+          const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
+          for (let offset = 0; offset < shardCount; offset += 1) {
+            const savedBinding = await this.options.resolveLedgerBinding?.(preparation.accountMid, logicalLedgerId)
+            await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
+              logicalLedgerId,
+              logicalTitle,
+              remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
+              ...(savedBinding?.remoteFolderId ? { preferredRemoteFolderId: savedBinding.remoteFolderId } : {}),
+              shardNumber: nextShardNumber + offset,
+              memberAids: []
+            })
+          }
         }
       }
+      const frozen = await this.queue(async () => {
+        const workspace = await this.requireWorkspace(preparation.accountMid)
+        if (workspace.status !== 'previewing' || !workspace.baseline) {
+          throw new Error('Old favorite workspace is not ready to freeze.')
+        }
+        const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
+        const currentAssignments = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
+          for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter((id) => id && id !== 'inbox')) {
+            aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
+          }
+          return aidsByLedger
+        }, {})
+        if (JSON.stringify(currentAssignments) !== JSON.stringify(preparation.assignmentAids)) return null
+        const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+        const boundShards = snapshot.physicalShards.flatMap((shard) => {
+          if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
+          const memberAids = snapshot.memberships[shard.folderId] ?? []
+          return [{
+            logicalLedgerId: shard.logicalLedgerId,
+            remoteFolderId: shard.remoteFolderId,
+            memberAids,
+            memberCount: Math.max(memberAids.length, shard.remoteMemberCount ?? 0),
+            shardNumber: shard.shardNumber
+          }]
+        })
+        const result = compileFrozenFavoriteSyncPlan({
+          accountMid: workspace.accountMid,
+          workspaceId: workspace.id,
+          baselineRevision: workspace.baseline.revision,
+          createdAt: this.now(),
+          classifications: classifications.map((classification) => ({
+            aid: classification.aid,
+            targetLedgerIds: classification.targetLedgerIds.filter((id) => id !== 'inbox')
+          })),
+          shards: boundShards
+        })
+        if (!result.allowed || !result.plan) {
+          throw new Error(`Old favorite workspace cannot freeze: ${result.reason ?? 'invalid-input'}`)
+        }
+        const next = { ...workspace, status: 'frozen' as const }
+        await this.persistMarker(next, result.plan)
+        this.remember(next, this.currentSegment(workspace), this.segmentDescriptors.get(workspace.accountMid) ?? [],
+          new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
+        const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
+        if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
+        return clone(persisted.workspace)
+      })
+      if (frozen) return frozen
     }
-    return this.queue(async () => {
-      const workspace = await this.requireWorkspace(preparation.accountMid)
-      if (workspace.status !== 'previewing' || !workspace.baseline) {
-        throw new Error('Old favorite workspace is not ready to freeze.')
-      }
-      const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
-      const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
-      const boundShards = snapshot.physicalShards.flatMap((shard) => {
-        if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
-        const memberAids = snapshot.memberships[shard.folderId] ?? []
-        return [{
-          logicalLedgerId: shard.logicalLedgerId,
-          remoteFolderId: shard.remoteFolderId,
-          memberAids,
-          memberCount: Math.max(memberAids.length, shard.remoteMemberCount ?? 0),
-          shardNumber: shard.shardNumber
-        }]
-      })
-      const result = compileFrozenFavoriteSyncPlan({
-        accountMid: workspace.accountMid,
-        workspaceId: workspace.id,
-        baselineRevision: workspace.baseline.revision,
-        createdAt: this.now(),
-        classifications: classifications.map((classification) => ({
-          aid: classification.aid,
-          targetLedgerIds: classification.targetLedgerIds.filter((id) => id !== 'inbox')
-        })),
-        shards: boundShards
-      })
-      if (!result.allowed || !result.plan) {
-        throw new Error(`Old favorite workspace cannot freeze: ${result.reason ?? 'invalid-input'}`)
-      }
-      const frozen = { ...workspace, status: 'frozen' as const }
-      await this.persistMarker(frozen, result.plan)
-      this.remember(frozen, this.currentSegment(workspace), this.segmentDescriptors.get(workspace.accountMid) ?? [],
-        new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
-      const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
-      if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
-      return clone(persisted.workspace)
-    })
+    throw new Error('Old favorite workspace changed while preparing Bilibili bindings.')
   }
 
   async pauseTagEnrichment(accountMid: string) {
