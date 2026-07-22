@@ -122,7 +122,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     const reordered = [...draftLedgers]
     const [source] = reordered.splice(sourceIndex, 1)
     const target = draftLedgers[targetIndex]
-    const insertionIndex = reordered.findIndex((ledger) => ledger === target)
+    const nextTargetIndex = reordered.findIndex((ledger) => ledger === target)
+    const insertionIndex = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
     reordered.splice(insertionIndex, 0, source!)
     persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
