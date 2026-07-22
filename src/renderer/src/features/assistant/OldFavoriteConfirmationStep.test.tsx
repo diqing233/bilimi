@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
+import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteConfirmationStep', () => {
   it('keeps local save and Bilibili sync available for the classified portion of an incomplete plan', () => {
@@ -70,6 +71,44 @@ describe('OldFavoriteConfirmationStep', () => {
 
     screen.getByRole('button', { name: '对账 B 站结果' }).click()
     expect(reconcile).toHaveBeenCalledOnce()
+  })
+
+  it('replaces stale sync progress with reconciliation feedback as soon as checking starts', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
+      }}
+      loading={true} reconciling
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
+    expect(screen.queryByRole('progressbar', { name: '正在同步到 B 站' })).not.toBeInTheDocument()
+  })
+
+  it('passes the immediate reconciliation state through the confirmation guide', () => {
+    render(<OldFavoriteGuide
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
+      }}
+      loading reconciling preparationStatus={null} executionError={null} scanStarting={false} scanStartFailure={null} step="confirm"
+      onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()} onSelectSourceFolders={vi.fn()}
+      onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onSetRecommendedCandidates={vi.fn()} ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null} onSelectSegment={vi.fn()}
+      onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()}
+      onApplyManualClassifications={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
+    expect(screen.queryByRole('progressbar', { name: '正在同步到 B 站' })).not.toBeInTheDocument()
   })
 
   it('shows reconciliation progress and restores an actionable retry after a failed check', () => {

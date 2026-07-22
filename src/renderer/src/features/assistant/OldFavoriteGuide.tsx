@@ -13,6 +13,7 @@ export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
+  reconciling: boolean
   preparationStatus?: string | null
   executionError?: string | null
   scanStarting: boolean
@@ -59,6 +60,7 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 export function OldFavoriteGuide({
   snapshot,
   loading,
+  reconciling,
   preparationStatus,
   executionError,
   scanStarting,
@@ -167,6 +169,7 @@ export function OldFavoriteGuide({
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}
       loading={loading}
+      reconciling={reconciling}
       preparationStatus={preparationStatus}
       executionError={executionError}
       onSaveLocally={onSaveLocally}

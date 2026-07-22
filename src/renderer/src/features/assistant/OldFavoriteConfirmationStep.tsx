@@ -3,6 +3,7 @@ import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
+  reconciling?: boolean
   preparationStatus?: string | null
   executionError?: string | null
   onSaveLocally: () => void
@@ -24,6 +25,7 @@ function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
 export function OldFavoriteConfirmationStep({
   snapshot,
   loading,
+  reconciling = false,
   preparationStatus,
   executionError,
   onSaveLocally,
@@ -44,6 +46,16 @@ export function OldFavoriteConfirmationStep({
     </section>
   }
 
+  if (reconciling || snapshot.status === 'reconciling') {
+    return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+      <h4>确认执行</h4>
+      <p>远端结果仍在确认中，请先对账 B 站结果；不能直接重复提交。</p>
+      {loading ? <p role="status">正在对账 B 站结果，请保持已登录的 B 站页面打开。</p> : null}
+      {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
+      <button type="button" disabled={loading} onClick={onReconcile}>对账 B 站结果</button>
+    </section>
+  }
+
   if (snapshot.status === 'executing') {
     const completed = snapshot.executionProgress?.completedOperationCount ?? 0
     const total = snapshot.executionProgress?.totalOperationCount ?? 0
@@ -54,16 +66,6 @@ export function OldFavoriteConfirmationStep({
         {total > 0 ? <p>已完成 {completed} / {total} 条</p> : null}
         <progress aria-label="正在同步到 B 站" value={completed} max={Math.max(total, 1)} />
       </div>
-    </section>
-  }
-
-  if (snapshot.status === 'reconciling') {
-    return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
-      <h4>确认执行</h4>
-      <p>远端结果仍在确认中，请先对账 B 站结果；不能直接重复提交。</p>
-      {loading ? <p role="status">正在对账 B 站结果，请保持已登录的 B 站页面打开。</p> : null}
-      {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
-      <button type="button" disabled={loading} onClick={onReconcile}>对账 B 站结果</button>
     </section>
   }
 

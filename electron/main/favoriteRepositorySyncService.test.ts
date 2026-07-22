@@ -477,6 +477,28 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'result-unknown' })
   })
 
+  it('times out a stalled membership read and keeps the remote result unknown', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValueOnce(new Error('network connection interrupted')),
+        remove: vi.fn(),
+        readMembers: vi.fn(() => new Promise(() => undefined))
+      },
+      now: () => '2026-07-19T00:00:00.000Z',
+      reconciliationReadTimeoutMs: 5
+    })
+
+    await service.executeFrozenPlan('100', plan())
+
+    await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'result-unknown' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
+  })
+
   it('records a mismatched reconciliation account as result-unknown instead of rejecting reconciliation', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

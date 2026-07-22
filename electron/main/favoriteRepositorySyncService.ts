@@ -113,6 +113,7 @@ export class FavoriteRepositorySyncService {
     pacingMs?: number
     random?: () => number
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
+    reconciliationReadTimeoutMs?: number
   }) {}
 
   private pageBridge(accountMid: string, runId: string) {
@@ -120,6 +121,21 @@ export class FavoriteRepositorySyncService {
       this.options.createPageBridge?.(runId) ?? this.options.pageBridge
     if (!pageBridge) throw new Error('Favorite sync page bridge is unavailable.')
     return pageBridge
+  }
+
+  private async readMembersForReconciliation<T>(read: () => Promise<T>): Promise<T> {
+    const timeoutMs = this.options.reconciliationReadTimeoutMs ?? 12_000
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        read(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('reconciliation membership read timed out')), timeoutMs)
+        })
+      ])
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+    }
   }
 
   async bindPageTarget(accountMid: string, runId: string) {
@@ -262,12 +278,12 @@ export class FavoriteRepositorySyncService {
       if (record.status === 'failed') continue
       let result: PageBridgeResult & { members: Record<string, number[]> }
       try {
-        result = await this.pageBridge(account, plan.id).readMembers({
+        result = await this.readMembersForReconciliation(() => this.pageBridge(account, plan.id).readMembers({
           accountMid: account,
           operationKey: operation.operationKey,
           aid: operation.aid,
           folderIds: operation.folderIds
-        })
+        }))
       } catch (error) {
         records.set(operation.operationKey, await this.writeRecord(
           account,

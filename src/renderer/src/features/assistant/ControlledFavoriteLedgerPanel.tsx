@@ -292,6 +292,7 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
+        reconciling={workspace.reconciling}
         preparationStatus={confirmationPreparationStatus}
         executionError={confirmationPreparationError ?? workspace.executionError}
         scanStarting={scanStarting}

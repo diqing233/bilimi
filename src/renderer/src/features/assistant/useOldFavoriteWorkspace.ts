@@ -56,6 +56,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
   const [executionError, setExecutionError] = useState<string | null>(null)
+  const [reconciling, setReconciling] = useState(false)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
@@ -71,6 +72,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setBackgroundRefreshing(false)
     setDeepSeekFeedback(null)
     setDeepSeekCancelRequested(false)
+    setReconciling(false)
     activeDeepSeekWorkspaceId.current = null
   }, [accountMid])
 
@@ -359,7 +361,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const confirmAndExecuteBilibiliPlan = useCallback(() => sendCommand({ type: 'confirm-and-execute-bilibili-plan' }, true), [sendCommand])
   const saveCurrentSegmentLocally = useCallback(() => sendCommand({ type: 'save-current-segment-locally' }), [sendCommand])
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }, true), [sendCommand])
-  const reconcileFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true), [sendCommand])
+  const reconcileFrozenBilibiliPlan = useCallback(async () => {
+    setReconciling(true)
+    try {
+      return await sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true)
+    } finally {
+      setReconciling(false)
+    }
+  }, [sendCommand])
   const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
   const rebuildCorruptWorkspace = useCallback(() => sendCommand({ type: 'rebuild-corrupt-workspace' }), [sendCommand])
 
@@ -378,7 +387,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status, snapshot?.tagEnrichment?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,
