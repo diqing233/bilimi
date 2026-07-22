@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { resolveFavoriteOrganizationLamp } from './FloatingAssistantApp'
+import { defaultFavoriteSystemToggleAvailable, resolveFavoriteOrganizationLamp } from './FloatingAssistantApp'
 
 const defaultLedger: FavoriteLedger = {
   id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true,
@@ -18,6 +18,11 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('requires a Bilibili account before editing the account-scoped default favorite system', () => {
+    expect(defaultFavoriteSystemToggleAvailable(undefined)).toBe(false)
+    expect(defaultFavoriteSystemToggleAvailable('100')).toBe(true)
+  })
+
   it('keeps a default-system-disabled account idle instead of reporting a backup gap', () => {
     expect(resolveFavoriteOrganizationLamp({
       snapshot: null,

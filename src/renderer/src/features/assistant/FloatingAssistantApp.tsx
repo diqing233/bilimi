@@ -457,6 +457,10 @@ export function resolveFavoriteOrganizationLamp(args: {
   }
 }
 
+export function defaultFavoriteSystemToggleAvailable(accountMid: string | undefined) {
+  return Boolean(accountMid)
+}
+
 function createFallbackSnapshot(): AssistantSnapshot {
   const preferences = createInitialAssistantPreferences()
 
@@ -2477,6 +2481,21 @@ export function FloatingAssistantApp({
     ), options)
   }
 
+  async function saveFavoriteLedgerRules(
+    favoriteLedgers: AssistantPreferences['favoriteLedgers']
+  ) {
+    const accountMid = resolvedSnapshot.accountMid
+    await persistPreferences(accountMid
+      ? withFavoriteLedgersForAccount(preferencesRef.current, accountMid, favoriteLedgers)
+      : { ...preferencesRef.current, favoriteLedgers })
+    if (accountMid) {
+      await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(accountMid, {
+        type: 'reclassify-favorite-configuration'
+      })
+    }
+    return createDefaultResult('收藏夹规则已保存。')
+  }
+
   async function setDefaultFavoriteSystemEnabled(enabled: boolean) {
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid) return
@@ -2629,7 +2648,7 @@ export function FloatingAssistantApp({
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             defaultFavoriteSystemEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
             onEnsureLedgers={ensureFavoriteLedgers}
-            onSaveLedgers={saveFavoriteLedgers}
+            onSaveLedgers={saveFavoriteLedgerRules}
             onSyncLedgers={syncFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onRefreshOrganizationState={refreshOrganizationState}
@@ -3432,6 +3451,8 @@ export function FloatingAssistantApp({
                 <input
                   type="checkbox"
                   aria-label="启用默认收藏夹"
+                  disabled={!defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid)}
+                  title={defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid) ? undefined : '登录 B 站后可为当前账号设置默认收藏夹体系'}
                   checked={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
                   onChange={(event) => void setDefaultFavoriteSystemEnabled(event.currentTarget.checked)}
                 />
