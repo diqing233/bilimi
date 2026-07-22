@@ -120,7 +120,7 @@ describe('renderer porcelain theme styles', () => {
   it('uses compact density rules for small logical windows without scaling the whole app', () => {
     expect(normalizedStyles).toContain('@media (max-width: 1200px), (max-height: 760px)')
     expectStyleSnippet(
-      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+      '@media (max-width: 1200px), (max-height: 760px) { .browser-workspace { grid-template-rows: 38px minmax(0, 1fr) auto;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 8px; gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px; font-size: 13px;'
@@ -166,7 +166,7 @@ describe('renderer porcelain theme styles', () => {
       '.browser-tabs__item:is(:hover, :focus-within, [data-selected="true"]) .browser-tabs__close { width: 26px; opacity: 1; pointer-events: auto;'
     )
     expectStyleSnippet(
-      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+      '@media (max-width: 1200px), (max-height: 760px) { .browser-workspace { grid-template-rows: 38px minmax(0, 1fr) auto;'
     )
     expectStyleSnippet(
       '.browser-tabs__item { flex-basis: 132px; min-width: 80px; max-width: 180px; height: 28px;'

@@ -62,6 +62,7 @@ import type {
   FavoriteRepositoryPageTarget
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
+import { FavoriteLibraryDrawer } from './features/favorites/FavoriteLibraryDrawer'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
@@ -510,6 +511,7 @@ export default function App() {
     }
   ])
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
+  const [favoriteLibraryOpen, setFavoriteLibraryOpen] = useState(false)
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
@@ -540,6 +542,12 @@ export default function App() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
     [activeTabId, tabs]
   )
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onOpenFavoriteLibraryDrawer?.(() => {
+      setFavoriteLibraryOpen(true)
+    })
+  }, [])
 
   const commitTabs = useCallback(
     (updater: (currentTabs: BrowserTabModel[]) => BrowserTabModel[]) => {
@@ -2048,6 +2056,7 @@ export default function App() {
   return (
     <div className="app-shell" data-tabs-visible="true">
       <div className="app-main">
+        <div className="browser-workspace">
         <div className="browser-tabs">
           <div className="browser-tabs__list" role="tablist" aria-label="网页标签">
             {tabs.map((tab) => (
@@ -2113,6 +2122,11 @@ export default function App() {
               onTitleChange={updateTabTitle}
             />
           ))}
+        </div>
+        <FavoriteLibraryDrawer
+          open={favoriteLibraryOpen}
+          onClose={() => setFavoriteLibraryOpen(false)}
+        />
         </div>
       </div>
       <AssistantSidebar onOpenInTab={openInternalTab} />

@@ -139,6 +139,24 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('opens the favorite library drawer inside the browser workspace without moving the assistant sidebar', async () => {
+    let openDrawer: (() => void) | undefined
+    renderAppWithRuntimeBridge({
+      onOpenFavoriteLibraryDrawer: vi.fn((callback: () => void) => {
+        openDrawer = callback
+        return vi.fn()
+      })
+    })
+
+    await act(async () => {
+      openDrawer?.()
+    })
+
+    const drawer = await screen.findByTestId('favorite-library-drawer')
+    expect(drawer.closest('.app-main')).not.toBeNull()
+    expect(drawer.closest('.assistant-sidebar')).toBeNull()
+  })
+
   it('returns an explicit target descriptor only when binding the active Bilibili page', async () => {
     const app = renderAppWithRuntimeBridge()
     const webview = document.querySelector('webview') as Electron.WebviewTag

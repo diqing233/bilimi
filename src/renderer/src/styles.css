@@ -293,10 +293,14 @@ body[data-floating-window="true"],
 .app-main {
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
 }
-.app-shell[data-tabs-visible="false"] .app-main {
+.browser-workspace {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr) auto;
+}
+.app-shell[data-tabs-visible="false"] .browser-workspace {
   grid-template-rows: minmax(0, 1fr);
 }
 .browser-tabs {
@@ -446,6 +450,58 @@ body[data-floating-window="true"],
   min-height: 0;
   overflow: hidden;
   background: var(--porcelain-edge);
+}
+.favorite-library-drawer {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 6px auto minmax(0, 1fr);
+  overflow: hidden;
+  border-top: 1px solid rgba(31, 99, 181, 0.26);
+  background: var(--porcelain-surface);
+}
+.favorite-library-drawer[data-collapsed="true"] {
+  height: auto;
+  grid-template-rows: auto;
+}
+.favorite-library-drawer__resize-handle {
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.favorite-library-drawer__resize-handle:hover,
+.favorite-library-drawer__resize-handle:focus-visible {
+  background: rgba(31, 99, 181, 0.3);
+  outline: none;
+}
+.favorite-library-drawer[data-collapsed="true"] .favorite-library-drawer__resize-handle {
+  display: none;
+}
+.favorite-library-drawer__header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(31, 99, 181, 0.16);
+  background: rgba(226, 238, 249, 0.9);
+  color: var(--porcelain-deep);
+}
+.favorite-library-drawer__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.favorite-library-drawer__actions button {
+  min-height: 26px;
+  padding: 0 8px;
+}
+.favorite-library-drawer__body {
+  min-height: 0;
+  overflow: hidden;
+}
+.favorite-library-drawer__body > .favorite-library {
+  height: 100%;
 }
 .browser-proxy-error {
   position: absolute;
@@ -1910,8 +1966,8 @@ body[data-floating-window="true"],
   white-space: nowrap;
 }
 @media (max-width: 1200px), (max-height: 760px) {
-  .app-main {
-    grid-template-rows: 38px minmax(0, 1fr);
+  .browser-workspace {
+    grid-template-rows: 38px minmax(0, 1fr) auto;
   }
 
   .browser-tabs {
