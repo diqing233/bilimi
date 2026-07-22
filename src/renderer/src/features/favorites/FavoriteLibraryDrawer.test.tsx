@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryDrawer } from './FavoriteLibraryDrawer'
@@ -22,6 +22,7 @@ vi.mock('./FavoriteLibraryApp', () => ({
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('FavoriteLibraryDrawer', () => {
@@ -82,6 +83,26 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.pointerUp(handle, { pointerId: 1 })
 
     expect(drawer).toHaveStyle({ height: '720px' })
+  })
+
+  it('clamps its initial height to a short browser workspace', () => {
+    vi.stubGlobal('innerHeight', 500)
+    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '320px' })
+  })
+
+  it('reclamps its height when the browser workspace becomes shorter', () => {
+    vi.stubGlobal('innerHeight', 900)
+    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    const drawer = screen.getByTestId('favorite-library-drawer')
+
+    vi.stubGlobal('innerHeight', 400)
+    act(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+
+    expect(drawer).toHaveStyle({ height: '220px' })
   })
 
   it('resizes with keyboard controls within the same bounds as pointer dragging', () => {

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FavoriteLibraryApp } from './FavoriteLibraryApp'
 
 const DEFAULT_HEIGHT = 360
@@ -18,9 +18,15 @@ function clampHeight(height: number) {
 
 export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerProps) {
   const [collapsed, setCollapsed] = useState(false)
-  const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const hasBeenOpenedRef = useRef(open)
+
+  useEffect(() => {
+    const reconcileHeight = () => setHeight((current) => clampHeight(current))
+    window.addEventListener('resize', reconcileHeight)
+    return () => window.removeEventListener('resize', reconcileHeight)
+  }, [])
 
   if (open) {
     hasBeenOpenedRef.current = true
