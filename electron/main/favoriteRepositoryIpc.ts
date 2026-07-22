@@ -209,7 +209,7 @@ export function registerFavoriteRepositoryIpc(options: {
   ipcMain: IpcMain
   service: FavoriteRepositoryService
   isTrustedSender: (senderId: number) => boolean
-  /** A library window may read page snapshots but never mutate the repository. */
+  /** The embedded main-window favorite library drawer may read page snapshots but never mutate the repository. */
   isTrustedReader?: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
