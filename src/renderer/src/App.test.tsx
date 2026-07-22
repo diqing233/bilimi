@@ -609,7 +609,10 @@ describe('App runtime integration', () => {
 
   it('persists existing Bilibili folder ids returned by backup before the next assistant snapshot', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -635,9 +638,13 @@ describe('App runtime integration', () => {
 
     await expect(requestRuntime({ id: 'backup-ledgers', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
-      favoriteLedgers: expect.arrayContaining([
-        expect.objectContaining({ id: 'music', bilibiliFolderId: expect.any(String) })
-      ])
+      favoriteAccountPreferences: expect.objectContaining({
+        '100': expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: 'music', bilibiliFolderId: expect.any(String) })
+          ])
+        })
+      })
     }))
   })
 
