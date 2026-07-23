@@ -3,7 +3,7 @@ type BilibiliProxySession = {
   closeAllConnections: () => Promise<void>
 }
 
-export type BilibiliConnectionMode = 'auto' | 'direct' | 'system'
+export type BilibiliConnectionMode = 'auto' | 'direct'
 type EffectiveProxyMode = 'direct' | 'system'
 
 export class BilibiliSessionProxy {

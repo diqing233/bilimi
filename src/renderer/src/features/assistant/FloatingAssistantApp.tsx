@@ -3490,11 +3490,10 @@ export function FloatingAssistantApp({
             >
               <legend>B 站连接方式</legend>
               <p>只影响 bilimi 内的 B 站网页、API、图片和视频会话，不会修改 Windows 或 Clash 的代理设置，也不会影响 DeepSeek、转写下载或其他应用网络。</p>
-              <p>未启用系统代理时通常没有区别；海外或必须代理访问 B 站时请选择“跟随系统代理”。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
+              <p>自动模式跟随 Windows 当前系统代理；未启用系统代理时通常与直连没有区别。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
               {([
                 ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
-                ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。'],
-                ['system', '跟随系统代理', '让 bilimi 的 B 站会话使用 Windows 当前系统代理。']
+                ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
               ] as const).map(([mode, label, help]) => (
                 <label key={mode}>
                   <input

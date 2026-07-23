@@ -74,7 +74,7 @@ function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSug
 export function normalizeBilibiliConnectionMode(
   value: unknown
 ): AssistantPreferences['bilibiliConnectionMode'] {
-  return value === 'direct' || value === 'system' ? value : 'auto'
+  return value === 'direct' ? value : 'auto'
 }
 
 function normalizeFavoriteAccountPreferenceMap(

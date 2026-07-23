@@ -169,8 +169,8 @@ let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
-function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' | 'system' {
-  return value === 'direct' || value === 'system' ? value : 'auto'
+function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' {
+  return value === 'direct' ? value : 'auto'
 }
 
 function readBilibiliConnectionMode() {
@@ -179,7 +179,7 @@ function readBilibiliConnectionMode() {
   )
 }
 
-function writeBilibiliConnectionMode(mode: 'auto' | 'direct' | 'system') {
+function writeBilibiliConnectionMode(mode: 'auto' | 'direct') {
   ;(getDesktopStore() as unknown as { set: (key: string, value: unknown) => void }).set('bilibiliConnectionMode', mode)
 }
 

@@ -19,11 +19,11 @@ describe('BilibiliSessionProxy', () => {
     const session = { setProxy: vi.fn().mockResolvedValue(undefined), closeAllConnections: vi.fn().mockResolvedValue(undefined) }
     const proxy = new BilibiliSessionProxy(() => session)
 
-    await proxy.applyPreference('system')
+    await proxy.applyPreference('auto')
     await proxy.retryDirect()
 
     expect(session.setProxy).toHaveBeenLastCalledWith({ mode: 'direct' })
-    expect(proxy.snapshot()).toEqual({ mode: 'system', effectiveMode: 'direct', temporaryDirect: true })
+    expect(proxy.snapshot()).toEqual({ mode: 'auto', effectiveMode: 'direct', temporaryDirect: true })
   })
 
   it('clears a one-time direct retry when the user explicitly reapplies auto', async () => {

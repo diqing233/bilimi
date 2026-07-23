@@ -254,6 +254,22 @@ describe('AssistantSidebar', () => {
     ).toEqual(['bilibili-connection', 'close'])
   })
 
+  it('shows only automatic system proxy and direct Bilibili connection choices', async () => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({ bilibiliConnectionMode: 'system' })
+    })
+
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    const connectionSection = document.querySelector('[data-settings-section="bilibili-connection"]')
+    expect(connectionSection).not.toBeNull()
+    expect(connectionSection?.querySelectorAll('input[name="bilibili-connection-mode"]')).toHaveLength(2)
+    expect(screen.getByRole('radio', { name: /自动（推荐）/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /始终直连/ })).toBeInTheDocument()
+    expect(screen.queryByText('跟随系统代理', { exact: true })).not.toBeInTheDocument()
+  })
+
   it('keeps an expanded sidebar on its own page when the pet opens another workspace', async () => {
     const api = installDesktopApi()
     render(<AssistantSidebar />)

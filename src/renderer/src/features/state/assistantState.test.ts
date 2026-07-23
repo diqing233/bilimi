@@ -113,6 +113,7 @@ describe('assistant state', () => {
   it('migrates a missing device-wide Bilibili connection choice to auto', () => {
     expect(createInitialAssistantPreferences({}).bilibiliConnectionMode).toBe('auto')
     expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'direct' }).bilibiliConnectionMode).toBe('direct')
+    expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'system' }).bilibiliConnectionMode).toBe('auto')
     expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'invalid' as never }).bilibiliConnectionMode).toBe('auto')
   })
 
