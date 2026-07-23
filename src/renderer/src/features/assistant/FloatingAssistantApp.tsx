@@ -874,11 +874,6 @@ export function FloatingAssistantApp({
 
   useEffect(() => subscribeDeepSeekTasks(setRemoteDeepSeekTasks), [])
 
-  useEffect(() => {
-    if (activeView !== 'settings' || !window.bilimiDesktop?.getLocalDataInfo) return
-    void window.bilimiDesktop.getLocalDataInfo().then(setLocalDataInfo).catch(() => undefined)
-  }, [activeView])
-
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
   const inFlightPreferenceSaveRef = useRef<{
@@ -904,6 +899,11 @@ export function FloatingAssistantApp({
   const [videoNoteArchiveSelection, setVideoNoteArchiveSelection] =
     useState<VideoNoteArchiveSelection>(() => loadSessionVideoNoteArchiveSelection())
   const isSidebarMode = mode === 'sidebar'
+
+  useEffect(() => {
+    if (activeView !== 'settings' || !window.bilimiDesktop?.getLocalDataInfo) return
+    void window.bilimiDesktop.getLocalDataInfo().then(setLocalDataInfo).catch(() => undefined)
+  }, [activeView])
 
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
     const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
