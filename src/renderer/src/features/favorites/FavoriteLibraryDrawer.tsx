@@ -13,7 +13,9 @@ const COMPACT_BROWSER_HEIGHT = 760
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
+  collapsed: boolean
   onClose: () => void
+  onCollapsedChange: (collapsed: boolean) => void
 }
 
 type FavoriteLibraryAccount = { mid: string; nickname?: string }
@@ -41,8 +43,7 @@ function isVisible(element: HTMLElement) {
   return element.isConnected && !element.closest('[hidden]') && style.display !== 'none' && style.visibility !== 'hidden'
 }
 
-export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerProps) {
-  const [collapsed, setCollapsed] = useState(false)
+export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedChange }: FavoriteLibraryDrawerProps) {
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const dragStartRef = useRef<{ clientY: number; height: number }>()
@@ -138,7 +139,7 @@ export function FavoriteLibraryDrawer({ open, onClose }: FavoriteLibraryDrawerPr
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}
             title={collapsed ? '展开收藏库' : '收起收藏库'}
-            onClick={() => setCollapsed((current) => !current)}
+            onClick={() => onCollapsedChange(!collapsed)}
           >
             {collapsed ? '展开' : '收起'}
           </button>

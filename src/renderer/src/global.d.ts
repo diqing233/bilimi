@@ -41,6 +41,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
+import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type BilimiDesktopApi = {
@@ -135,7 +136,7 @@ type BilimiDesktopApi = {
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
-  onOpenFavoriteLibraryDrawer?: (callback: () => void) => () => void
+  onOpenFavoriteLibraryDrawer?: (callback: (command: FavoriteLibraryDrawerCommand) => void) => () => void
   onOpenFloatingAssistantWorkspace?: (
     callback: (payload: FloatingAssistantWorkspaceRequest) => void
   ) => () => void

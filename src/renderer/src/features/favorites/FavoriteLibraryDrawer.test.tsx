@@ -34,19 +34,23 @@ afterEach(() => {
 
 describe('FavoriteLibraryDrawer', () => {
   it('shows the embedded library account beside the drawer title', () => {
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
     expect(screen.getByText('当前账号：小咪（UID：100）')).toBeInTheDocument()
   })
 
   it('does not render until opened', () => {
-    const { container } = render(<FavoriteLibraryDrawer open={false} onClose={vi.fn()} />)
+    const { container } = render(<FavoriteLibraryDrawer open={false} collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
     expect(container.querySelector('[data-testid="favorite-library-drawer"]')).not.toBeInTheDocument()
   })
 
   it('keeps the embedded library mounted while its body is collapsed', () => {
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    function DrawerHarness() {
+      const [collapsed, setCollapsed] = useState(false)
+      return <FavoriteLibraryDrawer open collapsed={collapsed} onClose={vi.fn()} onCollapsedChange={setCollapsed} />
+    }
+    render(<DrawerHarness />)
 
     expect(screen.getByTestId('favorite-library-content')).toHaveAttribute('data-embedded', 'true')
     fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
@@ -58,7 +62,7 @@ describe('FavoriteLibraryDrawer', () => {
 
   it('notifies its parent when closed', () => {
     const onClose = vi.fn()
-    render(<FavoriteLibraryDrawer open onClose={onClose} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={onClose} onCollapsedChange={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '关闭收藏库' }))
 
@@ -71,7 +75,7 @@ describe('FavoriteLibraryDrawer', () => {
       return (
         <>
           <button type="button" onClick={() => setOpen(true)}>打开收藏库</button>
-          <FavoriteLibraryDrawer open={open} onClose={() => setOpen(false)} />
+          <FavoriteLibraryDrawer open={open} collapsed={false} onClose={() => setOpen(false)} onCollapsedChange={vi.fn()} />
         </>
       )
     }
@@ -93,7 +97,7 @@ describe('FavoriteLibraryDrawer', () => {
       return (
         <>
           <button type="button" onClick={() => setOpen(true)}>打开收藏库</button>
-          <FavoriteLibraryDrawer open={open} onClose={() => setOpen(false)} />
+          <FavoriteLibraryDrawer open={open} collapsed={false} onClose={() => setOpen(false)} onCollapsedChange={vi.fn()} />
         </>
       )
     }
@@ -110,7 +114,7 @@ describe('FavoriteLibraryDrawer', () => {
   it('clamps a resized height to the available browser workspace', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
     const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
 
@@ -124,7 +128,7 @@ describe('FavoriteLibraryDrawer', () => {
   it('reserves browser stack height with the compact tab bar', () => {
     vi.stubGlobal('innerWidth', 1200)
     vi.stubGlobal('innerHeight', 900)
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
     const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
 
@@ -137,7 +141,7 @@ describe('FavoriteLibraryDrawer', () => {
   it('clamps its initial height to a short browser workspace', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 500)
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
     expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '276px' })
   })
@@ -145,7 +149,7 @@ describe('FavoriteLibraryDrawer', () => {
   it('reclamps its height when the browser workspace becomes shorter', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
 
     vi.stubGlobal('innerHeight', 400)
@@ -159,7 +163,7 @@ describe('FavoriteLibraryDrawer', () => {
   it('resizes with keyboard controls within the same bounds as pointer dragging', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
-    render(<FavoriteLibraryDrawer open onClose={vi.fn()} />)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
     const drawer = screen.getByTestId('favorite-library-drawer')
     const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
 

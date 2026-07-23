@@ -512,6 +512,7 @@ export default function App() {
   ])
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
   const [favoriteLibraryOpen, setFavoriteLibraryOpen] = useState(false)
+  const [favoriteLibraryCollapsed, setFavoriteLibraryCollapsed] = useState(false)
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
@@ -544,10 +545,15 @@ export default function App() {
   )
 
   useEffect(() => {
-    return window.bilimiDesktop?.onOpenFavoriteLibraryDrawer?.(() => {
+    return window.bilimiDesktop?.onOpenFavoriteLibraryDrawer?.((command) => {
+      if (command === 'toggle' && favoriteLibraryOpen && !favoriteLibraryCollapsed) {
+        setFavoriteLibraryOpen(false)
+        return
+      }
+      setFavoriteLibraryCollapsed(false)
       setFavoriteLibraryOpen(true)
     })
-  }, [])
+  }, [favoriteLibraryCollapsed, favoriteLibraryOpen])
 
   const commitTabs = useCallback(
     (updater: (currentTabs: BrowserTabModel[]) => BrowserTabModel[]) => {
@@ -2136,7 +2142,9 @@ export default function App() {
         </div>
         <FavoriteLibraryDrawer
           open={favoriteLibraryOpen}
+          collapsed={favoriteLibraryCollapsed}
           onClose={() => setFavoriteLibraryOpen(false)}
+          onCollapsedChange={setFavoriteLibraryCollapsed}
         />
         </div>
       </div>

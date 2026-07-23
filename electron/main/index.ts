@@ -58,6 +58,7 @@ import {
   installMainWindowControlReactions
 } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
+import { handleFavoriteLibraryEntry } from './favoriteLibraryEntryFlow'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
@@ -1394,7 +1395,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   ipcMain.handle('favorite-library:open', (event) => {
     assertTrustedOldFavoriteAssistantSender(event)
-    ensureMainWindowForAssistantRuntime().webContents.send('favorite-library:open-drawer')
+    handleFavoriteLibraryEntry({
+      senderId: event.sender.id,
+      mainWindow,
+      restoreMainWindow: restoreMainWindowForPet
+    })
   })
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {

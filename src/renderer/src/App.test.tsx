@@ -140,21 +140,48 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 
 describe('App runtime integration', () => {
   it('opens the favorite library drawer inside the browser workspace without moving the assistant sidebar', async () => {
-    let openDrawer: (() => void) | undefined
+    let openDrawer: ((command: 'toggle' | 'reveal') => void) | undefined
     renderAppWithRuntimeBridge({
-      onOpenFavoriteLibraryDrawer: vi.fn((callback: () => void) => {
+      onOpenFavoriteLibraryDrawer: vi.fn((callback: (command: 'toggle' | 'reveal') => void) => {
         openDrawer = callback
         return vi.fn()
       })
     })
 
     await act(async () => {
-      openDrawer?.()
+      openDrawer?.('reveal')
     })
 
     const drawer = await screen.findByTestId('favorite-library-drawer')
     expect(drawer.closest('.app-main')).not.toBeNull()
     expect(drawer.closest('.assistant-sidebar')).toBeNull()
+  })
+
+  it('toggles an expanded library closed but reveals a collapsed library expanded', async () => {
+    let commandDrawer: ((command: 'toggle' | 'reveal') => void) | undefined
+    renderAppWithRuntimeBridge({
+      onOpenFavoriteLibraryDrawer: vi.fn((callback: (command: 'toggle' | 'reveal') => void) => {
+        commandDrawer = callback
+        return vi.fn()
+      })
+    })
+
+    act(() => commandDrawer?.('reveal'))
+    const drawer = await screen.findByTestId('favorite-library-drawer')
+    expect(drawer).toHaveAttribute('data-collapsed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
+    expect(drawer).toHaveAttribute('data-collapsed', 'true')
+
+    act(() => commandDrawer?.('reveal'))
+    expect(drawer).toHaveAttribute('data-collapsed', 'false')
+
+    act(() => commandDrawer?.('toggle'))
+    expect(drawer).not.toBeVisible()
+
+    act(() => commandDrawer?.('toggle'))
+    expect(drawer).toBeVisible()
+    expect(drawer).toHaveAttribute('data-collapsed', 'false')
   })
 
   it('returns an explicit target descriptor only when binding the active Bilibili page', async () => {

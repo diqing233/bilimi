@@ -46,6 +46,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
+import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -234,10 +235,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('assistant:open', listener)
     }
   },
-  onOpenFavoriteLibraryDrawer: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('favorite-library:open-drawer', listener)
-    return () => ipcRenderer.removeListener('favorite-library:open-drawer', listener)
+  onOpenFavoriteLibraryDrawer: (callback: (command: FavoriteLibraryDrawerCommand) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, command: FavoriteLibraryDrawerCommand) => callback(command)
+    ipcRenderer.on('favorite-library:drawer-command', listener)
+    return () => ipcRenderer.removeListener('favorite-library:drawer-command', listener)
   },
   onOpenFloatingAssistantWorkspace: (
     callback: (payload: FloatingAssistantWorkspaceRequest) => void
