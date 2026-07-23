@@ -53,7 +53,7 @@ import type {
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
 import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
+  getOldFavoriteWorkspaceRecoverySummaryV1: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:recovery-summary', accountMid) as Promise<OldFavoriteWorkspaceRecoverySummary | null>,
   previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[]) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>,
   deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[]) =>

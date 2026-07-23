@@ -217,6 +217,21 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes an explicit scan-resume command through the scan service', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const coordinator = { resumeScan: vi.fn(), getSnapshot: vi.fn().mockResolvedValue(scanning) }
+    const resumeScan = vi.fn().mockResolvedValue(scanning)
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, resumeScan,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'resume-scan' })).resolves.toEqual(scanning)
+    expect(resumeScan).toHaveBeenCalledWith('100')
+    expect(coordinator.resumeScan).not.toHaveBeenCalled()
+  })
+
   it('routes tag-enrichment controls through main-process workspace commands only', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

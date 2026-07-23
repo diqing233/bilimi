@@ -1081,11 +1081,26 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!summary.recoveryChoices.includes(decision.choice)) {
         throw new Error('Old favorite workspace recovery decision is not available for this workspace.')
       }
+      // `merge-latest` adopts only the latest durable *facts* as the new
+      // recovery baseline. Classifications themselves remain in the workspace
+      // journal: its priority rules keep manual decisions authoritative and
+      // retain DeepSeek choices for explicit user review rather than silently
+      // replaying either source here.
+      let decisionFingerprint = evidence.fingerprint
+      if (decision.choice === 'merge-latest') {
+        const recovered = await this.options.workspaceStore.readRecoverySummary(summary.accountMid, summary.workspaceId)
+        if ('recovery' in recovered || !recovered.recoveryBaseline) {
+          throw new Error('Old favorite workspace recovery baseline is unavailable.')
+        }
+        const current = recoveryBaselineVector(await this.options.repository.getSnapshot(summary.accountMid), recovered.recoveryBaseline.aids)
+        await this.options.workspaceStore.setRecoveryBaseline(summary.accountMid, summary.workspaceId, current)
+        decisionFingerprint = current.fingerprint
+      }
       await this.options.workspaceStore.setRecoveryDecision(accountMid, summary.workspaceId, {
         choice: decision.choice,
         expectedBaselineRevision: decision.expectedBaselineRevision,
         expectedRepositoryRevision: decision.expectedRepositoryRevision,
-        ...(evidence.fingerprint ? { evidenceFingerprint: evidence.fingerprint } : {}),
+        ...(decisionFingerprint ? { evidenceFingerprint: decisionFingerprint } : {}),
         recordedAt: this.now()
       })
       return {

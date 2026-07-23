@@ -1370,6 +1370,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     startScan: (accountMid, mode, options) => oldFavoriteWorkspaceScanService!.start(accountMid, mode, options),
+    resumeScan: (accountMid) => oldFavoriteWorkspaceScanService!.resume(accountMid),
     resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),
     retryFailedTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.retryFailedTagEnrichment(accountMid),
     rebuildAndStartScan: async (accountMid) => {

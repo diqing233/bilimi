@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { OldFavoriteWorkspaceDeepSeekFailure, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekFailure, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode } from '@shared/types'
 
 type WorkspaceView = OldFavoriteWorkspaceView
@@ -230,6 +230,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
+  const resumeScan = useCallback(() => sendCommand({ type: 'resume-scan' }), [sendCommand])
+  const getRecoverySummary = useCallback(async (): Promise<OldFavoriteWorkspaceRecoverySummary | null> => {
+    if (!accountMid) return null
+    return window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1?.(accountMid) ?? null
+  }, [accountMid])
+  const sendRecoveryDecision = useCallback((summary: OldFavoriteWorkspaceRecoverySummary, choice: 'continue-original' | 'merge-latest' | 'rescan') =>
+    sendCommand({ type: 'select-recovery-decision', workspaceId: summary.workspaceId, choice,
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision }), [sendCommand])
+
   const selectSegment = useCallback((segmentId: string) => {
     const normalized = segmentId.trim()
     if (!normalized) return Promise.resolve(null)
@@ -392,7 +402,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status, snapshot?.tagEnrichment?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

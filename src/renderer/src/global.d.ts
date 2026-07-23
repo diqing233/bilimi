@@ -43,7 +43,7 @@ import type {
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type BilimiDesktopApi = {
   version: string
@@ -53,6 +53,7 @@ type BilimiDesktopApi = {
   openFavoriteLibrary?: () => Promise<void>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
+  getOldFavoriteWorkspaceRecoverySummaryV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceRecoverySummary | null>
   previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>
   deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ id: string; title: string; memberCount: number }>>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceDeepSeekResult>

@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useRef, useState } from 'react'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -67,6 +67,7 @@ export function ControlledFavoriteLedgerPanel({
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
+  const [recoverySummary, setRecoverySummary] = useState<OldFavoriteWorkspaceRecoverySummary | null>(null)
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
@@ -93,6 +94,7 @@ export function ControlledFavoriteLedgerPanel({
     previousWorkspaceStatusRef.current = null
     setGuideOpen(false)
     setResumeDialogOpen(false)
+    setRecoverySummary(null)
     setStep('scan')
     setFullReorganizationConfirmOpen(false)
     setFullReorganizationAccountMid(null)
@@ -156,12 +158,39 @@ export function ControlledFavoriteLedgerPanel({
     setStep('scan')
     setScanStartFailure(null)
     const authoritativeSnapshot = snapshot || await workspace.refresh()
+    const summary = await workspace.getRecoverySummary()
+    if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
+      setRecoverySummary(summary)
+      setResumeDialogOpen(true)
+      return
+    }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status !== 'scanning' && authoritativeSnapshot.status !== 'completed') {
       setResumeDialogOpen(true)
       return
     }
+    if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
+      authoritativeSnapshot.status === 'scanning' && authoritativeSnapshot.scan.phase !== 'failed') {
+      void workspace.resumeScan()
+      return
+    }
     void startScan('incremental')
+  }
+  const selectRecoveryDecision = async (choice: 'continue-original' | 'merge-latest' | 'rescan') => {
+    if (!recoverySummary) return
+    const result = await workspace.sendRecoveryDecision?.(recoverySummary, choice)
+    if (!result) return
+    setRecoverySummary(null)
+    setResumeDialogOpen(false)
+    if (choice === 'rescan') void startScan('incremental')
+    else {
+      setGuideOpen(true)
+      if (!('recovery' in result) && result.status === 'scanning' && result.scan.phase !== 'failed') {
+        void workspace.resumeScan()
+        return
+      }
+      await workspace.refresh()
+    }
   }
   const retryScanWithDirectSession = async () => {
     await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
@@ -235,7 +264,11 @@ export function ControlledFavoriteLedgerPanel({
   }
   const abandonCurrentWorkspace = async () => {
     const result = await workspace.abandonCurrentWorkspace()
-    if (!result) closeGuide()
+    if (!result) {
+      setRecoverySummary(null)
+      setResumeDialogOpen(false)
+      closeGuide()
+    }
   }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
 
@@ -275,7 +308,20 @@ export function ControlledFavoriteLedgerPanel({
         <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
         <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
       </OldFavoriteModal> : null}
-      {resumeDialogOpen ? <OldFavoriteModal title="整理旧藏"
+      {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理旧藏"
+        onCancel={() => { setRecoverySummary(null); setResumeDialogOpen(false); closeGuide() }}
+        extraActions={<>
+          {recoverySummary.recoveryChoices.includes('continue-original') ? <button type="button" onClick={() => void selectRecoveryDecision('continue-original')}>按原草稿继续</button> : null}
+          {recoverySummary.recoveryChoices.includes('merge-latest') ? <button type="button" onClick={() => void selectRecoveryDecision('merge-latest')}>合并最新变化</button> : null}
+          {recoverySummary.recoveryChoices.includes('rescan') ? <button type="button" onClick={() => void selectRecoveryDecision('rescan')}>重新扫描</button> : null}
+          {recoverySummary.recoveryChoices.includes('abandon') ? <button type="button" onClick={() => void abandonCurrentWorkspace()}>放弃本轮整理</button> : null}
+          {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" onClick={() => { setRecoverySummary(null); setResumeDialogOpen(false); setGuideOpen(true); setStep('confirm') }}>查看并对账</button> : null}
+        </>}>
+        <p>检测到未完成的整理草稿</p>
+        <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
+        {recoverySummary.baselineChangeEvidence.changed ? <p>检测到草稿后的资料、B站位置或收藏夹绑定变化；人工分类会保留。</p> : null}
+      </OldFavoriteModal> : null}
+      {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理旧藏"
         onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
           <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>

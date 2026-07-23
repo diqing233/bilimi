@@ -3463,6 +3463,32 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       .rejects.toThrow('recovery decision is stale')
   })
 
+  it('merges latest recovery facts without replacing manual classifications or making the decision stale', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await repository.commit('100', {
+      id: 'latest-facts', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'latest facts', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing summary')
+
+    await expect(coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })).resolves.toMatchObject({ choice: 'merge-latest', manualClassificationsRemainAuthoritative: true })
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).getSnapshot('100'))
+      .resolves.toMatchObject({ classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } } })
+  })
+
   it('does not execute an interrupted frozen plan merely by reopening the workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

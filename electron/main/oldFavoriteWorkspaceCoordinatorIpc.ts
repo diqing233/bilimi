@@ -180,6 +180,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  resumeScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   resumeTagEnrichment?: (accountMid: string) => Promise<void>
   retryFailedTagEnrichment?: (accountMid: string) => Promise<void>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
@@ -243,7 +244,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       : requested.clearBilibiliMirror
         ? options.coordinator.beginScan(accountMid, requested.mode, { clearBilibiliMirror: true })
         : options.coordinator.beginScan(accountMid, requested.mode)
-    if (requested.type === 'resume-scan') return snapshot(await options.coordinator.resumeScan(accountMid))
+    if (requested.type === 'resume-scan') return options.resumeScan
+      ? options.resumeScan(accountMid)
+      : snapshot(await options.coordinator.resumeScan(accountMid))
     if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
       ? options.rebuildAndStartScan(accountMid)
       : options.coordinator.rebuildAfterRecovery(accountMid)
