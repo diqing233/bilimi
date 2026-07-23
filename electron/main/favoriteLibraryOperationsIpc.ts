@@ -41,7 +41,7 @@ function token(value: unknown) {
 /** Registers only account-bound preview, confirmation, execution and reconciliation actions. */
 export function registerFavoriteLibraryOperationsIpc(options: {
   ipcMain: IpcMain
-  batch: Pick<FavoriteRepositoryBatchOperationService, 'copy' | 'move' | 'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite'>
+  batch: Pick<FavoriteRepositoryBatchOperationService, 'copy' | 'move' | 'deleteLocal' | 'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite'>
   managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'deleteLocal' | 'confirm' | 'executeRemote' | 'reconcile'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
@@ -59,6 +59,9 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   })
   options.ipcMain.handle('favorite-library-operations:move', async (event, requestedAccount, requestedAids, requestedSourceFolder, requestedTargets, expectedRevision) => {
     trusted(event); return options.batch.move(await current(requestedAccount), aids(requestedAids), sourceFolder(requestedSourceFolder), targets(requestedTargets), revision(expectedRevision))
+  })
+  options.ipcMain.handle('favorite-library-operations:delete-local', async (event, requestedAccount, requestedAids, expectedRevision) => {
+    trusted(event); return options.batch.deleteLocal(await current(requestedAccount), aids(requestedAids), revision(expectedRevision))
   })
   options.ipcMain.handle('favorite-library-operations:preview-unfavorite', async (event, requestedAccount, requestedAids, expectedRevision) => {
     trusted(event); return options.batch.previewRemoteUnfavorite(await current(requestedAccount), aids(requestedAids), revision(expectedRevision))

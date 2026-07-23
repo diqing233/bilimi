@@ -544,6 +544,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'delete-favorites-from-library'
+      payload: { aids: number[]; deletedAt: string; reason?: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'delete-local-managed-folder'
       payload: { logicalFolderId: string }
     }
@@ -904,6 +912,12 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'delete-favorite-from-library':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
         Number.isNaN(Date.parse(payload.deletedAt)) || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
+      return
+    case 'delete-favorites-from-library':
+      if (!Array.isArray(payload.aids) || !payload.aids.length || payload.aids.length > 100 ||
+        !isValidAidList(payload.aids) || new Set(payload.aids).size !== payload.aids.length ||
+        typeof payload.deletedAt !== 'string' || Number.isNaN(Date.parse(payload.deletedAt)) ||
+        (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
       return
     case 'delete-local-managed-folder':
       if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
@@ -1373,6 +1387,29 @@ export function applyFavoriteRepositoryCommand(
         }
       }
       affectedAids = [aid]
+      break
+    }
+    case 'delete-favorites-from-library': {
+      const selected = uniquePositiveAids(command.payload.aids)
+      for (const aid of selected) {
+        tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)] = {
+          accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
+          ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false
+        }
+        delete videos[String(aid)]
+        delete libraryMirrors[String(aid)]
+      }
+      // Preserve Bilibili observations while removing all local memberships in one atomic command.
+      const removed = new Set(selected)
+      for (const folderId of Object.keys(memberships)) {
+        if (folderId.startsWith('bilibili:')) continue
+        const before = memberships[folderId] ?? []
+        if (before.some((aid) => removed.has(aid))) {
+          memberships = { ...memberships, [folderId]: before.filter((aid) => !removed.has(aid)) }
+          affectedFolderIds.push(folderId)
+        }
+      }
+      affectedAids = selected
       break
     }
     case 'delete-local-managed-folder': {

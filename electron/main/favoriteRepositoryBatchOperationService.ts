@@ -64,6 +64,20 @@ export class FavoriteRepositoryBatchOperationService {
     return this.changePlacements(accountMid, requestedAids, requestedTargets, expectedRevision, 'move', sourceFolderId.trim())
   }
 
+  async deleteLocal(accountMid: string, requestedAids: number[], expectedRevision: number): Promise<FavoriteRepositoryLocalOperationResult> {
+    const normalizedAccount = account(accountMid)
+    const selected = aids(requestedAids)
+    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
+    if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
+    const deletedAt = this.now()
+    const result = await this.options.repository.commit(normalizedAccount, {
+      id: `favorite-batch:delete-local:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: deletedAt, expectedRevision,
+      type: 'delete-favorites-from-library', payload: { aids: selected, deletedAt, reason: 'user-delete' }
+    })
+    const auditStatus = await this.audit(normalizedAccount, selected, 'batch-local-delete')
+    return { ...result, auditStatus }
+  }
+
   async previewRemoteUnfavorite(accountMid: string, requestedAids: number[], expectedRevision: number): Promise<FavoriteRemoteUnfavoritePreview> {
     const normalizedAccount = account(accountMid)
     const selected = aids(requestedAids)
