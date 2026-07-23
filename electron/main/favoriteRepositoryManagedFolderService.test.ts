@@ -49,4 +49,21 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commit.mock.calls[0][1]).toMatchObject({ type: 'delete-local-managed-folder', payload: { logicalFolderId: 'bilimi-logical:work' } })
     expect(commit.mock.calls.filter((call) => call[1].type === 'record-favorite-event')).toHaveLength(2)
   })
+
+  it('does not relabel a successful remote deletion as result-unknown when only audit persistence fails', async () => {
+    const current = managedSnapshot()
+    const commit = vi.fn().mockRejectedValueOnce(new Error('audit unavailable'))
+    const removeRemoteFolder = vi.fn(async () => undefined)
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit }, remote: { removeRemoteFolder }
+    })
+
+    const preview = await service.preview('100', 'bilimi-logical:work')
+    const confirmation = service.confirm(preview.executionToken)
+    await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({
+      status: 'succeeded', auditStatus: 'failed'
+    })
+    expect(removeRemoteFolder).toHaveBeenCalledTimes(1)
+    await expect(service.executeRemote('100', preview.executionToken, confirmation)).rejects.toThrow('confirmation')
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { determineFavoriteOperationEligibility } from './favoriteLibraryOperations'
+import { determineFavoriteOperationActionEligibility, determineFavoriteOperationEligibility } from './favoriteLibraryOperations'
 
 describe('determineFavoriteOperationEligibility', () => {
   it('classifies managed, unmatched, Bilibili, and mixed scopes deterministically', () => {
@@ -23,6 +23,25 @@ describe('determineFavoriteOperationEligibility', () => {
     })).toEqual({
       sourceScopeKind: 'mixed-virtual', eligibleAids: [9], skipped: [{ aid: 0, reason: 'invalid-aid' }, { aid: 2, reason: 'bilibili-folder-copy-only' }],
       allowedActions: ['copy', 'move', 'delete-local', 'unfavorite-remote']
+    })
+  })
+
+  it('keeps Bilibili-source rows eligible for copy while rejecting their other mixed-scope actions', () => {
+    const folders = [
+      { id: 'bilibili:default', title: 'Default', kind: 'bilibili' as const, remoteFolderId: '1', syncState: 'bound' as const }
+    ]
+    const input = {
+      source: { kind: 'virtual' as const, label: 'search' },
+      aids: [1, 2],
+      folders,
+      aidScopeKinds: { 1: 'bilibili-default' as const, 2: 'mixed-virtual' as const }
+    }
+
+    expect(determineFavoriteOperationActionEligibility({ ...input, action: 'copy' })).toMatchObject({
+      eligibleAids: [1, 2], skipped: []
+    })
+    expect(determineFavoriteOperationActionEligibility({ ...input, action: 'move' })).toMatchObject({
+      eligibleAids: [2], skipped: [{ aid: 1, reason: 'bilibili-folder-copy-only' }]
     })
   })
 })

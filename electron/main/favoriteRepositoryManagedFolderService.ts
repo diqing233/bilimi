@@ -4,6 +4,12 @@ import type { FavoriteRepositoryService } from './favoriteRepositoryService'
 
 type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'>
 
+export type ManagedFolderDeletionResult = {
+  status: 'succeeded' | 'result-unknown'
+  operationId: string
+  auditStatus: 'recorded' | 'failed'
+}
+
 type RemoteFolderWriter = {
   removeRemoteFolder(accountMid: string, remoteFolderId: string): Promise<void>
 }
@@ -74,9 +80,9 @@ export class FavoriteRepositoryManagedFolderService {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
     })
-    await this.audit(operation, 'managed-folder-delete-local', undefined, auditAids)
+    const auditStatus = await this.audit(operation, 'managed-folder-delete-local', undefined, auditAids)
     operation.status = 'succeeded'
-    return { status: 'succeeded' as const, operationId: operation.operationId }
+    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus }
   }
 
   confirm(executionToken: string) {
@@ -98,14 +104,14 @@ export class FavoriteRepositoryManagedFolderService {
     if (!this.options.remote) throw new Error('Managed folder remote deletion is unavailable.')
     try {
       await this.options.remote.removeRemoteFolder(operation.accountMid, operation.remoteBinding.remoteFolderId)
-      operation.status = 'succeeded'
-      await this.audit(operation, 'managed-folder-delete-remote')
-      return { status: 'succeeded' as const, operationId: operation.operationId }
     } catch (error) {
       operation.status = 'result-unknown'
-      await this.audit(operation, 'managed-folder-delete-remote-result-unknown', error instanceof Error ? error.message : String(error))
-      return { status: 'result-unknown' as const, operationId: operation.operationId }
+      const auditStatus = await this.audit(operation, 'managed-folder-delete-remote-result-unknown', error instanceof Error ? error.message : String(error))
+      return { status: 'result-unknown' as const, operationId: operation.operationId, auditStatus }
     }
+    operation.status = 'succeeded'
+    const auditStatus = await this.audit(operation, 'managed-folder-delete-remote')
+    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus }
   }
 
   async reconcile(accountMid: string, operationId: string) {
@@ -122,18 +128,21 @@ export class FavoriteRepositoryManagedFolderService {
     return operation
   }
 
-  private async audit(operation: PendingDeletion, detail: string, reason?: string, requestedAids?: number[]) {
-    const occurredAt = this.now()
-    const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
-      id: `managed-folder-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid: 0, kind: 'manual-move', occurredAt,
-      detail: reason ? `${detail}: ${reason}` : detail
-    }
-    // Folder-level audit uses a synthetic aid only internally; repository validation requires a real aid, so emit one immutable event per member.
-    const members = requestedAids ?? (await this.options.repository.getSnapshot(operation.accountMid)).memberships[operation.logicalFolderId] ?? []
-    for (const aid of members) {
-      const command: FavoriteRepositoryCommand = { id: `${event.id}:${aid}`, accountMid: operation.accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: { ...event, id: `${event.id}:${aid}`, aid } }
-      await this.options.repository.commit(operation.accountMid, command)
-    }
+  private async audit(operation: PendingDeletion, detail: string, reason?: string, requestedAids?: number[]): Promise<'recorded' | 'failed'> {
+    try {
+      const occurredAt = this.now()
+      const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
+        id: `managed-folder-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid: 0, kind: 'manual-move', occurredAt,
+        detail: reason ? `${detail}: ${reason}` : detail
+      }
+      // Folder-level audit uses a synthetic aid only internally; repository validation requires a real aid, so emit one immutable event per member.
+      const members = requestedAids ?? (await this.options.repository.getSnapshot(operation.accountMid)).memberships[operation.logicalFolderId] ?? []
+      for (const aid of members) {
+        const command: FavoriteRepositoryCommand = { id: `${event.id}:${aid}`, accountMid: operation.accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: { ...event, id: `${event.id}:${aid}`, aid } }
+        await this.options.repository.commit(operation.accountMid, command)
+      }
+      return 'recorded'
+    } catch { return 'failed' }
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

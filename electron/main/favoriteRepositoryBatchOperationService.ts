@@ -5,6 +5,16 @@ import type { FavoriteLibraryCommandResult, FavoriteLibraryRemoteUnfavorite } fr
 
 type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'>
 
+export type FavoriteRepositoryLocalOperationResult = FavoriteRepositoryCommandResult & {
+  /** The state change was committed even if immutable audit persistence needs repair. */
+  auditStatus: 'recorded' | 'failed'
+}
+
+export type FavoriteRemoteUnfavoriteExecutionResult = FavoriteLibraryCommandResult & {
+  /** The remote outcome remains authoritative when its local audit write fails. */
+  auditStatus: 'recorded' | 'failed'
+}
+
 export type FavoriteRemoteUnfavoritePreview = {
   operationId: string
   accountMid: string
@@ -74,7 +84,7 @@ export class FavoriteRepositoryBatchOperationService {
     return operation.confirmationToken
   }
 
-  async executeRemoteUnfavorite(accountMid: string, executionToken: string, confirmationToken: string): Promise<FavoriteLibraryCommandResult> {
+  async executeRemoteUnfavorite(accountMid: string, executionToken: string, confirmationToken: string): Promise<FavoriteRemoteUnfavoriteExecutionResult> {
     const operation = [...this.remoteOperations.values()].find((item) => item.executionToken === executionToken)
     if (!operation || operation.accountMid !== account(accountMid) || operation.status !== 'previewed' || operation.confirmationToken !== confirmationToken) {
       throw new Error('Favorite remote unfavorite confirmation is invalid.')
@@ -85,8 +95,13 @@ export class FavoriteRepositoryBatchOperationService {
     if (!this.options.remoteUnfavorite) throw new Error('Favorite remote unfavorite is unavailable.')
     const result = await this.options.remoteUnfavorite.unfavorite(operation.accountMid, operation.aids)
     operation.status = result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
-    await this.audit(operation.accountMid, operation.aids, result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite', result.reason)
-    return result
+    const auditStatus = await this.audit(
+      operation.accountMid,
+      operation.aids,
+      result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite',
+      result.reason
+    )
+    return { ...result, auditStatus }
   }
 
   async reconcileRemoteUnfavorite(accountMid: string, operationId: string) {
@@ -99,7 +114,7 @@ export class FavoriteRepositoryBatchOperationService {
 
   private async changePlacements(
     accountMid: string, requestedAids: number[], requestedTargets: string[], expectedRevision: number, action: 'copy' | 'move', sourceFolderId?: string
-  ): Promise<FavoriteRepositoryCommandResult> {
+  ): Promise<FavoriteRepositoryLocalOperationResult> {
     const normalizedAccount = account(accountMid)
     const selected = aids(requestedAids)
     const targets = targetFolderIds(requestedTargets)
@@ -118,8 +133,8 @@ export class FavoriteRepositoryBatchOperationService {
       id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision,
       type: 'set-favorite-placements', payload: { placements }
     })
-    await this.audit(normalizedAccount, selected, action === 'copy' ? 'batch-copy' : 'batch-move')
-    return result
+    const auditStatus = await this.audit(normalizedAccount, selected, action === 'copy' ? 'batch-copy' : 'batch-move')
+    return { ...result, auditStatus }
   }
 
   private placement(aid: number, localDesiredFolderIds: string[], prior: FavoriteRepositoryPositionRecord | undefined, updatedAt: string) {
@@ -130,14 +145,17 @@ export class FavoriteRepositoryBatchOperationService {
     }
   }
 
-  private async audit(accountMid: string, selected: number[], detail: string, reason?: string) {
-    for (const aid of selected) {
-      const occurredAt = this.now()
-      const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
-        id: `favorite-batch-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move', occurredAt, detail: reason ? `${detail}: ${reason}` : detail
+  private async audit(accountMid: string, selected: number[], detail: string, reason?: string): Promise<'recorded' | 'failed'> {
+    try {
+      for (const aid of selected) {
+        const occurredAt = this.now()
+        const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
+          id: `favorite-batch-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move', occurredAt, detail: reason ? `${detail}: ${reason}` : detail
+        }
+        await this.options.repository.commit(accountMid, { id: event.id, accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: event })
       }
-      await this.options.repository.commit(accountMid, { id: event.id, accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: event })
-    }
+      return 'recorded'
+    } catch { return 'failed' }
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

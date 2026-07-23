@@ -22,7 +22,7 @@ export type FavoriteOperationSourceScopeKind =
 export type FavoriteOperationEligibility = {
   sourceScopeKind: FavoriteOperationSourceScopeKind
   eligibleAids: number[]
-  skipped: Array<{ aid: number; reason: 'invalid-aid' | 'bilibili-folder-copy-only' }>
+  skipped: Array<{ aid: number; reason: 'invalid-aid' | 'bilibili-folder-copy-only' | 'action-not-allowed' }>
   allowedActions: FavoriteOperationAction[]
 }
 
@@ -65,5 +65,53 @@ export function determineFavoriteOperationEligibility(input: {
       : sourceScopeKind === 'bilibili-default' || sourceScopeKind === 'bilibili-user-folder'
         ? ['copy']
       : [...BASE_ACTIONS]
+  }
+}
+
+/**
+ * Computes eligibility for one requested action.  A mixed virtual result can
+ * include Bilibili-source rows: those rows may be copied, but never moved or
+ * destructively changed from this library.
+ */
+export function determineFavoriteOperationActionEligibility(input: {
+  source: FavoriteOperationSource
+  action: FavoriteOperationAction
+  aids: number[]
+  folders: FavoriteRepositoryFolder[]
+  aidScopeKinds?: Record<number, FavoriteOperationSourceScopeKind>
+}): FavoriteOperationEligibility {
+  const sourceEligibility = determineFavoriteOperationEligibility({
+    source: input.source,
+    aids: [],
+    folders: input.folders,
+    aidScopeKinds: input.aidScopeKinds
+  })
+  const invalid = input.aids.filter((aid) => !Number.isSafeInteger(aid) || aid <= 0)
+    .map((aid) => ({ aid, reason: 'invalid-aid' as const }))
+  const validAids = [...new Set(input.aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))]
+    .sort((left, right) => left - right)
+  const skipped: FavoriteOperationEligibility['skipped'] = [...invalid]
+  if (!sourceEligibility.allowedActions.includes(input.action)) {
+    skipped.push(...validAids.map((aid) => ({
+      aid,
+      reason: sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder'
+        ? 'bilibili-folder-copy-only' as const
+        : 'action-not-allowed' as const
+    })))
+    return { ...sourceEligibility, eligibleAids: [], skipped: skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason)) }
+  }
+  const eligibleAids = validAids.filter((aid) => {
+    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy') return true
+    const scope = input.aidScopeKinds?.[aid]
+    if (scope === 'bilibili-default' || scope === 'bilibili-user-folder') {
+      skipped.push({ aid, reason: 'bilibili-folder-copy-only' })
+      return false
+    }
+    return true
+  })
+  return {
+    ...sourceEligibility,
+    eligibleAids,
+    skipped: skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason))
   }
 }
