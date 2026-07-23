@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createBrowserSurfaceModel } from './browserSurfaceModel'
+import { buildDanmakuSeekRepaintScript } from './danmakuSeekRepaint'
 import { buildOpenLinksInAppScript } from './linkCaptureScript'
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
@@ -166,6 +167,11 @@ export function BiliWebview({
       void webview.executeJavaScript(buildOpenLinksInAppScript(), true).catch(() => undefined)
     }
 
+    const installDanmakuSeekRepaint = () => {
+      if (!webview.executeJavaScript) return
+      void webview.executeJavaScript(buildDanmakuSeekRepaintScript(), true).catch(() => undefined)
+    }
+
     const handleNewWindow = (event: Event) => {
       const urlToOpen = readEventUrl(event as WebviewUrlEvent)
 
@@ -243,6 +249,8 @@ export function BiliWebview({
     webview.addEventListener('did-finish-load', reportTargetState)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
+    webview.addEventListener('dom-ready', installDanmakuSeekRepaint)
+    webview.addEventListener('did-finish-load', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
     webview.addEventListener('did-fail-load', handleLoadFailure)
     webview.addEventListener('did-start-navigation', handleNavigationStart)
@@ -259,6 +267,8 @@ export function BiliWebview({
       webview.removeEventListener('did-finish-load', reportTargetState)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
+      webview.removeEventListener('dom-ready', installDanmakuSeekRepaint)
+      webview.removeEventListener('did-finish-load', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
       webview.removeEventListener('did-start-navigation', handleNavigationStart)
