@@ -21,6 +21,22 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('deletes only the confirmed account local repository projection', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const accountMid of ['100', '200']) {
+      await service.commit(accountMid, {
+        id: `video-${accountMid}`, accountMid, issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid: Number(accountMid), title: `Video ${accountMid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+
+    await service.deleteAccountLocalData('100')
+
+    await expect(readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(service.getSnapshot('200')).resolves.toMatchObject({ accountMid: '200', videos: { '200': expect.any(Object) } })
+  })
+
   it('does not mutate the repository when archive import validation rejects', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
