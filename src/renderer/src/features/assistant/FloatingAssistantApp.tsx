@@ -47,6 +47,7 @@ import {
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
+import { LocalDataSettings } from './LocalDataSettings'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import {
@@ -550,6 +551,7 @@ export const SETTINGS_JUMP_OPTIONS = [
   { value: 'archive', label: '收藏整理' },
   { value: 'review-actions', label: '批阅动作' },
   { value: 'favorites', label: '收藏夹体系' },
+  { value: 'local-data', label: '本地数据与迁移' },
   { value: 'bilibili-connection', label: 'B 站连接方式' },
   { value: 'close', label: '关闭设置' }
 ] as const
@@ -863,6 +865,7 @@ export function FloatingAssistantApp({
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
+  const [localDataInfo, setLocalDataInfo] = useState<{ path: string; accounts: Array<{ uid: string; retained: boolean }> } | null>(null)
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
@@ -870,6 +873,11 @@ export function FloatingAssistantApp({
   const mounted = useRef(false)
 
   useEffect(() => subscribeDeepSeekTasks(setRemoteDeepSeekTasks), [])
+
+  useEffect(() => {
+    if (activeView !== 'settings' || !window.bilimiDesktop?.getLocalDataInfo) return
+    void window.bilimiDesktop.getLocalDataInfo().then(setLocalDataInfo).catch(() => undefined)
+  }, [activeView])
 
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -3464,6 +3472,26 @@ export function FloatingAssistantApp({
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
             </fieldset>
+            {localDataInfo ? <fieldset
+              className="assistant-settings__group assistant-settings__group--local-data"
+              data-settings-section="local-data"
+            >
+              <LocalDataSettings
+                userDataPath={localDataInfo.path}
+                accounts={localDataInfo.accounts}
+                calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? { totalBytes: 0, calculatedAt: new Date().toISOString() }}
+                onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
+                onExport={async (scope, includeSharedSettings) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings }) }}
+                onImport={async () => {
+                  const preview = await window.bilimiDesktop.previewLocalDataImport?.()
+                  return { accounts: preview?.accounts ?? [] }
+                }}
+                onFullClear={async () => {
+                  await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
+                  await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')
+                }}
+              />
+            </fieldset> : null}
             <fieldset
               className="assistant-settings__group assistant-settings__group--favorites"
               data-settings-section="favorites"

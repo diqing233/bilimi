@@ -232,6 +232,8 @@ export type AssistantPreferences = {
 export type FavoriteAccountPreferences = {
   defaultFavoriteSystemEnabled: boolean
   favoriteLedgers: FavoriteLedger[]
+  /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
+  favoriteLibraryCollapsedGroups?: Record<string, boolean>
 }
 
 export type AssistantAutomationResult = {

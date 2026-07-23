@@ -10,6 +10,7 @@ import {
   screen,
   session,
   safeStorage,
+  shell,
   webContents
 } from 'electron'
 import { spawn } from 'node:child_process'
@@ -87,6 +88,9 @@ import {
   createFavoriteLibraryTranscriptionSummary
 } from './favoriteLibrarySummaries'
 import { registerFavoriteLibraryBridgeIpc, type FavoriteLibraryAccount } from './favoriteLibraryBridge'
+import { LocalDataService } from './localDataService'
+import { registerLocalDataIpc } from './localDataIpc'
+import { createLocalDataPersistenceAdapter } from './localDataPersistenceAdapter'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
@@ -468,6 +472,7 @@ let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
 let favoriteLibraryCommandService: FavoriteLibraryCommandService | undefined
+let localDataService: LocalDataService | undefined
 const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
@@ -1294,6 +1299,60 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       remoteOperations: favoriteRepositoryRemoteOperations
     })
   })
+  localDataService = new LocalDataService({
+    root: app.getPath('userData'),
+    appVersion: app.getVersion(),
+    persistence: createLocalDataPersistenceAdapter({
+      listAccountUids: async () => {
+        const preferences = loadAssistantPreferences(getDesktopStore())
+        return Object.keys(preferences.favoriteAccountPreferences)
+      },
+      getRepository: (uid) => favoriteRepositoryService!.getSnapshot(uid),
+      getAccountSettings: (uid) => loadFavoriteAccountPreferences(getDesktopStore(), uid),
+      getArchives: () => loadVideoNoteArchives(getDesktopStore()),
+      getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
+      applyPortableBatch: async (batch) => {
+        const retainedUids = new Set(Object.keys(batch.repositoryArchives))
+        const existingUids = Object.keys(loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences)
+        for (const uid of existingUids.filter((uid) => !retainedUids.has(uid))) {
+          await favoriteRepositoryService!.deleteAccountLocalData(uid)
+        }
+        for (const [uid, archive] of Object.entries(batch.repositoryArchives)) {
+          await favoriteRepositoryService!.applyArchiveImport(uid, { validate: () => archive })
+          const settings = batch.settingsByUid[uid]
+          if (settings) {
+            const current = loadFavoriteAccountPreferences(getDesktopStore(), uid)
+            const candidate = settings as Partial<typeof current>
+            saveFavoriteAccountPreferences(getDesktopStore(), uid, {
+              ...current,
+              ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {})
+            })
+          }
+        }
+        const importedArchives = Object.values(batch.archivesByUid).flat()
+        const retainedArchives = loadVideoNoteArchives(getDesktopStore()).filter((archive) => !Object.hasOwn(batch.archivesByUid, archive.source.accountMid))
+        getDesktopStore().set('videoNoteArchives', [...retainedArchives, ...importedArchives])
+        const importedTranscription = Object.values(batch.transcriptionByUid).flat()
+        const retainedTranscription = getVideoTranscriptionQueue().getSnapshot().items.filter((item) => !item.accountMid || !Object.hasOwn(batch.transcriptionByUid, item.accountMid))
+        saveVideoAudioTranscriptionQueue(getDesktopStore(), [...retainedTranscription, ...importedTranscription])
+        const preferences = loadAssistantPreferences(getDesktopStore())
+        getDesktopStore().set('favoriteAccountPreferences', Object.fromEntries(
+          Object.entries(preferences.favoriteAccountPreferences).filter(([uid]) => retainedUids.has(uid))
+        ))
+      },
+      readSharedSettings: () => ({ closeBehavior: loadAssistantPreferences(getDesktopStore()).closeBehavior }),
+      writeSharedSettings: (settings) => {
+        if (settings.closeBehavior === 'minimize-to-tray' || settings.closeBehavior === 'exit-launcher') {
+          patchAssistantPreferences(getDesktopStore(), { closeBehavior: settings.closeBehavior })
+        }
+      }
+    })
+  })
+  localDataService.setDestructiveHooks({
+    stopActiveWork: () => favoriteRepositoryService?.flush(),
+    clearLoginSessions: () => session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({ storages: ['cookies'] }),
+    exitApp: () => app.quit()
+  })
   const favoriteRepositoryArchiveService = new FavoriteRepositoryArchiveService({
     repository: favoriteRepositoryService,
     remoteOperations: favoriteRepositoryRemoteOperations,
@@ -1498,6 +1557,37 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       mainWindow,
       restoreMainWindow: restoreMainWindowForPet
     })
+  })
+  registerLocalDataIpc({
+    ipcMain,
+    service: localDataService,
+    isTrustedSender: isTrustedOldFavoriteSessionSender,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    userDataPath: app.getPath('userData'),
+    chooseExportPath: async () => {
+      const result = await dialog.showSaveDialog({ defaultPath: 'bilimi-local-data.json', filters: [{ name: 'bilimi migration', extensions: ['json'] }] })
+      return result.canceled ? undefined : result.filePath
+    },
+    chooseImportPath: async () => {
+      const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'bilimi migration', extensions: ['json'] }] })
+      return result.canceled ? undefined : result.filePaths[0]
+    },
+    openUserDataPath: async () => { await shell.openPath(app.getPath('userData')) }
+  })
+  ipcMain.handle('favorite-library:window-control', (event, action: unknown) => {
+    if (!isTrustedFavoriteLibraryReader(event.sender.id) || !mainWindow) throw new Error('Favorite library window control is unavailable.')
+    if (action === 'minimize') return mainWindow.minimize()
+    if (action === 'toggle-maximize') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
+    throw new Error('Favorite library window action is invalid.')
+  })
+  ipcMain.handle('favorite-library:get-ui-preferences', async (event, requestedAccountMid: unknown) => {
+    if (!isTrustedFavoriteLibraryReader(event.sender.id) || typeof requestedAccountMid !== 'string' || requestedAccountMid !== await readCurrentBilibiliAccountMid()) throw new Error('Favorite library preferences are unavailable.')
+    return loadFavoriteAccountPreferences(getDesktopStore(), requestedAccountMid).favoriteLibraryCollapsedGroups ?? {}
+  })
+  ipcMain.handle('favorite-library:save-ui-preferences', async (event, requestedAccountMid: unknown, collapsedGroups: unknown) => {
+    if (!isTrustedFavoriteLibraryReader(event.sender.id) || typeof requestedAccountMid !== 'string' || requestedAccountMid !== await readCurrentBilibiliAccountMid() || !collapsedGroups || typeof collapsedGroups !== 'object' || Array.isArray(collapsedGroups)) throw new Error('Favorite library preferences are invalid.')
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), requestedAccountMid)
+    return saveFavoriteAccountPreferences(getDesktopStore(), requestedAccountMid, { ...current, favoriteLibraryCollapsedGroups: collapsedGroups as Record<string, boolean> }).favoriteLibraryCollapsedGroups ?? {}
   })
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {

@@ -722,6 +722,16 @@ export class FavoriteRepositoryService {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
+  /** Removes only one account's local repository projection after a confirmed cleanup. */
+  async deleteAccountLocalData(accountMid: string): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    await this.queue(async () => {
+      await rm(this.accountDirectory(account), { recursive: true, force: true })
+      this.cache.delete(account)
+      this.syncCheckpointState.delete(account)
+    })
+  }
+
   async getEventPage(accountMid: string, aid: number, options: FolderPageOptions): Promise<FavoriteRepositoryPage<FavoriteRepositoryEvent>> {
     const account = normalizeAccountMid(accountMid)
     if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')

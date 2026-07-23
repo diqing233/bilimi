@@ -128,7 +128,11 @@ function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPre
   if (!Array.isArray(candidate.favoriteLedgers)) return undefined
   return {
     defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
-    favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers)
+    favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers),
+    ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
+      ? { favoriteLibraryCollapsedGroups: Object.fromEntries(Object.entries(candidate.favoriteLibraryCollapsedGroups)
+        .filter(([key, value]) => /^[a-z-]+$/u.test(key) && typeof value === 'boolean')) }
+      : {})
   }
 }
 
@@ -580,7 +584,8 @@ export function loadFavoriteAccountPreferences(
   const existing = preferences.favoriteAccountPreferences[account]
   if (existing) return {
     defaultFavoriteSystemEnabled: existing.defaultFavoriteSystemEnabled,
-    favoriteLedgers: normalizeFavoriteLedgers(existing.favoriteLedgers)
+    favoriteLedgers: normalizeFavoriteLedgers(existing.favoriteLedgers),
+    ...(existing.favoriteLibraryCollapsedGroups ? { favoriteLibraryCollapsedGroups: { ...existing.favoriteLibraryCollapsedGroups } } : {})
   }
 
   const initialized: FavoriteAccountPreferences = {

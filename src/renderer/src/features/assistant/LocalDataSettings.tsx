@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 type Account = { uid: string; nickname?: string; retained: boolean }
 type Usage = { totalBytes: number; calculatedAt: string }
-type Props = { userDataPath: string; accounts: Account[]; calculateUsage: () => Promise<Usage>; onFullClear: () => void; onOpenPath?: () => void; onExport?: (scope: 'current' | 'selected' | 'all', includeSharedSettings: boolean) => Promise<void> | void; onImport?: () => Promise<{ accounts: Array<{ uid: string; action: string }> }> | void }
+type Props = { userDataPath: string; accounts: Account[]; calculateUsage: () => Promise<Usage>; onFullClear: () => Promise<void> | void; onOpenPath?: () => void; onExport?: (scope: 'current' | 'selected' | 'all', includeSharedSettings: boolean) => Promise<void> | void; onImport?: () => Promise<{ accounts: Array<{ uid: string; action: string }> }> | void }
 const formatBytes = (bytes: number) => bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`
 
 export function LocalDataSettings({ userDataPath, accounts, calculateUsage, onFullClear, onOpenPath, onExport, onImport }: Props) {
@@ -26,6 +26,6 @@ export function LocalDataSettings({ userDataPath, accounts, calculateUsage, onFu
     <button type="button" onClick={async () => { setMigrationProgress('正在读取导入预览'); try { const preview = await onImport?.(); setImportPreview(preview?.accounts ?? []); setMigrationProgress('导入预览已就绪') } catch { setMigrationProgress('导入预览失败') } }}>导入并预览</button>
     {migrationProgress && <p role="status">{migrationProgress}</p>}{importPreview && <ul aria-label="导入预览">{importPreview.map((item) => <li key={item.uid}>{item.uid}：{item.action}</li>)}</ul>}
     <button type="button" onClick={() => setDangerOpen(true)}>清除全部用户数据</button>
-    {dangerOpen && <details open><summary>危险操作</summary><p>不会改动 B 站服务器收藏；未知远程结果的对账记录也会丢失。</p><label>输入 全部清除 以确认<input aria-label="输入 全部清除 以确认" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button type="button" disabled={confirmation !== '全部清除'} onClick={onFullClear}>清除并退出</button></details>}
+    {dangerOpen && <details open><summary>危险操作</summary><p>不会改动 B 站服务器收藏；未知远程结果的对账记录也会丢失。</p><label>输入 全部清除 以确认<input aria-label="输入 全部清除 以确认" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button type="button" disabled={confirmation !== '全部清除'} onClick={() => void onFullClear()}>清除并退出</button></details>}
   </section>
 }

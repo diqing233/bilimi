@@ -282,6 +282,10 @@ export function FavoriteLibraryApp({
     ]
   }, [navigation, summary?.videoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    if (!accountMid || !window.bilimiDesktop?.getFavoriteLibraryUiPreferences) return
+    void window.bilimiDesktop.getFavoriteLibraryUiPreferences(accountMid).then(setCollapsedNavigationGroups).catch(() => undefined)
+  }, [accountMid])
   const toggleAid = (aid: number) => setSelectedAids((current) => current.includes(aid)
     ? current.filter((candidate) => candidate !== aid)
     : [...current, aid].sort((left, right) => left - right))
@@ -573,7 +577,9 @@ export function FavoriteLibraryApp({
     <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
       {embedded ? null : <div className="favorite-library__header-spacer" aria-hidden="true" />}
       {!embedded ? (
-        <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts['result-unknown'])}>
+        <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts['result-unknown'])}
+          onMinimize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('minimize') }}
+          onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}>
           <div className="favorite-library__header-account"><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
           {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
         </FavoriteLibraryHeader>
@@ -623,7 +629,11 @@ export function FavoriteLibraryApp({
           selectedId={scopeId}
           onCollapseChange={(uid, groupId, collapsed) => {
             if (!uid) return
-            setCollapsedNavigationGroups((current) => ({ ...current, [groupId]: collapsed }))
+            setCollapsedNavigationGroups((current) => {
+              const next = { ...current, [groupId]: collapsed }
+              void window.bilimiDesktop.saveFavoriteLibraryUiPreferences?.(uid, next)
+              return next
+            })
           }}
           onSelect={(id) => {
             setScopeId(id)

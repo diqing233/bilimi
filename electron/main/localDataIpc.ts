@@ -1,0 +1,68 @@
+import type { LocalDataCleanupLevel, LocalDataService } from './localDataService'
+
+type IpcEvent = { sender: { id: number } }
+type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
+
+function account(value: unknown) {
+  if (typeof value !== 'string' || !/^\d+$/u.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Local data account is invalid.')
+  return BigInt(value.trim()).toString()
+}
+
+function cleanup(value: unknown): LocalDataCleanupLevel {
+  if (value === 'cache' || value === 'current-account-temp' || value === 'current-account-data' || value === 'all-user-data') return value
+  throw new Error('Local data cleanup level is invalid.')
+}
+
+/** Registers narrow migration actions; the renderer never receives arbitrary paths or filesystem access. */
+export function registerLocalDataIpc(options: {
+  ipcMain: IpcMain
+  service: LocalDataService
+  isTrustedSender: (senderId: number) => boolean
+  getCurrentAccountMid: () => Promise<string>
+  userDataPath: string
+  chooseExportPath: () => Promise<string | undefined>
+  chooseImportPath: () => Promise<string | undefined>
+  openUserDataPath: () => Promise<void>
+}) {
+  const trusted = (event: IpcEvent) => {
+    if (!options.isTrustedSender(event.sender.id)) throw new Error('Local data request came from an untrusted renderer.')
+  }
+  const current = async () => account(await options.getCurrentAccountMid())
+  options.ipcMain.handle('local-data:get-info', async (event) => {
+    trusted(event)
+    return { path: options.userDataPath, accounts: await options.service.listAccounts() }
+  })
+  options.ipcMain.handle('local-data:calculate-usage', async (event) => { trusted(event); return options.service.calculateUsage() })
+  options.ipcMain.handle('local-data:open-path', async (event) => { trusted(event); await options.openUserDataPath() })
+  options.ipcMain.handle('local-data:export', async (event, input: { scope?: unknown; includeSharedSettings?: unknown }) => {
+    trusted(event)
+    const destination = await options.chooseExportPath()
+    if (!destination) return { cancelled: true }
+    const scope = input?.scope
+    const all = await options.service.listAccounts()
+    const uids = scope === 'all' || scope === 'selected' ? all.map((item) => item.uid) : [await current()]
+    return options.service.exportArchive({ uids, includeSharedSettings: input?.includeSharedSettings === true, outputPath: destination })
+  })
+  options.ipcMain.handle('local-data:preview-import', async (event) => {
+    trusted(event)
+    const source = await options.chooseImportPath()
+    return source ? options.service.previewImport(source) : { cancelled: true }
+  })
+  options.ipcMain.handle('local-data:apply-import', async (event, preview: unknown, mode: unknown) => {
+    trusted(event)
+    if (mode !== 'merge' && mode !== 'overwrite' || !preview || typeof preview !== 'object') throw new Error('Local data import request is invalid.')
+    return options.service.applyImport(preview as Awaited<ReturnType<LocalDataService['previewImport']>>, { mode })
+  })
+  options.ipcMain.handle('local-data:preview-cleanup', async (event, level: unknown, requestedUid?: unknown, confirmation?: unknown) => {
+    trusted(event)
+    const parsed = cleanup(level)
+    const uid = parsed === 'cache' || parsed === 'all-user-data' ? undefined : requestedUid === undefined ? await current() : account(requestedUid)
+    return options.service.previewCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+  })
+  options.ipcMain.handle('local-data:apply-cleanup', async (event, level: unknown, requestedUid?: unknown, confirmation?: unknown) => {
+    trusted(event)
+    const parsed = cleanup(level)
+    const uid = parsed === 'cache' || parsed === 'all-user-data' ? undefined : requestedUid === undefined ? await current() : account(requestedUid)
+    return options.service.applyCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+  })
+}

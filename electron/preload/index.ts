@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   openFavoriteLibrary: () => ipcRenderer.invoke('favorite-library:open') as Promise<void>,
+  controlFavoriteLibraryWindow: (action: 'minimize' | 'toggle-maximize') => ipcRenderer.invoke('favorite-library:window-control', action) as Promise<void>,
+  getFavoriteLibraryUiPreferences: (accountMid: string) => ipcRenderer.invoke('favorite-library:get-ui-preferences', accountMid) as Promise<Record<string, boolean>>,
+  saveFavoriteLibraryUiPreferences: (accountMid: string, collapsedGroups: Record<string, boolean>) => ipcRenderer.invoke('favorite-library:save-ui-preferences', accountMid, collapsedGroups) as Promise<Record<string, boolean>>,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
@@ -169,6 +172,18 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-library-video-events', accountMid, aid, options) as Promise<import('../main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>,
   getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
+  getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>,
+  calculateLocalDataUsage: () => ipcRenderer.invoke('local-data:calculate-usage') as Promise<{ totalBytes: number; calculatedAt: string }>,
+  openLocalDataPath: () => ipcRenderer.invoke('local-data:open-path') as Promise<void>,
+  exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; includeSharedSettings: boolean }) =>
+    ipcRenderer.invoke('local-data:export', input) as Promise<unknown>,
+  previewLocalDataImport: () => ipcRenderer.invoke('local-data:preview-import') as Promise<{ accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>,
+  applyLocalDataImport: (preview: unknown, mode: 'merge' | 'overwrite') =>
+    ipcRenderer.invoke('local-data:apply-import', preview, mode) as Promise<void>,
+  previewLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
+    ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
+  applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
+    ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
