@@ -360,7 +360,11 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
   const confirmAndExecuteBilibiliPlan = useCallback(() => sendCommand({ type: 'confirm-and-execute-bilibili-plan' }, true), [sendCommand])
   const saveCurrentSegmentLocally = useCallback(() => sendCommand({ type: 'save-current-segment-locally' }), [sendCommand])
-  const abandonCurrentWorkspace = useCallback(() => sendCommand({ type: 'abandon-current-workspace' }), [sendCommand])
+  const abandonCurrentWorkspace = useCallback(async () => {
+    const result = await sendCommand({ type: 'abandon-current-workspace' })
+    if (!result) setSnapshot(null)
+    return result
+  }, [sendCommand])
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }, true), [sendCommand])
   const reconcileFrozenBilibiliPlan = useCallback(async () => {
     setReconciling(true)

@@ -589,6 +589,22 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('treats an already-cleared legacy workspace as safely abandoned', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await repository.commit('100', {
+      id: 'saved-video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Saved', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+
+    await expect(coordinator.abandonCurrentWorkspace('100')).resolves.toBeUndefined()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: undefined,
+      videos: { 1: { title: 'Saved' } }
+    })
+  })
+
   it('supersedes an in-progress incremental scan when the user explicitly requests a full reorganization', async () => {
     const root = await createRoot()
     const coordinator = createCoordinator(

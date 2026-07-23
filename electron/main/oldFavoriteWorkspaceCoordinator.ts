@@ -905,7 +905,12 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Discards a draft before any Bilibili operation has been started. */
   async abandonCurrentWorkspace(accountMid: string): Promise<void> {
     return this.queue(async () => {
-      const workspace = await this.requireWorkspace(accountMid)
+      const persisted = await this.options.repository.getSnapshot(accountMid)
+      if (!persisted.workspace) {
+        this.forgetWorkspace(persisted.accountMid)
+        return
+      }
+      const workspace = await this.requireWorkspace(persisted.accountMid)
       if (workspace.status === 'frozen') {
         if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
         await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
