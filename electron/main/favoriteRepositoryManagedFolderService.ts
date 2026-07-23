@@ -68,12 +68,13 @@ export class FavoriteRepositoryManagedFolderService {
     const operation = this.operationFor(accountMid, executionToken)
     const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
     if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
+    const auditAids = [...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])]
     const timestamp = this.now()
     await this.options.repository.commit(operation.accountMid, {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
     })
-    await this.audit(operation, 'managed-folder-delete-local')
+    await this.audit(operation, 'managed-folder-delete-local', undefined, auditAids)
     operation.status = 'succeeded'
     return { status: 'succeeded' as const, operationId: operation.operationId }
   }
@@ -121,15 +122,14 @@ export class FavoriteRepositoryManagedFolderService {
     return operation
   }
 
-  private async audit(operation: PendingDeletion, detail: string, reason?: string) {
+  private async audit(operation: PendingDeletion, detail: string, reason?: string, requestedAids?: number[]) {
     const occurredAt = this.now()
     const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
       id: `managed-folder-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid: 0, kind: 'manual-move', occurredAt,
       detail: reason ? `${detail}: ${reason}` : detail
     }
     // Folder-level audit uses a synthetic aid only internally; repository validation requires a real aid, so emit one immutable event per member.
-    const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
-    const members = snapshot.memberships[operation.logicalFolderId] ?? []
+    const members = requestedAids ?? (await this.options.repository.getSnapshot(operation.accountMid)).memberships[operation.logicalFolderId] ?? []
     for (const aid of members) {
       const command: FavoriteRepositoryCommand = { id: `${event.id}:${aid}`, accountMid: operation.accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: { ...event, id: `${event.id}:${aid}`, aid } }
       await this.options.repository.commit(operation.accountMid, command)

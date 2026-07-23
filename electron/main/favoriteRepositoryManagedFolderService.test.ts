@@ -41,9 +41,12 @@ describe('FavoriteRepositoryManagedFolderService', () => {
   it('deletes only the local managed-folder projection', async () => {
     const current = managedSnapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit }, now: () => '2026-07-24T01:00:00.000Z' })
+    const afterDeletion = { ...current, memberships: { ...current.memberships, 'bilimi-logical:work': [] } }
+    const getSnapshot = vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(current).mockResolvedValue(afterDeletion)
+    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot, commit }, now: () => '2026-07-24T01:00:00.000Z' })
     const preview = await service.preview('100', 'bilimi-logical:work')
     await service.deleteLocal('100', preview.executionToken)
     expect(commit.mock.calls[0][1]).toMatchObject({ type: 'delete-local-managed-folder', payload: { logicalFolderId: 'bilimi-logical:work' } })
+    expect(commit.mock.calls.filter((call) => call[1].type === 'record-favorite-event')).toHaveLength(2)
   })
 })
