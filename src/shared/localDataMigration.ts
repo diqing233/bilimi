@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 export const LOCAL_DATA_MIGRATION_SCHEMA_VERSION = 1
 const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
+const MAX_MANIFEST_TOTAL_BYTES = 500 * 1024 * 1024
 const UID_PATTERN = /^[1-9]\d{0,19}$/u
 const SECRET_KEY = /(?:cookie|session|api.?key|secret|token|encrypt|proxy|lock)/iu
 
@@ -89,7 +90,7 @@ export function parseMigrationArchiveV1(content: string): MigrationArchiveV1 {
   try { candidate = JSON.parse(content) } catch { throw new Error('Migration archive is not valid JSON.') }
   if (!isRecord(candidate)) throw new Error('Migration archive is invalid.')
   if (candidate.schemaVersion !== LOCAL_DATA_MIGRATION_SCHEMA_VERSION) throw new Error('Migration schema is unsupported.')
-  if (typeof candidate.appVersion !== 'string' || typeof candidate.generatedAt !== 'string' || !isRecord(candidate.accounts) || !Array.isArray(candidate.selectedUids) || !Array.isArray(candidate.manifest) || typeof candidate.checksum !== 'string') {
+  if (typeof candidate.appVersion !== 'string' || !/^\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z.-]+)?$/u.test(candidate.appVersion) || typeof candidate.generatedAt !== 'string' || !Number.isFinite(Date.parse(candidate.generatedAt)) || !isRecord(candidate.accounts) || !Array.isArray(candidate.selectedUids) || !Array.isArray(candidate.manifest) || typeof candidate.checksum !== 'string') {
     throw new Error('Migration archive is incomplete.')
   }
   const accounts: Record<string, PortableAccountData> = {}
@@ -111,6 +112,7 @@ export function parseMigrationArchiveV1(content: string): MigrationArchiveV1 {
     return { path: entry.path, byteLength: entry.byteLength, sha256: entry.sha256 }
   })
   if (new Set(manifest.map((entry) => entry.path)).size !== manifest.length) throw new Error('Migration manifest has duplicate sections.')
+  if (manifest.reduce((total, entry) => total + entry.byteLength, 0) > MAX_MANIFEST_TOTAL_BYTES) throw new Error('Migration manifest total is too large.')
   const sharedSettings = candidate.sharedSettings === undefined ? undefined : candidate.sharedSettings
   if (sharedSettings !== undefined && !isRecord(sharedSettings)) throw new Error('Migration shared settings are invalid.')
   if (sharedSettings) assertPortable(sharedSettings)

@@ -9,10 +9,16 @@ const makeService = async () => {
   const root = await mkdtemp(join(tmpdir(), 'bilimi-local-data-test-'))
   roots.push(root)
   const accounts: Record<string, Record<string, unknown>> = { '100': { records: [{ id: 'a', updatedAt: '2026-07-24T00:00:00.000Z' }] }, '200': { records: [{ id: 'b' }] } }
+  let sharedSettings: Record<string, unknown> = { theme: 'light', deepseekApiKey: 'must-never-export', cookies: 'session', encryptionKey: 'machine-only', proxyState: 'runtime-only' }
   const persistence: LocalDataPersistence = {
     listAccountUids: () => Object.keys(accounts), readAccount: (uid) => structuredClone(accounts[uid] ?? {}),
     writeAccounts: (next) => { for (const uid of Object.keys(accounts)) delete accounts[uid]; Object.assign(accounts, structuredClone(next)) },
-    readSharedSettings: () => ({ theme: 'light', deepseekApiKey: 'must-never-export', cookies: 'session', encryptionKey: 'machine-only', proxyState: 'runtime-only' }), writeSharedSettings: vi.fn()
+    readSharedSettings: () => structuredClone(sharedSettings), writeSharedSettings: vi.fn(),
+    writePortableState: (next) => {
+      for (const uid of Object.keys(accounts)) delete accounts[uid]
+      Object.assign(accounts, structuredClone(next.accounts))
+      sharedSettings = structuredClone(next.sharedSettings)
+    }
   }
   return { root, accounts, persistence, service: new LocalDataService({ root, appVersion: '1.1.0', persistence }) }
 }
@@ -20,6 +26,43 @@ const makeService = async () => {
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => import('node:fs/promises').then(({ rm }) => rm(root, { recursive: true, force: true })))) })
 
 describe('LocalDataService', () => {
+  it('accepts an import only through a fresh, unchanged, one-shot preview token', async () => {
+    const { root, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
+
+    const preview = await service.previewImport(archive)
+    await expect(service.applyImport({ ...preview, token: 'forged' }, { mode: 'merge' })).rejects.toThrow('preview')
+
+    await writeFile(archive, '{}')
+    await expect(service.applyImport(preview, { mode: 'merge' })).rejects.toThrow('changed')
+
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
+    const fresh = await service.previewImport(archive)
+    await service.applyImport(fresh, { mode: 'merge' })
+    await expect(service.applyImport(fresh, { mode: 'merge' })).rejects.toThrow('preview')
+  })
+
+  it('requires the persistence transaction to preserve both accounts and shared settings on failure', async () => {
+    const { root, accounts, persistence, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
+    const preview = await service.previewImport(archive)
+    const beforeAccounts = structuredClone(accounts)
+    const beforeShared = await persistence.readSharedSettings()
+    persistence.writePortableState = vi.fn().mockRejectedValue(new Error('transaction failed'))
+
+    await expect(service.applyImport(preview, { mode: 'overwrite' })).rejects.toThrow('transaction failed')
+    expect(accounts).toEqual(beforeAccounts)
+    expect(await persistence.readSharedSettings()).toEqual(beforeShared)
+  })
+
+  it('validates account UIDs at the service boundary before export or account cleanup', async () => {
+    const { root, service } = await makeService()
+    await expect(service.exportArchive({ uids: ['../../200'], outputPath: join(root, 'portable.json') })).rejects.toThrow('account')
+    await expect(service.previewCleanup({ level: 'current-account-data', uid: '../../200' })).rejects.toThrow('account')
+  })
+
   it('documents inventory inclusions and exclusions and scans usage without following symlinks', async () => {
     const { root, service } = await makeService()
     // Included: account repository/workspace data, shared preferences. Excluded: cookies/sessions,

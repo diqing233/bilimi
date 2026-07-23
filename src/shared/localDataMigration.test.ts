@@ -27,6 +27,16 @@ describe('local data migration v1', () => {
     expect(parseMigrationArchiveV1(JSON.stringify(archive))).toEqual(archive)
   })
 
+  it('rejects non-ISO metadata and archive manifests whose aggregate claim is oversized', () => {
+    const valid = createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': account() } })
+    const invalidTime = { ...valid, generatedAt: 'not-a-date' }
+    const oversizedTotal = structuredClone(valid)
+    oversizedTotal.manifest = Array.from({ length: 11 }, (_, index) => ({ path: `accounts/${index + 100}.json`, byteLength: 50 * 1024 * 1024, sha256: 'a'.repeat(64) }))
+
+    expect(() => parseMigrationArchiveV1(JSON.stringify(invalidTime))).toThrow('incomplete')
+    expect(() => parseMigrationArchiveV1(JSON.stringify(oversizedTotal))).toThrow('total')
+  })
+
   it.each([
     ['malformed JSON', '{broken'],
     ['path traversal', JSON.stringify({ schemaVersion: 1, appVersion: '1', generatedAt: '2026-01-01T00:00:00.000Z', selectedUids: ['100'], accounts: { '100': {} }, manifest: [{ path: '../secret', sha256: 'a'.repeat(64), byteLength: 0 }], checksum: 'a'.repeat(64) })],
