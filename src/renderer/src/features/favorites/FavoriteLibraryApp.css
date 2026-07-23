@@ -18,6 +18,28 @@
 .favorite-library__archive-panel button:disabled { cursor: default; opacity: .55; }
 .favorite-library__archive-tools button:focus-visible, .favorite-library__archive-panel textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .favorite-library__layout { display: grid; grid-template-columns: 190px minmax(320px, 1fr) minmax(220px, 300px); min-height: calc(100vh - 86px); }
+.favorite-library__workspace { border-block: 1px solid #dbe7f7; }
+.favorite-library__workspace::after { content: ''; grid-column: 1 / -1; min-height: 1px; background: #dbe7f7; }
+.favorite-library__topbar { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px; border-bottom: 1px solid #d6e4fb; }
+.favorite-library__topbar strong { color: #1e3a8a; }
+.favorite-library__header-account { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.favorite-library__header-account h1 { margin: 0; font-size: 18px; }
+.favorite-library__header-account p { margin: 0; color: #64748b; font-size: 13px; }
+.favorite-library__remote-warning { color: #9a3412; font-size: 12px; }
+.favorite-library__window-actions { display: inline-flex; gap: 2px; margin-left: auto; }
+.favorite-library__window-actions button, .favorite-library__navigation-group-toggle, .favorite-library__navigation-row button, .favorite-library__toolbar > button, .favorite-library__batch-actions > button { border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.favorite-library__navigation-groups { display: grid; align-content: start; gap: 8px; padding: 10px 8px 10px 0; border-right: 1px solid #dbe7f7; overflow: auto; }
+.favorite-library__navigation-group { display: grid; gap: 2px; }
+.favorite-library__navigation-group-toggle { padding: 6px 8px; color: #475569; font-size: 12px; font-weight: 700; text-align: left; }
+.favorite-library__navigation-row { display: flex; align-items: center; }
+.favorite-library__navigation-row > button:first-child { flex: 1; padding: 7px 8px; text-align: left; }
+.favorite-library__navigation-row > button[aria-current='page'] { color: #1d4ed8; background: #e7f0ff; font-weight: 700; }
+.favorite-library__folder-menu { padding: 5px; color: #64748b; }
+.favorite-library__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 34px; margin-bottom: 8px; }
+.favorite-library__toolbar > small { color: #64748b; margin-right: auto; }
+.favorite-library__toolbar button, .favorite-library__page-size select { padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; }
+.favorite-library__batch-actions { position: relative; }
+.favorite-library__batch-actions > div { position: absolute; z-index: 2; display: flex; gap: 4px; padding: 4px; background: #fff; border: 1px solid #dbe7f7; border-radius: 6px; }
 .favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 3; height: 100%; min-height: 0; }
 .favorite-library__nav { display: grid; align-content: start; gap: 4px; padding: 12px 10px 12px 0; border-right: 1px solid #dbe7f7; overflow: auto; }
 .favorite-library__nav button, .favorite-library__row, .favorite-library__detail button { border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }

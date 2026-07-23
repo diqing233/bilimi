@@ -335,7 +335,7 @@ describe('FavoriteLibraryApp', () => {
     expect(root.querySelector('.favorite-library__header')).not.toBeInTheDocument()
     expect(root.querySelector('.favorite-library__layout')).toHaveAttribute('data-embedded-layout', 'true')
     expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
-    expect(root.children[1]).toHaveClass('favorite-library__layout')
+    expect(root.children[0]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
     expect(favoriteLibraryStyles).toContain(
       ".favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 3; height: 100%; min-height: 0; }"
@@ -532,7 +532,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: text.hideDetail }))
     expect(screen.queryByRole('complementary', { name: text.detail })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 100 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50 }))
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
   })
 
@@ -559,7 +559,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(await screen.findByText('First page')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.nextPage }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 100, cursor: '100' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, cursor: '100' }))
     expect(await screen.findByText('Second page')).toBeInTheDocument()
     expect(screen.queryByText('First page')).not.toBeInTheDocument()
   })

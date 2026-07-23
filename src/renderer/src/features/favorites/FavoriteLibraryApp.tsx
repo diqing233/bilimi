@@ -13,6 +13,9 @@ import type {
   FavoriteRepositoryRestorePlan
 } from '../../../../../electron/main/favoriteRepositoryArchiveService'
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
+import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
+import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from './FavoriteLibraryNavigation'
+import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
 import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
@@ -111,6 +114,7 @@ export function FavoriteLibraryApp({
   const [accountNickname, setAccountNickname] = useState<string>()
   const [summary, setSummary] = useState<FavoriteRepositorySnapshotSummary>()
   const [scopeId, setScopeId] = useState('all')
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(50)
   const [page, setPage] = useState<FavoriteRepositoryLibraryPage>()
   const [selected, setSelected] = useState<FavoriteLibraryRow>()
   const [detailSnapshot, setDetailSnapshot] = useState<FavoriteRepositoryLibraryVideoDetail>()
@@ -118,7 +122,6 @@ export function FavoriteLibraryApp({
   const [detailOpen, setDetailOpen] = useState(true)
   const [error, setError] = useState<string>()
   const [selectedAids, setSelectedAids] = useState<number[]>([])
-  const [organizationChanges, setOrganizationChanges] = useState<Array<{ id: string; aid: number; status: string; beforeFolderIds: string[]; afterFolderIds: string[] }>>([])
   const [events, setEvents] = useState<FavoriteRepositoryEventPage>()
   const [eventsOpen, setEventsOpen] = useState(false)
   const [placementPickerOpen, setPlacementPickerOpen] = useState(false)
@@ -149,19 +152,19 @@ export function FavoriteLibraryApp({
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
   const scopeRef = useRef(scope)
   scopeRef.current = scope
-  const load = useCallback(async (mid: string, nextScope: LibraryScope, cursor?: string) => {
+  const load = useCallback(async (mid: string, nextScope: LibraryScope, cursor?: string, limit = pageSize) => {
     const requestId = ++requestIdRef.current
     const api = window.bilimiDesktop
     if (!api?.getFavoriteRepositoryLibraryPage) throw new Error(text.unavailable)
     const next = await api.getFavoriteRepositoryLibraryPage(mid, nextScope, {
-      limit: 100,
+      limit,
       ...(cursor ? { cursor } : {})
     })
     if (requestId === requestIdRef.current) {
       setPage(next)
       setSelected(undefined)
     }
-  }, [])
+  }, [pageSize])
 
   const refresh = useCallback(async (expectedAccountMid?: string) => {
     const refreshId = ++requestIdRef.current
@@ -195,8 +198,6 @@ export function FavoriteLibraryApp({
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
-      void (api as (typeof api & FavoriteLibraryDesktopExtensions))?.getFavoriteRepositoryOrganizationChanges?.(mid)
-        ?.then((changes) => { if (refreshId === requestIdRef.current) setOrganizationChanges(changes) })
       await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
     } catch {
       if (refreshId === requestIdRef.current) setError(text.cannotRead)
@@ -266,6 +267,21 @@ export function FavoriteLibraryApp({
     { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)].filter((state) => state !== 'transcription') }
   ) : undefined
   const navigation = summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : []
+  const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
+    const items = navigation.map((item) => ({
+      id: item.id,
+      label: item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title,
+      count: item.kind === 'pending' ? item.count : item.kind === 'all' ? (summary?.videoCount ?? 0) : 0,
+      managed: item.kind === 'folder' && item.source === 'bilimi-logical',
+      protected: item.kind === 'folder' && /unmatched|inbox/i.test(item.folderId)
+    }))
+    return [
+      { id: 'bilibili', label: 'B站收藏', items: items.filter((item) => item.id === 'all') },
+      { id: 'workspace', label: '工作区', items: items.filter((item) => item.id.startsWith('folder:')) },
+      { id: 'local', label: '本地', items: items.filter((item) => item.id === 'pending') }
+    ]
+  }, [navigation, summary?.videoCount])
+  const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
   const toggleAid = (aid: number) => setSelectedAids((current) => current.includes(aid)
     ? current.filter((candidate) => candidate !== aid)
     : [...current, aid].sort((left, right) => left - right))
@@ -526,7 +542,7 @@ export function FavoriteLibraryApp({
     ? currentFolderId
     : undefined
   const currentLogicalFolderAids = currentLogicalFolderId
-    ? [...new Set(rows.filter((row) => row.folderIds.includes(currentFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
+    ? [...new Set(rows.filter((row) => row.folderIds.includes(currentLogicalFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
     : []
   const archiveRestoreAids = archiveRestoreScope === 'selected' ? selectedAids : currentLogicalFolderAids
   const archiveScopeRequiresAids = archiveRestoreScope === 'selected' || archiveRestoreScope === 'current-folder'
@@ -555,16 +571,13 @@ export function FavoriteLibraryApp({
 
   return (
     <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
+      {embedded ? null : <div className="favorite-library__header-spacer" aria-hidden="true" />}
       {!embedded ? (
-        <header className="favorite-library__header">
-        <div><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
-        {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
-        </header>
+        <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts['result-unknown'])}>
+          <div className="favorite-library__header-account"><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
+          {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
+        </FavoriteLibraryHeader>
       ) : null}
-      <section className="favorite-library__organization-history" aria-label={text.organizationHistory}>
-        <h2>{text.organizationHistory}</h2>
-        {organizationChanges.length ? <ul>{organizationChanges.slice(-5).reverse().map((change) => <li key={change.id}>#{change.aid}：{change.status === 'succeeded' ? '已确认' : change.status === 'failed' ? '失败' : '待确认'}（{change.beforeFolderIds.length} → {change.afterFolderIds.length}）</li>)}</ul> : <p>{text.noOrganizationHistory}</p>}
-      </section>
       {!embedded ? <section className="favorite-library__archive-tools" aria-label="收藏存档">
         <button type="button" aria-expanded={archivePanelOpen} onClick={() => setArchivePanelOpen((open) => !open)}>收藏存档</button>
         {archivePanelOpen ? <div className="favorite-library__archive-panel" aria-busy={archiveBusy}>
@@ -602,30 +615,27 @@ export function FavoriteLibraryApp({
         </div> : null}
       </section> : null}
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
-      <div className="favorite-library__layout" data-embedded-layout={embedded || undefined}>
-        <nav className="favorite-library__nav" aria-label={text.navigation}>
-          {navigation.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={scopeId === item.id ? 'page' : undefined}
-              onClick={() => {
-                setScopeId(item.id)
-                setSelectedAids([])
-                setSelected(undefined)
-                setDetailSnapshot(undefined)
-                if (accountMid) void load(accountMid, scopeForNavigation(item.id))
-              }}
-            >
-              {item.kind === 'all' ? text.all : item.kind === 'pending' ? `${text.pending} ${item.count}` : item.title}
-            </button>
-          ))}
-          {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
-        </nav>
+      <div className="favorite-library__layout favorite-library__workspace" data-embedded-layout={embedded || undefined} data-footer-split="true">
+        <FavoriteLibraryNavigation
+          uid={accountMid}
+          groups={navigationGroups}
+          collapsedGroups={collapsedNavigationGroups}
+          selectedId={scopeId}
+          onCollapseChange={(uid, groupId, collapsed) => {
+            if (!uid) return
+            setCollapsedNavigationGroups((current) => ({ ...current, [groupId]: collapsed }))
+          }}
+          onSelect={(id) => {
+            setScopeId(id)
+            setSelectedAids([])
+            setSelected(undefined)
+            setDetailSnapshot(undefined)
+            if (accountMid) void load(accountMid, scopeForNavigation(id))
+          }}
+        />
+        {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
-          <div className="favorite-library__actions">
-            <label className="favorite-library__select-page"><input type="checkbox" aria-label={text.selectPage} checked={allCurrentPageSelected} disabled={!rows.length} onChange={toggleCurrentPage} />{text.selectPage}</label>
-            <small>{text.selected} {selectedAids.length} {text.item}</small>
+          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage}>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
@@ -643,7 +653,12 @@ export function FavoriteLibraryApp({
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
             })}>{text.transcription + '\uff08' + selectedAids.length + '\uff09'}</button>
             {placementPickerOpen && placementPickerBatch ? renderPlacementPicker() : null}
-          </div>
+            <label className="favorite-library__page-size">每页<select aria-label="每页数量" value={pageSize} onChange={(event) => {
+              const nextPageSize = Number(event.currentTarget.value) as 25 | 50 | 100
+              setPageSize(nextPageSize)
+              if (accountMid) void load(accountMid, scope, undefined, nextPageSize)
+            }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          </FavoriteLibraryToolbar>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
             items={rows}
