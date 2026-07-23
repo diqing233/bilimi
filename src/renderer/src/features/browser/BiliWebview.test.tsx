@@ -201,7 +201,7 @@ describe('BiliWebview', () => {
     }
   })
 
-  it('wakes the bilibili danmaku layer after a video page finishes loading', async () => {
+  it('does not inject the retired danmaku wake script while preserving video navigation', async () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
 
     const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
@@ -219,19 +219,11 @@ describe('BiliWebview', () => {
       webview.dispatchEvent(new Event('did-finish-load'))
     })
 
-    await vi.waitFor(() => {
-      const script = executeJavaScript.mock.calls
-        .map(([source]) => String(source))
-        .find((source) => source.includes('__bilimiWakeBilibiliDanmakuAfterVideoLoad'))
-      expect(script).toContain('MutationObserver')
-      expect(script).toContain('.bpx-player-dm-wrap')
-      expect(script).toContain('.b-danmaku')
-      expect(script).not.toContain("'.bpx-player-dm-wrap > div'")
-      expect(script).not.toContain('const delays = [0, 250, 800, 1600, 3200]')
-    })
+    await Promise.resolve()
+    expect(executeJavaScript.mock.calls.map(([source]) => String(source)).join('\n')).not.toContain('__bilimiWakeBilibiliDanmakuAfterVideoLoad')
   })
 
-  it('wakes the danmaku layer again after leaving HTML fullscreen', async () => {
+  it('keeps HTML fullscreen events without injecting the retired danmaku wake script', async () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1danmaku" />)
 
     const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
@@ -242,12 +234,8 @@ describe('BiliWebview', () => {
       webview.dispatchEvent(new Event('leave-html-full-screen'))
     })
 
-    await vi.waitFor(() =>
-      expect(executeJavaScript).toHaveBeenCalledWith(
-        expect.stringContaining('__bilimiWakeBilibiliDanmakuAfterVideoLoad'),
-        true
-      )
-    )
+    await Promise.resolve()
+    expect(executeJavaScript.mock.calls.map(([source]) => String(source)).join('\n')).not.toContain('__bilimiWakeBilibiliDanmakuAfterVideoLoad')
   })
 
   it('does not drive the webview src from later location updates', () => {
@@ -306,7 +294,7 @@ describe('BiliWebview', () => {
     fireEvent.click(screen.getByRole('button', { name: '本次直连重试' }))
 
     await waitFor(() => expect(retryBilibiliSessionDirect).toHaveBeenCalledOnce())
-    expect(reload).toHaveBeenCalledOnce()
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('does not mistake non-proxy load failures or subframes for a proxy failure', () => {

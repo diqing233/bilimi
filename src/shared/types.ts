@@ -199,6 +199,8 @@ export type AssistantPreferences = {
   rememberCloseChoice?: boolean
   closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  /** Device-wide Bilibili session network preference, never account-scoped. */
+  bilibiliConnectionMode: 'auto' | 'direct' | 'system'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean

@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
 describe('FavoriteRepositoryRemoteOperationArbiter', () => {
+  it('waits for submitted work before running exclusive session maintenance', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const events: string[] = []
+    let releaseActive: (() => void) | undefined
+    const active = arbiter.run('100', async () => {
+      events.push('active-start')
+      await new Promise<void>((resolve) => { releaseActive = resolve })
+      events.push('active-end')
+    })
+    const maintenance = arbiter.runExclusive(async () => { events.push('maintenance') })
+    const queued = arbiter.run('100', async () => { events.push('queued') })
+
+    await Promise.resolve()
+    expect(events).toEqual(['active-start'])
+    releaseActive?.()
+    await Promise.all([active, maintenance, queued])
+    expect(events).toEqual(['active-start', 'active-end', 'maintenance', 'queued'])
+  })
+
   it('serializes remote operations for one account without blocking another account', async () => {
     const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
     const events: string[] = []

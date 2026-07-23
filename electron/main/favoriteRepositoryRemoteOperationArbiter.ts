@@ -42,6 +42,9 @@ const priorityRank: Record<FavoriteRepositoryRemoteOperationPriority, number> = 
 export class FavoriteRepositoryRemoteOperationArbiter {
   private readonly queues = new Map<string, AccountQueue>()
   private nextSequence = 0
+  private maintenanceRequested = 0
+  private exclusiveTail = Promise.resolve()
+  private idleWaiters: Array<() => void> = []
 
   /**
    * Preserves the original FIFO entry point for callers that do not need an
@@ -79,8 +82,28 @@ export class FavoriteRepositoryRemoteOperationArbiter {
     return result
   }
 
+  /** Runs session-wide maintenance only after submitted remote work has settled. */
+  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    this.maintenanceRequested += 1
+    let release!: () => void
+    const next = new Promise<void>((resolve) => { release = resolve })
+    const previous = this.exclusiveTail
+    this.exclusiveTail = previous.then(() => next)
+    try {
+      await previous
+      await this.waitForIdle()
+      return await operation()
+    } finally {
+      this.maintenanceRequested -= 1
+      release()
+      if (!this.maintenanceRequested) {
+        for (const [accountMid, accountQueue] of this.queues) this.drain(accountMid, accountQueue)
+      }
+    }
+  }
+
   private drain(accountMid: string, accountQueue: AccountQueue) {
-    if (accountQueue.active) return
+    if (accountQueue.active || this.maintenanceRequested) return
     const next = this.takeNext(accountQueue)
     if (!next) {
       this.queues.delete(accountMid)
@@ -107,7 +130,20 @@ export class FavoriteRepositoryRemoteOperationArbiter {
       queued.reject(error)
     } finally {
       accountQueue.active = false
+      this.notifyIdleIfNeeded()
       this.drain(accountMid, accountQueue)
     }
+  }
+
+  private waitForIdle(): Promise<void> {
+    if (![...this.queues.values()].some((queue) => queue.active)) return Promise.resolve()
+    return new Promise((resolve) => this.idleWaiters.push(resolve))
+  }
+
+  private notifyIdleIfNeeded() {
+    if ([...this.queues.values()].some((queue) => queue.active)) return
+    const waiters = this.idleWaiters
+    this.idleWaiters = []
+    for (const resolve of waiters) resolve()
   }
 }

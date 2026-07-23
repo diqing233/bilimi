@@ -5,7 +5,6 @@ import { buildOpenLinksInAppScript } from './linkCaptureScript'
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
 const VIDEO_REPAINT_AFTER_HOST_RESIZE_DELAY_MS = 80
-const DANMAKU_WAKE_AFTER_VIDEO_LOAD_DELAY_MS = 120
 
 type BiliWebviewProps = {
   active: boolean
@@ -73,16 +72,6 @@ function readPetHintTitleSignal(title: string): string | undefined {
   }
 }
 
-function isBilibiliVideoUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-
-    return /(^|\.)bilibili\.com$/i.test(parsed.hostname) && parsed.pathname.startsWith('/video/')
-  } catch {
-    return false
-  }
-}
-
 function buildVideoRepaintAfterHostResizeScript(): string {
   return `
     (() => {
@@ -113,102 +102,6 @@ function buildVideoRepaintAfterHostResizeScript(): string {
           style.willChange = previousWillChange;
         });
       }
-
-      return true;
-    })()
-  `
-}
-
-function buildWakeBilibiliDanmakuAfterVideoLoadScript(): string {
-  return `
-    (() => {
-      const marker = '__bilimiWakeBilibiliDanmakuAfterVideoLoad';
-      void marker;
-
-      if (!/\\/video\\//i.test(window.location.pathname)) {
-        return false;
-      }
-
-      const existingWake = window[marker];
-      existingWake?.observer?.disconnect?.();
-      if (existingWake?.timeout) window.clearTimeout(existingWake.timeout);
-
-      const wakeTargets = () => {
-        window.dispatchEvent(new Event('resize'));
-
-        const targets = [
-          ...document.querySelectorAll('video'),
-          ...document.querySelectorAll([
-            '.bpx-player-container',
-            '.bpx-player-primary-area',
-            '.bpx-player-video-area',
-            '.bpx-player-video-wrap',
-            '.bpx-player-video-perch',
-            '.bpx-player-row-dm-wrap',
-            '.bpx-player-dm-wrap',
-            '.bilibili-player',
-            '.bilibili-player-video-wrap',
-            '.bilibili-player-video-danmaku',
-            '.bpx-player-dm-wrap canvas',
-            '.bpx-player-dm-wrap svg',
-            '.bpx-player-dm-wrap .b-danmaku',
-            '.bilibili-player-video-danmaku .b-danmaku'
-          ].join(','))
-        ];
-
-        for (const target of targets) {
-          const style = target.style;
-          if (!style) {
-            continue;
-          }
-
-          const previousTransform = style.transform;
-          const previousWillChange = style.willChange;
-          style.willChange = 'transform';
-          style.transform = previousTransform
-            ? previousTransform + ' translateZ(0)'
-            : 'translateZ(0)';
-          void target.getBoundingClientRect?.();
-          window.requestAnimationFrame(() => {
-            style.transform = previousTransform;
-            style.willChange = previousWillChange;
-          });
-        }
-
-        return targets.length;
-      };
-
-      const hasDanmakuLayer = () => Boolean(document.querySelector([
-        '.bpx-player-dm-wrap canvas',
-        '.bpx-player-dm-wrap svg',
-        '.bpx-player-dm-wrap .b-danmaku',
-        '.bilibili-player-video-danmaku .b-danmaku'
-      ].join(',')));
-      const wakeWhenReady = () => {
-        if (!hasDanmakuLayer()) return false;
-        window.requestAnimationFrame(wakeTargets);
-        return true;
-      };
-
-      if (wakeWhenReady()) {
-        window[marker] = null;
-        return true;
-      }
-
-      const root = document.querySelector('.bpx-player-container,.bilibili-player') || document.body;
-      const observer = new MutationObserver(() => {
-        if (!wakeWhenReady()) return;
-        observer.disconnect();
-        if (window[marker]?.timeout) window.clearTimeout(window[marker].timeout);
-        window[marker] = null;
-      });
-      observer.observe(root, { childList: true, subtree: true });
-      const timeout = window.setTimeout(() => {
-        observer.disconnect();
-        window.requestAnimationFrame(wakeTargets);
-        window[marker] = null;
-      }, 10000);
-      window[marker] = { observer, timeout };
 
       return true;
     })()
@@ -273,26 +166,6 @@ export function BiliWebview({
       void webview.executeJavaScript(buildOpenLinksInAppScript(), true).catch(() => undefined)
     }
 
-    let danmakuWakeTimeout: number | undefined
-
-    const scheduleDanmakuWake = () => {
-      window.clearTimeout(danmakuWakeTimeout)
-
-      if (!webview.executeJavaScript || !isBilibiliVideoUrl(latestUrl.current)) {
-        return
-      }
-
-      danmakuWakeTimeout = window.setTimeout(() => {
-        if (!webview.executeJavaScript || !isBilibiliVideoUrl(latestUrl.current)) {
-          return
-        }
-
-        void webview
-          .executeJavaScript(buildWakeBilibiliDanmakuAfterVideoLoadScript(), true)
-          .catch(() => undefined)
-      }, DANMAKU_WAKE_AFTER_VIDEO_LOAD_DELAY_MS)
-    }
-
     const handleNewWindow = (event: Event) => {
       const urlToOpen = readEventUrl(event as WebviewUrlEvent)
 
@@ -310,7 +183,6 @@ export function BiliWebview({
       if (nextUrl) {
         latestUrl.current = nextUrl
         onLocationChange?.(tabId, nextUrl)
-        scheduleDanmakuWake()
       }
     }
 
@@ -327,7 +199,6 @@ export function BiliWebview({
 
     const handleLeaveHtmlFullscreen = () => {
       onHtmlFullscreenChange?.(tabId, false)
-      scheduleDanmakuWake()
     }
 
     const handleTitleChange = (event: Event) => {
@@ -372,7 +243,6 @@ export function BiliWebview({
     webview.addEventListener('did-finish-load', reportTargetState)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
-    webview.addEventListener('did-finish-load', scheduleDanmakuWake)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
     webview.addEventListener('did-fail-load', handleLoadFailure)
     webview.addEventListener('did-start-navigation', handleNavigationStart)
@@ -384,13 +254,11 @@ export function BiliWebview({
 
     return () => {
       window.clearTimeout(targetStateFallbackTimer)
-      window.clearTimeout(danmakuWakeTimeout)
       webview.removeEventListener('new-window', handleNewWindow)
       webview.removeEventListener('dom-ready', reportTargetState)
       webview.removeEventListener('did-finish-load', reportTargetState)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
-      webview.removeEventListener('did-finish-load', scheduleDanmakuWake)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
       webview.removeEventListener('did-start-navigation', handleNavigationStart)
@@ -456,7 +324,6 @@ export function BiliWebview({
     setDirectRetryError('')
     try {
       await window.bilimiDesktop.retryBilibiliSessionDirect()
-      ref.current?.reload?.()
     } catch (error) {
       setDirectRetryError(`直连重试未能启动：${error instanceof Error ? error.message : String(error)}`)
     } finally {

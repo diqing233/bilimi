@@ -87,7 +87,7 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
-  retryBilibiliSessionDirect?: () => Promise<{ mode: 'direct' | 'system' }>
+  retryBilibiliSessionDirect?: () => Promise<{ mode: 'auto' | 'direct' | 'system'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>
   readBilibiliAccountMid?: () => Promise<string>
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
   openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
@@ -96,6 +96,7 @@ type BilimiDesktopApi = {
   toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number, cid?: number) => Promise<void>
   saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string, cid?: number) => Promise<void>
   onBilibiliAccountChanged?: (callback: () => void) => () => void
+  onBilibiliSessionReloadRequested?: (callback: () => void) => () => void
   onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>

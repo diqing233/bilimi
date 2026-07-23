@@ -71,6 +71,12 @@ function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSug
   return normalizeKeywordSuggestions(value)
 }
 
+export function normalizeBilibiliConnectionMode(
+  value: unknown
+): AssistantPreferences['bilibiliConnectionMode'] {
+  return value === 'direct' || value === 'system' ? value : 'auto'
+}
+
 function normalizeFavoriteAccountPreferenceMap(
   value: AssistantPreferences['favoriteAccountPreferences']
 ): Record<string, FavoriteAccountPreferences> {
@@ -164,6 +170,7 @@ export function createInitialAssistantPreferences(
       typeof persisted?.rememberCloseChoice === 'boolean' ? persisted.rememberCloseChoice : false,
     closeChoiceMigrationVersion: 1,
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
+    bilibiliConnectionMode: normalizeBilibiliConnectionMode(persisted?.bilibiliConnectionMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled:

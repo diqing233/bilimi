@@ -3092,6 +3092,33 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('reloads every existing Bilibili webview after the session connection mode changes', async () => {
+    let reloadRequested: (() => void) | undefined
+    renderAppWithRuntimeBridge({
+      onBilibiliSessionReloadRequested: vi.fn((callback: () => void) => {
+        reloadRequested = callback
+        return vi.fn()
+      })
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement & { reload?: () => void }
+    act(() => {
+      homeWebview.dispatchEvent(new CustomEvent('new-window', {
+        detail: { url: 'https://www.bilibili.com/video/BV1proxy' }
+      }))
+    })
+    const webviews = [...document.querySelectorAll('webview')] as Array<HTMLElement & { reload?: () => void }>
+    const reloads = webviews.map(() => vi.fn())
+    webviews.forEach((webview, index) => Object.assign(webview, { reload: reloads[index] }))
+
+    act(() => reloadRequested?.())
+
+    expect(reloads).toHaveLength(2)
+    for (const reload of reloads) expect(reload).toHaveBeenCalledOnce()
+  })
+
   it('opens the same video URL in independent tabs and closes only the selected instance', async () => {
     renderAppWithRuntimeBridge()
 

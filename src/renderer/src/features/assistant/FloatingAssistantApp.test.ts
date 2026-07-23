@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { defaultFavoriteSystemToggleAvailable, resolveFavoriteOrganizationLamp } from './FloatingAssistantApp'
+import { defaultFavoriteSystemToggleAvailable, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS } from './FloatingAssistantApp'
 
 const defaultLedger: FavoriteLedger = {
   id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true,
@@ -18,6 +18,13 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('places the Bilibili connection setting immediately before the closing setting', () => {
+    expect(SETTINGS_JUMP_OPTIONS.slice(-2)).toEqual([
+      { value: 'bilibili-connection', label: 'B 站连接方式' },
+      { value: 'close', label: '关闭设置' }
+    ])
+  })
+
   it('requires a Bilibili account before editing the account-scoped default favorite system', () => {
     expect(defaultFavoriteSystemToggleAvailable(undefined)).toBe(false)
     expect(defaultFavoriteSystemToggleAvailable('100')).toBe(true)

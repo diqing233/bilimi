@@ -169,6 +169,30 @@ let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
+function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' | 'system' {
+  return value === 'direct' || value === 'system' ? value : 'auto'
+}
+
+function readBilibiliConnectionMode() {
+  return normalizeBilibiliConnectionMode(
+    (getDesktopStore() as unknown as { get: (key: string) => unknown }).get('bilibiliConnectionMode')
+  )
+}
+
+function writeBilibiliConnectionMode(mode: 'auto' | 'direct' | 'system') {
+  ;(getDesktopStore() as unknown as { set: (key: string, value: unknown) => void }).set('bilibiliConnectionMode', mode)
+}
+
+function withBilibiliConnectionMode(preferences: AssistantPreferences) {
+  return { ...preferences, bilibiliConnectionMode: readBilibiliConnectionMode() }
+}
+
+function requestBilibiliWebviewReload() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('bilibili-session:reload-requested')
+  }
+}
+
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
     return
@@ -370,6 +394,7 @@ function sendAssistantPetHint(hint: AssistantPetHint) {
 }
 
 function sendAssistantPreferencesChanged(preferences: AssistantPreferences) {
+  const withConnectionMode = withBilibiliConnectionMode(preferences)
   const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
 
   for (const target of targets) {
@@ -377,7 +402,7 @@ function sendAssistantPreferencesChanged(preferences: AssistantPreferences) {
       continue
     }
 
-    target.webContents.send('assistant:preferences-changed', preferences)
+    target.webContents.send('assistant:preferences-changed', withConnectionMode)
   }
 }
 
@@ -902,21 +927,46 @@ function registerAssistantPreferenceHandlers() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       throw new Error('Bilibili session proxy request came from an untrusted renderer.')
     }
-    return bilibiliSessionProxy.retryDirect()
+    const previous = bilibiliSessionProxy.snapshot()
+    return favoriteRepositoryRemoteOperations.runExclusive(() => bilibiliSessionProxy.retryDirect()).then((snapshot) => {
+      if (snapshot.effectiveMode !== previous.effectiveMode || snapshot.temporaryDirect !== previous.temporaryDirect) {
+        requestBilibiliWebviewReload()
+      }
+      return snapshot
+    })
   })
-  ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
+  ipcMain.handle('assistant:load-preferences', () => withBilibiliConnectionMode(loadAssistantPreferences()))
   ipcMain.handle('clipboard:write-text', (_event, text: string) => {
     clipboard.writeText(text)
   })
-  ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) => {
+  ipcMain.handle('assistant:save-preferences', async (_event, preferences: AssistantPreferences) => {
+    const requestedMode = (preferences as AssistantPreferences & { bilibiliConnectionMode?: unknown }).bilibiliConnectionMode
+    const mode = normalizeBilibiliConnectionMode(requestedMode)
+    const connectionModeChanged = requestedMode !== undefined && mode !== readBilibiliConnectionMode()
+    if (connectionModeChanged) {
+      await favoriteRepositoryRemoteOperations.runExclusive(() => bilibiliSessionProxy.applyPreference(mode))
+      writeBilibiliConnectionMode(mode)
+    }
     const saved = saveAssistantPreferences(getDesktopStore(), preferences)
-    sendAssistantPreferencesChanged(saved)
-    return saved
+    const next = withBilibiliConnectionMode(saved)
+    sendAssistantPreferencesChanged(next)
+    if (connectionModeChanged) requestBilibiliWebviewReload()
+    return next
   })
-  ipcMain.handle('assistant:patch-preferences', (_event, patch: Partial<AssistantPreferences>) => {
-    const saved = patchAssistantPreferences(getDesktopStore(), patch)
-    sendAssistantPreferencesChanged(saved)
-    return saved
+  ipcMain.handle('assistant:patch-preferences', async (_event, patch: Partial<AssistantPreferences>) => {
+    const { bilibiliConnectionMode, ...assistantPatch } = patch
+    const connectionModeChanged = bilibiliConnectionMode !== undefined &&
+      normalizeBilibiliConnectionMode(bilibiliConnectionMode) !== readBilibiliConnectionMode()
+    if (connectionModeChanged) {
+      const mode = normalizeBilibiliConnectionMode(bilibiliConnectionMode)
+      await favoriteRepositoryRemoteOperations.runExclusive(() => bilibiliSessionProxy.applyPreference(mode))
+      writeBilibiliConnectionMode(mode)
+    }
+    const saved = patchAssistantPreferences(getDesktopStore(), assistantPatch)
+    const next = withBilibiliConnectionMode(saved)
+    sendAssistantPreferencesChanged(next)
+    if (connectionModeChanged) requestBilibiliWebviewReload()
+    return next
   })
   ipcMain.handle('layout:restore-default-size', () => {
     const win = ensureMainWindowForAssistantRuntime()
@@ -1215,6 +1265,7 @@ function isTrustedFavoriteLibraryReader(senderId: number): boolean {
 }
 
 if (singleInstanceGuard) app.whenReady().then(async () => {
+  await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items

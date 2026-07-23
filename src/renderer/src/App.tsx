@@ -625,6 +625,14 @@ export default function App() {
     })
   }, [])
 
+  useEffect(() => {
+    return window.bilimiDesktop?.onBilibiliSessionReloadRequested?.(() => {
+      for (const webview of Object.values(webviewRefs.current)) {
+        webview.reload?.()
+      }
+    })
+  }, [])
+
   async function completeStartupPermissionGate() {
     const nextPreferences = createInitialAssistantPreferences({
       ...preferences,

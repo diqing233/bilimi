@@ -121,7 +121,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
-  retryBilibiliSessionDirect: () => ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'direct' | 'system' }>,
+  retryBilibiliSessionDirect: () => ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'auto' | 'direct' | 'system'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   readBilibiliAccount: () =>
     ipcRenderer.invoke('favorite-library:read-account') as Promise<{ mid: string; nickname?: string }>,
@@ -139,6 +139,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     const listener = () => callback()
     ipcRenderer.on('bilibili:account-changed', listener)
     return () => ipcRenderer.removeListener('bilibili:account-changed', listener)
+  },
+  onBilibiliSessionReloadRequested: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('bilibili-session:reload-requested', listener)
+    return () => ipcRenderer.removeListener('bilibili-session:reload-requested', listener)
   },
   onFavoriteLibraryTranscriptionChanged: (callback: () => void) => {
     const listener = () => callback()

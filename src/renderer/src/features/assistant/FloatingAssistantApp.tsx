@@ -541,7 +541,7 @@ const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, 
   deleted: '已删除'
 }
 
-const SETTINGS_JUMP_OPTIONS = [
+export const SETTINGS_JUMP_OPTIONS = [
   { value: 'diagnostics', label: '诊断' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'learning', label: '整理策略' },
@@ -550,6 +550,7 @@ const SETTINGS_JUMP_OPTIONS = [
   { value: 'archive', label: '收藏整理' },
   { value: 'review-actions', label: '批阅动作' },
   { value: 'favorites', label: '收藏夹体系' },
+  { value: 'bilibili-connection', label: 'B 站连接方式' },
   { value: 'close', label: '关闭设置' }
 ] as const
 const SETTINGS_SCROLL_SYNC_OFFSET = 32
@@ -2485,6 +2486,23 @@ export function FloatingAssistantApp({
     ), options)
   }
 
+  async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
+    const previous = preferencesRef.current
+    const next = createInitialAssistantPreferences({ ...previous, bilibiliConnectionMode: mode })
+    applyPreferenceSnapshot(next)
+    try {
+      if (!window.bilimiDesktop?.patchPreferences) {
+        throw new Error('当前版本无法应用 B 站连接方式')
+      }
+      const saved = await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
+      applyPreferenceSnapshot(createInitialAssistantPreferences(saved))
+      setSettingsLearningMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
+    } catch (error) {
+      applyPreferenceSnapshot(previous)
+      setSettingsLearningMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   async function saveFavoriteLedgerRules(
     favoriteLedgers: AssistantPreferences['favoriteLedgers']
   ) {
@@ -3465,6 +3483,31 @@ export function FloatingAssistantApp({
               <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
               <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
               <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--bilibili-connection"
+              data-settings-section="bilibili-connection"
+            >
+              <legend>B 站连接方式</legend>
+              <p>只影响 bilimi 内的 B 站网页、API、图片和视频会话，不会修改 Windows 或 Clash 的代理设置，也不会影响 DeepSeek、转写下载或其他应用网络。</p>
+              <p>未启用系统代理时通常没有区别；海外或必须代理访问 B 站时请选择“跟随系统代理”。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
+              {([
+                ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
+                ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。'],
+                ['system', '跟随系统代理', '让 bilimi 的 B 站会话使用 Windows 当前系统代理。']
+              ] as const).map(([mode, label, help]) => (
+                <label key={mode}>
+                  <input
+                    type="radio"
+                    name="bilibili-connection-mode"
+                    checked={preferences.bilibiliConnectionMode === mode}
+                    onChange={() => void chooseBilibiliConnectionMode(mode)}
+                  />
+                  <span>{label}</span>
+                  <small>{help}</small>
+                </label>
+              ))}
+              {settingsLearningMessage.startsWith('B 站连接方式') ? <p role="status">{settingsLearningMessage}</p> : null}
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"
