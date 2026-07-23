@@ -27,11 +27,15 @@ export function FavoriteLibraryToolbar({
 
 function BatchActions({ disabled, onAction }: { disabled: boolean; onAction?: (action: FavoriteLibraryBatchAction) => void }) {
   const [open, setOpen] = useState(false)
+  const run = (action: FavoriteLibraryBatchAction) => {
+    setOpen(false)
+    onAction?.(action)
+  }
   return <div className="favorite-library__batch-actions">
     <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>批量操作</button>
     {open ? <div className="favorite-library__batch-action-menu">
-      <div><button type="button" disabled={disabled} onClick={() => onAction?.('copy')}>复制至</button><button type="button" disabled={disabled} onClick={() => onAction?.('move')}>移动至</button><button type="button" disabled={disabled} onClick={() => onAction?.('refresh')}>刷新所选信息</button><button type="button" disabled={disabled} onClick={() => onAction?.('transcribe')}>加入转写队列</button><button type="button" disabled={disabled} onClick={() => onAction?.('sync')}>同步到B站</button></div>
-      <div className="favorite-library__batch-action-danger"><button type="button" disabled={disabled} onClick={() => onAction?.('delete-local')}>从收藏库删除</button><button type="button" disabled={disabled} onClick={() => onAction?.('unfavorite-remote')}>取消B站收藏</button></div>
+      <div><button type="button" disabled={disabled} onClick={() => run('copy')}>复制至</button><button type="button" disabled={disabled} onClick={() => run('move')}>移动至</button><button type="button" disabled={disabled} onClick={() => run('refresh')}>刷新所选信息</button><button type="button" disabled={disabled} onClick={() => run('transcribe')}>加入转写队列</button><button type="button" disabled={disabled} onClick={() => run('sync')}>同步到B站</button></div>
+      <div className="favorite-library__batch-action-danger"><button type="button" disabled={disabled} onClick={() => run('delete-local')}>从收藏库删除</button><button type="button" disabled={disabled} onClick={() => run('unfavorite-remote')}>取消B站收藏</button></div>
     </div> : null}
   </div>
 }

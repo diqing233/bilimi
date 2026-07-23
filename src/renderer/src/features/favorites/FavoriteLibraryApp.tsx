@@ -138,6 +138,7 @@ export function FavoriteLibraryApp({
   const [eventsOpen, setEventsOpen] = useState(false)
   const [placementPickerOpen, setPlacementPickerOpen] = useState(false)
   const [placementPickerBatch, setPlacementPickerBatch] = useState(false)
+  const [placementPickerMode, setPlacementPickerMode] = useState<'replace' | 'copy' | 'move'>('replace')
   const [placementPickerAids, setPlacementPickerAids] = useState<number[]>([])
   const [placementDraftFolderIds, setPlacementDraftFolderIds] = useState<string[]>([])
   const [placementSyncRequested, setPlacementSyncRequested] = useState(false)
@@ -154,7 +155,27 @@ export function FavoriteLibraryApp({
   const [archiveRestoreExecution, setArchiveRestoreExecution] = useState<FavoriteRepositoryRestoreExecutionResult>()
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveRestoreScope, setArchiveRestoreScope] = useState<'all' | 'selected' | 'current-folder'>('all')
-  const [managedFolderDialog, setManagedFolderDialog] = useState<{ id: string; title: string }>()
+  const [managedFolderDialog, setManagedFolderDialog] = useState<{
+    id: string
+    title: string
+    preview: {
+      executionToken: string
+      currentRevision: number
+      localMemberCount: number
+      unmatchedFallbackCount: number
+      extraRemoteMemberCount: number
+      remoteOnlyMemberCount: number
+    }
+  }>()
+  const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
+    aids: number[]
+    executionToken: string
+    baselineRevision?: number
+  }>()
+  const [remoteReconciliation, setRemoteReconciliation] = useState<{
+    kind: 'unfavorite' | 'managed-folder'
+    operationId: string
+  }>()
   const requestIdRef = useRef(0)
 
   useEffect(() => {
@@ -368,13 +389,15 @@ export function FavoriteLibraryApp({
   const openPlacementPicker = () => {
     setPlacementDraftFolderIds([...(detailSnapshot?.position?.localDesiredFolderIds ?? [])])
     setPlacementPickerBatch(false)
+    setPlacementPickerMode('replace')
     setPlacementPickerAids(selected ? [selected.aid] : [])
     setPlacementSyncRequested(false)
     setPlacementPickerOpen(true)
   }
-  const openSelectedPlacementPicker = () => {
+  const openSelectedPlacementPicker = (mode: 'replace' | 'copy' | 'move' = 'replace') => {
     setPlacementDraftFolderIds([])
     setPlacementPickerBatch(true)
+    setPlacementPickerMode(mode)
     setPlacementPickerAids([...selectedAids])
     setPlacementSyncRequested(false)
     setPlacementPickerOpen(true)
@@ -388,9 +411,18 @@ export function FavoriteLibraryApp({
       if (placementPickerBatch) {
         await runAction(async () => {
           const api = window.bilimiDesktop
-          if (!accountMid || !summary || !api?.setFavoriteLibraryLocalPlacements || !placementPickerAids.length) {
+          if (!accountMid || !summary || !placementPickerAids.length) {
             throw new Error(text.unavailable)
           }
+          if (placementPickerMode === 'copy') {
+            if (!api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
+            return api.copyFavoriteLibrarySelection(accountMid, placementPickerAids, placementDraftFolderIds, summary.revision)
+          }
+          if (placementPickerMode === 'move') {
+            if (!currentLogicalFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
+            return api.moveFavoriteLibrarySelection(accountMid, placementPickerAids, currentLogicalFolderId, placementDraftFolderIds, summary.revision)
+          }
+          if (!api?.setFavoriteLibraryLocalPlacements) throw new Error(text.unavailable)
           return api.setFavoriteLibraryLocalPlacements(
             accountMid,
             placementPickerAids.map((aid) => ({ aid, folderIds: [...placementDraftFolderIds] })),
@@ -455,12 +487,37 @@ export function FavoriteLibraryApp({
       )
       setRemoteUnfavoritePreview(undefined)
       if (result.status === 'result-unknown') {
-        setError('取消 B 站收藏结果待确认，请先扫描 B 站位置后再决定是否重试。')
+        setRemoteReconciliation({ kind: 'unfavorite', operationId: remoteUnfavoritePreview.executionToken })
       } else if (result.status === 'failed') {
         setError(`取消 B 站收藏失败${result.reason ? `：${result.reason}` : '，请稍后重试。'}`)
       }
     } finally {
       setRemoteUnfavoriteExecuting(false)
+    }
+  }
+  const confirmBatchRemoteUnfavorite = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !batchRemoteUnfavoritePreview || !api?.confirmFavoriteLibraryRemoteUnfavoriteOperation || !api?.executeFavoriteLibraryRemoteUnfavoriteOperation) {
+      throw new Error(text.unavailable)
+    }
+    const confirmation = await api.confirmFavoriteLibraryRemoteUnfavoriteOperation(accountMid, batchRemoteUnfavoritePreview.executionToken)
+    const result = await api.executeFavoriteLibraryRemoteUnfavoriteOperation(
+      accountMid, batchRemoteUnfavoritePreview.executionToken, confirmation.confirmationToken
+    ) as { status?: string; operationId?: string }
+    setBatchRemoteUnfavoritePreview(undefined)
+    if (result.status === 'result-unknown') {
+      setRemoteReconciliation({ kind: 'unfavorite', operationId: result.operationId ?? batchRemoteUnfavoritePreview.executionToken })
+      return
+    }
+    await refresh(accountMid)
+  }
+  const reconcileRemoteOperation = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !remoteReconciliation) throw new Error(text.unavailable)
+    if (remoteReconciliation.kind === 'unfavorite') {
+      await api?.reconcileFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, remoteReconciliation.operationId)
+    } else {
+      await api?.reconcileFavoriteLibraryManagedFolderDelete?.(accountMid, remoteReconciliation.operationId)
     }
   }
   const exportFavoriteArchive = async () => {
@@ -577,13 +634,21 @@ export function FavoriteLibraryApp({
     const retained = previous.filter((folderId) => placementDraftFolderIds.includes(folderId))
     return <div className="favorite-library__placement-picker" aria-label={placementPickerBatch ? '调整所选本地归属' : '调整本地归属'} aria-busy={placementSaving}>
       <p>{placementPickerBatch
-        ? `将调整 ${placementPickerAids.length} 个所选视频。勾选代表这些视频共同的最终本地逻辑归属；默认只调整本地收藏库。`
+        ? placementPickerMode === 'copy'
+          ? `将复制 ${placementPickerAids.length} 个所选视频到选中的本地逻辑归属；原有归属会保留。`
+          : placementPickerMode === 'move'
+            ? `将把 ${placementPickerAids.length} 个所选视频从当前 bilimi 工作夹移到选中的本地逻辑归属；只移除当前工作夹归属。`
+            : `将调整 ${placementPickerAids.length} 个所选视频。勾选代表这些视频共同的最终本地逻辑归属；默认只调整本地收藏库。`
         : '勾选代表最终本地逻辑归属；默认只调整本地收藏库。'}</p>
       {logicalFolders.map((folder) => <label key={folder.id}><input type="checkbox" aria-label={folder.title} checked={placementDraftFolderIds.includes(folder.id)} disabled={placementSaving} onChange={() => togglePlacementFolder(folder.id)} />{folder.title}</label>)}
-      {placementPickerBatch
+      {placementPickerBatch && placementPickerMode === 'copy'
+        ? <div className="favorite-library__placement-preview"><p>新增本地归属：{finalFolderSet}；原有归属保持不变。</p></div>
+        : placementPickerBatch && placementPickerMode === 'move'
+          ? <div className="favorite-library__placement-preview"><p>移除当前工作夹：{currentLogicalFolderId ? titleFor(currentLogicalFolderId) : '不可用'}；新增：{finalFolderSet}。</p></div>
+        : placementPickerBatch
         ? <div className="favorite-library__placement-preview"><p>最终本地归属：{finalFolderSet}</p></div>
         : <div className="favorite-library__placement-preview"><p>新增：{added.length ? added.map(titleFor).join('、') : '无'}</p><p>移除：{removed.length ? removed.map(titleFor).join('、') : '无'}</p><p>保留：{retained.length ? retained.map(titleFor).join('、') : '无'}</p></div>}
-      <label><input type="checkbox" aria-label="同时同步到B站" checked={placementSyncRequested} disabled={placementSaving} onChange={(event) => setPlacementSyncRequested(event.currentTarget.checked)} />同时同步到B站</label>
+      {placementPickerMode === 'replace' ? <label><input type="checkbox" aria-label="同时同步到B站" checked={placementSyncRequested} disabled={placementSaving} onChange={(event) => setPlacementSyncRequested(event.currentTarget.checked)} />同时同步到B站</label> : null}
       <div><button type="button" className="favorite-library__inline-action" disabled={placementSaving} onClick={() => void savePlacement()}>{placementSaving ? '正在保存…' : '保存本地归属'}</button><button type="button" className="favorite-library__inline-action" disabled={placementSaving} onClick={() => setPlacementPickerOpen(false)}>取消</button></div>
     </div>
   }
@@ -642,6 +707,17 @@ export function FavoriteLibraryApp({
         </div> : null}
       </section> : null}
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
+      {remoteReconciliation ? <div className="favorite-library__remote-reconciliation" role="status">
+        <p>远程结果待确认：请先对账，不能自动重试或再次执行。</p>
+        <button type="button" onClick={() => void runDetailAction(reconcileRemoteOperation)}>{remoteReconciliation.kind === 'unfavorite' ? '对账取消收藏结果' : '对账文件夹删除结果'}</button>
+      </div> : null}
+      {batchRemoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认批量取消B站收藏">
+        <p>将取消 {batchRemoteUnfavoritePreview.aids.length} 个视频在 B 站的全部收藏关系。</p>
+        <p>{batchRemoteUnfavoritePreview.baselineRevision === undefined ? '执行前会再次核对远端状态。' : `预览基线版本 ${batchRemoteUnfavoritePreview.baselineRevision}；版本变化将拒绝执行。`}</p>
+        <p>本地记录、转写与档案都会保留；网络异常只会进入待对账状态，绝不自动重试。</p>
+        <button type="button" className="favorite-library__danger-action" onClick={() => void runDetailAction(confirmBatchRemoteUnfavorite)}>确认取消所选 B 站收藏</button>
+        <button type="button" onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>取消</button>
+      </div> : null}
       <div className="favorite-library__layout favorite-library__workspace" data-embedded-layout={embedded || undefined} data-footer-split="true">
         <FavoriteLibraryNavigation
           uid={accountMid}
@@ -666,25 +742,58 @@ export function FavoriteLibraryApp({
           onManagedFolderAction={(id, action) => {
             if (action === 'edit') {
               uiCallbacks?.onManagedFolderAction?.(id, action)
+              void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger' })
               return
             }
             const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
-            if (folder) setManagedFolderDialog({ id, title: folder.title })
+            if (!folder || !accountMid) return
+            void window.bilimiDesktop?.previewFavoriteLibraryManagedFolderDelete?.(accountMid, folder.id)
+              .then((preview) => {
+                const value = preview as Partial<{
+                  executionToken: string
+                  currentRevision: number
+                  localMemberCount: number
+                  unmatchedFallbackCount: number
+                  extraRemoteMemberCount: number
+                  remoteOnlyMemberCount: number
+                }>
+                const currentRevision = value.currentRevision
+                if (!value.executionToken || !Number.isSafeInteger(currentRevision)) throw new Error(text.unavailable)
+                setManagedFolderDialog({
+                  id,
+                  title: folder.title,
+                  preview: {
+                    executionToken: value.executionToken,
+                    currentRevision,
+                    localMemberCount: value.localMemberCount ?? 0,
+                    unmatchedFallbackCount: value.unmatchedFallbackCount ?? 0,
+                    extraRemoteMemberCount: value.extraRemoteMemberCount ?? 0,
+                    remoteOnlyMemberCount: value.remoteOnlyMemberCount ?? 0
+                  }
+                })
+              })
+              .catch(() => setError(text.actionFailed))
           }}
         />
-        <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? { title: managedFolderDialog.title, canDeleteRemotely: true } : undefined} onManagedFolderChoice={(choice) => {
+        <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? {
+          title: managedFolderDialog.title,
+          canDeleteRemotely: true,
+          preview: managedFolderDialog.preview
+        } : undefined} onManagedFolderChoice={(choice) => {
           if (managedFolderDialog) {
             uiCallbacks?.onManagedFolderDeleteChoice?.(managedFolderDialog.id, choice)
-            const folderId = managedFolderDialog.id.replace(/^folder:/u, '')
             if (accountMid) void (async () => {
               const api = window.bilimiDesktop
-              const preview = await api.previewFavoriteLibraryManagedFolderDelete?.(accountMid, folderId) as { executionToken?: string; operationId?: string } | undefined
-              if (!preview?.executionToken) throw new Error(text.unavailable)
+              const preview = managedFolderDialog.preview
               if (choice === 'local') await api.deleteFavoriteLibraryManagedFolderLocal?.(accountMid, preview.executionToken)
               else {
                 const confirmation = await api.confirmFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken)
                 if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
-                await api.executeFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken, confirmation.confirmationToken)
+                const result = await api.executeFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken, confirmation.confirmationToken) as { status?: string; operationId?: string } | undefined
+                if (result?.status === 'result-unknown') {
+                  setRemoteReconciliation({ kind: 'managed-folder', operationId: result.operationId ?? preview.executionToken })
+                  return
+                }
               }
               await refresh(accountMid)
             })().catch(() => setError(text.actionFailed))
@@ -695,7 +804,7 @@ export function FavoriteLibraryApp({
         <section className="favorite-library__results" aria-label={text.results}>
           <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!selectedAids.length} onBatchAction={(action) => {
             uiCallbacks?.onBatchAction?.(action, [...selectedAids])
-            if (action === 'copy' || action === 'move') openSelectedPlacementPicker()
+            if (action === 'copy' || action === 'move') openSelectedPlacementPicker(action)
             if (action === 'refresh') void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
@@ -708,12 +817,15 @@ export function FavoriteLibraryApp({
             })
             if (action === 'unfavorite-remote' && accountMid && summary) void (async () => {
               const api = window.bilimiDesktop
-              const preview = await api.previewFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, selectedAids, summary.revision) as { executionToken?: string } | undefined
+              const preview = await api.previewFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, selectedAids, summary.revision) as {
+                executionToken?: string; aids?: number[]; baselineRevision?: number
+              } | undefined
               if (!preview?.executionToken) throw new Error(text.unavailable)
-              const confirmation = await api.confirmFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, preview.executionToken)
-              if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
-              await api.executeFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, preview.executionToken, confirmation.confirmationToken)
-              await refresh(accountMid)
+              setBatchRemoteUnfavoritePreview({
+                aids: preview.aids?.length ? preview.aids : [...selectedAids],
+                executionToken: preview.executionToken,
+                baselineRevision: preview.baselineRevision
+              })
             })().catch(() => setError(text.actionFailed))
           }}>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
@@ -721,7 +833,7 @@ export function FavoriteLibraryApp({
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
             })}>{(allSelectedSynced ? '\u91cd\u65b0' : '') + text.syncSelected + '\uff08' + selectedAids.length + '\uff09'}</button>
-            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={openSelectedPlacementPicker} aria-expanded={placementPickerOpen && placementPickerBatch}>调整所选本地归属（{selectedAids.length}）</button>
+            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => openSelectedPlacementPicker()} aria-expanded={placementPickerOpen && placementPickerBatch}>调整所选本地归属（{selectedAids.length}）</button>
             {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid || !currentFolderId) throw new Error(text.unavailable)
