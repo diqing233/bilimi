@@ -145,6 +145,7 @@ export function FavoriteLibraryApp({
   const [placementSaving, setPlacementSaving] = useState(false)
   const [statusExplanation, setStatusExplanation] = useState<string>()
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
+  const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{ aids: number[]; executionToken: string }>()
   const [remoteUnfavoritePreparing, setRemoteUnfavoritePreparing] = useState(false)
   const [remoteUnfavoriteExecuting, setRemoteUnfavoriteExecuting] = useState(false)
@@ -461,6 +462,13 @@ export function FavoriteLibraryApp({
     await window.bilimiDesktop.deleteFavoriteLibraryVideo(accountMid, selected.aid, detailSnapshot.revision)
     setDeleteConfirmationOpen(false)
   }
+  const deleteSelectedFromLibrary = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !summary || !selectedAids.length || !api?.deleteFavoriteLibrarySelection) throw new Error(text.unavailable)
+    await api.deleteFavoriteLibrarySelection(accountMid, selectedAids, summary.revision)
+    setSelectedAids([])
+    setBatchLocalDeleteConfirmationOpen(false)
+  }
   const beginRemoteUnfavorite = async () => {
     const api = window.bilimiDesktop
     if (!accountMid || !selected || !summary || !api?.previewFavoriteLibraryRemoteUnfavoriteOperation) throw new Error(text.unavailable)
@@ -719,6 +727,11 @@ export function FavoriteLibraryApp({
         <button type="button" className="favorite-library__danger-action" onClick={() => void runDetailAction(confirmBatchRemoteUnfavorite)}>确认取消所选 B 站收藏</button>
         <button type="button" onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>取消</button>
       </div> : null}
+      {batchLocalDeleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库批量删除">
+        <p>将仅从收藏库删除 {selectedAids.length} 个所选视频，不会取消 B 站收藏，也不会删除已有转写、档案、保护记录或处理历史。</p>
+        <button type="button" className="favorite-library__danger-action" onClick={() => void runAction(deleteSelectedFromLibrary)}>确认仅从收藏库删除所选视频</button>
+        <button type="button" onClick={() => setBatchLocalDeleteConfirmationOpen(false)}>取消</button>
+      </div> : null}
       <div className="favorite-library__layout favorite-library__workspace" data-embedded-layout={embedded || undefined} data-footer-split="true">
         <FavoriteLibraryNavigation
           uid={accountMid}
@@ -816,6 +829,7 @@ export function FavoriteLibraryApp({
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
             })
+            if (action === 'delete-local') setBatchLocalDeleteConfirmationOpen(true)
             if (action === 'unfavorite-remote' && accountMid && summary) void (async () => {
               const api = window.bilimiDesktop
               const preview = await api.previewFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, selectedAids, summary.revision) as {

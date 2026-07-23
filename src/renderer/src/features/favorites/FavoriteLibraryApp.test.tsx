@@ -290,6 +290,38 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '对账取消收藏结果' }))
     await waitFor(() => expect(reconcileFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'batch-operation'))
   })
+  it('confirms one atomic batch local deletion before clearing the selected rows', async () => {
+    const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const deleteFavoriteLibraryVideo = vi.fn()
+    const getFavoriteRepositoryLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 5, items: [
+      { video: { aid: 2, title: '视频二', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] },
+      { video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }
+    ] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 2, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage,
+      deleteFavoriteLibrarySelection,
+      deleteFavoriteLibraryVideo,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频二' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频一' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库删除' }))
+
+    expect(screen.getByRole('alertdialog', { name: '确认从收藏库批量删除' })).toHaveTextContent('2 个所选视频')
+    expect(deleteFavoriteLibrarySelection).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除所选视频' }))
+
+    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1, 2], 5))
+    expect(deleteFavoriteLibrarySelection).toHaveBeenCalledTimes(1)
+    expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '调整所选本地归属（0）' })).toBeDisabled())
+    expect(getFavoriteRepositoryLibraryPage.mock.calls.length).toBeGreaterThan(1)
+  })
   it('uses the additive copy and current-work-folder-only move contracts for batch placement', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })

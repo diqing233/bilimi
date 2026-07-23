@@ -188,6 +188,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:copy', accountMid, aids, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   moveFavoriteLibrarySelection: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library-operations:move', accountMid, aids, sourceFolderId, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  deleteFavoriteLibrarySelection: (accountMid: string, aids: number[], expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, aids, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision) as Promise<unknown>,
   confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>
