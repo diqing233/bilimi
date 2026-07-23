@@ -471,6 +471,33 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-19T00:00:02.000Z').workspace).toBeUndefined()
   })
 
+  it('abandons only the matching preview workspace without changing saved library data', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const previewing = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1' })
+      }
+    }, '2026-07-19T00:00:01.000Z')
+    const seeded = applyFavoriteRepositoryCommand(previewing, {
+      id: 'saved-video', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Saved video', author: 'UP', tags: [], updatedAt: '2026-07-19T00:00:02.000Z' }
+    }, '2026-07-19T00:00:02.000Z')
+
+    const abandoned = applyFavoriteRepositoryCommand(seeded, {
+      id: 'abandon-preview-1', accountMid: '100', issuedAt: '2026-07-19T00:00:03.000Z',
+      type: 'abandon-workspace', payload: { workspaceId: 'workspace-1' }
+    }, '2026-07-19T00:00:03.000Z')
+
+    expect(abandoned.workspace).toBeUndefined()
+    expect(abandoned.videos['1']).toMatchObject({ title: 'Saved video' })
+    expect(() => applyFavoriteRepositoryCommand(seeded, {
+      id: 'wrong-workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:03.000Z',
+      type: 'abandon-workspace', payload: { workspaceId: 'workspace-2' }
+    }, '2026-07-19T00:00:03.000Z')).toThrow('Favorite workspace cannot be abandoned.')
+  })
+
   it('allows a completed frozen plan to advance the account pointer to a new scanning workspace', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const completed = applyFavoriteRepositoryCommand(snapshot, {

@@ -325,6 +325,7 @@ export function ControlledFavoriteLedgerPanel({
         onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
         onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
+        onAbandonCurrentWorkspace={() => void workspace.abandonCurrentWorkspace()}
         onConfirmAndSync={() => void confirmAndSync()}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onReconcile={() => void reconcile()}

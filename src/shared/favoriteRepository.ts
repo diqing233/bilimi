@@ -233,6 +233,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'abandon-workspace'
+      payload: { workspaceId: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'abandon-frozen-workspace'
       payload: { workspaceId: string; frozenPlanId: string }
     }
@@ -497,6 +504,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
           )) || (payload.completionMode !== undefined && payload.completionMode !== 'bilibili' && payload.completionMode !== 'local')) invalidCommand()
         return
       }
+    case 'abandon-workspace':
+      if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim()) invalidCommand()
+      return
     case 'abandon-frozen-workspace':
       if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim() ||
         typeof payload.frozenPlanId !== 'string' || !payload.frozenPlanId.trim()) invalidCommand()
@@ -826,6 +836,12 @@ export function applyFavoriteRepositoryCommand(
         } : {}),
         ...(command.payload.completionMode ? { completionMode: command.payload.completionMode } : {})
       }
+      break
+    case 'abandon-workspace':
+      if (!workspace || workspace.frozenSyncPlan || workspace.id !== command.payload.workspaceId.trim()) {
+        throw new Error('Favorite workspace cannot be abandoned.')
+      }
+      workspace = undefined
       break
     case 'abandon-frozen-workspace':
       if (!workspace?.frozenSyncPlan || workspace.id !== command.payload.workspaceId.trim() ||

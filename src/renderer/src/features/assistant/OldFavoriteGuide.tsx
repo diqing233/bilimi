@@ -45,6 +45,7 @@ type OldFavoriteGuideProps = {
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
   onCreateLocalLedgerAndReclassify: (title: string) => void
   onSaveLocally: () => void
+  onAbandonCurrentWorkspace?: () => void
   onConfirmAndSync: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
@@ -92,6 +93,7 @@ export function OldFavoriteGuide({
   onApplyManualClassifications,
   onCreateLocalLedgerAndReclassify,
   onSaveLocally,
+  onAbandonCurrentWorkspace = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
   onReconcile
@@ -173,6 +175,7 @@ export function OldFavoriteGuide({
       preparationStatus={preparationStatus}
       executionError={executionError}
       onSaveLocally={onSaveLocally}
+      onAbandonCurrentWorkspace={onAbandonCurrentWorkspace}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}
       onReconcile={onReconcile}

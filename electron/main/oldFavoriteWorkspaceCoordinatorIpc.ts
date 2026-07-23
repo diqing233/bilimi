@@ -44,6 +44,7 @@ type WorkspaceCommand =
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
+  | { type: 'abandon-current-workspace' }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'confirm-and-execute-bilibili-plan' }
   | { type: 'execute-frozen-bilibili-plan' }
@@ -127,6 +128,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
     return { type: 'save-current-segment-locally' }
+  }
+  if (candidate.type === 'abandon-current-workspace' && Object.keys(candidate).length === 1) {
+    return { type: 'abandon-current-workspace' }
   }
   if (candidate.type === 'execute-frozen-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'execute-frozen-bilibili-plan' }
@@ -237,6 +241,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
+    if (requested.type === 'abandon-current-workspace') await options.coordinator.abandonCurrentWorkspace(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
     if (requested.type === 'confirm-and-execute-bilibili-plan') return options.coordinator.beginBilibiliExecution(accountMid)
     if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)

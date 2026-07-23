@@ -447,6 +447,25 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('abandons a pending workspace only through an exact payload-free command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      abandonCurrentWorkspace: vi.fn().mockResolvedValue(undefined),
+      getSnapshot: vi.fn().mockResolvedValue(null)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'abandon-current-workspace' }))
+      .resolves.toBeNull()
+    expect(coordinator.abandonCurrentWorkspace).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'abandon-current-workspace', workspaceId: 'renderer-forged'
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes execution only after the main-process frozen plan exists', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

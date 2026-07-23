@@ -417,6 +417,17 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'completed' })
   })
 
+  it('abandons the current pending workspace through a payload-free command', async () => {
+    const command = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.abandonCurrentWorkspace() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'abandon-current-workspace' })
+    expect(result.current.snapshot).toBeNull()
+  })
+
   it('keeps a mapped execution failure visible instead of silently swallowing a rejected confirmation', async () => {
     const command = vi.fn().mockRejectedValue(new Error('remote-target-unbound'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

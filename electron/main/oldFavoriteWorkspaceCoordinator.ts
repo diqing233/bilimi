@@ -902,6 +902,27 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Discards a draft before any Bilibili operation has been started. */
+  async abandonCurrentWorkspace(accountMid: string): Promise<void> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status === 'frozen') {
+        if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+        await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
+      } else {
+        if (workspace.status !== 'previewing') throw new Error('Old favorite workspace cannot be abandoned while it is active.')
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:abandon:${workspace.id}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'abandon-workspace',
+          payload: { workspaceId: workspace.id }
+        })
+      }
+      this.forgetWorkspace(workspace.accountMid)
+    })
+  }
+
   /** Replaces derived system results after an explicit saved rule configuration change. */
   async reclassifyForFavoriteConfiguration(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
@@ -1771,6 +1792,21 @@ export class OldFavoriteWorkspaceCoordinator {
     if (isRecoveryRequired(opened)) throw new Error('Old favorite workspace requires rebuild.')
     if (!opened) throw new Error('Old favorite workspace has not been started.')
     return opened
+  }
+
+  private forgetWorkspace(accountMid: string) {
+    this.workspaces.delete(accountMid)
+    this.currentSegments.delete(accountMid)
+    this.segmentDescriptors.delete(accountMid)
+    this.currentSegmentItems.delete(accountMid)
+    this.frozenSegments.delete(accountMid)
+    this.scanOverviews.delete(accountMid)
+    this.scanRuns.delete(accountMid)
+    this.scannedAids.delete(accountMid)
+    this.scannedTagStates.delete(accountMid)
+    this.tagEnrichments.delete(accountMid)
+    this.recommendations.delete(accountMid)
+    this.planReadiness.delete(accountMid)
   }
 
   private async appendEvents(

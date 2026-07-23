@@ -7,6 +7,7 @@ type OldFavoriteConfirmationStepProps = {
   preparationStatus?: string | null
   executionError?: string | null
   onSaveLocally: () => void
+  onAbandonCurrentWorkspace?: () => void
   onConfirmAndSync: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
@@ -29,6 +30,7 @@ export function OldFavoriteConfirmationStep({
   preparationStatus,
   executionError,
   onSaveLocally,
+  onAbandonCurrentWorkspace = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
   onReconcile
@@ -74,6 +76,8 @@ export function OldFavoriteConfirmationStep({
       <h4>确认执行</h4>
       <p>分类计划已冻结，可继续同步到 B 站。</p>
       <button type="button" disabled={loading} onClick={onExecuteFrozenPlan}>继续同步到 B 站</button>
+      <p>放弃只会丢弃尚未执行的本轮分类草稿，不会撤销已保存到收藏库或已提交到 B 站的内容。</p>
+      <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>放弃本轮整理</button>
     </section>
   }
 
@@ -96,6 +100,7 @@ export function OldFavoriteConfirmationStep({
     <div className="favorite-ledger-panel__confirm-actions">
       <button type="button" disabled={!canSaveLocally || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
       <button type="button" disabled={!canSyncToBilibili || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
+      <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>放弃本轮整理</button>
     </div>
   </section>
 }
