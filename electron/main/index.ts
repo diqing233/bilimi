@@ -82,6 +82,9 @@ import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
+import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
+import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
+import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import {
   createFavoriteLibraryArchiveSummary,
@@ -472,6 +475,8 @@ let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
 let favoriteLibraryCommandService: FavoriteLibraryCommandService | undefined
+let favoriteRepositoryBatchOperationService: FavoriteRepositoryBatchOperationService | undefined
+let favoriteRepositoryManagedFolderService: FavoriteRepositoryManagedFolderService | undefined
 let localDataService: LocalDataService | undefined
 const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
@@ -1299,6 +1304,29 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       remoteOperations: favoriteRepositoryRemoteOperations
     })
   })
+  favoriteRepositoryBatchOperationService = new FavoriteRepositoryBatchOperationService({
+    repository: favoriteRepositoryService,
+    remoteUnfavorite: createFavoriteLibraryRemoteUnfavorite({
+      pageBridgeManager: favoriteRepositoryPageBridgeManager!,
+      remoteOperations: favoriteRepositoryRemoteOperations
+    })
+  })
+  favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
+    repository: favoriteRepositoryService,
+    remote: {
+      async removeRemoteFolder(accountMid, remoteFolderId) {
+        const runId = `favorite-managed-folder-delete:${Date.now()}:${remoteFolderId}`
+        await favoriteRepositoryPageBridgeManager!.bind(accountMid, runId)
+        try {
+          await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).deleteFolder({
+            accountMid, operationKey: `${runId}:delete`, folderId: remoteFolderId
+          })
+        } finally {
+          favoriteRepositoryPageBridgeManager!.release(accountMid, runId)
+        }
+      }
+    }
+  })
   localDataService = new LocalDataService({
     root: app.getPath('userData'),
     appVersion: app.getVersion(),
@@ -1531,6 +1559,13 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ipcMain,
     commands: favoriteLibraryCommandService,
     isTrustedLibrarySender: isTrustedFavoriteLibraryReader,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid
+  })
+  registerFavoriteLibraryOperationsIpc({
+    ipcMain,
+    batch: favoriteRepositoryBatchOperationService,
+    managed: favoriteRepositoryManagedFolderService,
+    isTrustedSender: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid
   })
   registerFavoriteLibraryBridgeIpc({
