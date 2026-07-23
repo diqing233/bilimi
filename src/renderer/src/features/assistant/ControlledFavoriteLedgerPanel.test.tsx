@@ -3,6 +3,43 @@ import { describe, expect, it, vi } from 'vitest'
 import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('does not load workspace segments while the library panel merely mounts', async () => {
+    const open = vi.fn().mockResolvedValue(null)
+    const summary = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      getOldFavoriteWorkspaceRecoverySummaryV1: summary
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await Promise.resolve()
+    expect(open).not.toHaveBeenCalled()
+    expect(summary).not.toHaveBeenCalled()
+  })
+
+  it('opens a manifest-only recovery choice before loading any workspace segment', async () => {
+    const open = vi.fn().mockResolvedValue(null)
+    const summary = vi.fn().mockResolvedValue({
+      accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', currentStep: 'previewing',
+      baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+      recoveryChoices: ['view', 'continue-original']
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      getOldFavoriteWorkspaceRecoverySummaryV1: summary,
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(document.querySelectorAll<HTMLButtonElement>('.assistant-action-button')[1]!)
+
+    await waitFor(() => expect(summary).toHaveBeenCalledWith('100'))
+    expect(open).not.toHaveBeenCalled()
+  })
+
   it('rejects a full-reorganization confirmation once its account is no longer active', () => {
     expect(canConfirmFullReorganization('100', '100')).toBe(true)
     expect(canConfirmFullReorganization('100', '200')).toBe(false)

@@ -58,6 +58,8 @@ export type OldFavoriteWorkspace = {
   hasMultipleSegments: boolean
   segments: OldFavoriteWorkspaceSegment[]
   classifications: Record<string, OldFavoriteWorkspaceClassification>
+  /** Preserved DeepSeek choices whose dependency evidence changed after recovery. */
+  staleDeepSeekAids?: number[]
   history: OldFavoriteWorkspaceHistoryEntry[]
   historyCursor: number
   /** Cursor after scan-generated automatic classification; earlier entries are not user edits. */
@@ -173,9 +175,9 @@ export type OldFavoriteWorkspaceBaselineChangeEvidence = {
   /** Any later merge must preserve manual choices; it cannot silently replace them. */
   manualClassificationsRemainAuthoritative: true
   /** Dimensions which differ from the durable workspace baseline. */
-  changedDimensions: Array<'aid-revisions' | 'mirror' | 'bindings'>
-  /** This deployment has no durable rule/settings revision source; never infer one. */
-  unavailableDimensions: Array<'rules' | 'keywords' | 'default-settings'>
+  changedDimensions: Array<'aid-revisions' | 'mirror' | 'bindings' | 'metadata' | 'rules' | 'keywords' | 'default-settings'>
+  /** DeepSeek choices remain intact but may need explicit review after dependent inputs change. */
+  deepSeekClassificationsMayBeStale?: boolean
   fingerprint?: string
 }
 

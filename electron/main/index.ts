@@ -1225,7 +1225,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositorySyncService = new FavoriteRepositorySyncService({
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager,
-    remoteOperations: favoriteRepositoryRemoteOperations
+    remoteOperations: favoriteRepositoryRemoteOperations,
+    ensurePhysicalShard: (accountMid, input) => favoriteRepositoryBindingService!.ensurePhysicalShard(accountMid, input)
   })
   favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({
     repository: favoriteRepositoryService,
@@ -1297,6 +1298,27 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       return {
         ...(ledger.bilibiliFolderId ? { remoteFolderId: ledger.bilibiliFolderId } : {}),
         remoteDisplayTitle: ledger.displayName
+      }
+    },
+    resolveRecoveryConfiguration: (accountMid) => {
+      const preferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const ledgers = classifierLedgersForAccount(
+        preferences.favoriteLedgers,
+        preferences.defaultFavoriteSystemEnabled
+      ).map((ledger) => ({
+        id: ledger.id,
+        displayName: ledger.displayName,
+        enabled: ledger.enabled,
+        priority: ledger.priority,
+        ruleType: ledger.ruleType ?? 'keyword',
+        keywords: [...ledger.keywords].sort(),
+        isDefault: ledger.isDefault
+      })).sort((left, right) => left.id.localeCompare(right.id))
+      return {
+        metadata: ledgers.map(({ id, displayName, enabled, priority, isDefault }) => ({ id, displayName, enabled, priority, isDefault })),
+        rules: ledgers.map(({ id, ruleType }) => ({ id, ruleType })),
+        keywords: ledgers.map(({ id, keywords }) => ({ id, keywords })),
+        defaultSettings: { defaultFavoriteSystemEnabled: preferences.defaultFavoriteSystemEnabled }
       }
     },
     prepareForOrganization: async (accountMid) => {

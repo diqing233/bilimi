@@ -12,6 +12,8 @@ import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import type { FavoriteRepositoryRestoreWriter } from './favoriteRepositoryArchiveService'
 
+const REMOTE_FAVORITE_SHARD_CAPACITY = 1_000
+
 export type FrozenFavoriteSyncPlan = FavoriteRepositoryFrozenSyncPlan
 
 type SyncRunStatus = 'ready-to-resume' | 'running' | 'result-unknown' | 'failed' | 'succeeded'
@@ -117,6 +119,13 @@ export class FavoriteRepositorySyncService {
     pacingMs?: number
     random?: () => number
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
+    ensurePhysicalShard?: (accountMid: string, input: {
+      logicalLedgerId: string
+      logicalTitle: string
+      remoteDisplayTitle?: string
+      shardNumber: number
+      memberAids: number[]
+    }) => Promise<unknown>
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
   }) {}
@@ -491,12 +500,58 @@ export class FavoriteRepositorySyncService {
           ;(managedPhysicalFolderIdsByLogicalFolderId[logicalId] ??= []).push(shard.remoteFolderId!)
         }
         for (const folderIdsForLogical of Object.values(managedPhysicalFolderIdsByLogicalFolderId)) folderIdsForLogical.sort()
+        const managedPhysicalFolderMemberCounts = Object.fromEntries(folderIds.map((folderId) => [folderId,
+          (members.members[folderId] ?? []).length]))
         return {
           [aid]: {
             managedLogicalFolderIds: Object.keys(managedPhysicalFolderIdsByLogicalFolderId).sort(),
             managedPhysicalFolderIdsByLogicalFolderId,
+            managedPhysicalFolderMemberCounts,
             managedObservedPhysicalFolderIds: folderIds.filter((folderId) => (members.members[folderId] ?? []).includes(aid))
           }
+        }
+      },
+      ensurePhysicalCapacity: async ({ accountMid, restoreId, aid, logicalFolderIds }) => {
+        const account = normalizeAccountMid(accountMid)
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const requestedLogicalIds = [...new Set(logicalFolderIds.map((id) => id.trim()).filter(Boolean))].sort()
+        const bound = snapshot.physicalShards.filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+        const logicalLedgerIdsByRemoteFolderId = new Map<string, Set<string>>()
+        for (const shard of bound) {
+          const remoteFolderId = shard.remoteFolderId!
+          const logicalLedgerIds = logicalLedgerIdsByRemoteFolderId.get(remoteFolderId) ?? new Set<string>()
+          logicalLedgerIds.add(shard.logicalLedgerId)
+          logicalLedgerIdsByRemoteFolderId.set(remoteFolderId, logicalLedgerIds)
+        }
+        if ([...logicalLedgerIdsByRemoteFolderId.values()].some((logicalLedgerIds) => logicalLedgerIds.size > 1)) {
+          throw new FavoriteRepositoryRemoteRejectedError('Archive restore cannot use a remote folder bound to multiple logical ledgers.')
+        }
+        const folderIds = [...new Set(bound.map((shard) => shard.remoteFolderId!))].sort()
+        const members = folderIds.length
+          ? await this.readMembersForReconciliation(() => this.pageBridge(account, restoreId).readMembers({
+            accountMid: account, operationKey: `${restoreId}:capacity:${aid}`, aid, folderIds
+          }))
+          : { observedAccountMid: account, members: {} }
+        this.assertObservedAccount(account, members.observedAccountMid)
+        for (const logicalId of requestedLogicalIds) {
+          const logicalLedgerId = logicalId.replace(/^bilimi-logical:/, '')
+          if (!logicalLedgerId || logicalLedgerId === logicalId) throw new FavoriteRepositoryRemoteRejectedError('Archive restore logical target is invalid.')
+          const shards = bound.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+          if (shards.some((shard) => (members.members[shard.remoteFolderId!] ?? []).length < REMOTE_FAVORITE_SHARD_CAPACITY)) continue
+          const logical = snapshot.folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
+          if (!logical || !this.options.ensurePhysicalShard) {
+            throw new FavoriteRepositoryRemoteRejectedError('Archive restore managed capacity is unavailable.')
+          }
+          const shardNumber = Math.max(0, ...shards.map((shard) => shard.shardNumber)) + 1
+          // Binding owns its own per-account arbiter lane. Wrapping it here
+          // would enqueue the same operation recursively and deadlock.
+          await this.options.ensurePhysicalShard(account, {
+            logicalLedgerId,
+            logicalTitle: logical.title,
+            remoteDisplayTitle: logical.title,
+            shardNumber,
+            memberAids: [aid]
+          })
         }
       },
       write: async ({ accountMid, restoreId, aid, appendPhysicalFolderIds, removePhysicalFolderIds }) => {

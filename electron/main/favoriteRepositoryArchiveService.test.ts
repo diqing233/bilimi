@@ -218,6 +218,99 @@ describe('FavoriteRepositoryArchiveService', () => {
     expect(writer.write).toHaveBeenCalledTimes(2)
   })
 
+  it('stops later archive writes after an unknown remote result and leaves them for explicit reconciliation', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = {
+      ...createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe'),
+      operations: [1, 2].map((aid) => ({
+        aid, desiredLogicalFolderIds: ['bilimi-logical:music'],
+        appendLogicalFolderIds: ['bilimi-logical:music'], removeLogicalFolderIds: []
+      }))
+    }
+    const records: any[] = []
+    const writer: FavoriteRepositoryRestoreWriter = {
+      readBaseline: vi.fn(async ({ aid }) => ({
+        [aid]: { managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] }, managedObservedPhysicalFolderIds: [] }
+      })),
+      write: vi.fn().mockRejectedValueOnce(new Error('connection interrupted'))
+    }
+    const service = createService({
+      repository: {
+        getSnapshot: async () => ({ ...snapshot(), syncRecords: records }),
+        getEventPage: async () => ({ items: [] }),
+        recordSyncCheckpoint: async (_account, _command, record) => {
+          const index = records.findIndex((candidate) => candidate.id === record.id)
+          if (index >= 0) records[index] = record
+          else records.push(record)
+        }
+      }
+    })
+
+    await expect(service.executeRestorePlan(plan, writer)).resolves.toMatchObject({
+      status: 'result-unknown', completedOperationCount: 0, totalOperationCount: 2,
+      items: [{ aid: 1, status: 'result-unknown' }]
+    })
+    expect(writer.write).toHaveBeenCalledTimes(1)
+    expect(writer.readBaseline).toHaveBeenCalledTimes(1)
+    expect(records).toEqual([expect.objectContaining({ operationKey: 'archive-restore:1', status: 'result-unknown' })])
+  })
+
+  it('reselects the next bound shard from fresh capacity facts before each restore write', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
+    const write = vi.fn(async () => undefined)
+
+    await createService().executeRestorePlan(plan, {
+      readBaseline: async () => ({
+        1: {
+          managedLogicalFolderIds: [],
+          managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1', 'music-2'] },
+          managedPhysicalFolderMemberCounts: { 'music-1': 1_000, 'music-2': 999 },
+          managedObservedPhysicalFolderIds: []
+        }
+      }),
+      write
+    })
+
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ appendPhysicalFolderIds: ['music-2'] }))
+  })
+
+  it('asks the privileged writer to create and bind capacity only after a fresh full-shard scan', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
+    const ensurePhysicalCapacity = vi.fn(async () => undefined)
+    const readBaseline = vi.fn()
+      .mockResolvedValueOnce({ 1: {
+        managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] },
+        managedPhysicalFolderMemberCounts: { 'music-1': 1_000 }, managedObservedPhysicalFolderIds: []
+      } })
+      .mockResolvedValueOnce({ 1: {
+        managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1', 'music-2'] },
+        managedPhysicalFolderMemberCounts: { 'music-1': 1_000, 'music-2': 0 }, managedObservedPhysicalFolderIds: []
+      } })
+    const write = vi.fn(async () => undefined)
+
+    await expect(createService().executeRestorePlan(plan, { readBaseline, ensurePhysicalCapacity, write })).resolves.toMatchObject({ status: 'succeeded' })
+    expect(ensurePhysicalCapacity).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, logicalFolderIds: ['bilimi-logical:music'] }))
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ appendPhysicalFolderIds: ['music-2'] }))
+  })
+
+  it('freezes archive restore when capacity binding is unknown and never writes a later target', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
+    const write = vi.fn()
+
+    await expect(createService().executeRestorePlan(plan, {
+      readBaseline: async () => ({ 1: {
+        managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] },
+        managedPhysicalFolderMemberCounts: { 'music-1': 1_000 }, managedObservedPhysicalFolderIds: []
+      } }),
+      ensurePhysicalCapacity: async () => { throw new Error('connection interrupted') },
+      write
+    })).resolves.toMatchObject({ status: 'result-unknown', items: [{ aid: 1, status: 'result-unknown' }] })
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('keeps semantically distinct restore plans from reusing each other\'s completed checkpoints', async () => {
     // These two logical IDs collide under the former 32-bit DJB restore ID.
     // Exercise the public execution path so a collision cannot silently skip

@@ -25,7 +25,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers' | 'prepareForOrganization'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -1019,6 +1019,45 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         ]
       }, scan: { phase: 'complete' }
     })
+  })
+
+  it('counts only unique planned aids in snapshots and recovery summaries after protected source duplicates', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const protectedAids = Array.from({ length: 221 }, (_, index) => index + 1)
+    const sourceAids = Array.from({ length: 247 }, (_, index) => index + 1)
+    await repository.commit('100', {
+      id: 'existing-protections', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: protectedAids.map((aid) => ({ accountMid: '100', aid, targetFolderIds: ['local:archive'], completedAt: '2026-07-20T00:00:00.000Z' })), replace: false }
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 247, isBilimiWorkFolder: false, selected: true }]
+    })
+    for (let page = 0; page < 5; page += 1) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: page + 1,
+        items: sourceAids.slice(page * 50, (page + 1) * 50).map((aid) => ({ aid, sourceFolderIds: ['source'] }))
+      })
+    }
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 6,
+      items: [...sourceAids.slice(250), ...sourceAids.slice(0, 3)].map((aid) => ({ aid, sourceFolderIds: ['source'] }))
+    })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [222, 223, 224].map((aid) => ({ aid, targetLedgerIds: ['archive'] }))
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      planReadiness: { selectedAidCount: 26, classifiedAidCount: 3, unclassifiedAidCount: 23 }
+    })
+    const recovery = await coordinator.getRecoverySummary('100')
+    expect(recovery).toMatchObject({ plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23 })
+    expect(recovery).not.toMatchObject({ plannedCount: 247 })
+    expect(recovery).not.toMatchObject({ unclassifiedCount: 244 })
   })
 
   it('mirrors a completed Bilibili source scan into the account-scoped favorite library', async () => {
@@ -3420,7 +3459,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     const before = await coordinator.getRecoverySummary('100')
     expect(before?.baselineChangeEvidence).toMatchObject({
-      changed: false, unavailableDimensions: ['rules', 'keywords', 'default-settings']
+      changed: false, changedDimensions: []
     })
 
     await repository.commit('100', {
@@ -3437,6 +3476,38 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
       baselineChangeEvidence: { changed: true, changedDimensions: ['aid-revisions'] }
+    })
+  })
+
+  it('persists injected recovery configuration fingerprints and reports exact changed dimensions', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let configuration = { metadata: 'metadata-v1', rules: 'rules-v1', keywords: 'keywords-v1', defaultSettings: 'defaults-v1' }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      baselineChangeEvidence: { changed: false, changedDimensions: [] }
+    })
+    const changes = [
+      ['metadata', { ...configuration, metadata: 'metadata-v2' }],
+      ['rules', { ...configuration, rules: 'rules-v2' }],
+      ['keywords', { ...configuration, keywords: 'keywords-v2' }],
+      ['default-settings', { ...configuration, defaultSettings: 'defaults-v2' }]
+    ] as const
+    for (const [dimension, next] of changes) {
+      configuration = next
+      await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+        baselineChangeEvidence: { changed: true, changedDimensions: [dimension], deepSeekClassificationsMayBeStale: true }
+      })
+      configuration = { metadata: 'metadata-v1', rules: 'rules-v1', keywords: 'keywords-v1', defaultSettings: 'defaults-v1' }
+    }
+    configuration = { metadata: 'metadata-v2', rules: 'rules-v2', keywords: 'keywords-v1', defaultSettings: 'defaults-v2' }
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      baselineChangeEvidence: { changed: true, changedDimensions: ['metadata', 'rules', 'default-settings'] }
     })
   })
 
@@ -3487,6 +3558,79 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).getSnapshot('100'))
       .resolves.toMatchObject({ classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } } })
+  })
+
+  it('reclassifies only affected system results after merge-latest while retaining manual and DeepSeek choices across restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn((item: { aid: number }) => ({ targetLedgerIds: [`system-${item.aid}`], confidence: 'high' as const }))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2, 3] })
+    await coordinator.autoClassifyCurrentSegment('100')
+    await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }] })
+    const current = await coordinator.getSnapshot('100')
+    if ('recovery' in current || !current.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 3, targetLedgerIds: ['deepseek'] }], {
+      workspaceId: current.workspaceId, currentSegmentId: current.currentSegment.id, selectedSourceFolderIds: ['legacy-source'],
+      classifications: Object.fromEntries(Object.entries(current.classifications).map(([aid, classification]) => [aid, {
+        targetLedgerIds: classification.targetLedgerIds, source: classification.source
+      }]))
+    })
+    classifyCurrentItem.mockClear()
+    await repository.commit('100', {
+      id: 'changed-aid-one', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'changed', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing recovery summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ classifications: {
+      '1': { targetLedgerIds: ['system-1'], source: 'system-high' },
+      '2': { targetLedgerIds: ['manual'], source: 'manual' },
+      '3': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
+    } })
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(1)
+    await restarted.getSnapshot('100')
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('persists DeepSeek stale evidence after a configuration merge without replacing its classification', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let configuration = { metadata: 'v1', rules: 'v1', keywords: 'v1', defaultSettings: 'v1' }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['system'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const initial = await coordinator.getSnapshot('100')
+    if ('recovery' in initial || !initial.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['deepseek'] }], {
+      workspaceId: initial.workspaceId, currentSegmentId: initial.currentSegment.id, selectedSourceFolderIds: ['legacy-source'], classifications: {}
+    })
+    configuration = { ...configuration, keywords: 'v2' }
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing recovery summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['system'], confidence: 'high' })
+    }).getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['deepseek'], source: 'deepseek' } }, staleDeepSeekAids: [1]
+    })
   })
 
   it('does not execute an interrupted frozen plan merely by reopening the workspace', async () => {

@@ -9,6 +9,8 @@ import {
 } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
+const REMOTE_FAVORITE_SHARD_CAPACITY = 1_000
+
 type EventPage = {
   items: FavoriteRepositoryEvent[]
   nextCursor?: string
@@ -59,6 +61,8 @@ export type FavoriteRepositoryRestoreBaseline = {
   managedLogicalFolderIds: string[]
   /** Bound physical folders only; the renderer can never supply these IDs. */
   managedPhysicalFolderIdsByLogicalFolderId: Record<string, string[]>
+  /** Physical membership counts read with the same just-in-time remote facts. */
+  managedPhysicalFolderMemberCounts?: Record<string, number>
   /** Actual observed members among managed physical folders. */
   managedObservedPhysicalFolderIds: string[]
   /** Defensive exclusion: ordinary Bilibili sources must never be removed. */
@@ -70,6 +74,8 @@ export type FavoriteRepositoryRestoreWriter = {
   finish?(input: { accountMid: string; restoreId: string }): Promise<void>
   /** Must read Bilibili immediately before the corresponding remote write. */
   readBaseline(input: { accountMid: string; restoreId: string; aid: number }): Promise<Record<number, FavoriteRepositoryRestoreBaseline>>
+  /** Creates and binds the next managed shard only after an all-full recheck. */
+  ensurePhysicalCapacity?(input: { accountMid: string; restoreId: string; aid: number; logicalFolderIds: string[] }): Promise<void>
   write(input: {
     accountMid: string
     restoreId: string
@@ -263,11 +269,28 @@ export class FavoriteRepositoryArchiveService {
       if (previous?.status === 'result-unknown' || previous?.status === 'pending') {
         if (previous.status === 'pending') await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, previous.attempt ?? 0, 'result-unknown', previous.targetFolderIds ?? [], 'remote request was interrupted before a receipt')
         items.push({ aid: operation.aid, status: 'result-unknown', reason: previous.reason })
-        continue
+        break
       }
 
       const baseline = await writer.readBaseline({ accountMid, restoreId, aid: operation.aid })
-      const resolved = this.resolvePhysicalOperation(operation, plan.mode, baseline[operation.aid])
+      let resolved = this.resolvePhysicalOperation(operation, plan.mode, baseline[operation.aid])
+      if ('capacityRequiredLogicalFolderIds' in resolved) {
+        if (!writer.ensurePhysicalCapacity) {
+          await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, (previous?.attempt ?? 0) + 1, 'failed', [], 'managed archive target capacity is exhausted')
+          items.push({ aid: operation.aid, status: 'failed', reason: 'managed archive target capacity is exhausted' })
+          continue
+        }
+        try {
+          await writer.ensurePhysicalCapacity({ accountMid, restoreId, aid: operation.aid, logicalFolderIds: resolved.capacityRequiredLogicalFolderIds })
+          const refreshed = await writer.readBaseline({ accountMid, restoreId, aid: operation.aid })
+          resolved = this.resolvePhysicalOperation(operation, plan.mode, refreshed[operation.aid])
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, (previous?.attempt ?? 0) + 1, 'result-unknown', [], reason)
+          items.push({ aid: operation.aid, status: 'result-unknown', reason })
+          break
+        }
+      }
       if ('reason' in resolved) {
         await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, (previous?.attempt ?? 0) + 1, 'failed', [], resolved.reason)
         items.push({ aid: operation.aid, status: 'failed', reason: resolved.reason })
@@ -290,6 +313,7 @@ export class FavoriteRepositoryArchiveService {
         const reason = error instanceof Error ? error.message : String(error)
         await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, attempt, status, [...resolved.appendPhysicalFolderIds, ...resolved.removePhysicalFolderIds], reason)
         items.push({ aid: operation.aid, status, reason })
+        if (status === 'result-unknown') break
       }
     }
     return this.restoreResult(restoreId, accountMid, plan.operations.length, items)
@@ -328,7 +352,7 @@ export class FavoriteRepositoryArchiveService {
     operation: FavoriteRepositoryRestorePlan['operations'][number],
     mode: FavoriteRepositoryRestorePlan['mode'],
     baseline: FavoriteRepositoryRestoreBaseline | undefined
-  ): { appendPhysicalFolderIds: string[]; removePhysicalFolderIds: string[] } | { reason: string } {
+  ): { appendPhysicalFolderIds: string[]; removePhysicalFolderIds: string[] } | { reason: string } | { capacityRequiredLogicalFolderIds: string[] } {
     if (!baseline) return { reason: 'remote baseline was unavailable' }
     const desiredLogicalFolderIds = uniqueFolderIds(operation.desiredLogicalFolderIds)
     // An empty desired set is local inbox, which must never produce a remote folder.
@@ -352,10 +376,17 @@ export class FavoriteRepositoryArchiveService {
     }
     const allManagedIds = new Set([...physicalByLogical.values()].flat())
     const observed = uniqueFolderIds(baseline.managedObservedPhysicalFolderIds).filter((id) => allManagedIds.has(id) && !ordinaryIds.has(id))
+    const memberCounts = baseline.managedPhysicalFolderMemberCounts ?? {}
+    const capacityRequiredLogicalFolderIds: string[] = []
     const desiredPhysical = desiredLogicalFolderIds.map((logicalId) => {
       const candidates = physicalByLogical.get(logicalId) ?? []
-      return candidates.find((id) => observed.includes(id)) ?? candidates[0]
+      const observedCandidate = candidates.find((id) => observed.includes(id))
+      if (observedCandidate) return observedCandidate
+      const available = candidates.find((id) => (memberCounts[id] ?? 0) < REMOTE_FAVORITE_SHARD_CAPACITY)
+      if (!available && candidates.length) capacityRequiredLogicalFolderIds.push(logicalId)
+      return available
     })
+    if (capacityRequiredLogicalFolderIds.length) return { capacityRequiredLogicalFolderIds: uniqueFolderIds(capacityRequiredLogicalFolderIds) }
     if (desiredPhysical.some((id) => !id)) return { reason: 'a managed archive target is unbound' }
     const desired = uniqueFolderIds(desiredPhysical as string[])
     return {

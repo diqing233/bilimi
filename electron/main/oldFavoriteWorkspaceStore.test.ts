@@ -180,6 +180,24 @@ describe('OldFavoriteWorkspaceStore', () => {
     })
   })
 
+  it('treats a newer workspace manifest as recovery-only and never rewrites it', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '', segments: [] })
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'manifest.json')
+    const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    manifest.version = 2
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const { createHash } = await import('node:crypto')
+    manifest.checksum = createHash('sha256').update(JSON.stringify(withoutChecksum)).digest('hex')
+    await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
+    const before = await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')
+
+    await expect(store.readRecoverySummary('100', 'workspace-1')).resolves.toMatchObject({ recovery: 'rebuild-required' })
+    await expect(store.appendOverlay('100', 'workspace-1', { currentSegmentId: '', classifications: [], history: [] })).rejects.toThrow('not found')
+    await expect((await import('node:fs/promises')).readFile(manifestPath, 'utf8')).resolves.toBe(before)
+  })
+
   it('isolates a restarted scan run from previously committed staged pages', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

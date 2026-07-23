@@ -157,13 +157,13 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailure(null)
-    const authoritativeSnapshot = snapshot || await workspace.refresh()
     const summary = await workspace.getRecoverySummary()
     if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
       setRecoverySummary(summary)
       setResumeDialogOpen(true)
       return
     }
+    const authoritativeSnapshot = snapshot || await workspace.refresh()
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status !== 'scanning' && authoritativeSnapshot.status !== 'completed') {
       setResumeDialogOpen(true)

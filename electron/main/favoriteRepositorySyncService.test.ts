@@ -101,6 +101,58 @@ describe('FavoriteRepositorySyncService', () => {
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
   })
 
+  it('rechecks actual shard capacity and creates a bound next shard for archive restore only when all bound shards are full', async () => {
+    const repository = await createRepository()
+    for (const [id, shardNumber, remoteFolderId] of [['music-1', 1, 'remote-music-1'], ['music-2', 2, 'remote-music-2']] as const) {
+      await repository.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [], remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: {
+      'remote-music-1': Array.from({ length: 1_000 }, (_, index) => index + 1),
+      'remote-music-2': Array.from({ length: 999 }, (_, index) => index + 1)
+    } })
+    const ensurePhysicalShard = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers, createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      ensurePhysicalShard, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+    const writer = service.createArchiveRestoreWriter()
+
+    await expect(writer.readBaseline({ accountMid: '100', restoreId: 'restore-capacity', aid: 2 })).resolves.toEqual({
+      2: expect.objectContaining({ managedPhysicalFolderMemberCounts: { 'remote-music-1': 1_000, 'remote-music-2': 999 } })
+    })
+    await writer.ensurePhysicalCapacity!({ accountMid: '100', restoreId: 'restore-capacity', aid: 2, logicalFolderIds: ['bilimi-logical:music'] })
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+
+    readMembers.mockResolvedValue({ observedAccountMid: '100', members: {
+      'remote-music-1': Array.from({ length: 1_000 }, (_, index) => index + 1),
+      'remote-music-2': Array.from({ length: 1_000 }, (_, index) => index + 1)
+    } })
+    await writer.ensurePhysicalCapacity!({ accountMid: '100', restoreId: 'restore-capacity', aid: 2, logicalFolderIds: ['bilimi-logical:music'] })
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 3, memberAids: [2] }))
+  })
+
+  it('rejects conflicted managed bindings before capacity creation can create another shard', async () => {
+    const repository = await createRepository()
+    for (const [logicalLedgerId, id] of [['music', 'music-binding'], ['games', 'games-binding']] as const) {
+      await repository.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared', bindingState: 'bound', remoteFolderId: 'remote-shared' }
+      })
+    }
+    const ensurePhysicalShard = vi.fn()
+    const writer = new FavoriteRepositorySyncService({
+      repository, ensurePhysicalShard,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() }
+    }).createArchiveRestoreWriter()
+
+    await expect(writer.ensurePhysicalCapacity!({ accountMid: '100', restoreId: 'restore-conflict', aid: 1, logicalFolderIds: ['bilimi-logical:music'] }))
+      .rejects.toThrow('multiple logical ledgers')
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+  })
+
   it('rejects an archive baseline where one remote folder is bound to multiple logical ledgers before reading or writing remote membership', async () => {
     const repository = await createRepository()
     for (const [logicalLedgerId, id] of [['games', 'games-binding'], ['music', 'music-binding']] as const) {

@@ -240,6 +240,13 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
       expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision }), [sendCommand])
 
+  useEffect(() => {
+    // Current preload builds expose the manifest-only recovery endpoint, so
+    // mounting a library panel need not deserialize a workspace segment.
+    if (window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1) return
+    void refresh()
+  }, [refresh])
+
   const selectSegment = useCallback((segmentId: string) => {
     const normalized = segmentId.trim()
     if (!normalized) return Promise.resolve(null)
@@ -386,10 +393,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [sendCommand])
   const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
   const rebuildCorruptWorkspace = useCallback(() => sendCommand({ type: 'rebuild-corrupt-workspace' }), [sendCommand])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
 
   useEffect(() => {
     const hasActiveWork = snapshot && (

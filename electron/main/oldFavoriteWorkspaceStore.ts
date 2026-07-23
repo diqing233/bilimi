@@ -91,13 +91,46 @@ type Manifest = {
   /** Durable witness that the matching local repository commit has succeeded. */
   lastCommittedId?: string
   /** Compact recovery comparison data; never requires reading baseline segments. */
-  recoveryBaseline?: { aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string }
-  recoveryDecision?: { choice: 'continue-original' | 'merge-latest' | 'rescan'; expectedBaselineRevision: number; expectedRepositoryRevision: number; evidenceFingerprint?: string; recordedAt: string }
+  recoveryBaseline?: {
+    aids: number[]
+    aidFingerprint: string
+    mirrorFingerprint: string
+    bindingFingerprint: string
+    metadataFingerprint: string
+    rulesFingerprint: string
+    keywordsFingerprint: string
+    defaultSettingsFingerprint: string
+    fingerprint: string
+  }
+  recoveryDecision?: {
+    choice: 'continue-original' | 'merge-latest' | 'rescan'
+    expectedBaselineRevision: number
+    expectedRepositoryRevision: number
+    evidenceFingerprint?: string
+    /** Only derived system choices for these aids are recomputed after full recovery. */
+    mergeLatestSystemAids?: number[]
+    staleDeepSeekAids?: number[]
+    mergeLatestAppliedAt?: string
+    recordedAt: string
+  }
   checksum: string
 }
 
+type RecoveryBaseline = NonNullable<Manifest['recoveryBaseline']>
+
 const checksum = (content: string) => createHash('sha256').update(content).digest('hex')
 const clone = <T>(value: T): T => structuredClone(value)
+
+function normalizeRecoveryBaseline(value: Manifest['recoveryBaseline']): RecoveryBaseline | undefined {
+  if (!value) return undefined
+  return {
+    ...value,
+    metadataFingerprint: value.metadataFingerprint ?? 'null',
+    rulesFingerprint: value.rulesFingerprint ?? 'null',
+    keywordsFingerprint: value.keywordsFingerprint ?? 'null',
+    defaultSettingsFingerprint: value.defaultSettingsFingerprint ?? 'null'
+  }
+}
 
 function canonicalManifest(manifest: Omit<Manifest, 'checksum'>) {
   return JSON.stringify(manifest)
@@ -377,7 +410,7 @@ export class OldFavoriteWorkspaceStore {
         overlayRevision: manifest.overlayRevision, journalCursor: manifest.journalCursor,
         manifestChecksum: manifest.checksum,
         ...(manifest.lastCommittedId ? { lastCommittedId: manifest.lastCommittedId } : {}),
-        ...(manifest.recoveryBaseline ? { recoveryBaseline: clone(manifest.recoveryBaseline) } : {}),
+        ...(normalizeRecoveryBaseline(manifest.recoveryBaseline) ? { recoveryBaseline: clone(normalizeRecoveryBaseline(manifest.recoveryBaseline)!) } : {}),
         ...(manifest.recoveryDecision ? { recoveryDecision: clone(manifest.recoveryDecision) } : {}),
         loadedSegmentAids: [...loadedSegment.aids],
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
@@ -392,7 +425,8 @@ export class OldFavoriteWorkspaceStore {
   }
 
   async setRecoveryBaseline(accountMid: string, workspaceId: string, baseline: {
-    aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string
+    aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string
+    metadataFingerprint: string; rulesFingerprint: string; keywordsFingerprint: string; defaultSettingsFingerprint: string; fingerprint: string
   }) {
     return this.queue(async () => {
       const account = normalizedAccountMid(accountMid)
@@ -442,7 +476,7 @@ export class OldFavoriteWorkspaceStore {
         unclassifiedCount: Math.max(0, manifest.planReadiness.selectedAidCount - manifest.planReadiness.classifiedAidCount)
       } : {}),
       ...(manifest.lastCommittedId ? { lastCommittedId: manifest.lastCommittedId } : {})
-      ,...(manifest.recoveryBaseline ? { recoveryBaseline: clone(manifest.recoveryBaseline) } : {})
+      ,...(normalizeRecoveryBaseline(manifest.recoveryBaseline) ? { recoveryBaseline: clone(normalizeRecoveryBaseline(manifest.recoveryBaseline)!) } : {})
       ,...(manifest.recoveryDecision ? { recoveryDecision: clone(manifest.recoveryDecision) } : {})
     }
   }
@@ -538,7 +572,7 @@ export class OldFavoriteWorkspaceStore {
       const value = JSON.parse(await readFile(manifestPath, 'utf8')) as Manifest
       this.recordRead(directory, 'manifest.json')
       const { checksum: storedChecksum, ...withoutChecksum } = value
-      return storedChecksum === checksum(canonicalManifest(withoutChecksum)) ? value : null
+      return value.version === 1 && storedChecksum === checksum(canonicalManifest(withoutChecksum)) ? value : null
     } catch { return null }
   }
 

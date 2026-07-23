@@ -64,6 +64,12 @@ type CurrentSegmentItem = {
   sourceFolderIds: string[]
 }
 type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' | 'low' }
+type RecoveryConfiguration = {
+  metadata?: unknown
+  rules?: unknown
+  keywords?: unknown
+  defaultSettings?: unknown
+}
 type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' | 'ruleType' | 'enabled' | 'priority' | 'isDefault'>
 type StoredRecommendation = {
   id: string
@@ -105,13 +111,18 @@ value is OldFavoriteWorkspaceRecoveryRequired {
 }
 
 function recoveryBaselineChangeEvidence(workspaceBaselineRevision: number, repositoryRevision: number, baseline?: {
-  aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string
-}, snapshot?: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>) {
-  const current = baseline && snapshot ? recoveryBaselineVector(snapshot, baseline.aids) : undefined
+  aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string
+  metadataFingerprint: string; rulesFingerprint: string; keywordsFingerprint: string; defaultSettingsFingerprint: string; fingerprint: string
+}, snapshot?: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>, configuration?: RecoveryConfiguration) {
+  const current = baseline && snapshot ? recoveryBaselineVector(snapshot, baseline.aids, configuration) : undefined
   const changedDimensions = baseline && current ? [
     ...(baseline.aidFingerprint !== current.aidFingerprint ? ['aid-revisions' as const] : []),
     ...(baseline.mirrorFingerprint !== current.mirrorFingerprint ? ['mirror' as const] : []),
-    ...(baseline.bindingFingerprint !== current.bindingFingerprint ? ['bindings' as const] : [])
+    ...(baseline.bindingFingerprint !== current.bindingFingerprint ? ['bindings' as const] : []),
+    ...(baseline.metadataFingerprint !== current.metadataFingerprint ? ['metadata' as const] : []),
+    ...(baseline.rulesFingerprint !== current.rulesFingerprint ? ['rules' as const] : []),
+    ...(baseline.keywordsFingerprint !== current.keywordsFingerprint ? ['keywords' as const] : []),
+    ...(baseline.defaultSettingsFingerprint !== current.defaultSettingsFingerprint ? ['default-settings' as const] : [])
   ] : []
   return {
     scope: 'account' as const,
@@ -121,14 +132,20 @@ function recoveryBaselineChangeEvidence(workspaceBaselineRevision: number, repos
     direction: workspaceBaselineRevision === repositoryRevision
       ? 'unchanged' as const
       : workspaceBaselineRevision < repositoryRevision ? 'advanced' as const : 'regressed' as const,
-    manualClassificationsRemainAuthoritative: true as const
-    ,changedDimensions
-    ,unavailableDimensions: ['rules', 'keywords', 'default-settings'] as const
-    ,...(baseline ? { fingerprint: baseline.fingerprint } : {})
+    manualClassificationsRemainAuthoritative: true as const,
+    changedDimensions,
+    ...(changedDimensions.some((dimension) => ['metadata', 'rules', 'keywords', 'default-settings'].includes(dimension))
+      ? { deepSeekClassificationsMayBeStale: true }
+      : {}),
+    ...(baseline ? { fingerprint: baseline.fingerprint } : {})
   }
 }
 
-function recoveryBaselineVector(snapshot: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>, aids: number[]) {
+function recoveryBaselineVector(
+  snapshot: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
+  aids: number[],
+  configuration?: RecoveryConfiguration
+) {
   const normalizedAids = normalizeAids(aids)
   const stable = (value: unknown) => JSON.stringify(value)
   const aidFingerprint = stable(normalizedAids.map((aid) => ({ aid,
@@ -144,8 +161,31 @@ function recoveryBaselineVector(snapshot: Awaited<ReturnType<FavoriteRepositoryS
     logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
     remoteFolderId: shard.remoteFolderId ?? '', bindingState: shard.bindingState
   })).sort((a, b) => stable(a).localeCompare(stable(b))))
+  const metadataFingerprint = stable(configuration?.metadata ?? null)
+  const rulesFingerprint = stable(configuration?.rules ?? null)
+  const keywordsFingerprint = stable(configuration?.keywords ?? null)
+  const defaultSettingsFingerprint = stable(configuration?.defaultSettings ?? null)
   return { aids: normalizedAids, aidFingerprint, mirrorFingerprint, bindingFingerprint,
-    fingerprint: stable({ aidFingerprint, mirrorFingerprint, bindingFingerprint }) }
+    metadataFingerprint, rulesFingerprint, keywordsFingerprint, defaultSettingsFingerprint,
+    fingerprint: stable({ aidFingerprint, mirrorFingerprint, bindingFingerprint, metadataFingerprint, rulesFingerprint, keywordsFingerprint, defaultSettingsFingerprint }) }
+}
+
+function changedRecoverySystemAids(
+  baseline: { aids: number[]; aidFingerprint: string; metadataFingerprint: string; rulesFingerprint: string; keywordsFingerprint: string; defaultSettingsFingerprint: string },
+  current: { aids: number[]; aidFingerprint: string; metadataFingerprint: string; rulesFingerprint: string; keywordsFingerprint: string; defaultSettingsFingerprint: string },
+  changedDimensions: readonly string[]
+) {
+  const configurationChanged = changedDimensions.some((dimension) =>
+    dimension === 'metadata' || dimension === 'rules' || dimension === 'keywords' || dimension === 'default-settings')
+  if (configurationChanged) return normalizeAids(current.aids)
+  if (!changedDimensions.includes('aid-revisions')) return []
+  try {
+    const previous = new Map((JSON.parse(baseline.aidFingerprint) as Array<{ aid: number }>).map((entry) => [entry.aid, JSON.stringify(entry)]))
+    return (JSON.parse(current.aidFingerprint) as Array<{ aid: number }>).flatMap((entry) =>
+      previous.get(entry.aid) === JSON.stringify(entry) ? [] : [entry.aid])
+  } catch {
+    return normalizeAids(current.aids)
+  }
 }
 
 function normalizeAids(aids: number[]) {
@@ -271,6 +311,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly tagEnrichments = new Map<string, TagEnrichment>()
   private readonly recommendations = new Map<string, RecommendationState>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
+  private readonly staleDeepSeekAids = new Map<string, number[]>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -298,6 +339,7 @@ export class OldFavoriteWorkspaceCoordinator {
       remoteFolderId?: string
       remoteDisplayTitle?: string
     } | undefined>
+    resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     now?: () => string
   }) {}
 
@@ -1087,12 +1129,23 @@ export class OldFavoriteWorkspaceCoordinator {
       // retain DeepSeek choices for explicit user review rather than silently
       // replaying either source here.
       let decisionFingerprint = evidence.fingerprint
+      let mergeLatestSystemAids: number[] | undefined
+      let staleDeepSeekAids: number[] | undefined
       if (decision.choice === 'merge-latest') {
         const recovered = await this.options.workspaceStore.readRecoverySummary(summary.accountMid, summary.workspaceId)
         if ('recovery' in recovered || !recovered.recoveryBaseline) {
           throw new Error('Old favorite workspace recovery baseline is unavailable.')
         }
-        const current = recoveryBaselineVector(await this.options.repository.getSnapshot(summary.accountMid), recovered.recoveryBaseline.aids)
+        const current = recoveryBaselineVector(await this.options.repository.getSnapshot(summary.accountMid), recovered.recoveryBaseline.aids,
+          await this.options.resolveRecoveryConfiguration?.(summary.accountMid))
+        mergeLatestSystemAids = changedRecoverySystemAids(recovered.recoveryBaseline, current, evidence.changedDimensions)
+        if (evidence.deepSeekClassificationsMayBeStale) {
+          const full = await this.options.workspaceStore.recover(summary.accountMid, summary.workspaceId)
+          if ('recovery' in full) throw new Error('Old favorite workspace requires rebuild.')
+          staleDeepSeekAids = Object.values(full.classifications)
+            .filter((classification) => classification.source === 'deepseek')
+            .map((classification) => classification.aid).sort((left, right) => left - right)
+        }
         await this.options.workspaceStore.setRecoveryBaseline(summary.accountMid, summary.workspaceId, current)
         decisionFingerprint = current.fingerprint
       }
@@ -1101,6 +1154,9 @@ export class OldFavoriteWorkspaceCoordinator {
         expectedBaselineRevision: decision.expectedBaselineRevision,
         expectedRepositoryRevision: decision.expectedRepositoryRevision,
         ...(decisionFingerprint ? { evidenceFingerprint: decisionFingerprint } : {}),
+        ...(mergeLatestSystemAids?.length ? { mergeLatestSystemAids } : {}),
+        ...(staleDeepSeekAids?.length ? { staleDeepSeekAids } : {}),
+        ...(mergeLatestSystemAids?.length ? { mergeLatestAppliedAt: this.now() } : {}),
         recordedAt: this.now()
       })
       return {
@@ -1125,14 +1181,15 @@ export class OldFavoriteWorkspaceCoordinator {
         workspaceId: marker.id,
         status: 'rebuild-required',
         currentStep: 'rebuild-required',
-        baselineChangeEvidence: recoveryBaselineChangeEvidence(marker.workspaceRef.baselineRevision, snapshot.revision),
+        baselineChangeEvidence: recoveryBaselineChangeEvidence(marker.workspaceRef.baselineRevision, snapshot.revision, undefined, snapshot,
+          await this.options.resolveRecoveryConfiguration?.(snapshot.accountMid)),
         recoveryChoices: ['view']
       }
     }
     // The manifest is the persisted baseline source. A disagreement with the
     // compact repository marker is an integrity failure, not a merge choice.
     const baselineChangeEvidence = recoveryBaselineChangeEvidence(summary.baselineRevision, snapshot.revision,
-      summary.recoveryBaseline, snapshot)
+      summary.recoveryBaseline, snapshot, await this.options.resolveRecoveryConfiguration?.(snapshot.accountMid))
     if (summary.baselineRevision !== marker.workspaceRef.baselineRevision) {
       return {
         accountMid: snapshot.accountMid,
@@ -1957,7 +2014,8 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     if (recovered.recoveryDecision && recovered.recoveryBaseline) {
-      const current = recoveryBaselineVector(await this.options.repository.getSnapshot(marker.accountMid), recovered.recoveryBaseline.aids)
+      const current = recoveryBaselineVector(await this.options.repository.getSnapshot(marker.accountMid), recovered.recoveryBaseline.aids,
+        await this.options.resolveRecoveryConfiguration?.(marker.accountMid))
       if (recovered.recoveryDecision.evidenceFingerprint &&
         recovered.recoveryDecision.evidenceFingerprint !== current.fingerprint) {
         throw new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.')
@@ -2087,6 +2145,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
+    this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
       this.tagEnrichments.set(marker.accountMid, clone(recovered.tagEnrichment))
       if (recovered.tagUpdates.length) {
@@ -2096,6 +2155,23 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     } else this.tagEnrichments.delete(marker.accountMid)
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
+    if (recovered.recoveryDecision?.choice === 'merge-latest' && recovered.recoveryDecision.mergeLatestSystemAids?.length &&
+      marker.status === 'previewing') {
+      // Recovery intentionally loads only the active segment. Leave other
+      // affected aids pending until their segment is explicitly selected.
+      const changedAids = new Set(recovered.recoveryDecision.mergeLatestSystemAids)
+      const segmentIds = workspace.segments.filter((segment) => segment.aids.some((aid) => changedAids.has(aid))).map((segment) => segment.id)
+      if (segmentIds.length && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)) {
+        const refreshed = await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true)
+        const appliedAids = new Set(workspace.segments.flatMap((segment) => segment.aids).filter((aid) => changedAids.has(aid)))
+        await this.options.workspaceStore.setRecoveryDecision(marker.accountMid, marker.id, {
+          ...recovered.recoveryDecision,
+          mergeLatestSystemAids: recovered.recoveryDecision.mergeLatestSystemAids.filter((aid) => !appliedAids.has(aid)),
+          recordedAt: this.now()
+        })
+        return clone(refreshed)
+      }
+    }
     return clone(workspace)
   }
 
@@ -2122,6 +2198,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.tagEnrichments.delete(accountMid)
     this.recommendations.delete(accountMid)
     this.planReadiness.delete(accountMid)
+    this.staleDeepSeekAids.delete(accountMid)
   }
 
   private async appendEvents(
@@ -2140,37 +2217,22 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private async calculatePlanReadiness(workspace: OldFavoriteWorkspace): Promise<PlanReadiness> {
-    const overview = this.scanOverviews.get(workspace.accountMid)
-    if (!overview) return { selectedAidCount: 0, classifiedAidCount: 0 }
-    const selectedSourceFolderIds = new Set(overview.sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
-      .map((folder) => folder.id))
-    if (!selectedSourceFolderIds.size) return { selectedAidCount: 0, classifiedAidCount: 0 }
-    const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
-      workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
-    let selectedAidCount = 0
-    for (const descriptor of descriptors) {
-      const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
-      selectedAidCount += (segment.items ?? []).filter((item) =>
-        item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).length
-    }
-    const classifiedAidCount = new Set((await this.loadSelectedClassificationsForFreeze(workspace))
-      .filter((classification) => classification.targetLedgerIds.length)
+    const plannedAids = new Set(normalizeAids(workspace.plannedAids))
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    const classifiedAidCount = new Set(Object.values(recovered.classifications)
+      .filter((classification) => plannedAids.has(classification.aid) && classification.targetLedgerIds.length)
       .map((classification) => classification.aid)).size
+    const selectedAidCount = plannedAids.size
     return { selectedAidCount, classifiedAidCount: Math.min(selectedAidCount, classifiedAidCount) }
   }
 
   private calculatePlanReadinessFromItems(
-    _workspace: OldFavoriteWorkspace,
-    items: Iterable<CurrentSegmentItem>,
-    sourceFolders: ScanOverview['sourceFolders']
+    workspace: OldFavoriteWorkspace,
+    _items: Iterable<CurrentSegmentItem>,
+    _sourceFolders: ScanOverview['sourceFolders']
   ): PlanReadiness {
-    const selectedSourceFolderIds = new Set(sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
-      .map((folder) => folder.id))
-    const selectedAidCount = [...items].filter((item) =>
-      item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).length
-    return { selectedAidCount, classifiedAidCount: 0 }
+    return { selectedAidCount: normalizeAids(workspace.plannedAids).length, classifiedAidCount: 0 }
   }
 
   private async applyReadinessHistoryChange(
@@ -2180,10 +2242,7 @@ export class OldFavoriteWorkspaceCoordinator {
   ): Promise<PlanReadiness> {
     const current = this.planReadiness.get(workspace.accountMid) ?? await this.calculatePlanReadiness(workspace)
     if (!entry) return current
-    const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
-    const currentItems = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
-    const selectedAids = new Set(currentItems.filter((item) => item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).map((item) => item.aid))
+    const selectedAids = new Set(normalizeAids(workspace.plannedAids))
     let classifiedAidCount = current.classifiedAidCount
     for (const change of entry.changes) {
       if (!selectedAids.has(change.aid)) continue
@@ -2321,7 +2380,8 @@ export class OldFavoriteWorkspaceCoordinator {
     })
     const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
     await this.options.workspaceStore.setRecoveryBaseline(workspace.accountMid, workspace.id,
-      recoveryBaselineVector(snapshot, workspace.segments.flatMap((segment) => segment.aids)))
+      recoveryBaselineVector(snapshot, workspace.segments.flatMap((segment) => segment.aids),
+        await this.options.resolveRecoveryConfiguration?.(workspace.accountMid)))
   }
 
   private async createMarker(
@@ -2476,6 +2536,7 @@ export class OldFavoriteWorkspaceCoordinator {
         targetLedgerIds: [...classification.targetLedgerIds],
         source: classification.source
       }])),
+      ...(this.staleDeepSeekAids.get(workspace.accountMid)?.length ? { staleDeepSeekAids: [...this.staleDeepSeekAids.get(workspace.accountMid)!] } : {}),
       recommendations: {
         candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map(({ sourceName: _sourceName, keywords: _keywords, ...candidate }) => clone(candidate)),
         adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
