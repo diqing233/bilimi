@@ -89,7 +89,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
 
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
-    fireEvent.click(screen.getByRole('button', { name: '同步所选（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息（1）' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('收藏库操作失败。')
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
@@ -123,8 +123,8 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('checkbox', { name: '全选当前页' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页' }))
     expect(screen.getByText('已选 2 项')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '同步所选（2）' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '同步所选（2）' }))
+    expect(screen.getByRole('button', { name: '刷新所选信息（2）' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息（2）' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1, 2] }))
   })
 
@@ -273,8 +273,43 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
     fireEvent.click(screen.getByRole('button', { name: '加入转写队列（1）' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
-    fireEvent.click(screen.getByRole('button', { name: '重新同步所选（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新刷新所选信息（1）' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
+  })
+
+  it('clears selection and detail when changing scope while naming refresh actions accurately', async () => {
+    const getPage = vi.fn(async (_accountMid: string, scope: { kind: string }) => ({
+      version: 1 as const, accountMid: '100', revision: 2,
+      items: scope.kind === 'folder'
+        ? [{ video: { aid: 2, title: 'Folder video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }]
+        : [{ video: { aid: 1, title: 'All video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }]
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 2, folderCount: 1,
+        folders: [{ id: 'local', title: text.localFolder, kind: 'local', syncState: 'local-only' }], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
+      }),
+      getFavoriteRepositoryLibraryPage: getPage,
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        video: { aid: 1, title: 'All video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [],
+        mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined),
+      syncFavoriteLibrarySelection: vi.fn().mockResolvedValue({ status: 'succeeded' })
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('checkbox', { name: /All video/ }))
+    expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByText('All video'))
+    expect(await screen.findByRole('complementary', { name: text.detail })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
+
+    expect(await screen.findByText('Folder video')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeDisabled()
+    expect(screen.queryByRole('complementary', { name: text.detail })).not.toBeInTheDocument()
   })
 
   it('clears the prior account and rebinds when a repository revision observes an account switch', async () => {

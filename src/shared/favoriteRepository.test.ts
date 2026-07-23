@@ -80,6 +80,25 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['local:music']).toEqual([1, 2])
   })
 
+  it('removes formally classified or protected videos from the local inbox without removing unmatched videos', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      memberships: { 'local:inbox': [1, 2, 3] }
+    }
+
+    const locallyClassified = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'classify-local', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:music': [1] },
+        organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: ['remote-music'], completedAt: '2026-07-23T00:01:00.000Z' }]
+      }
+    }, '2026-07-23T00:01:00.000Z')
+
+    expect(locallyClassified.memberships).toMatchObject({ 'local:inbox': [3], 'local:music': [1] })
+    expect(locallyClassified.organizationRecords).toEqual([expect.objectContaining({ aid: 2 })])
+  })
+
   it('stores local-plan video records with their local membership indexes', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '100', now: '2026-07-20T00:00:00.000Z'

@@ -34,7 +34,7 @@ describe('favorite library bridge IPC', () => {
     expect(mainPreloadSource).toContain('syncFavoriteLibrarySelection')
     expect(mainPreloadSource).toContain('onFavoriteLibraryTranscriptionChanged')
     expect(mainPreloadSource).toContain('onOpenFavoriteLibraryDrawer')
-    expect(mainProcessSource).toContain("webContents.send('favorite-library:open-drawer')")
+    expect(mainProcessSource).toContain('handleFavoriteLibraryEntry')
     expect(mainProcessSource).toMatch(/function isTrustedFavoriteLibraryReader\(senderId: number\): boolean \{\s*return senderId === mainWindow\?\.webContents\.id/)
     expect(mainProcessSource).not.toContain("from './favoriteLibraryWindow'")
     expect(mainProcessSource).not.toContain('createFavoriteLibraryWindow')

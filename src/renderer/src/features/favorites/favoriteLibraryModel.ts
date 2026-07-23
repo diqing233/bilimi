@@ -42,6 +42,7 @@ export type FavoriteLibraryDetail = FavoriteLibraryRow & {
 const defaultLedgerTitlesById = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
 
 function displayFolderTitle(folder: FavoriteRepositoryFolder) {
+  if (folder.id === 'local:inbox') return '未匹配分类'
   const logicalLedgerId = folder.kind === 'local' && folder.id.startsWith('local:')
     ? folder.id.slice('local:'.length)
     : undefined
@@ -52,12 +53,20 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
 export function formatFavoriteLibraryMirrorStatus(states: readonly FavoriteLibraryPendingState[]): string {
+  if (states.includes('protected') && states.some((state) => state !== 'protected')) {
+    return formatFavoriteLibraryMirrorStatus(states.filter((state) => state !== 'protected'))
+  }
   if (states.includes('protected')) return '已保护'
   if (states.includes('failed')) return '同步失败'
   if (states.includes('result-unknown')) return '同步状态待确认'
   if (states.includes('unsynced')) return '未同步'
   if (states.includes('continuation')) return '等待处理'
   return '已同步'
+}
+
+/** Organization protection is separate from local information refresh. */
+export function formatFavoriteLibraryOrganizationStatus(states: readonly FavoriteLibraryPendingState[]): string {
+  return states.includes('protected') ? '已整理' : '未整理'
 }
 
 function validAid(aid: number) {

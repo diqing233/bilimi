@@ -600,6 +600,12 @@ export function applyFavoriteRepositoryCommand(
   let libraryMirrors = { ...snapshot.libraryMirrors }
   let folders = [...snapshot.folders]
   let physicalShards = [...snapshot.physicalShards]
+  const removeFromLocalInbox = (aids: Iterable<number>) => {
+    const removed = new Set(aids)
+    if (!removed.size || !memberships['local:inbox']?.some((aid) => removed.has(aid))) return
+    memberships = { ...memberships, 'local:inbox': memberships['local:inbox'].filter((aid) => !removed.has(aid)) }
+    affectedFolderIds = [...new Set([...affectedFolderIds, 'local:inbox'])].sort()
+  }
 
   switch (command.type) {
     case 'commit-local-plan': {
@@ -633,6 +639,12 @@ export function applyFavoriteRepositoryCommand(
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
       }
+      removeFromLocalInbox([
+        ...organizationRecords.map((record) => record.aid),
+        ...Array.from(membersByFolderId)
+          .filter(([folderId]) => folderId !== 'local:inbox')
+          .flatMap(([, aids]) => aids)
+      ])
       const requestedFolders = command.payload.folders ?? []
       for (const folder of requestedFolders) {
         const id = folder.id.trim()
@@ -870,6 +882,7 @@ export function applyFavoriteRepositoryCommand(
         })
       }
       organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+      removeFromLocalInbox(command.payload.records.map((record) => record.aid))
       organizationMigrationInitialized = organizationMigrationInitialized || command.payload.markMigrationInitialized === true
       affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
       break

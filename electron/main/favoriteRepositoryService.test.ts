@@ -234,6 +234,26 @@ describe('FavoriteRepositoryService', () => {
     expect(changes.at(-1)).toContain('bilimi-logical:music')
   })
 
+  it('lists the actual source shards for a logical folder detail', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const shardNumber of [1, 2]) {
+      await service.commit('100', {
+        id: `music-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [shardNumber], remoteTitle: `Music ${shardNumber}`,
+          bindingState: 'bound', remoteFolderId: String(shardNumber) }
+      })
+    }
+    await service.commit('100', {
+      id: 'video-2', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Second shard', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+
+    await expect(service.getLibraryDetail('100', 2)).resolves.toMatchObject({
+      sourceShards: [{ folderId: 'bilimi:music:002', shardNumber: 2, remoteFolderId: '2' }]
+    })
+  })
+
   it('keeps unbound same-title Bilibili folders separate and reports the conflict', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
@@ -283,7 +303,7 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ folderIds: ['bilibili:99'] })
   })
 
-  it('aggregates local staging with the explicitly identified inbox ledger', async () => {
+  it('keeps unmatched local staging separate from the bilimi inbox ledger', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
     for (const aid of [1, 2]) {
@@ -307,12 +327,32 @@ describe('FavoriteRepositoryService', () => {
       }
     })
 
-    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
-      folderCount: 1,
-      folders: [{ id: 'bilimi-logical:inbox' }]
-    })
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folderCount).toBe(2)
+    expect(summary.folders.map((folder) => folder.id)).toEqual(['bilimi-logical:inbox', 'local:inbox'])
     await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:inbox' }, { limit: 10 }))
-      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }, { video: { aid: 2 } }] })
+      .resolves.toMatchObject({ items: [{ video: { aid: 2 } }] })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'local:inbox' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+  })
+
+  it('does not count protected videos as pending work while retaining their organization status', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Protected', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'protect-1', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-1'], completedAt: '2026-07-23T00:01:00.000Z' }] }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 0 })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      items: [{ video: { aid: 1 }, pendingStates: ['protected'] }]
+    })
   })
 
   it('persists compact command receipts without embedded repository snapshots', async () => {

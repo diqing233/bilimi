@@ -224,6 +224,7 @@ export type FavoriteRepositoryLibraryDetail = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
   pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
+  sourceShards?: Array<{ folderId: string; shardNumber: number; remoteFolderId: string; title: string }>
   mirror: {
     status: '未同步' | '同步中' | '已同步' | '同步失败' | '待确认'
     lastSyncedAt?: string
@@ -312,7 +313,7 @@ export class FavoriteRepositoryService {
       pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
     }
     for (const record of snapshot.syncRecords) syncCounts[record.status]++
-    const pendingAidCount = this.pendingStatesByAid(snapshot).size
+    const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     return {
       version: 1,
@@ -496,6 +497,10 @@ export class FavoriteRepositoryService {
       video: { ...video, tags: [...video.tags] },
       folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
+      sourceShards: snapshot.physicalShards
+        .filter((shard) => Boolean(shard.remoteFolderId) && (snapshot.memberships[shard.folderId] ?? []).includes(aid))
+        .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
+        .map((shard) => ({ folderId: shard.folderId, shardNumber: shard.shardNumber, remoteFolderId: shard.remoteFolderId!, title: shard.remoteTitle })),
       mirror: this.mirrorSummary(snapshot.libraryMirrors?.[String(aid)])
     }
   }
@@ -589,10 +594,6 @@ export class FavoriteRepositoryService {
     const logicalFolders = new Map(snapshot.folders
       .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
       .map((folder) => [folder.logicalLedgerId!, folder]))
-    const inbox = logicalFolders.get('inbox')
-    if (inbox && snapshot.folders.some((folder) => folder.id === 'local:inbox')) {
-      canonicalIdByRawId.set('local:inbox', inbox.id)
-    }
     const logicalIdsByRemoteFolderId = new Map<string, Set<string>>()
     for (const shard of snapshot.physicalShards) {
       if (!shard.remoteFolderId) continue
@@ -682,6 +683,15 @@ export class FavoriteRepositoryService {
     return statesByAid
   }
 
+  /** Protected and transcription states are displayed separately; neither requires library work. */
+  private actionablePendingAids(snapshot: AccountFavoriteRepositorySnapshot) {
+    return [...this.pendingStatesByAid(snapshot)]
+      .filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) &&
+        ['unsynced', 'continuation', 'failed', 'result-unknown'].some((state) => states.has(state as FavoriteRepositoryLibraryPageRow['pendingStates'][number])))
+      .map(([aid]) => aid)
+      .sort((left, right) => left - right)
+  }
+
   private mirrorSummary(record: AccountFavoriteRepositorySnapshot['libraryMirrors'][string] | undefined): FavoriteRepositoryLibraryDetail['mirror'] {
     if (!record || record.status === 'never') return { status: '未同步' }
     if (record.status === 'synced') return { status: '已同步', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
@@ -698,7 +708,7 @@ export class FavoriteRepositoryService {
       return index.folderAidsByFolderId.get(scope.folderId) ?? []
     }
     if (scope.kind === 'pending') {
-      return [...index.pendingStatesByAid.keys()].filter((aid) => Boolean(snapshot.videos[String(aid)])).sort((left, right) => left - right)
+      return this.actionablePendingAids(snapshot)
     }
     return index.allAids
   }

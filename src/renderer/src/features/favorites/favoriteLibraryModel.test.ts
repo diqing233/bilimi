@@ -7,7 +7,7 @@ import {
   buildLibrarySearchRows,
   buildPendingLibraryRows,
   createFavoriteLibraryPageCursor
-  , formatFavoriteLibraryMirrorStatus
+  , formatFavoriteLibraryMirrorStatus, formatFavoriteLibraryOrganizationStatus
 } from './favoriteLibraryModel'
 
 const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => ({
@@ -29,6 +29,23 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMirrorStatus(['continuation'])).toMatch(/等待/)
     expect(formatFavoriteLibraryMirrorStatus(['failed'])).not.toContain('failed')
     expect(formatFavoriteLibraryMirrorStatus(['protected'])).toBe('已保护')
+  })
+
+  it('keeps organization protection from hiding an outstanding information refresh', () => {
+    expect(formatFavoriteLibraryMirrorStatus(['protected', 'unsynced'])).toMatch(/未同步/)
+  })
+
+  it('reports organization status separately from information refresh state', () => {
+    expect(formatFavoriteLibraryOrganizationStatus(['protected', 'unsynced'])).toBe('已整理')
+    expect(formatFavoriteLibraryOrganizationStatus(['unsynced'])).toBe('未整理')
+  })
+
+  it('labels the legacy local inbox as unmatched classifications without changing its id', () => {
+    const navigation = buildFavoriteLibraryNavigation([
+      { id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }
+    ], 0)
+
+    expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: '未匹配分类' }))
   })
 
   it('returns one global-search row per aid and retains every folder membership', () => {

@@ -10,6 +10,7 @@ import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
   formatFavoriteLibraryMirrorStatus,
+  formatFavoriteLibraryOrganizationStatus,
   type FavoriteLibraryRow
 } from './favoriteLibraryModel'
 import './FavoriteLibraryApp.css'
@@ -51,8 +52,8 @@ const text = {
   selectPage: '\u5168\u9009\u5f53\u524d\u9875',
   selected: '\u5df2\u9009',
   item: '\u9879',
-  syncSelected: '\u540c\u6b65\u6240\u9009',
-  syncFolder: '\u540c\u6b65\u5f53\u524d\u6536\u85cf\u5939',
+  syncSelected: '\u5237\u65b0\u6240\u9009\u4fe1\u606f',
+  syncFolder: '\u5237\u65b0\u5f53\u524d\u5206\u7c7b',
   transcription: '\u52a0\u5165\u8f6c\u5199\u961f\u5217',
   mirror: '\u672c\u5730\u955c\u50cf',
   source: '\u89c6\u9891\u6765\u6e90',
@@ -67,7 +68,8 @@ const text = {
   saveMemo: '\u4fdd\u5b58\u5907\u6ce8',
   transcriptionState: '\u8f6c\u5199\u72b6\u6001',
   actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u5931\u8d25\u3002'
-  , organizationHistory: '\u6574\u7406\u8bb0\u5f55', noOrganizationHistory: '\u6682\u65e0\u6574\u7406\u8bb0\u5f55\u3002'
+  , organizationHistory: '\u6574\u7406\u8bb0\u5f55', noOrganizationHistory: '\u6682\u65e0\u6574\u7406\u8bb0\u5f55\u3002',
+  conflicts: '\u68c0\u6d4b\u5230\u53ef\u80fd\u51b2\u7a81\uff0c\u8bf7\u6838\u5bf9\u540e\u624b\u52a8\u5904\u7406\u3002'
 } as const
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
@@ -229,7 +231,8 @@ export function FavoriteLibraryApp({
     : [...new Set([...current, ...rows.map((row) => row.aid)])].sort((left, right) => left - right))
   const allSelectedSynced = selectedAids.length > 0 && selectedAids.every((aid) => {
     const row = rows.find((candidate) => candidate.aid === aid)
-    return Boolean(row && (row.pendingStates ?? []).length === 0)
+    return Boolean(row && !(row.pendingStates ?? []).some((state) =>
+      state === 'unsynced' || state === 'continuation' || state === 'failed' || state === 'result-unknown'))
   })
   const runAction = async (action: () => Promise<{ runId?: string; status: string }>) => {
     try {
@@ -277,12 +280,16 @@ export function FavoriteLibraryApp({
               aria-current={scopeId === item.id ? 'page' : undefined}
               onClick={() => {
                 setScopeId(item.id)
+                setSelectedAids([])
+                setSelected(undefined)
+                setDetailSnapshot(undefined)
                 if (accountMid) void load(accountMid, scopeForNavigation(item.id))
               }}
             >
               {item.kind === 'all' ? text.all : item.kind === 'pending' ? `${text.pending} ${item.count}` : item.title}
             </button>
           ))}
+          {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         </nav>
         <section className="favorite-library__results" aria-label={text.results}>
           <div className="favorite-library__actions">
@@ -312,7 +319,7 @@ export function FavoriteLibraryApp({
               <div className="favorite-library__row-wrap">
                 <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onChange={() => toggleAid(row.aid)} />
                 <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
-                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships} - {formatFavoriteLibraryMirrorStatus(row.pendingStates ?? [])}</small>
+                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships} - {formatFavoriteLibraryMirrorStatus((row.pendingStates ?? []).filter((state) => state !== 'protected'))} - {formatFavoriteLibraryOrganizationStatus(row.pendingStates ?? [])}</small>
                 </button>
               </div>
             )}
@@ -332,12 +339,18 @@ export function FavoriteLibraryApp({
             <button type="button" onClick={() => setDetailOpen(false)}>{text.hideDetail}</button>
             <h2>{detail.title}</h2><p>{detail.author ?? text.unknownAuthor}</p>
             <p>{detail.description ?? text.noDescription}</p>
-            <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次同步：${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
-            <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid ? <button type="button" onClick={() => void runDetailAction(async () => {
+            <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次同步：${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
+            <section><h3>整理状态</h3><p>{formatFavoriteLibraryOrganizationStatus(detail.pendingStates)}</p></section>
+            <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid && folder.kind === 'bilibili' ? <button type="button" onClick={() => void runDetailAction(async () => {
+               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+               if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
+               await api.openFavoriteLibrarySource(accountMid, folder.id)
+             })}>{text.openSource}</button> : null}</li>)}</ul></section>
+            {detailSnapshot?.sourceShards?.length ? <section><h3>来源分册</h3><ul>{detailSnapshot.sourceShards.map((shard) => <li key={shard.folderId}>{shard.title} {accountMid ? <button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
-              await api.openFavoriteLibrarySource(accountMid, folder.id)
-            })}>{text.openSource}</button> : null}</li>)}</ul></section>
+              await api.openFavoriteLibrarySource(accountMid, shard.folderId)
+            })}>{`打开第 ${shard.shardNumber} 分册`}</button> : null}</li>)}</ul></section> : null}
             <section><h3>{text.scan}</h3><p>{text.videoId}\uff1a{detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号：{detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长：{Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区：{detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签：{detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}\uff1a{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
             <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
