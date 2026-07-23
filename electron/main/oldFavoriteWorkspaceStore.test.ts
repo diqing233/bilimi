@@ -104,6 +104,40 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(recoveredStore.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
   }, 20_000)
 
+  it('reads a verified recovery summary without loading the active baseline segment or scan pages', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 7, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }]
+    })
+
+    const reader = new OldFavoriteWorkspaceStore({ root })
+    await expect(reader.readRecoverySummary('100', 'workspace-1')).resolves.toMatchObject({
+      workspaceId: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7,
+      currentSegmentId: 'segment-1', segmentCount: 1, manifestChecksum: expect.stringMatching(/^[a-f0-9]{64}$/)
+    })
+    await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
+  })
+
+  it('flushes queued workspace writes before shutdown', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    const pending = store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }], history: []
+    })
+
+    await store.flush()
+    await pending
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'] } }
+    })
+  })
+
   it('keeps an older v1 manifest recoverable when it has no scan staging fields', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

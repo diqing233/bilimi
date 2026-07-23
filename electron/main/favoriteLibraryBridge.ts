@@ -55,13 +55,56 @@ function sourceFavoriteId(snapshot: Pick<AccountFavoriteRepositorySnapshot, 'fol
   return remoteFolderId
 }
 
-function archiveForAid(archives: readonly VideoNoteArchiveEntry[], requestedAccountMid: string, requestedAid: number) {
+function archiveForAid(
+  archives: readonly VideoNoteArchiveEntry[],
+  requestedAccountMid: string,
+  requestedAid: number,
+  requestedCid?: unknown
+) {
+  const cid = requestedCid === undefined ? undefined : aid(requestedCid)
+  const identity = new RegExp(`^account:${requestedAccountMid}:aid:${requestedAid}(?::cid:(\\d+))?$`)
+  const identified = archives.flatMap((archive) => archive.versions
+    .map((version) => ({ archive, version, identity: version.note.id.match(identity) }))
+    .filter((candidate) => candidate.identity && (cid === undefined || candidate.identity[1] === String(cid))))
+  if (identified.length) {
+    if (cid === undefined && new Set(identified.map((candidate) => candidate.identity?.[1] ?? '')).size > 1) {
+      throw new Error('该视频有多个分P档案，请选择具体分P。')
+    }
+    const selected = identified.sort((left, right) => right.archive.updatedAt.localeCompare(left.archive.updatedAt))[0]
+    return { archive: selected.archive, version: selected.version }
+  }
+  // A page-specific request must never silently fall back to a legacy aid-only
+  // record. The fallback below exists only for unambiguous historic archives.
+  if (cid !== undefined) throw new Error('该视频暂无本地档案，请先完成转写。')
   const archive = archives
     .filter((candidate) => candidate.source.accountMid === requestedAccountMid && new RegExp(`/video/av${requestedAid}(?:[/?#]|$)`, 'i').test(candidate.source.url))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
   const version = archive?.versions.at(-1)
   if (!archive || !version) throw new Error('该视频暂无本地档案，请先完成转写。')
   return { archive, version }
+}
+
+function archiveNavigationForVideo(
+  archives: readonly VideoNoteArchiveEntry[],
+  requestedAccountMid: string,
+  requestedAid: number,
+  requestedCid?: unknown
+) {
+  const cid = requestedCid === undefined ? undefined : aid(requestedCid)
+  const identity = new RegExp(`^account:${requestedAccountMid}:aid:${requestedAid}(?::cid:(\\d+))?$`)
+  const matches = archives.flatMap((archive) => archive.versions
+    .map((version) => ({ archive, version, identity: version.note.id.match(identity) }))
+    .filter((candidate) => candidate.identity && (cid === undefined || candidate.identity[1] === String(cid))))
+  if (!matches.length && cid === undefined) {
+    const legacy = archiveForAid(archives, requestedAccountMid, requestedAid)
+    return { archiveId: legacy.archive.id, versionId: legacy.version.id }
+  }
+  if (!matches.length) throw new Error('该视频暂无本地档案，请先完成转写。')
+  if (cid === undefined && new Set(matches.map((candidate) => candidate.identity?.[1] ?? '')).size > 1) {
+    throw new Error('该视频有多个分P档案，请选择具体分P。')
+  }
+  const selected = matches.sort((left, right) => right.archive.updatedAt.localeCompare(left.archive.updatedAt))[0]
+  return { archiveId: selected.archive.id, versionId: selected.version.id }
 }
 
 /** Exposes only ID-based library actions; URL construction remains in the main process. */
@@ -102,10 +145,22 @@ export function registerFavoriteLibraryBridgeIpc(options: {
     const remoteFolderId = sourceFavoriteId(await options.getSnapshot(currentAccount), folderId(requestedFolderId))
     options.openMainUrl(`https://space.bilibili.com/${currentAccount}/favlist?fid=${remoteFolderId}&ftype=create`)
   })
-  options.ipcMain.handle('favorite-library:toggle-archive-star', async (event, requestedAccountMid: string, requestedAid: number) => {
+  options.ipcMain.handle('favorite-library:resolve-archive', async (
+    event,
+    requestedAccountMid: string,
+    requestedAid: number,
+    requestedCid?: number
+  ) => {
     assertLibrary(event)
     const currentAccount = await assertCurrentAccount(requestedAccountMid)
-    const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid))
+    return archiveNavigationForVideo(options.loadArchives(), currentAccount, aid(requestedAid), requestedCid)
+  })
+  options.ipcMain.handle('favorite-library:toggle-archive-star', async (
+    event, requestedAccountMid: string, requestedAid: number, requestedCid?: number
+  ) => {
+    assertLibrary(event)
+    const currentAccount = await assertCurrentAccount(requestedAccountMid)
+    const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid), requestedCid)
     options.updateArchiveVersion(archive.id, version.id, {
       ...version.note,
       starred: !version.note.starred,
@@ -116,12 +171,13 @@ export function registerFavoriteLibraryBridgeIpc(options: {
     event,
     requestedAccountMid: string,
     requestedAid: number,
-    memo: unknown
+    memo: unknown,
+    requestedCid?: number
   ) => {
     assertLibrary(event)
     const currentAccount = await assertCurrentAccount(requestedAccountMid)
     if (typeof memo !== 'string' || memo.length > 10_000) throw new Error('备注内容无效。')
-    const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid))
+    const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid), requestedCid)
     options.updateArchiveVersion(archive.id, version.id, {
       ...version.note,
       userMemo: memo.trim(),

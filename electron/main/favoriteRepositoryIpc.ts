@@ -10,6 +10,8 @@ import type {
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryLibraryDetail, FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteLibraryCommandService, FavoriteLibraryCommandResult, FavoriteLibraryPlacementInput } from './favoriteLibraryCommands'
+import type { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
 
 type IpcEvent = {
   sender: {
@@ -103,10 +105,11 @@ function normalizedAccountMid(value: unknown) {
 function pageOptions(value: unknown): FolderPageOptions {
   if (!value || typeof value !== 'object') throw new Error('Favorite repository page options are invalid.')
   const { limit, cursor } = value as Partial<FolderPageOptions>
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || (cursor !== undefined && typeof cursor !== 'string')) {
+  if (!Number.isSafeInteger(limit) || !(limit && limit >= 1 && limit <= 500) || (cursor !== undefined && typeof cursor !== 'string')) {
     throw new Error('Favorite repository page options are invalid.')
   }
-  return cursor ? { limit: limit!, cursor } : { limit: limit! }
+  const validatedLimit = limit as number
+  return cursor ? { limit: validatedLimit, cursor } : { limit: validatedLimit }
 }
 
 function libraryPageScope(value: unknown): LibraryPageScope {
@@ -125,6 +128,32 @@ function libraryPageScope(value: unknown): LibraryPageScope {
 function videoAid(value: unknown) {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error('Favorite library video is invalid.')
   return Number(value)
+}
+
+function expectedRevision(value: unknown) {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error('Favorite library revision is invalid.')
+  return Number(value)
+}
+
+function localPlacementInputs(value: unknown): FavoriteLibraryPlacementInput[] {
+  if (!Array.isArray(value) || !value.length || value.length > 100) throw new Error('Favorite library placement is invalid.')
+  const seen = new Set<number>()
+  return value.map((item) => {
+    if (!item || typeof item !== 'object') throw new Error('Favorite library placement is invalid.')
+    const candidate = item as { aid?: unknown; folderIds?: unknown }
+    const aid = videoAid(candidate.aid)
+    if (seen.has(aid) || !Array.isArray(candidate.folderIds) || candidate.folderIds.some((folderId) =>
+      typeof folderId !== 'string' || !folderId.trim() || !folderId.trim().startsWith('bilimi-logical:'))) {
+      throw new Error('Favorite library placement requires logical folder IDs.')
+    }
+    seen.add(aid)
+    return { aid, folderIds: [...new Set(candidate.folderIds.map((folderId) => folderId.trim()))].sort() }
+  })
+}
+
+function restoreMode(value: unknown): 'safe' | 'full' {
+  if (value === 'safe' || value === 'full') return value
+  throw new Error('Favorite repository restore mode is invalid.')
 }
 
 function commandForAccount(value: unknown, accountMid: string): FavoriteRepositoryCommand {
@@ -218,6 +247,8 @@ export function registerFavoriteRepositoryIpc(options: {
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
+  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone'>
+  archiveService?: Pick<FavoriteRepositoryArchiveService, 'exportAccount' | 'previewImport' | 'applyImport' | 'createRestorePlan'>
 }) {
   const subscriptions = new Map<number, Map<string, Subscription>>()
   const assertTrusted = (event: IpcEvent) => {
@@ -348,6 +379,66 @@ export function registerFavoriteRepositoryIpc(options: {
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return options.service.getOrganizationChanges(accountMid)
+  })
+  options.ipcMain.handle('favorite-library:set-local-placements', async (
+    event, requestedAccountMid: string, requestedPlacements: unknown, requestedRevision: unknown, synchronize: unknown
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (synchronize !== undefined && typeof synchronize !== 'boolean') throw new Error('Favorite library synchronization option is invalid.')
+    if (!options.commandService) throw new Error('Favorite library placement is unavailable.')
+    return options.commandService.setLocalPlacements(accountMid, localPlacementInputs(requestedPlacements), expectedRevision(requestedRevision), synchronize === true)
+  })
+  options.ipcMain.handle('favorite-library:adopt-remote-placement', async (event, requestedAccountMid: string, requestedAid: unknown, requestedRevision: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.commandService) throw new Error('Favorite library placement is unavailable.')
+    return options.commandService.adoptRemotePlacement(accountMid, videoAid(requestedAid), expectedRevision(requestedRevision))
+  })
+  for (const [channel, method] of [
+    ['favorite-library:delete-from-library', 'deleteFromLibrary'],
+    ['favorite-library:restore-to-library', 'restoreToLibrary'],
+    ['favorite-library:forget-tombstone', 'forgetTombstone']
+  ] as const) {
+    options.ipcMain.handle(channel, async (event, requestedAccountMid: string, requestedAid: unknown, requestedRevision: unknown) => {
+      assertTrusted(event)
+      const accountMid = normalizedAccountMid(requestedAccountMid)
+      await assertCurrentAccount(accountMid)
+      if (!options.commandService) throw new Error('Favorite library lifecycle action is unavailable.')
+      return options.commandService[method](accountMid, videoAid(requestedAid), expectedRevision(requestedRevision))
+    })
+  }
+  options.ipcMain.handle('favorite-repository:archive-export', async (event, requestedAccountMid: string) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.archiveService) throw new Error('Favorite repository archive is unavailable.')
+    return options.archiveService.exportAccount(accountMid)
+  })
+  options.ipcMain.handle('favorite-repository:archive-preview-import', async (event, requestedAccountMid: string, input: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.archiveService) throw new Error('Favorite repository archive is unavailable.')
+    return options.archiveService.previewImport(input, accountMid)
+  })
+  options.ipcMain.handle('favorite-repository:archive-apply-import', async (event, requestedAccountMid: string, input: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.archiveService) throw new Error('Favorite repository archive is unavailable.')
+    return options.archiveService.applyImport(input, accountMid)
+  })
+  options.ipcMain.handle('favorite-repository:archive-restore-plan', async (event, requestedAccountMid: string, input: unknown, observed: unknown, mode: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.archiveService || !observed || typeof observed !== 'object' || Array.isArray(observed)) throw new Error('Favorite repository archive is unavailable.')
+    const plan = options.archiveService.createRestorePlan(input as never, observed as never, restoreMode(mode))
+    if (normalizedAccountMid(plan.accountMid) !== accountMid) throw new Error('Favorite repository archive account mismatch.')
+    return plan
   })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand

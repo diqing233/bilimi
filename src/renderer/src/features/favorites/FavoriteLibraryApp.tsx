@@ -3,7 +3,8 @@ import type { FavoriteRepositoryFolder } from '@shared/favoriteRepository'
 import type {
   FavoriteRepositoryLibraryPage,
   FavoriteRepositoryLibraryVideoDetail,
-  FavoriteRepositorySnapshotSummary
+  FavoriteRepositorySnapshotSummary,
+  FavoriteRepositoryEventPage
 } from '../../../../../electron/main/favoriteRepositoryIpc'
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import {
@@ -23,8 +24,9 @@ type FavoriteLibraryDesktopExtensions = {
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
   openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
   openFavoriteLibrarySource?: (accountMid: string, folderId: string) => Promise<void>
-  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number) => Promise<void>
-  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string) => Promise<void>
+  resolveFavoriteLibraryArchive?: (accountMid: string, aid: number, cid?: number) => Promise<{ archiveId: string; versionId: string }>
+  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number, cid?: number) => Promise<void>
+  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string, cid?: number) => Promise<void>
 }
 
 const text = {
@@ -111,6 +113,8 @@ export function FavoriteLibraryApp({
   const [error, setError] = useState<string>()
   const [selectedAids, setSelectedAids] = useState<number[]>([])
   const [organizationChanges, setOrganizationChanges] = useState<Array<{ id: string; aid: number; status: string; beforeFolderIds: string[]; afterFolderIds: string[] }>>([])
+  const [events, setEvents] = useState<FavoriteRepositoryEventPage>()
+  const [eventsOpen, setEventsOpen] = useState(false)
   const requestIdRef = useRef(0)
 
   useEffect(() => {
@@ -202,6 +206,8 @@ export function FavoriteLibraryApp({
   useEffect(() => {
     let disposed = false
     setDetailSnapshot(undefined)
+    setEvents(undefined)
+    setEventsOpen(false)
     if (!accountMid || !selected || !window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail) return
     void window.bilimiDesktop.getFavoriteRepositoryLibraryVideoDetail(accountMid, selected.aid)
       .then((snapshot) => { if (!disposed) setDetailSnapshot(snapshot) })
@@ -218,7 +224,7 @@ export function FavoriteLibraryApp({
   const activeRow = selected && page?.items.find((item) => item.video.aid === selected.aid)
   const detail = selected && activeRow ? buildFavoriteLibraryDetail(
     detailSnapshot?.video.aid === selected.aid
-      ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates] }
+      ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates].filter((state) => state !== 'transcription') }
       : selected,
     folders,
     { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)].filter((state) => state !== 'transcription') }
@@ -256,6 +262,51 @@ export function FavoriteLibraryApp({
     } catch {
       setError(text.actionFailed)
     }
+  }
+  const loadEvents = async () => {
+    if (!accountMid || !selected || !window.bilimiDesktop?.getFavoriteRepositoryVideoEvents) throw new Error(text.unavailable)
+    try {
+      setError(undefined)
+      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selected.aid, { limit: 20 })
+      setEvents(next)
+      setEventsOpen(true)
+    } catch {
+      setError(text.actionFailed)
+    }
+  }
+  const loadMoreEvents = async () => {
+    if (!accountMid || !selected || !events?.nextCursor || !window.bilimiDesktop?.getFavoriteRepositoryVideoEvents) return
+    try {
+      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selected.aid, { limit: 20, cursor: events.nextCursor })
+      setEvents((current) => current ? {
+        ...next,
+        items: [...current.items, ...next.items.filter((event) => !current.items.some((existing) => existing.id === event.id))]
+      } : next)
+    } catch {
+      setError(text.actionFailed)
+    }
+  }
+  const setLocalPlacement = async (folderIds: string[]) => {
+    if (!accountMid || !selected || !detailSnapshot || !window.bilimiDesktop?.setFavoriteLibraryLocalPlacements) {
+      throw new Error(text.unavailable)
+    }
+    await window.bilimiDesktop.setFavoriteLibraryLocalPlacements(
+      accountMid, [{ aid: selected.aid, folderIds }], detailSnapshot.revision, false
+    )
+  }
+  const adoptRemotePlacement = async () => {
+    if (!accountMid || !selected || !detailSnapshot || !window.bilimiDesktop?.adoptFavoriteLibraryRemotePlacement) {
+      throw new Error(text.unavailable)
+    }
+    await window.bilimiDesktop.adoptFavoriteLibraryRemotePlacement(accountMid, selected.aid, detailSnapshot.revision)
+  }
+  const openArchiveDetail = async () => {
+    if (!accountMid || !detailSnapshot || !window.bilimiDesktop?.resolveFavoriteLibraryArchive || !window.bilimiDesktop.openFloatingAssistantWorkspace) {
+      throw new Error(text.unavailable)
+    }
+    // Main resolves the private archive identity; the host currently opens its archive view safely without renderer IDs.
+    await window.bilimiDesktop.resolveFavoriteLibraryArchive(accountMid, detailSnapshot.video.aid, detailSnapshot.video.cid)
+    await window.bilimiDesktop.openFloatingAssistantWorkspace({ tab: 'notes', openNoteArchive: true })
   }
   const currentFolderId = scope.kind === 'folder' ? scope.folderId : undefined
   const syncCurrentFolder = currentFolderId && folders.find((folder) => folder.id === currentFolderId)?.kind !== 'bilibili'
@@ -346,6 +397,8 @@ export function FavoriteLibraryApp({
             })}>{text.openVideo}</button> : null}</div><p>{detail.author ?? text.unknownAuthor} · 视频 ID: {detail.aid}</p>
             <p>{detail.description ?? text.noDescription}</p>
             <section className="favorite-library__status-tags" aria-label="视频状态"><button type="button" aria-label="资料状态说明">{formatFavoriteLibraryMetadataStatus(detailSnapshot?.mirror.status, detail.title === 'Video + ID' || !detail.author)}</button><button type="button" aria-label="整理状态说明">{formatFavoriteLibraryOrganizationStatus(detail.pendingStates)}</button>{detailSnapshot?.protected ? <button type="button" aria-label="保护状态说明">已保护</button> : null}<button type="button" aria-label="位置状态说明">{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</button></section>
+            <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()} aria-expanded={eventsOpen}>查看完整处理记录</button>{eventsOpen ? <><ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {event.occurredAt}</li>)}</ol>{events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更多处理记录</button> : null}</> : null}</section>
+            <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}</section>
             <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次刷新: ${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
             <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid && folder.kind === 'bilibili' ? <button type="button" onClick={() => void runDetailAction(async () => {
                const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
@@ -358,14 +411,14 @@ export function FavoriteLibraryApp({
               await api.openFavoriteLibrarySource(accountMid, shard.folderId)
             })}>{`打开第 ${shard.shardNumber} 分册`}</button> : null}</li>)}</ul></section> : null}
             <section><h3>{text.scan}</h3><p>{text.videoId}: {detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号: {detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长: {Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区: {detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签: {detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}: {detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
-            <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" onClick={() => void runDetailAction(async () => {
+            <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(openArchiveDetail)}>查看档案详情</button><button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.toggleFavoriteLibraryArchiveStar) throw new Error(text.unavailable)
-              await api.toggleFavoriteLibraryArchiveStar(accountMid, detail.aid)
+              await api.toggleFavoriteLibraryArchiveStar(accountMid, detail.aid, detailSnapshot?.video.cid)
             })}>{detailSnapshot.archive.starred ? text.unstar : text.star}</button><label>备注<textarea aria-label="档案备注" value={memoDraft} onChange={(event) => setMemoDraft(event.currentTarget.value)} /></label><button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.saveFavoriteLibraryArchiveMemo) throw new Error(text.unavailable)
-              await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft)
+              await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft, detailSnapshot?.video.cid)
             })}>{text.saveMemo}</button></> : null}</section>
             {detail.pendingStates.length ? <p>{text.pendingStates}{formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p> : null}
           </aside>

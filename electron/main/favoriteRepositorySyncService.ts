@@ -6,6 +6,7 @@ import {
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
+import { randomUUID } from 'node:crypto'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
@@ -426,6 +427,128 @@ export class FavoriteRepositorySyncService {
       issuedAt: this.now(),
       type: 'record-organization-protections',
       payload: { records }
+    })
+  }
+
+  /**
+   * Applies already-persisted local intent. Unlike a frozen organization plan,
+   * this never changes the workspace and always uses the account arbiter.
+   */
+  async synchronizePlacements(accountMid: string, requestedAids: number[]) {
+    const account = normalizeAccountMid(accountMid)
+    const aids = [...new Set(requestedAids)].sort((left, right) => left - right)
+    if (!aids.length || aids.length > 100 || aids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
+      throw new Error('Favorite placement selection is invalid.')
+    }
+    const run = () => this.synchronizePlacementsNow(account, aids)
+    // User initiated batches must share the same serial remote lane as every
+    // other Bilibili write; a later per-video intent supersedes only queued work.
+    return this.options.remoteOperations
+      ? Promise.all(aids.map((aid) => this.options.remoteOperations!.enqueue(account, {
+        priority: aids.length === 1 ? 'user-single' : 'bulk', videoKey: `placement:${aid}`
+      }, async () => this.synchronizePlacementsNow(account, [aid])))).then((results) => this.mergePlacementResults(results))
+      : run()
+  }
+
+  private async synchronizePlacementsNow(account: string, aids: number[]) {
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const runId = `favorite-placement:${randomUUID()}`
+    const bridge = this.pageBridge(account, runId)
+    let completed = 0
+    let status: 'succeeded' | 'failed' | 'queued' = 'succeeded'
+    for (const aid of aids) {
+      const current = await this.options.repository.getSnapshot(account)
+      const placement = current.positions[`${account}:${aid}`]
+      if (!placement) {
+        status = 'failed'
+        continue
+      }
+      const desiredLogicalIds = new Set(placement.localDesiredFolderIds)
+      // A logical warehouse can be represented by several physical shards, but
+      // a local placement means membership of the warehouse, not duplication in
+      // every shard. Prefer an already observed shard for continuity; otherwise
+      // choose the stable first bound shard. Capacity reconciliation/creation is
+      // handled by the managed-folder execution path before a shard is bound.
+      const desiredShards = [...desiredLogicalIds].flatMap((logicalId) => {
+        const candidates = current.physicalShards
+          .filter((shard) => `bilimi-logical:${shard.logicalLedgerId}` === logicalId &&
+            shard.bindingState === 'bound' && shard.remoteFolderId)
+          .sort((left, right) => left.shardNumber - right.shardNumber || left.folderId.localeCompare(right.folderId))
+        const retained = candidates.find((shard) => placement.remoteObservedPhysicalFolderIds.includes(shard.remoteFolderId!))
+        return retained ?? candidates[0] ? [retained ?? candidates[0]] : []
+      })
+      const resolvedLogicalIds = new Set(desiredShards.map((shard) => `bilimi-logical:${shard.logicalLedgerId}`))
+      if (resolvedLogicalIds.size !== desiredLogicalIds.size) {
+        await this.writePlacement(account, placement, {
+          positionState: 'target-missing', reason: 'logical-target-unbound'
+        })
+        status = 'failed'
+        continue
+      }
+      const desiredRemoteIds = [...new Set(desiredShards.map((shard) => shard.remoteFolderId!))].sort()
+      const observedRemoteIds = [...new Set(placement.remoteObservedPhysicalFolderIds)].sort()
+      const appendIds = desiredRemoteIds.filter((folderId) => !observedRemoteIds.includes(folderId))
+      const removeIds = observedRemoteIds.filter((folderId) => !desiredRemoteIds.includes(folderId) &&
+        current.physicalShards.some((shard) => shard.remoteFolderId === folderId && shard.bindingState === 'bound'))
+      await this.writePlacement(account, placement, { positionState: 'syncing', reason: undefined })
+      try {
+        if (appendIds.length) {
+          const result = await this.writeToRemote(() => bridge.append({ accountMid: account, operationKey: `${runId}:${aid}:append`, aid, folderIds: appendIds }))
+          this.assertObservedAccount(account, result.observedAccountMid)
+        }
+        if (removeIds.length) {
+          const result = await this.writeToRemote(() => bridge.remove({ accountMid: account, operationKey: `${runId}:${aid}:remove`, aid, folderIds: removeIds }))
+          this.assertObservedAccount(account, result.observedAccountMid)
+        }
+        await this.writePlacement(account, placement, {
+          remoteObservedPhysicalFolderIds: desiredRemoteIds,
+          remoteObservedLogicalFolderIds: [...desiredLogicalIds],
+          positionState: 'aligned', observedAt: this.now(), reason: undefined
+        })
+        completed++
+      } catch (error) {
+        const knownFailure = isConfirmedRemoteRejection(error)
+        await this.writePlacement(account, placement, {
+          positionState: knownFailure ? 'failed' : 'result-unknown',
+          reason: error instanceof Error ? error.message : String(error)
+        })
+        status = 'failed'
+        // An unknown response cannot be followed by more writes in this user batch.
+        if (!knownFailure) break
+      }
+    }
+    this.options.pageBridgeManager?.release(account, runId)
+    return { status, completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
+  }
+
+  private mergePlacementResults(results: Array<{ status: 'succeeded' | 'failed' | 'queued'; completedOperationCount: number; totalOperationCount: number; affectedAids: number[] }>) {
+    const affectedAids = [...new Set(results.flatMap((result) => result.affectedAids))].sort((left, right) => left - right)
+    return {
+      status: results.some((result) => result.status === 'failed') ? 'failed' : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded' as const,
+      completedOperationCount: results.reduce((total, result) => total + result.completedOperationCount, 0),
+      totalOperationCount: affectedAids.length,
+      affectedAids
+    }
+  }
+
+  private async writePlacement(
+    account: string,
+    prior: AccountFavoriteRepositorySnapshot['positions'][string],
+    change: Partial<Pick<AccountFavoriteRepositorySnapshot['positions'][string],
+      'remoteObservedPhysicalFolderIds' | 'remoteObservedLogicalFolderIds' | 'positionState' | 'observedAt' | 'reason'>>
+  ) {
+    await this.options.repository.commit(account, {
+      id: `favorite-placement-projection:${account}:${prior.aid}:${randomUUID()}`,
+      accountMid: account, issuedAt: this.now(), type: 'set-favorite-placement',
+      payload: {
+        aid: prior.aid, localDesiredFolderIds: [...prior.localDesiredFolderIds],
+        remoteObservedPhysicalFolderIds: change.remoteObservedPhysicalFolderIds ?? [...prior.remoteObservedPhysicalFolderIds],
+        remoteObservedLogicalFolderIds: change.remoteObservedLogicalFolderIds ?? [...prior.remoteObservedLogicalFolderIds],
+        positionState: change.positionState ?? prior.positionState,
+        ...(change.observedAt !== undefined ? { observedAt: change.observedAt } : prior.observedAt ? { observedAt: prior.observedAt } : {}),
+        ...(change.reason !== undefined ? { reason: change.reason } : prior.reason ? { reason: prior.reason } : {}),
+        updatedAt: this.now()
+      }
     })
   }
 

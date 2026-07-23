@@ -121,10 +121,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:open-video', accountMid, aid) as Promise<void>,
   openFavoriteLibrarySource: (accountMid: string, folderId: string) =>
     ipcRenderer.invoke('favorite-library:open-source', accountMid, folderId) as Promise<void>,
-  toggleFavoriteLibraryArchiveStar: (accountMid: string, aid: number) =>
-    ipcRenderer.invoke('favorite-library:toggle-archive-star', accountMid, aid) as Promise<void>,
-  saveFavoriteLibraryArchiveMemo: (accountMid: string, aid: number, memo: string) =>
-    ipcRenderer.invoke('favorite-library:save-archive-memo', accountMid, aid, memo) as Promise<void>,
+  resolveFavoriteLibraryArchive: (accountMid: string, aid: number, cid?: number) =>
+    ipcRenderer.invoke('favorite-library:resolve-archive', accountMid, aid, cid) as Promise<{ archiveId: string; versionId: string }>,
+  toggleFavoriteLibraryArchiveStar: (accountMid: string, aid: number, cid?: number) =>
+    ipcRenderer.invoke('favorite-library:toggle-archive-star', accountMid, aid, cid) as Promise<void>,
+  saveFavoriteLibraryArchiveMemo: (accountMid: string, aid: number, memo: string, cid?: number) =>
+    ipcRenderer.invoke('favorite-library:save-archive-memo', accountMid, aid, memo, cid) as Promise<void>,
   onBilibiliAccountChanged: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('bilibili:account-changed', listener)
@@ -156,6 +158,24 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
+  setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
+    ipcRenderer.invoke('favorite-library:set-local-placements', accountMid, placements, expectedRevision, synchronize) as Promise<FavoriteLibraryCommandResult>,
+  adoptFavoriteLibraryRemotePlacement: (accountMid: string, aid: number, expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library:adopt-remote-placement', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  deleteFavoriteLibraryVideo: (accountMid: string, aid: number, expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library:delete-from-library', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  restoreFavoriteLibraryVideo: (accountMid: string, aid: number, expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library:restore-to-library', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  forgetFavoriteLibraryTombstone: (accountMid: string, aid: number, expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library:forget-tombstone', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  exportFavoriteRepositoryArchive: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-repository:archive-export', accountMid) as Promise<unknown>,
+  previewFavoriteRepositoryArchiveImport: (accountMid: string, input: unknown) =>
+    ipcRenderer.invoke('favorite-repository:archive-preview-import', accountMid, input) as Promise<unknown>,
+  applyFavoriteRepositoryArchiveImport: (accountMid: string, input: unknown) =>
+    ipcRenderer.invoke('favorite-repository:archive-apply-import', accountMid, input) as Promise<unknown>,
+  createFavoriteRepositoryArchiveRestorePlan: (accountMid: string, input: unknown, observed: unknown, mode: 'safe' | 'full') =>
+    ipcRenderer.invoke('favorite-repository:archive-restore-plan', accountMid, input, observed, mode) as Promise<unknown>,
   enqueueFavoriteLibraryTranscription: (
     accountMid: string,
     input: { aids: number[]; summarizeWithDeepSeek?: boolean }

@@ -23,6 +23,79 @@ function createService() {
 }
 
 describe('FavoriteLibraryCommandService', () => {
+  it('commits a deduplicated local placement batch before queuing remote work', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    const synchronizePlacements = vi.fn().mockResolvedValue({ status: 'queued', affectedAids: [1] })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      placementSync: { synchronizePlacements }
+    })
+
+    await expect(service.setLocalPlacements('100', [{ aid: 1, folderIds: ['bilimi-logical:music'] }], 4, true))
+      .resolves.toMatchObject({ status: 'queued', affectedAids: [1] })
+
+    expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      expectedRevision: 4,
+      type: 'set-favorite-placements',
+      payload: expect.objectContaining({ placements: [expect.objectContaining({
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music']
+      })] })
+    }))
+    expect(synchronizePlacements).toHaveBeenCalledAfter(repository.commit as never)
+  })
+
+  it('keeps a frozen workspace local-only and does not start remote placement sync', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    repository.getSnapshot.mockResolvedValueOnce({ ...snapshot(), workspace: { id: 'w', status: 'frozen' } })
+    const synchronizePlacements = vi.fn()
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      placementSync: { synchronizePlacements }
+    })
+
+    await expect(service.setLocalPlacements('100', [{ aid: 1, folderIds: [] }], 4, true))
+      .resolves.toMatchObject({ status: 'queued', affectedAids: [1] })
+
+    expect(synchronizePlacements).not.toHaveBeenCalled()
+    expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'set-favorite-placements',
+      payload: expect.objectContaining({ placements: [expect.objectContaining({ positionState: 'local-only-change' })] })
+    }))
+  })
+
+  it('adopts observed remote logical folders as a revision-checked local intent', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    repository.getSnapshot.mockResolvedValueOnce({
+      ...snapshot(),
+      positions: { '100:1': {
+        accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['remote-game'], remoteObservedLogicalFolderIds: ['bilimi-logical:game'],
+        positionState: 'local-only-change', updatedAt: now(), revision: 4
+      } }
+    })
+    const service = new FavoriteLibraryCommandService({ repository: repository as never, refreshVideo, transcriptionQueue, now })
+
+    await service.adoptRemotePlacement('100', 1, 4)
+
+    expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'set-favorite-placement', expectedRevision: 4,
+      payload: expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:game'] })
+    }))
+  })
+
+  it('deletes, restores, and forgets local library tombstones without a remote writer', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    const service = new FavoriteLibraryCommandService({ repository: repository as never, refreshVideo, transcriptionQueue, now })
+
+    await service.deleteFromLibrary('100', 1, 4)
+    await service.restoreToLibrary('100', 1, 5)
+    await service.forgetTombstone('100', 1, 6)
+
+    expect(repository.commit).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ type: 'delete-favorite-from-library', expectedRevision: 4 }))
+    expect(repository.commit).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ type: 'restore-favorite-to-library', expectedRevision: 5 }))
+    expect(repository.commit).toHaveBeenNthCalledWith(3, '100', expect.objectContaining({ type: 'forget-favorite-tombstone', expectedRevision: 6 }))
+  })
+
   it('refreshes selected metadata locally and never receives a page bridge or remote write dependency', async () => {
     const { service, repository, refreshVideo } = createService()
 
@@ -68,12 +141,13 @@ describe('FavoriteLibraryCommandService', () => {
 
   it('refreshes metadata before enqueuing an unsynced video and pins the queue request to that snapshot', async () => {
     const { service, refreshVideo, transcriptionQueue } = createService()
+    refreshVideo.mockResolvedValueOnce({ aid: 1, title: '已刷新标题', bvid: 'BV1xx', cid: 70, tags: ['测试'], updatedAt: now() })
 
     await service.enqueueTranscription('100', [1], true)
 
     expect(refreshVideo).toHaveBeenCalledBefore(transcriptionQueue.enqueue as never)
     expect(transcriptionQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
-      accountMid: '100', aid: 1, bvid: 'BV1xx', title: '已刷新标题', metadataRevision: 5, summarizeWithDeepSeek: true
+      accountMid: '100', aid: 1, bvid: 'BV1xx', cid: 70, title: '已刷新标题', metadataRevision: 5, summarizeWithDeepSeek: true
     }))
   })
 })

@@ -35,6 +35,35 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
+  it('returns an account-validated recovery summary without starting scan or remote execution', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue({
+        ...snapshot,
+        status: 'executing' as const,
+        planReadiness: { selectedAidCount: 26, classifiedAidCount: 3, unclassifiedAidCount: 23 },
+        executionProgress: { completedOperationCount: 8, totalOperationCount: 26 }
+      }),
+      beginScan: vi.fn(),
+      executeFrozenBilibiliPlan: vi.fn()
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '00100')).resolves.toEqual({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'executing', currentSegmentId: 'segment-1',
+      currentStep: 'executing', plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23,
+      completedOperationCount: 8, totalOperationCount: 26
+    })
+    expect(coordinator.getSnapshot).toHaveBeenCalledWith('100')
+    expect(coordinator.beginScan).not.toHaveBeenCalled()
+    expect(coordinator.executeFrozenBilibiliPlan).not.toHaveBeenCalled()
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 8, '100')).rejects.toThrow('untrusted')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '200')).rejects.toThrow('current Bilibili account')
+  })
+
   it('runs DeepSeek only through a main-process current-segment service with no renderer result payload', async () => {
     const ipcMain = new FakeIpcMain()
     const deepSeekService = { organizeCurrentSegment: vi.fn().mockResolvedValue(snapshot) }

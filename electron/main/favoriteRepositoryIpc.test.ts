@@ -14,6 +14,42 @@ class FakeIpcMain {
 }
 
 describe('registerFavoriteRepositoryIpc', () => {
+  it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
+    const ipcMain = new FakeIpcMain()
+    const setLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      commandService: { setLocalPlacements } as never
+    })
+
+    await expect(ipcMain.invoke('favorite-library:set-local-placements', 7, '100', [
+      { aid: 1, folderIds: ['bilimi-logical:music'] }
+    ], 4, false)).resolves.toMatchObject({ status: 'succeeded' })
+    expect(setLocalPlacements).toHaveBeenCalledWith('100', [
+      { aid: 1, folderIds: ['bilimi-logical:music'] }
+    ], 4, false)
+    await expect(ipcMain.invoke('favorite-library:set-local-placements', 7, '100', [
+      { aid: 1, folderIds: ['bilimi:music:001'] }
+    ], 4, false)).rejects.toThrow('logical folder')
+  })
+
+  it('keeps archive import and restore-plan operations account-scoped and trusted', async () => {
+    const ipcMain = new FakeIpcMain()
+    const previewImport = vi.fn().mockReturnValue({ canApply: true })
+    const createRestorePlan = vi.fn().mockReturnValue({ mode: 'safe', accountMid: '100', operations: [] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      archiveService: { previewImport, createRestorePlan } as never
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:archive-preview-import', 7, '100', '{}')).resolves.toEqual({ canApply: true })
+    expect(previewImport).toHaveBeenCalledWith('{}', '100')
+    await expect(ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', {}, 'safe'))
+      .resolves.toEqual({ mode: 'safe', accountMid: '100', operations: [] })
+    await expect(ipcMain.invoke('favorite-repository:archive-preview-import', 8, '100', '{}')).rejects.toThrow('untrusted renderer')
+  })
   it('rejects every read and subscription for an account other than the current Bilibili account', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {

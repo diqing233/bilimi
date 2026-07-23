@@ -14,7 +14,7 @@ import {
   type OldFavoriteWorkspaceRecoveryRequired,
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
-import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
+import { isFavoriteRepositoryScanVisible, type FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
@@ -563,8 +563,17 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         }
       })
-      const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
+      let managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      // A local deletion is intentional. Do not let a later read-only scan recreate
+      // its mirror, remote-position projection, or incremental-protection record.
+      for (const aid of itemsByAid.keys()) {
+        if (!isFavoriteRepositoryScanVisible(repository, aid)) itemsByAid.delete(aid)
+      }
+      managedMembers = Object.fromEntries(Object.entries(managedMembers).map(([folderId, aids]) => [
+        folderId,
+        aids.filter((aid) => isFavoriteRepositoryScanVisible(repository, aid))
+      ]))
       let reusedTagItemCount = 0
       for (const item of itemsByAid.values()) {
         const saved = repository.videos[String(item.aid)]
@@ -619,11 +628,13 @@ export class OldFavoriteWorkspaceCoordinator {
       // A scan records remote facts only. Local placement remains the user's intent
       // until an explicit adopt/sync command changes it.
       const mirroredSnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
-      const logicalLedgerByRemoteFolderId = new Map(
-        mirroredSnapshot.physicalShards
-          .filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
-          .map((shard) => [shard.remoteFolderId!, `bilimi-logical:${shard.logicalLedgerId}`])
-      )
+      const logicalLedgerIdsByRemoteFolderId = new Map<string, Set<string>>()
+      for (const shard of mirroredSnapshot.physicalShards) {
+        if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+        const logicalIds = logicalLedgerIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
+        logicalIds.add(`bilimi-logical:${shard.logicalLedgerId}`)
+        logicalLedgerIdsByRemoteFolderId.set(shard.remoteFolderId, logicalIds)
+      }
       const observedPhysicalFolderIdsByAid = new Map<number, Set<string>>()
       const recordObservedFolders = (aid: number, folderIds: readonly string[]) => {
         const observed = observedPhysicalFolderIdsByAid.get(aid) ?? new Set<string>()
@@ -641,12 +652,16 @@ export class OldFavoriteWorkspaceCoordinator {
         const existing = mirroredSnapshot.positions[`${workspace.accountMid}:${aid}`]
         const remoteObservedPhysicalFolderIds = [...observedPhysicalFolderIds].sort()
         if (!existing && !remoteObservedPhysicalFolderIds.some((folderId) => managedRemoteFolderIds.has(folderId))) continue
-        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds
-          .map((folderId) => logicalLedgerByRemoteFolderId.get(folderId))
-          .filter((folderId): folderId is string => Boolean(folderId)))].sort()
-        if (existing &&
+        const bindingConflict = remoteObservedPhysicalFolderIds.some((folderId) =>
+          (logicalLedgerIdsByRemoteFolderId.get(folderId)?.size ?? 0) > 1)
+        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds.flatMap((folderId) => {
+          const logicalIds = logicalLedgerIdsByRemoteFolderId.get(folderId)
+          return logicalIds?.size === 1 ? [...logicalIds] : []
+        }))].sort()
+        const unchangedObservedFolders = existing &&
           JSON.stringify(existing.remoteObservedPhysicalFolderIds) === JSON.stringify(remoteObservedPhysicalFolderIds) &&
-          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds)) continue
+          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds)
+        if (unchangedObservedFolders && (!bindingConflict || (existing.positionState === 'needs-review' && existing.reason === 'binding-conflict'))) continue
         await this.options.repository.commit(workspace.accountMid, {
           id: `old-favorite-workspace:observed:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}:${aid}`,
           accountMid: workspace.accountMid,
@@ -658,6 +673,7 @@ export class OldFavoriteWorkspaceCoordinator {
             remoteObservedPhysicalFolderIds,
             remoteObservedLogicalFolderIds,
             observedAt: mirrorUpdatedAt,
+            ...(bindingConflict ? { positionState: 'needs-review' as const, reason: 'binding-conflict' } : {}),
             updatedAt: mirrorUpdatedAt
           }
         })
@@ -1679,13 +1695,6 @@ export class OldFavoriteWorkspaceCoordinator {
 
     if (snapshot.workspace) {
       const restored = await this.restoreFromStore(snapshot.workspace, snapshot.updatedAt)
-      // A process restart has no page bridge claim. Let the sync service turn an
-      // interrupted run into its durable reconciliation or retry-ready state.
-      if (!isRecoveryRequired(restored) && snapshot.workspace.status === 'executing' && snapshot.workspace.frozenSyncPlan && this.options.syncService) {
-        await this.options.syncService.executeFrozenPlan(snapshot.accountMid, snapshot.workspace.frozenSyncPlan)
-        const current = await this.options.repository.getSnapshot(snapshot.accountMid)
-        if (current.workspace) return this.restoreFromStore(current.workspace, current.updatedAt)
-      }
       return restored
     }
 

@@ -20,4 +20,38 @@ describe('FavoriteRepositoryRemoteOperationArbiter', () => {
     await Promise.all([first, second])
     expect(events).toEqual(['first-start', 'other', 'first-end', 'second'])
   })
+
+  it('runs queued operations by priority after the active operation finishes', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const events: string[] = []
+    let releaseActive: (() => void) | undefined
+    const active = arbiter.run('100', async () => {
+      events.push('active')
+      await new Promise<void>((resolve) => { releaseActive = resolve })
+    })
+    const bulk = arbiter.enqueue('100', { priority: 'bulk' }, async () => { events.push('bulk') })
+    const reconcile = arbiter.enqueue('100', { priority: 'reconcile' }, async () => { events.push('reconcile') })
+
+    releaseActive?.()
+    await Promise.all([active, bulk, reconcile])
+
+    expect(events).toEqual(['active', 'reconcile', 'bulk'])
+  })
+
+  it('replaces a pending intent for the same video with the newest intent', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const events: string[] = []
+    let releaseActive: (() => void) | undefined
+    const active = arbiter.run('100', async () => {
+      await new Promise<void>((resolve) => { releaseActive = resolve })
+    })
+    const first = arbiter.enqueue('100', { priority: 'bulk', videoKey: '100:42' }, async () => { events.push('first') })
+    const latest = arbiter.enqueue('100', { priority: 'user-single', videoKey: '100:42' }, async () => { events.push('latest') })
+
+    releaseActive?.()
+    await expect(first).rejects.toMatchObject({ code: 'REMOTE_OPERATION_SUPERSEDED' })
+    await latest
+
+    expect(events).toEqual(['latest'])
+  })
 })

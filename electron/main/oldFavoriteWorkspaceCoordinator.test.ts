@@ -278,6 +278,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('does not reintroduce a tombstoned video when finishing a later Bilibili scan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'deleted-locally', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'tombstone-favorite-video',
+      payload: { aid: 7, deletedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'formal', title: 'bilimi Archive', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { formal: [7] })
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilibili:formal': [] },
+      videos: {},
+      positions: {}
+    })
+  })
+
   it('projects a completed scan into remote placement without replacing local intent or adding a user event', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -310,6 +333,39 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteObservedPhysicalFolderIds: ['formal'],
       remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
       observedAt: '2026-07-19T00:00:00.000Z'
+    })
+  })
+
+  it('keeps a duplicate remote binding as a physical observation without choosing one logical target', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    for (const logicalLedgerId of ['music', 'games']) {
+      await repository.commit('100', {
+        id: `bind-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [],
+          remoteTitle: 'bilimi Shared', bindingState: 'bound', remoteFolderId: 'shared'
+        }
+      })
+    }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'shared', title: 'bilimi Shared', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { shared: [7] })
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:7': {
+          remoteObservedPhysicalFolderIds: ['shared'],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'needs-review',
+          reason: 'binding-conflict'
+        }
+      }
     })
   })
 
@@ -3251,7 +3307,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('asks the sync authority to recover an interrupted execution when reopening the workspace', async () => {
+  it('does not execute an interrupted frozen plan merely by reopening the workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -3275,7 +3331,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await restarted.getSnapshot('100')
 
-    expect(executeFrozenPlan).toHaveBeenCalledWith('100', plan)
+    expect(executeFrozenPlan).not.toHaveBeenCalled()
   })
 
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {

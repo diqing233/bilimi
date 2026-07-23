@@ -374,6 +374,33 @@ export class OldFavoriteWorkspaceStore {
     }
   }
 
+  /** Reads only the integrity-checked marker needed to offer a recovery action. */
+  async readRecoverySummary(accountMid: string, workspaceId: string) {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest || manifest.accountMid !== account) {
+      return { recovery: 'rebuild-required' as const, preserveCompletedLocalResults: true }
+    }
+    return {
+      workspaceId: manifest.workspaceId,
+      accountMid: manifest.accountMid,
+      status: manifest.status,
+      baselineRevision: manifest.baselineRevision,
+      currentSegmentId: manifest.currentSegmentId,
+      segmentCount: manifest.segments.length,
+      scanPageCount: manifest.scanPages?.length ?? 0,
+      overlayRevision: manifest.overlayRevision,
+      journalCursor: manifest.journalCursor,
+      manifestChecksum: manifest.checksum
+    }
+  }
+
+  /** Lets application shutdown wait for the serialized journal/manifest boundary. */
+  async flush() {
+    await this.operationTail
+  }
+
   async loadSegment(accountMid: string, workspaceId: string, segmentId: string): Promise<Segment> {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)

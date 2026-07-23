@@ -218,4 +218,60 @@ describe('favorite library bridge IPC', () => {
     expect(updateArchiveVersion).toHaveBeenNthCalledWith(1, 'archive-7', 'version-7', expect.objectContaining({ starred: true }))
     expect(updateArchiveVersion).toHaveBeenNthCalledWith(2, 'archive-7', 'version-7', expect.objectContaining({ userMemo: '稍后复习' }))
   })
+
+  it('edits the selected multi-P archive by cid and refuses an ambiguous aid-only edit', async () => {
+    const handlers = new Map<string, Handler>()
+    const updateArchiveVersion = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }), getCurrentAccountMid: vi.fn().mockResolvedValue('42'), getSnapshot: vi.fn(),
+      loadArchives: vi.fn().mockReturnValue([
+        { id: 'archive-p1', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7', tags: [] }, createdAt: '', updatedAt: '', versions: [{ id: 'version-p1', createdAt: '', plainTranscript: '', summaryText: '', note: { id: 'account:42:aid:7:cid:70', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', starred: false, createdAt: '', updatedAt: '' } }] },
+        { id: 'archive-p2', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7', tags: [] }, createdAt: '', updatedAt: '', versions: [{ id: 'version-p2', createdAt: '', plainTranscript: '', summaryText: '', note: { id: 'account:42:aid:7:cid:71', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7?p=2', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', starred: false, createdAt: '', updatedAt: '' } }] }
+      ]), updateArchiveVersion, openMainUrl: vi.fn()
+    })
+
+    await handlers.get('favorite-library:toggle-archive-star')?.({ sender: { id: 7 } }, '42', 7, 71)
+    await handlers.get('favorite-library:save-archive-memo')?.({ sender: { id: 7 } }, '42', 7, 'page 1 memo', 70)
+    await expect(handlers.get('favorite-library:toggle-archive-star')?.({ sender: { id: 7 } }, '42', 7)).rejects.toThrow('请选择具体分P')
+    expect(updateArchiveVersion).toHaveBeenCalledWith('archive-p2', 'version-p2', expect.objectContaining({ starred: true }))
+    expect(updateArchiveVersion).toHaveBeenCalledWith('archive-p1', 'version-p1', expect.objectContaining({ userMemo: 'page 1 memo' }))
+  })
+
+  it('resolves an archive navigation target by account, aid, and cid without renderer archive IDs', async () => {
+    const handlers = new Map<string, Handler>()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn(),
+      loadArchives: vi.fn().mockReturnValue([
+        {
+          id: 'archive-p1', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7', tags: [] }, createdAt: '', updatedAt: '',
+          versions: [{ id: 'version-p1', createdAt: '', plainTranscript: '', summaryText: '', note: { id: 'account:42:aid:7:cid:70', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', createdAt: '', updatedAt: '' } }]
+        },
+        {
+          id: 'archive-p2', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7', tags: [] }, createdAt: '', updatedAt: '',
+          versions: [{ id: 'version-p2', createdAt: '', plainTranscript: '', summaryText: '', note: { id: 'account:42:aid:7:cid:71', source: { accountMid: '42', title: 'Video', url: 'https://www.bilibili.com/video/av7?p=2', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', createdAt: '', updatedAt: '' } }]
+        }
+      ]),
+      updateArchiveVersion: vi.fn(), openMainUrl: vi.fn()
+    })
+
+    await expect(handlers.get('favorite-library:resolve-archive')?.({ sender: { id: 7 } }, '42', 7, 71)).resolves.toEqual({
+      archiveId: 'archive-p2', versionId: 'version-p2'
+    })
+    await expect(handlers.get('favorite-library:resolve-archive')?.({ sender: { id: 7 } }, '42', 7)).rejects.toThrow('请选择具体分P')
+  })
+
+  it('keeps a legacy account and aid archive reachable when no page is requested', async () => {
+    const { handlers } = createHarness()
+
+    await expect(handlers.get('favorite-library:resolve-archive')?.({ sender: { id: 7 } }, '42', 7)).resolves.toEqual({
+      archiveId: 'archive-7', versionId: 'version-7'
+    })
+    await expect(handlers.get('favorite-library:resolve-archive')?.({ sender: { id: 7 } }, '42', 7, 70)).rejects.toThrow('暂无本地档案')
+  })
 })

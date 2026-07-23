@@ -24,6 +24,19 @@ type IpcEvent = {
 }
 type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
 
+type WorkspaceRecoverySummary = {
+  accountMid: string
+  workspaceId: string
+  status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed' | 'rebuild-required'
+  currentSegmentId?: string
+  currentStep: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed' | 'rebuild-required'
+  plannedCount?: number
+  classifiedCount?: number
+  unclassifiedCount?: number
+  completedOperationCount?: number
+  totalOperationCount?: number
+}
+
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
   | { type: 'rebuild-corrupt-workspace' }
@@ -56,6 +69,30 @@ function normalizeAccountMid(value: unknown) {
     throw new Error('Old favorite workspace account is invalid.')
   }
   return BigInt(value.trim()).toString()
+}
+
+function recoverySummary(value: Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>): WorkspaceRecoverySummary | null {
+  if (!value) return null
+  if ('recovery' in value) {
+    return {
+      accountMid: value.accountMid,
+      workspaceId: value.workspaceId,
+      status: 'rebuild-required',
+      currentStep: 'rebuild-required'
+    }
+  }
+  return {
+    accountMid: value.accountMid,
+    workspaceId: value.workspaceId,
+    status: value.status,
+    currentSegmentId: value.currentSegment?.id,
+    currentStep: value.status,
+    plannedCount: value.planReadiness?.selectedAidCount,
+    classifiedCount: value.planReadiness?.classifiedAidCount,
+    unclassifiedCount: value.planReadiness?.unclassifiedAidCount,
+    completedOperationCount: value.executionProgress?.completedOperationCount,
+    totalOperationCount: value.executionProgress?.totalOperationCount
+  }
 }
 
 function validAssignments(value: unknown): value is ApplyWorkspaceClassificationBatchOptions['assignments'] {
@@ -170,6 +207,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   const snapshot = async (value: Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>) => value
   options.ipcMain.handle('old-favorite-workspace-v1:open', async (event, requestedAccountMid: string) => {
     return snapshot(await options.coordinator.getSnapshot(await assertAccount(event, requestedAccountMid)))
+  })
+  // Reading a recovery summary never resumes scanning, reconciliation, or remote writes.
+  options.ipcMain.handle('old-favorite-workspace-v1:recovery-summary', async (event, requestedAccountMid: string, ...args: unknown[]) => {
+    if (args.length !== 0) throw new Error('Old favorite workspace recovery summary arguments are invalid.')
+    return recoverySummary(await options.coordinator.getSnapshot(await assertAccount(event, requestedAccountMid)))
   })
   options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[]) => {
     const accountMid = await assertAccount(event, requestedAccountMid)

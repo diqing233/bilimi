@@ -16,6 +16,12 @@ export type FavoriteLibraryCommandResult = {
   affectedAids: number[]
 }
 
+export type FavoriteLibraryPlacementInput = { aid: number; folderIds: string[] }
+
+export type FavoriteLibraryPlacementSync = {
+  synchronizePlacements(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
+}
+
 type TranscriptionQueue = { enqueue(request: VideoAudioTranscriptionRequest): unknown }
 type RefreshedVideo = FavoriteRepositoryVideo
 type RefreshVideo = (accountMid: string, aid: number) => Promise<RefreshedVideo>
@@ -50,8 +56,118 @@ export class FavoriteLibraryCommandService {
       Partial<Pick<FavoriteRepositoryService, 'getLibraryFolderAids'>>
     refreshVideo: RefreshVideo
     transcriptionQueue: TranscriptionQueue
+    /** Optional so metadata refresh remains a strictly local operation. */
+    placementSync?: FavoriteLibraryPlacementSync
     now?: () => string
   }) {}
+
+  /** Saves the complete local logical membership set in one repository command. */
+  async setLocalPlacements(
+    accountMid: string,
+    requestedPlacements: FavoriteLibraryPlacementInput[],
+    expectedRevision: number,
+    synchronize = false
+  ): Promise<FavoriteLibraryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('收藏库版本无效。')
+    if (!Array.isArray(requestedPlacements) || !requestedPlacements.length || requestedPlacements.length > 100) {
+      throw new Error('所选视频无效。')
+    }
+    const seen = new Set<number>()
+    const placements = requestedPlacements.map((requested) => {
+      if (!requested || !Number.isSafeInteger(requested.aid) || requested.aid <= 0 || seen.has(requested.aid) || !Array.isArray(requested.folderIds)) {
+        throw new Error('所选视频无效。')
+      }
+      seen.add(requested.aid)
+      const localDesiredFolderIds = [...new Set(requested.folderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()
+      if (localDesiredFolderIds.some((folderId) => folderId === 'local:inbox' || !folderId.startsWith('bilimi-logical:'))) {
+        throw new Error('目标收藏夹无效。')
+      }
+      return { aid: requested.aid, localDesiredFolderIds }
+    })
+    const snapshot = await this.options.repository.getSnapshot(account)
+    if (snapshot.revision !== expectedRevision) throw new Error('已在其他页面调整，请重新加载。')
+    const timestamp = this.now()
+    await this.options.repository.commit(account, {
+      id: `favorite-library:placements:${account}:${randomUUID()}`,
+      accountMid: account,
+      issuedAt: timestamp,
+      expectedRevision,
+      type: 'set-favorite-placements',
+      payload: {
+        placements: placements.map((placement) => {
+          const prior = snapshot.positions?.[`${account}:${placement.aid}`]
+          return {
+            aid: placement.aid,
+            localDesiredFolderIds: placement.localDesiredFolderIds,
+            remoteObservedPhysicalFolderIds: prior?.remoteObservedPhysicalFolderIds ?? [],
+            remoteObservedLogicalFolderIds: prior?.remoteObservedLogicalFolderIds ?? [],
+            positionState: 'local-only-change' as const,
+            updatedAt: timestamp
+          }
+        })
+      }
+    })
+    const affectedAids = placements.map((placement) => placement.aid).sort((left, right) => left - right)
+    // A frozen old-favorite run owns remote writes until it has reached a terminal boundary.
+    if (synchronize && this.options.placementSync && !['frozen', 'executing', 'reconciling'].includes(snapshot.workspace?.status ?? '')) {
+      return this.options.placementSync.synchronizePlacements(account, affectedAids)
+    }
+    return { status: synchronize ? 'queued' : 'succeeded', completedOperationCount: 0, totalOperationCount: affectedAids.length, affectedAids }
+  }
+
+  async adoptRemotePlacement(accountMid: string, aid: number, expectedRevision: number): Promise<FavoriteLibraryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(aid) || aid <= 0 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('所选视频无效。')
+    const snapshot = await this.options.repository.getSnapshot(account)
+    if (snapshot.revision !== expectedRevision) throw new Error('已在其他页面调整，请重新加载。')
+    const prior = snapshot.positions?.[`${account}:${aid}`]
+    if (!prior) throw new Error('尚未扫描 B 站位置。')
+    const timestamp = this.now()
+    await this.options.repository.commit(account, {
+      id: `favorite-library:adopt-remote:${account}:${aid}:${randomUUID()}`,
+      accountMid: account,
+      issuedAt: timestamp,
+      expectedRevision,
+      type: 'set-favorite-placement',
+      payload: {
+        aid,
+        localDesiredFolderIds: [...prior.remoteObservedLogicalFolderIds],
+        remoteObservedPhysicalFolderIds: [...prior.remoteObservedPhysicalFolderIds],
+        remoteObservedLogicalFolderIds: [...prior.remoteObservedLogicalFolderIds],
+        positionState: 'aligned', observedAt: prior.observedAt, updatedAt: timestamp
+      }
+    })
+    return { status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [aid] }
+  }
+
+  async deleteFromLibrary(accountMid: string, aid: number, expectedRevision: number) {
+    return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'delete-favorite-from-library')
+  }
+
+  async restoreToLibrary(accountMid: string, aid: number, expectedRevision: number) {
+    return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'restore-favorite-to-library')
+  }
+
+  async forgetTombstone(accountMid: string, aid: number, expectedRevision: number) {
+    return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'forget-favorite-tombstone')
+  }
+
+  private async commitLocalLifecycle(
+    accountMid: string,
+    aid: number,
+    expectedRevision: number,
+    type: 'delete-favorite-from-library' | 'restore-favorite-to-library' | 'forget-favorite-tombstone'
+  ): Promise<FavoriteLibraryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(aid) || aid <= 0 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('所选视频无效。')
+    await this.options.repository.commit(account, {
+      id: `favorite-library:${type}:${account}:${aid}:${randomUUID()}`,
+      accountMid: account, issuedAt: this.now(), expectedRevision, type,
+      payload: type === 'delete-favorite-from-library' ? { aid, deletedAt: this.now(), reason: 'user-delete' } : { aid }
+    } as never)
+    return { status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [aid] }
+  }
 
   async syncSelection(accountMid: string, selection: FavoriteLibrarySyncSelection): Promise<FavoriteLibraryCommandResult> {
     const account = normalizeAccountMid(accountMid)
@@ -80,6 +196,7 @@ export class FavoriteLibraryCommandService {
         ...(video.author ? { author: video.author } : {}),
         ...(video.bvid ? { bvid: video.bvid } : {}),
         aid,
+        ...(video.cid ? { cid: video.cid } : {}),
         metadataRevision: persisted.metadataRevision,
         ...(summarizeWithDeepSeek ? { summarizeWithDeepSeek: true } : {})
       })

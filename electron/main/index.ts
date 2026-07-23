@@ -76,6 +76,7 @@ import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorksp
 import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
@@ -1234,7 +1235,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteLibraryCommandService = new FavoriteLibraryCommandService({
     repository: favoriteRepositoryService,
     transcriptionQueue: getVideoTranscriptionQueue(),
-    refreshVideo: refreshFavoriteLibraryVideo
+    refreshVideo: refreshFavoriteLibraryVideo,
+    placementSync: favoriteRepositorySyncService
+  })
+  const favoriteRepositoryArchiveService = new FavoriteRepositoryArchiveService({
+    repository: favoriteRepositoryService,
+    loadArchiveIndex: async (accountMid) => loadVideoNoteArchives(getDesktopStore()).flatMap((archive) =>
+      archive.source.accountMid === accountMid
+        ? archive.versions.flatMap((version) => {
+            const match = version.note.id.match(/^account:\d+:aid:(\d+)(?::cid:\d+)?$/)
+            return match ? [{ aid: Number(match[1]), archiveId: archive.id, registeredAt: version.createdAt }] : []
+          })
+        : []
+    ),
+    applyImportedArchive: (archive) => favoriteRepositoryService!.applyArchiveImport(archive.accountMid, {
+      validate: () => archive
+    })
   })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
@@ -1368,7 +1384,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     },
     getArchiveSummary: (accountMid, aid) => createFavoriteLibraryArchiveSummary(accountMid, aid, loadVideoNoteArchives(getDesktopStore())),
     getTranscriptionSummary: (accountMid, aid) =>
-      createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items)
+      createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
+    commandService: favoriteLibraryCommandService,
+    archiveService: favoriteRepositoryArchiveService
   })
   registerFavoriteLibraryCommandsIpc({
     ipcMain,

@@ -2,6 +2,10 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  createFavoriteRepositoryArchiveExport,
+  type FavoriteRepositoryArchiveExport
+} from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 
 const roots: string[] = []
@@ -17,6 +21,69 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('does not mutate the repository when archive import validation rejects', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'existing-video', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Existing', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    const before = await service.getSnapshot('100')
+
+    await expect(service.applyArchiveImport('100', {
+      validate: () => { throw new Error('archive checksum is invalid') }
+    })).rejects.toThrow('archive checksum is invalid')
+
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+  })
+
+  it('atomically imports local intent while preserving remote observations and recovering events after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'existing-video', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Remote video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'existing-position', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 2, localDesiredFolderIds: ['bilimi-logical:old'], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'failed', updatedAt: '2026-07-23T00:00:00.000Z', reason: 'timeout' }
+    })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '2': { aid: 2, title: 'Imported title', tags: ['saved'], updatedAt: '2026-07-22T00:00:00.000Z' } },
+      positions: {
+        '100:2': {
+          accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:new'],
+          remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change',
+          updatedAt: '2026-07-22T00:00:00.000Z', revision: 1
+        }
+      },
+      organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: [], completedAt: '2026-07-22T00:00:00.000Z' }]
+    }, {
+      generatedAt: '2026-07-23T00:00:00.000Z',
+      events: [{ id: 'import-event', sequence: 1, accountMid: '100', aid: 2, kind: 'manual-move', occurredAt: '2026-07-22T00:00:00.000Z' }],
+      archives: []
+    })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '2': { title: 'Imported title', tags: ['saved'] } },
+      positions: { '100:2': {
+        localDesiredFolderIds: ['bilimi-logical:new'], remoteObservedPhysicalFolderIds: ['bilibili:900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'failed', reason: 'timeout'
+      } },
+      memberships: { 'bilimi-logical:new': [2], 'bilimi-logical:old': [], 'local:inbox': [] }
+    })
+    const restarted = new FavoriteRepositoryService({ root })
+    await expect(restarted.getEventPage('100', 2, { limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'import-event' })]
+    })
+    expect((await readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(1)
+  })
+
   it('counts only actionable placement and remote-operation work as pending', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

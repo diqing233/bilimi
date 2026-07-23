@@ -53,6 +53,78 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositorySyncService', () => {
+  it('synchronizes a saved local placement through the per-account remote arbiter and projects the confirmed physical fact', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:1': expect.objectContaining({ positionState: 'aligned', remoteObservedPhysicalFolderIds: ['remote-music'] }) }
+    })
+  })
+
+  it('marks an unbound desired logical target as target-missing without attempting a remote write', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'failed', affectedAids: [1] })
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:1': expect.objectContaining({ positionState: 'target-missing' }) }
+    })
+  })
+
+  it('selects one deterministic bound shard for each logical placement instead of writing every shard', async () => {
+    const repository = await createRepository()
+    for (const [id, shardNumber, remoteFolderId] of [
+      ['music-1', 1, 'remote-music-1'], ['music-2', 2, 'remote-music-2']
+    ] as const) {
+      await repository.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [], remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await service.synchronizePlacements('100', [1])
+
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ folderIds: ['remote-music-1'] }))
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:1': expect.objectContaining({ remoteObservedPhysicalFolderIds: ['remote-music-1'] }) }
+    })
+  })
+
   it('rechecks only managed bound folders before deleting and stops at the first failure', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

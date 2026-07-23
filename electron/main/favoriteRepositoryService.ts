@@ -4,11 +4,17 @@ import { dirname, join } from 'node:path'
 import {
   applyFavoriteRepositoryCommand,
   createAccountFavoriteRepositorySnapshot,
+  createFavoriteRepositoryPositionKey,
+  deriveFavoriteRepositoryPositionState,
+  mergeFavoriteRepositoryVideo,
   type AccountFavoriteRepositorySnapshot,
+  type FavoriteRepositoryArchiveExport,
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
   type FavoriteRepositoryEvent,
+  type FavoriteRepositoryOrganizationRecord,
   type FavoriteRepositoryPage,
+  type FavoriteRepositoryPositionRecord,
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
@@ -366,6 +372,116 @@ export class FavoriteRepositoryService {
         }
       } : {})
     }
+  }
+
+  /**
+   * Imports only portable local data after the caller has completed parsing and checksum validation.
+   * Bilibili observations, credentials, and remote-operation evidence never come from an archive.
+   */
+  async applyArchiveImport(
+    accountMid: string,
+    input: { validate: () => FavoriteRepositoryArchiveExport & { checksum: string } | Promise<FavoriteRepositoryArchiveExport & { checksum: string }> }
+  ): Promise<FavoriteRepositoryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    const archive = await input.validate()
+    if (normalizeAccountMid(archive.accountMid) !== account) throw new Error('Favorite repository archive account mismatch.')
+    const commandId = `archive-import:${archive.checksum.toLowerCase()}`
+    this.pendingWriteCount++
+    return this.queue(async () => {
+      const cached = await this.load(account)
+      const repository = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account))
+      const existing = repository.commandResults[commandId]
+      if (existing) return this.resultFromReceipt(repository.snapshot, existing)
+
+      const importedAids = new Set<number>([
+        ...(archive.videos ?? []).map((video) => video.aid),
+        ...(archive.positions ?? []).map((position) => position.aid),
+        ...(archive.protections ?? []).map((record) => record.aid)
+      ])
+      const videos = { ...repository.snapshot.videos }
+      for (const video of archive.videos ?? []) {
+        videos[String(video.aid)] = mergeFavoriteRepositoryVideo(videos[String(video.aid)], video)
+      }
+      const positions = { ...repository.snapshot.positions }
+      const memberships = { ...repository.snapshot.memberships }
+      const affectedFolderIds = new Set<string>()
+      for (const imported of archive.positions ?? []) {
+        const key = createFavoriteRepositoryPositionKey(account, imported.aid)
+        const previous = positions[key]
+        const localDesiredFolderIds = [...new Set(imported.localDesiredFolderIds.map((id) => id.trim()).filter(Boolean))].sort()
+        const remoteObservedPhysicalFolderIds = previous?.remoteObservedPhysicalFolderIds ?? []
+        const remoteObservedLogicalFolderIds = previous?.remoteObservedLogicalFolderIds ?? []
+        positions[key] = {
+          accountMid: account,
+          aid: imported.aid,
+          localDesiredFolderIds,
+          remoteObservedPhysicalFolderIds: [...remoteObservedPhysicalFolderIds],
+          remoteObservedLogicalFolderIds: [...remoteObservedLogicalFolderIds],
+          positionState: previous && (remoteObservedPhysicalFolderIds.length || remoteObservedLogicalFolderIds.length)
+            ? previous.positionState
+            : deriveFavoriteRepositoryPositionState({
+              localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
+              positionState: imported.positionState
+            }),
+          ...(previous?.observedAt ? { observedAt: previous.observedAt } : {}),
+          updatedAt: imported.updatedAt,
+          ...(previous?.reason ? { reason: previous.reason } : {}),
+          revision: repository.snapshot.revision + 1
+        }
+        const formalFolderIds = Object.keys(memberships).filter((folderId) =>
+          (folderId.startsWith('local:') && folderId !== 'local:inbox') || folderId.startsWith('bilimi-logical:'))
+        for (const folderId of new Set([...formalFolderIds, ...localDesiredFolderIds])) {
+          const members = new Set(memberships[folderId] ?? [])
+          if (localDesiredFolderIds.includes(folderId)) members.add(imported.aid)
+          else members.delete(imported.aid)
+          memberships[folderId] = [...members].sort((left, right) => left - right)
+          affectedFolderIds.add(folderId)
+        }
+        const inbox = new Set(memberships['local:inbox'] ?? [])
+        if (localDesiredFolderIds.length) inbox.delete(imported.aid)
+        else inbox.add(imported.aid)
+        memberships['local:inbox'] = [...inbox].sort((left, right) => left - right)
+        affectedFolderIds.add('local:inbox')
+      }
+      const protectionsByAid = new Map(repository.snapshot.organizationRecords.map((record) => [record.aid, record]))
+      for (const imported of archive.protections ?? []) {
+        const previous = protectionsByAid.get(imported.aid)
+        protectionsByAid.set(imported.aid, {
+          accountMid: account,
+          aid: imported.aid,
+          targetFolderIds: previous?.targetFolderIds ?? [],
+          completedAt: previous && previous.completedAt > imported.completedAt ? previous.completedAt : imported.completedAt
+        })
+      }
+      const snapshot: AccountFavoriteRepositorySnapshot = {
+        ...repository.snapshot,
+        revision: repository.snapshot.revision + 1,
+        updatedAt: this.now(),
+        videos,
+        memberships,
+        positions,
+        organizationRecords: [...protectionsByAid.values()].sort((left, right) => left.aid - right.aid)
+      }
+      const result: FavoriteRepositoryCommandResult = {
+        ...snapshot,
+        commandId,
+        affectedFolderIds: [...affectedFolderIds].sort(),
+        affectedAids: [...importedAids].sort((left, right) => left - right)
+      }
+      const next: PersistedRepository = {
+        ...repository,
+        snapshot,
+        commandResults: { ...repository.commandResults, [commandId]: receiptFromResult(result) }
+      }
+      // Persist the entire portable state before publishing or writing its separate, deduplicated event projection.
+      const persisted = await this.persist(account, next, cached.manifest?.generation)
+      for (const event of archive.events ?? []) await this.appendEventOnce(account, { ...event, accountMid: account })
+      this.cache.set(account, persisted)
+      this.emitChange(result)
+      return clone(result)
+    }).finally(() => {
+      this.pendingWriteCount--
+    })
   }
 
   async getOrganizationChanges(accountMid: string) {

@@ -86,6 +86,7 @@ export type FavoriteRepositoryTombstone = {
   accountMid: string
   aid: number
   deletedAt: string
+  reason?: string
   allowRediscovery: boolean
 }
 
@@ -93,6 +94,13 @@ export type FavoriteRepositoryArchiveExport = {
   version: 1
   accountMid: string
   generatedAt: string
+  /** A checksum of the portable data; credentials and remote authorization are never represented. */
+  checksum?: string
+  videos?: FavoriteRepositoryVideo[]
+  positions?: Array<Pick<FavoriteRepositoryPositionRecord,
+    'aid' | 'localDesiredFolderIds' | 'positionState' | 'updatedAt'>>
+  protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
+  events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
 }
 
@@ -180,8 +188,71 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
     version: exported.version,
     accountMid: normalizedAccountMid(exported.accountMid),
     generatedAt: normalizedTimestamp(exported.generatedAt),
+    videos: [...(exported.videos ?? [])].map((video) => ({ ...video, tags: [...video.tags].sort() })).sort((left, right) => left.aid - right.aid),
+    positions: [...(exported.positions ?? [])].map((position) => ({
+      ...position, localDesiredFolderIds: normalizeFolderIds(position.localDesiredFolderIds)
+    })).sort((left, right) => left.aid - right.aid),
+    protections: [...(exported.protections ?? [])].map((record) => ({ ...record })).sort((left, right) => left.aid - right.aid),
+    events: [...(exported.events ?? [])].map((event) => ({
+      ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined
+    })).sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id)),
     archives: [...exported.archives].map((archive) => ({ ...archive })).sort((left, right) => left.aid - right.aid || left.archiveId.localeCompare(right.archiveId))
   }))
+}
+
+/** Produces a portable, credential-free recovery archive. Remote observations intentionally stay local. */
+export function createFavoriteRepositoryArchiveExport(
+  snapshot: AccountFavoriteRepositorySnapshot,
+  input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
+): FavoriteRepositoryArchiveExport & { checksum: string } {
+  const accountMid = normalizedAccountMid(snapshot.accountMid)
+  const exported: FavoriteRepositoryArchiveExport = {
+    version: 1,
+    accountMid,
+    generatedAt: normalizedTimestamp(input.generatedAt),
+    videos: Object.values(snapshot.videos).map((video) => ({ ...video, tags: [...video.tags] })),
+    positions: Object.values(snapshot.positions ?? {}).map((position) => ({
+      aid: position.aid,
+      localDesiredFolderIds: [...position.localDesiredFolderIds],
+      positionState: position.positionState,
+      updatedAt: position.updatedAt
+    })),
+    protections: (snapshot.organizationRecords ?? []).map((record) => ({ aid: record.aid, completedAt: record.completedAt })),
+    events: (input.events ?? []).filter((event) => normalizedAccountMid(event.accountMid) === accountMid)
+      .map((event) => ({ ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined })),
+    archives: (input.archives ?? []).map((archive) => ({ ...archive }))
+  }
+  return { ...exported, checksum: createFavoriteRepositoryArchiveExportChecksum(exported) }
+}
+
+/** Validates a portable archive before an importer can create a recovery plan or write anything. */
+export function validateFavoriteRepositoryArchiveExport(value: unknown): FavoriteRepositoryArchiveExport & { checksum: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Favorite repository archive is invalid.')
+  const archive = value as Record<string, unknown>
+  const allowed = new Set(['version', 'accountMid', 'generatedAt', 'checksum', 'videos', 'positions', 'protections', 'events', 'archives'])
+  if (Object.keys(archive).some((key) => !allowed.has(key)) || archive.version !== 1 || typeof archive.accountMid !== 'string' ||
+    typeof archive.generatedAt !== 'string' || typeof archive.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(archive.checksum) ||
+    !Array.isArray(archive.archives) || !archive.archives.every((item) => item && typeof item === 'object' &&
+      Number.isSafeInteger((item as Record<string, unknown>).aid) && Number((item as Record<string, unknown>).aid) > 0 &&
+      typeof (item as Record<string, unknown>).archiveId === 'string' && !!String((item as Record<string, unknown>).archiveId).trim() &&
+      typeof (item as Record<string, unknown>).registeredAt === 'string' && !Number.isNaN(Date.parse(String((item as Record<string, unknown>).registeredAt))))) {
+    throw new Error('Favorite repository archive is invalid.')
+  }
+  normalizedAccountMid(archive.accountMid)
+  normalizedTimestamp(archive.generatedAt)
+  if (archive.videos !== undefined && (!Array.isArray(archive.videos) || !archive.videos.every(isRepositoryVideo))) throw new Error('Favorite repository archive is invalid.')
+  if (archive.positions !== undefined && (!Array.isArray(archive.positions) || !archive.positions.every((position) =>
+    position && typeof position === 'object' && isPositionPayload({
+      ...(position as Record<string, unknown>), remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: []
+    })))) throw new Error('Favorite repository archive is invalid.')
+  if (archive.protections !== undefined && (!Array.isArray(archive.protections) || !archive.protections.every((record) =>
+    record && typeof record === 'object' && Number.isSafeInteger((record as Record<string, unknown>).aid) && Number((record as Record<string, unknown>).aid) > 0 &&
+    typeof (record as Record<string, unknown>).completedAt === 'string' && !Number.isNaN(Date.parse(String((record as Record<string, unknown>).completedAt)))))) throw new Error('Favorite repository archive is invalid.')
+  if (archive.events !== undefined && (!Array.isArray(archive.events) || !archive.events.every((event) =>
+    event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>)))) throw new Error('Favorite repository archive is invalid.')
+  const typed = archive as unknown as FavoriteRepositoryArchiveExport & { checksum: string }
+  if (createFavoriteRepositoryArchiveExportChecksum(typed) !== typed.checksum.toLowerCase()) throw new Error('Favorite repository archive checksum is invalid.')
+  return typed
 }
 
 /** Local, account-scoped metadata mirror. It never describes a Bilibili write. */
@@ -435,6 +506,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'set-favorite-placements'
+      payload: { placements: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }> }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'record-favorite-event'
       payload: Omit<FavoriteRepositoryEvent, 'accountMid'>
     }
@@ -445,6 +524,22 @@ export type FavoriteRepositoryCommand =
       expectedRevision?: number
       type: 'tombstone-favorite-video'
       payload: Omit<FavoriteRepositoryTombstone, 'accountMid'> & { allowRediscovery?: boolean }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'delete-favorite-from-library'
+      payload: Omit<FavoriteRepositoryTombstone, 'accountMid' | 'allowRediscovery'>
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'restore-favorite-to-library' | 'forget-favorite-tombstone'
+      payload: { aid: number }
     }
 
 export type AccountFavoriteRepositorySnapshot = {
@@ -628,6 +723,12 @@ function isPositionPayload(value: Record<string, unknown>) {
     (value.positionState === undefined || isPositionState(value.positionState))
 }
 
+function isPlacementList(value: unknown) {
+  return Array.isArray(value) && value.length > 0 && value.length <= 100 && value.every((placement) =>
+    placement && typeof placement === 'object' && !Array.isArray(placement) && isPositionPayload(placement as Record<string, unknown>)) &&
+    new Set((value as Array<Record<string, unknown>>).map((placement) => Number(placement.aid))).size === value.length
+}
+
 function isRepositoryEvent(value: Record<string, unknown>) {
   return typeof value.id === 'string' && !!value.id.trim() && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0 &&
     Number.isSafeInteger(value.aid) && Number(value.aid) > 0 &&
@@ -776,12 +877,23 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'set-favorite-placement':
       if (!isPositionPayload(payload)) invalidCommand()
       return
+    case 'set-favorite-placements':
+      if (!isPlacementList(payload.placements)) invalidCommand()
+      return
     case 'record-favorite-event':
       if (!isRepositoryEvent(payload)) invalidCommand()
       return
     case 'tombstone-favorite-video':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
         Number.isNaN(Date.parse(payload.deletedAt)) || (payload.allowRediscovery !== undefined && typeof payload.allowRediscovery !== 'boolean')) invalidCommand()
+      return
+    case 'delete-favorite-from-library':
+      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
+        Number.isNaN(Date.parse(payload.deletedAt)) || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
+      return
+    case 'restore-favorite-to-library':
+    case 'forget-favorite-tombstone':
+      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0) invalidCommand()
       return
     default:
       invalidCommand()
@@ -845,6 +957,35 @@ export function applyFavoriteRepositoryCommand(
     if (!removed.size || !memberships['local:inbox']?.some((aid) => removed.has(aid))) return
     memberships = { ...memberships, 'local:inbox': memberships['local:inbox'].filter((aid) => !removed.has(aid)) }
     affectedFolderIds = [...new Set([...affectedFolderIds, 'local:inbox'])].sort()
+  }
+  const applyPlacement = (payload: Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }) => {
+    const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, payload.aid)
+    const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
+    const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
+    const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
+    positions[key] = {
+      accountMid: snapshot.accountMid, aid: payload.aid, localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
+      positionState: deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
+        ...(payload.positionState ? { positionState: payload.positionState } : {}) }),
+      ...(payload.observedAt ? { observedAt: normalizedTimestamp(payload.observedAt) } : {}),
+      updatedAt: normalizedTimestamp(payload.updatedAt), ...(payload.reason ? { reason: payload.reason } : {}), revision: snapshot.revision + 1
+    }
+    const formalFolderIds = Object.keys(memberships).filter((folderId) =>
+      folderId.startsWith('local:') && folderId !== 'local:inbox' || folderId.startsWith('bilimi-logical:'))
+    const nextFormalFolderIds = new Set(localDesiredFolderIds)
+    for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
+      const members = new Set(memberships[folderId] ?? [])
+      if (nextFormalFolderIds.has(folderId)) members.add(payload.aid)
+      else members.delete(payload.aid)
+      memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
+      affectedFolderIds.push(folderId)
+    }
+    const inbox = new Set(memberships['local:inbox'] ?? [])
+    if (localDesiredFolderIds.length) inbox.delete(payload.aid)
+    else inbox.add(payload.aid)
+    memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
+    affectedFolderIds.push('local:inbox')
+    affectedAids.push(payload.aid)
   }
 
   switch (command.type) {
@@ -1175,44 +1316,11 @@ export function applyFavoriteRepositoryCommand(
     }
     case 'set-favorite-position':
     case 'set-favorite-placement': {
-      const payload = command.payload
-      const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, payload.aid)
-      const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
-      const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
-      const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
-      positions[key] = {
-        accountMid: snapshot.accountMid,
-        aid: payload.aid,
-        localDesiredFolderIds,
-        remoteObservedPhysicalFolderIds,
-        remoteObservedLogicalFolderIds,
-        positionState: deriveFavoriteRepositoryPositionState({
-          localDesiredFolderIds,
-          remoteObservedPhysicalFolderIds,
-          remoteObservedLogicalFolderIds,
-          ...(payload.positionState ? { positionState: payload.positionState } : {})
-        }),
-        ...(payload.observedAt ? { observedAt: normalizedTimestamp(payload.observedAt) } : {}),
-        updatedAt: normalizedTimestamp(payload.updatedAt),
-        ...(payload.reason ? { reason: payload.reason } : {}),
-        revision: snapshot.revision + 1
-      }
-      const formalFolderIds = Object.keys(memberships).filter((folderId) =>
-        folderId.startsWith('local:') && folderId !== 'local:inbox' || folderId.startsWith('bilimi-logical:'))
-      const nextFormalFolderIds = new Set(localDesiredFolderIds)
-      for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
-        const members = new Set(memberships[folderId] ?? [])
-        if (nextFormalFolderIds.has(folderId)) members.add(payload.aid)
-        else members.delete(payload.aid)
-        memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
-        affectedFolderIds.push(folderId)
-      }
-      const inbox = new Set(memberships['local:inbox'] ?? [])
-      if (localDesiredFolderIds.length) inbox.delete(payload.aid)
-      else inbox.add(payload.aid)
-      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
-      affectedFolderIds = [...new Set([...affectedFolderIds, 'local:inbox'])].sort()
-      affectedAids = [payload.aid]
+      applyPlacement(command.payload)
+      break
+    }
+    case 'set-favorite-placements': {
+      for (const placement of command.payload.placements) applyPlacement(placement)
       break
     }
     case 'record-favorite-event':
@@ -1229,6 +1337,34 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = [aid]
       break
     }
+    case 'delete-favorite-from-library': {
+      const aid = command.payload.aid
+      tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)] = {
+        accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
+        ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false
+      }
+      delete videos[String(aid)]
+      delete libraryMirrors[String(aid)]
+      delete positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+      for (const folderId of Object.keys(memberships)) {
+        if (folderId.startsWith('bilibili:')) continue
+        const before = memberships[folderId] ?? []
+        if (before.includes(aid)) {
+          memberships = { ...memberships, [folderId]: before.filter((memberAid) => memberAid !== aid) }
+          affectedFolderIds.push(folderId)
+        }
+      }
+      affectedAids = [aid]
+      break
+    }
+    case 'restore-favorite-to-library':
+      delete tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)]
+      affectedAids = [command.payload.aid]
+      break
+    case 'forget-favorite-tombstone':
+      delete tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)]
+      affectedAids = [command.payload.aid]
+      break
   }
 
   return {
@@ -1248,7 +1384,13 @@ export function applyFavoriteRepositoryCommand(
     positions,
     tombstones,
     commandId: command.id,
-    affectedFolderIds,
-    affectedAids
+    affectedFolderIds: [...new Set(affectedFolderIds)].sort(),
+    affectedAids: uniquePositiveAids(affectedAids)
   }
+}
+
+/** A tombstone keeps a user-deleted local record from silently reappearing in later scans. */
+export function isFavoriteRepositoryScanVisible(snapshot: AccountFavoriteRepositorySnapshot, aid: number) {
+  const tombstone = snapshot.tombstones?.[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+  return !tombstone || tombstone.allowRediscovery
 }

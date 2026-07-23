@@ -90,8 +90,9 @@ type BilimiDesktopApi = {
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
   openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
   openFavoriteLibrarySource?: (accountMid: string, folderId: string) => Promise<void>
-  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number) => Promise<void>
-  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string) => Promise<void>
+  resolveFavoriteLibraryArchive?: (accountMid: string, aid: number, cid?: number) => Promise<{ archiveId: string; versionId: string }>
+  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number, cid?: number) => Promise<void>
+  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string, cid?: number) => Promise<void>
   onBilibiliAccountChanged?: (callback: () => void) => () => void
   onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
@@ -122,6 +123,15 @@ type BilimiDesktopApi = {
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>
   getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
+  setFavoriteLibraryLocalPlacements?: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize?: boolean) => Promise<FavoriteLibraryCommandResult>
+  adoptFavoriteLibraryRemotePlacement?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  restoreFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  forgetFavoriteLibraryTombstone?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  exportFavoriteRepositoryArchive?: (accountMid: string) => Promise<unknown>
+  previewFavoriteRepositoryArchiveImport?: (accountMid: string, input: unknown) => Promise<unknown>
+  applyFavoriteRepositoryArchiveImport?: (accountMid: string, input: unknown) => Promise<unknown>
+  createFavoriteRepositoryArchiveRestorePlan?: (accountMid: string, input: unknown, observed: unknown, mode: 'safe' | 'full') => Promise<unknown>
   enqueueFavoriteLibraryTranscription?: (
     accountMid: string,
     input: { aids: number[]; summarizeWithDeepSeek?: boolean }
