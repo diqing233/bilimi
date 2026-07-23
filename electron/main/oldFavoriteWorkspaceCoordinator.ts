@@ -1309,7 +1309,12 @@ export class OldFavoriteWorkspaceCoordinator {
     return clone(updated)
   }
 
-  private async autoClassifySegmentsUnsafe(workspace: OldFavoriteWorkspace, segmentIds: string[], replaceSystem: boolean) {
+  private async autoClassifySegmentsUnsafe(
+    workspace: OldFavoriteWorkspace,
+    segmentIds: string[],
+    replaceSystem: boolean,
+    onlyAids?: ReadonlySet<number>
+  ) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
@@ -1339,6 +1344,7 @@ export class OldFavoriteWorkspaceCoordinator {
         this.currentSegmentItems.set(updated.accountMid, items.map(clone))
         const candidates = items
           .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+          .filter((item) => !onlyAids || onlyAids.has(item.aid))
           .filter((item) => {
             const existing = updated.classifications[String(item.aid)]
             return existing?.source !== 'manual' && existing?.source !== 'deepseek'
@@ -2162,7 +2168,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const changedAids = new Set(recovered.recoveryDecision.mergeLatestSystemAids)
       const segmentIds = workspace.segments.filter((segment) => segment.aids.some((aid) => changedAids.has(aid))).map((segment) => segment.id)
       if (segmentIds.length && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)) {
-        const refreshed = await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true)
+        const refreshed = await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true, changedAids)
         const appliedAids = new Set(workspace.segments.flatMap((segment) => segment.aids).filter((aid) => changedAids.has(aid)))
         await this.options.workspaceStore.setRecoveryDecision(marker.accountMid, marker.id, {
           ...recovered.recoveryDecision,

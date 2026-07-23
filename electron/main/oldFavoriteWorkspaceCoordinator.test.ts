@@ -3566,12 +3566,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const classifyCurrentItem = vi.fn((item: { aid: number }) => ({ targetLedgerIds: [`system-${item.aid}`], confidence: 'high' as const }))
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
     await coordinator.open('100')
-    await coordinator.completeScan('100', { revision: 1, aids: [1, 2, 3] })
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2, 3, 4] })
     await coordinator.autoClassifyCurrentSegment('100')
-    await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }] })
+    await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 3, targetLedgerIds: ['manual'] }] })
     const current = await coordinator.getSnapshot('100')
     if ('recovery' in current || !current.currentSegment) throw new Error('workspace unexpectedly unavailable')
-    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 3, targetLedgerIds: ['deepseek'] }], {
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 4, targetLedgerIds: ['deepseek'] }], {
       workspaceId: current.workspaceId, currentSegmentId: current.currentSegment.id, selectedSourceFolderIds: ['legacy-source'],
       classifications: Object.fromEntries(Object.entries(current.classifications).map(([aid, classification]) => [aid, {
         targetLedgerIds: classification.targetLedgerIds, source: classification.source
@@ -3593,8 +3593,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ classifications: {
       '1': { targetLedgerIds: ['system-1'], source: 'system-high' },
-      '2': { targetLedgerIds: ['manual'], source: 'manual' },
-      '3': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
+      '2': { targetLedgerIds: ['system-2'], source: 'system-high' },
+      '3': { targetLedgerIds: ['manual'], source: 'manual' },
+      '4': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
     } })
     expect(classifyCurrentItem).toHaveBeenCalledTimes(1)
     await restarted.getSnapshot('100')

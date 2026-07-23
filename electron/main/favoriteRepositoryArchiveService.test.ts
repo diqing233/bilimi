@@ -218,6 +218,41 @@ describe('FavoriteRepositoryArchiveService', () => {
     expect(writer.write).toHaveBeenCalledTimes(2)
   })
 
+  it('reports a still-full managed shard during reconciliation without attempting another write', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
+    const records: any[] = []
+    const writer: FavoriteRepositoryRestoreWriter = {
+      readBaseline: vi.fn()
+        .mockResolvedValueOnce({ 1: {
+          managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] },
+          managedObservedPhysicalFolderIds: []
+        } })
+        .mockResolvedValueOnce({ 1: {
+          managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] },
+          managedPhysicalFolderMemberCounts: { 'music-1': 1_000 }, managedObservedPhysicalFolderIds: []
+        } }),
+      write: vi.fn().mockRejectedValueOnce(new Error('connection interrupted'))
+    }
+    const service = createService({
+      repository: {
+        getSnapshot: async () => ({ ...snapshot(), syncRecords: records }),
+        getEventPage: async () => ({ items: [] }),
+        recordSyncCheckpoint: async (_account, _command, record) => {
+          const index = records.findIndex((candidate) => candidate.id === record.id)
+          if (index >= 0) records[index] = record
+          else records.push(record)
+        }
+      }
+    })
+
+    await expect(service.executeRestorePlan(plan, writer)).resolves.toMatchObject({ status: 'result-unknown' })
+    await expect(service.reconcileRestorePlan(plan, writer)).resolves.toMatchObject({
+      status: 'failed', items: [{ aid: 1, status: 'failed', reason: 'managed archive target capacity is exhausted' }]
+    })
+    expect(writer.write).toHaveBeenCalledTimes(1)
+  })
+
   it('stops later archive writes after an unknown remote result and leaves them for explicit reconciliation', async () => {
     const archive = await createService().exportAccount('100')
     const plan = {

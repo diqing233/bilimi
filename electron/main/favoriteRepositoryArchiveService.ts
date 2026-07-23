@@ -337,9 +337,19 @@ export class FavoriteRepositoryArchiveService {
       }
       const baseline = await writer.readBaseline({ accountMid, restoreId, aid: operation.aid })
       const resolved = this.resolvePhysicalOperation(operation, plan.mode, baseline[operation.aid])
-      const status = 'reason' in resolved ? 'failed' : (!resolved.appendPhysicalFolderIds.length && !resolved.removePhysicalFolderIds.length ? 'succeeded' : 'failed')
-      const reason = 'reason' in resolved ? resolved.reason : status === 'failed' ? 'remote baseline does not match the archive restore plan' : undefined
-      await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, previous?.attempt ?? 0, status, 'reason' in resolved ? [] : [...resolved.appendPhysicalFolderIds, ...resolved.removePhysicalFolderIds], reason)
+      const capacityExhausted = 'capacityRequiredLogicalFolderIds' in resolved
+      const status = 'reason' in resolved || capacityExhausted
+        ? 'failed'
+        : (!resolved.appendPhysicalFolderIds.length && !resolved.removePhysicalFolderIds.length ? 'succeeded' : 'failed')
+      const reason = 'reason' in resolved
+        ? resolved.reason
+        : capacityExhausted
+          ? 'managed archive target capacity is exhausted'
+          : status === 'failed' ? 'remote baseline does not match the archive restore plan' : undefined
+      const targetFolderIds = 'appendPhysicalFolderIds' in resolved
+        ? [...resolved.appendPhysicalFolderIds, ...resolved.removePhysicalFolderIds]
+        : []
+      await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, previous?.attempt ?? 0, status, targetFolderIds, reason)
       items.push({ aid: operation.aid, status, ...(reason ? { reason } : {}) })
     }
     return this.restoreResult(restoreId, accountMid, plan.operations.length, items)
