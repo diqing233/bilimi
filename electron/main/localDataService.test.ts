@@ -45,6 +45,19 @@ describe('LocalDataService', () => {
     expect(accounts['100'].records).toHaveLength(1)
   })
 
+  it('rejects an archive produced by a newer unsupported app version before any preview mutation', async () => {
+    const { root, service } = await makeService()
+    const archive = join(root, 'future-portable.json')
+    const exported = await service.exportArchive({ uids: ['100'], outputPath: archive })
+    await writeFile(archive, JSON.stringify({ ...exported, appVersion: '9.0.0' }))
+    const future = { ...exported, appVersion: '9.0.0' }
+    const { checksum: _checksum, ...withoutChecksum } = future
+    const { createHash } = await import('node:crypto')
+    const stable = (value: unknown): string => Array.isArray(value) ? `[${value.map(stable).join(',')}]` : value && typeof value === 'object' ? `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}` : JSON.stringify(value)
+    await writeFile(archive, JSON.stringify({ ...withoutChecksum, checksum: createHash('sha256').update(stable(withoutChecksum)).digest('hex') }))
+    await expect(service.previewImport(archive)).rejects.toThrow('newer')
+  })
+
   it('keeps cleanup UID-scoped and coordinates shutdown plus login removal for a full clear', async () => {
     const { accounts, service } = await makeService()
     const stopActiveWork = vi.fn()
@@ -58,5 +71,13 @@ describe('LocalDataService', () => {
     expect(stopActiveWork).toHaveBeenCalledOnce()
     expect(clearLoginSessions).toHaveBeenCalledOnce()
     expect(exitApp).toHaveBeenCalledOnce()
+  })
+
+  it('previews destructive cleanup, permits usage cancellation, and never presents server data as a target', async () => {
+    const { service } = await makeService()
+    await expect(service.previewCleanup({ level: 'all-user-data' })).rejects.toThrow('confirmation')
+    await expect(service.previewCleanup({ level: 'current-account-data' })).rejects.toThrow('UID')
+    await expect(service.previewCleanup({ level: 'all-user-data', confirmation: '全部清除' })).resolves.toMatchObject({ requiresExit: true, affectsBilibiliServerData: false })
+    service.cancelUsageCalculation()
   })
 })

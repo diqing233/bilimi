@@ -58,8 +58,18 @@ export class LocalDataService {
 
   async previewImport(path: string) {
     const archive = parseMigrationArchiveV1(await readFile(path, 'utf8'))
+    if (compareVersions(archive.appVersion, this.options.appVersion) > 0) throw new Error('Migration archive was created by a newer unsupported app version.')
     const existing = Object.fromEntries(await Promise.all((await this.options.persistence.listAccountUids()).map(async (uid) => [uid, await this.options.persistence.readAccount(uid)] as const)))
     return { archive, sourcePath: path, accounts: archive.selectedUids.map((uid) => ({ uid, action: existing[uid] ? 'merge' as const : 'add' as const })) }
+  }
+
+  cancelUsageCalculation() { this.usageGeneration++ }
+
+  async previewCleanup(input: { level: LocalDataCleanupLevel; uid?: string; confirmation?: string }) {
+    if (input.level === 'all-user-data' && input.confirmation !== '全部清除') throw new Error('Full clear confirmation is required.')
+    if (input.level !== 'all-user-data' && !input.uid && input.level !== 'cache') throw new Error('An account UID is required.')
+    const targets = input.level === 'cache' ? [join(this.options.root, 'Cache')] : input.level === 'current-account-temp' ? [join(this.options.root, 'accounts', input.uid!, 'temporary')] : input.level === 'current-account-data' ? [`account:${input.uid}`] : ['all-account-data', 'shared-settings', 'login-sessions']
+    return { ...input, targets, requiresExit: input.level === 'all-user-data', affectsBilibiliServerData: false }
   }
 
   async applyImport(preview: Awaited<ReturnType<LocalDataService['previewImport']>>, input: { mode: 'merge' | 'overwrite'; injectFailureAfterStage?: boolean }) {
@@ -109,4 +119,13 @@ export class LocalDataService {
     await writeFile(temporary, content, 'utf8')
     await rename(temporary, path)
   }
+}
+
+function compareVersions(left: string, right: string) {
+  const parse = (value: string) => value.split('.').map((part) => /^\d+$/u.test(part) ? Number(part) : 0)
+  const leftParts = parse(left); const rightParts = parse(right)
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index++) {
+    if ((leftParts[index] ?? 0) !== (rightParts[index] ?? 0)) return (leftParts[index] ?? 0) - (rightParts[index] ?? 0)
+  }
+  return 0
 }
