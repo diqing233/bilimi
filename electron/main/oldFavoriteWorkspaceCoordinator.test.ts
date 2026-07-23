@@ -260,6 +260,24 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('mirrors videos added externally to a formal Bilimi folder into the local library', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'formal', title: 'bilimi Archive', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { formal: [7] })
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilibili:formal': [7] },
+      videos: { '7': expect.objectContaining({ aid: 7 }) }
+    })
+  })
+
   it('resumes only the remaining tag reads after accepting the current tags', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -305,6 +323,26 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0 }
     })
     expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
+  })
+
+  it('does not reread a confirmed-empty tag result after a later incremental scan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await repository.commit('100', {
+      id: 'confirmed-empty', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'No tags', tags: [], tagEvidence: 'confirmed', updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'No tags', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'complete', totalItemCount: 0, pendingItemCount: 0 }
+    })
   })
 
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {
@@ -1812,7 +1850,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       mode: 'incremental',
-      currentSegment: { aids: [2] }
+      currentSegment: { aids: [2] },
+      tagEnrichment: { totalItemCount: 1, pendingItemCount: 1 }
     })
   })
 

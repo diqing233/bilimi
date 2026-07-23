@@ -21,6 +21,8 @@ export type FavoriteRepositoryVideo = {
   author?: string
   description?: string
   tags: string[]
+  /** A tag endpoint or page payload confirmed this tag list, including an empty list. */
+  tagEvidence?: 'confirmed'
   bvid?: string
   cid?: number
   durationSeconds?: number
@@ -395,6 +397,7 @@ function isRepositoryVideo(value: unknown) {
   const video = value as Record<string, unknown>
   return Number.isSafeInteger(video.aid) && Number(video.aid) > 0 && typeof video.title === 'string' &&
     Array.isArray(video.tags) && video.tags.every((tag) => typeof tag === 'string') &&
+    (video.tagEvidence === undefined || video.tagEvidence === 'confirmed') &&
     typeof video.updatedAt === 'string' &&
     (video.author === undefined || typeof video.author === 'string') &&
     (video.description === undefined || typeof video.description === 'string')
@@ -687,6 +690,7 @@ export function applyFavoriteRepositoryCommand(
           ...(existing?.author && !video.author ? { author: existing.author } : {}),
           ...(existing?.description && !video.description ? { description: existing.description } : {}),
           tags: video.tags.length ? [...video.tags] : [...(existing?.tags ?? [])],
+          ...(video.tagEvidence ?? existing?.tagEvidence ? { tagEvidence: video.tagEvidence ?? existing?.tagEvidence } : {}),
           updatedAt: existing?.updatedAt ?? video.updatedAt
         }
       }

@@ -54,6 +54,7 @@ type CurrentSegmentItem = {
   title?: string
   author?: string
   tags?: string[]
+  tagEvidence?: 'confirmed'
   category?: string
   cover?: string
   addedAt?: number
@@ -562,8 +563,15 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      for (const item of itemsByAid.values()) {
+        const saved = repository.videos[String(item.aid)]
+        if (saved?.tagEvidence === 'confirmed' && !item.tags?.length) {
+          item.tags = [...saved.tags]
+          item.tagEvidence = 'confirmed'
+        }
+      }
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
-      const mirrorFolders = sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).map((folder) => ({
+      const mirrorFolders = sourceFolders.map((folder) => ({
         id: `bilibili:${folder.id}`,
         title: folder.title,
         remoteFolderId: folder.id
@@ -571,6 +579,9 @@ export class OldFavoriteWorkspaceCoordinator {
       const mirrorMembers = new Map(mirrorFolders.map((folder) => [folder.remoteFolderId, [] as number[]]))
       for (const item of itemsByAid.values()) {
         for (const folderId of item.sourceFolderIds) mirrorMembers.get(folderId)?.push(item.aid)
+      }
+      for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+        mirrorMembers.set(folder.id, [...new Set(managedMembers[folder.id] ?? [])])
       }
       const mirrorUpdatedAt = this.now()
       await this.options.repository.commit(workspace.accountMid, {
@@ -584,25 +595,41 @@ export class OldFavoriteWorkspaceCoordinator {
             (mirrorMembers.get(folder.remoteFolderId) ?? []).sort((left, right) => left - right)
           ])),
           folders: mirrorFolders,
-          videos: [...itemsByAid.values()].map((item) => ({
+          videos: [
+            ...itemsByAid.values().map((item) => ({
             aid: item.aid,
             title: item.title ?? `Video ${item.aid}`,
             ...(item.author ? { author: item.author } : {}),
             tags: [...(item.tags ?? [])],
+            ...(item.tagEvidence ? { tagEvidence: item.tagEvidence } : {}),
             updatedAt: mirrorUpdatedAt
-          }))
+            })),
+            ...sourceFolders.filter((folder) => folder.isBilimiWorkFolder).flatMap((folder) =>
+              (managedMembers[folder.id] ?? []).filter((aid) => !itemsByAid.has(aid)).map((aid) => ({
+                aid, title: `Video ${aid}`, tags: [], updatedAt: mirrorUpdatedAt
+              }))
+            )
+          ]
         }
       })
+      const formalManagedFolderIds = new Set(sourceFolders
+        .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
+        .map((folder) => folder.id))
+      const formallyArchivedAids = new Set([...formalManagedFolderIds].flatMap((folderId) => managedMembers[folderId] ?? []))
       const successfulAids = repository.organizationRecords
-        .filter((record) => record.accountMid === workspace.accountMid && itemsByAid.has(record.aid))
+        .filter((record) => {
+          if (!itemsByAid.has(record.aid)) return false
+          if (record.targetFolderIds.some((folderId) => folderId.startsWith('local:'))) return true
+          // A complete inventory is authoritative: remote records only protect
+          // videos that remain in a currently observed formal Bilimi folder.
+          return sourceFolders.length === 0 || formallyArchivedAids.has(record.aid)
+        })
         .map((record) => record.aid)
-      const initializedRecords = !repository.organizationMigrationInitialized
-        ? sourceFolders.filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title)).flatMap((folder) =>
-          (managedMembers[folder.id] ?? []).map((aid) => ({
-            accountMid: workspace.accountMid, aid, targetFolderIds: [folder.id], completedAt: this.now()
-          }))
-        )
-        : []
+      const initializedRecords = sourceFolders
+        .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
+        .flatMap((folder) => (managedMembers[folder.id] ?? []).map((aid) => ({
+          accountMid: workspace.accountMid, aid, targetFolderIds: [folder.id], completedAt: this.now()
+        })))
       if (initializedRecords.length || !repository.organizationMigrationInitialized) {
         await this.options.repository.commit(workspace.accountMid, {
           id: `old-favorite-workspace:migrate-protection:${workspace.id}`,
@@ -646,8 +673,10 @@ export class OldFavoriteWorkspaceCoordinator {
         taggedItemCount,
         untaggedItemCount: itemsByAid.size - taggedItemCount
       }
-      const pendingTagAids = [...itemsByAid.values()]
-        .filter((item) => !item.tags?.length)
+      const pendingTagAids = completed.plannedAids
+        .map((aid) => itemsByAid.get(aid))
+        .filter((item): item is CurrentSegmentItem => Boolean(item))
+        .filter((item) => !item.tags?.length && item.tagEvidence !== 'confirmed')
         .map((item) => item.aid)
         .sort((left, right) => left - right)
       const tagEnrichment: TagEnrichment = {
@@ -1310,6 +1339,22 @@ export class OldFavoriteWorkspaceCoordinator {
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
       const normalizedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 32)
+      const persistedVideo = (await this.options.repository.getSnapshot(workspace.accountMid)).videos[String(aid)]
+      await this.options.repository.commit(workspace.accountMid, {
+        id: `old-favorite-workspace:confirm-tags:${workspace.id}:${aid}`,
+        accountMid: workspace.accountMid,
+        issuedAt: this.now(),
+        type: 'upsert-video',
+        payload: {
+          aid,
+          title: persistedVideo?.title ?? `Video ${aid}`,
+          ...(persistedVideo?.author ? { author: persistedVideo.author } : {}),
+          ...(persistedVideo?.description ? { description: persistedVideo.description } : {}),
+          tags: normalizedTags,
+          tagEvidence: 'confirmed',
+          updatedAt: persistedVideo?.updatedAt ?? this.now()
+        }
+      })
       const overview = this.scanOverviews.get(workspace.accountMid)
       const priorTags = this.currentSegmentItems.get(workspace.accountMid)
         ?.find((item) => item.aid === aid)?.tags ?? []
@@ -1337,7 +1382,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const currentItems = this.currentSegmentItems.get(workspace.accountMid)
       if (currentItems) {
-        this.currentSegmentItems.set(workspace.accountMid, currentItems.map((item) => item.aid === aid ? { ...item, tags: normalizedTags } : item))
+        this.currentSegmentItems.set(workspace.accountMid, currentItems.map((item) => item.aid === aid ? { ...item, tags: normalizedTags, tagEvidence: 'confirmed' } : item))
       }
       this.tagEnrichments.set(workspace.accountMid, next)
       if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })

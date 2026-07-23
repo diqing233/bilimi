@@ -154,8 +154,9 @@ export function partitionFavoriteArchiveSources(args: {
     )
     const protectionRecordTargetsFormalFolder = Boolean(protectionRecord) && !protectionRecordTargetsOnlyInbox
     const initializeExistingMembership = args.initializeExistingMembership !== false
-    const protectedForIncrementalScan =
-      protectionRecordTargetsFormalFolder || nonInboxFolders.length > 0
+    // A historical record proves a past archive, not current membership. Once the
+    // user moves it back out of every formal folder, it must re-enter the queue.
+    const protectedForIncrementalScan = nonInboxFolders.length > 0
     let archiveHealth: FavoriteArchiveProtectionHealth | undefined
     if (protectionRecord) {
       const historicalTargets = protectionRecord.targetLedgerIds.length > 0
