@@ -26,10 +26,9 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
-  it('keeps the compact detail placement picker and long-description controls styled for the drawer', () => {
+  it('keeps the compact detail placement picker without rendering normal descriptions', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__placement-picker')
     expect(favoriteLibraryStyles).toContain('.favorite-library__placement-preview')
-    expect(favoriteLibraryStyles).toContain('.favorite-library__description')
     expect(favoriteLibraryStyles).toContain('.favorite-library__delete-confirmation')
   })
   it('keeps archive export, import preview, and server-scanned safe restore in a compact library entry', async () => {
@@ -163,7 +162,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存本地归属' }))
     await waitFor(() => expect(setFavoriteLibraryLocalPlacements).toHaveBeenCalledWith('100', [{ aid: 1, folderIds: ['bilimi-logical:games', 'bilimi-logical:music'] }], 3, true))
   })
-  it('keeps detail status dimensions explanatory and refreshes stale metadata on demand', async () => {
+  it('keeps detail status dimensions explanatory without rendering descriptions', async () => {
     const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const description = '这是一段很长的简介。'.repeat(40)
     window.bilimiDesktop = {
@@ -177,9 +176,8 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Video + ID'))
     expect(await screen.findByText(/标签: 测试标签/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '展开简介' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '展开简介' }))
-    expect(screen.getByRole('button', { name: '收起简介' })).toBeInTheDocument()
+    expect(screen.queryByText(description)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '展开简介' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '资料状态说明' }))
     expect(screen.getByRole('status')).toHaveTextContent('资料状态')
     fireEvent.click(screen.getByRole('button', { name: '刷新资料' }))
@@ -310,7 +308,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
     fireEvent.click(await screen.findByRole('button', { name: '查看完整处理记录' }))
-    fireEvent.click(await screen.findByRole('button', { name: '加载更多处理记录' }))
+    fireEvent.click(await screen.findByRole('button', { name: '加载更早记录' }))
     await waitFor(() => expect(getFavoriteRepositoryVideoEvents).toHaveBeenLastCalledWith('100', 1, { limit: 20, cursor: '2:event-2' }))
     expect(screen.getByText(/entered/)).toBeInTheDocument()
   })
@@ -406,7 +404,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Video + ID'))
-    const detail = await screen.findByRole('complementary', { name: text.detail })
+    const detail = await screen.findByRole('complementary')
     expect(detail).toHaveTextContent('资料待刷新')
     expect(detail).toHaveTextContent('同步失败')
     expect(detail).toHaveTextContent('已保护')
@@ -468,7 +466,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('已扫描视频'))
-    const detail = await screen.findByRole('complementary', { name: text.detail })
+    const detail = await screen.findByRole('complementary')
     expect(detail).toHaveTextContent('本地镜像')
     expect(detail).toHaveTextContent('已同步')
     expect(detail).toHaveTextContent('转写完成')
@@ -492,7 +490,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('等待确认'))
-    const detail = await screen.findByRole('complementary', { name: text.detail })
+    const detail = await screen.findByRole('complementary')
     expect(detail).toHaveTextContent('同步状态待确认')
     expect(detail).not.toHaveTextContent('result-unknown')
   })
@@ -526,11 +524,12 @@ describe('FavoriteLibraryApp', () => {
     const list = await screen.findByRole('list', { name: text.videoList })
     expect(list).toHaveAttribute('data-virtualized', 'true')
     fireEvent.click(screen.getByText('All video'))
-    expect(await screen.findByRole('complementary', { name: text.detail })).toHaveTextContent('UP')
-    expect(screen.getByRole('complementary', { name: text.detail })).toHaveTextContent(text.localFolder)
+    expect(await screen.findByRole('complementary')).toHaveTextContent('UP')
+    expect(screen.getByRole('complementary')).toHaveTextContent(text.localFolder)
 
-    fireEvent.click(screen.getByRole('button', { name: text.hideDetail }))
-    expect(screen.queryByRole('complementary', { name: text.detail })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText(text.hideDetail))
+    expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', '视频详情已收起')
+    expect(screen.getByRole('button', { name: '恢复视频详情' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50 }))
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
@@ -622,12 +621,12 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: /All video/ }))
     expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeInTheDocument()
     fireEvent.click(screen.getByText('All video'))
-    expect(await screen.findByRole('complementary', { name: text.detail })).toBeInTheDocument()
+    expect(await screen.findByRole('complementary')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
 
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeDisabled()
-    expect(screen.queryByRole('complementary', { name: text.detail })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 
   it('clears the prior account and rebinds when a repository revision observes an account switch', async () => {

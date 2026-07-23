@@ -16,6 +16,8 @@ import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from './FavoriteLibraryNavigation'
 import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
+import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
+import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
@@ -102,13 +104,21 @@ function scopeForNavigation(id: string): LibraryScope {
 
 type FavoriteLibraryAccount = { mid: string; nickname?: string }
 
+export type FavoriteLibraryUiCallbacks = {
+  onBatchAction?: (action: 'copy' | 'move' | 'refresh' | 'transcribe' | 'sync' | 'delete-local' | 'unfavorite-remote', aids: number[]) => void
+  onManagedFolderAction?: (folderId: string, action: 'edit' | 'delete') => void
+  onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
+}
+
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
 export function FavoriteLibraryApp({
   embedded = false,
-  onAccountChange
+  onAccountChange,
+  uiCallbacks
 }: {
   embedded?: boolean
   onAccountChange?: (account: FavoriteLibraryAccount | undefined) => void
+  uiCallbacks?: FavoriteLibraryUiCallbacks
 }) {
   const [accountMid, setAccountMid] = useState<string>()
   const [accountNickname, setAccountNickname] = useState<string>()
@@ -130,7 +140,6 @@ export function FavoriteLibraryApp({
   const [placementDraftFolderIds, setPlacementDraftFolderIds] = useState<string[]>([])
   const [placementSyncRequested, setPlacementSyncRequested] = useState(false)
   const [placementSaving, setPlacementSaving] = useState(false)
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [statusExplanation, setStatusExplanation] = useState<string>()
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{ aids: number[]; executionToken: string }>()
@@ -143,6 +152,7 @@ export function FavoriteLibraryApp({
   const [archiveRestoreExecution, setArchiveRestoreExecution] = useState<FavoriteRepositoryRestoreExecutionResult>()
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveRestoreScope, setArchiveRestoreScope] = useState<'all' | 'selected' | 'current-folder'>('all')
+  const [managedFolderDialog, setManagedFolderDialog] = useState<{ id: string; title: string }>()
   const requestIdRef = useRef(0)
 
   useEffect(() => {
@@ -246,7 +256,6 @@ export function FavoriteLibraryApp({
   }, [detailSnapshot?.video.aid, detailSnapshot?.archive.memoPreview])
 
   useEffect(() => {
-    setDescriptionExpanded(false)
     setStatusExplanation(undefined)
     setPlacementPickerOpen(false)
     setDeleteConfirmationOpen(false)
@@ -276,9 +285,9 @@ export function FavoriteLibraryApp({
       protected: item.kind === 'folder' && /unmatched|inbox/i.test(item.folderId)
     }))
     return [
-      { id: 'bilibili', label: 'B站收藏', items: items.filter((item) => item.id === 'all') },
-      { id: 'workspace', label: '工作区', items: items.filter((item) => item.id.startsWith('folder:')) },
-      { id: 'local', label: '本地', items: items.filter((item) => item.id === 'pending') }
+      { id: 'range', label: '收藏范围', items: items.filter((item) => item.id === 'all' || item.id === 'pending') },
+      { id: 'workspace', label: 'bilimi 工作夹', items: items.filter((item) => item.managed || item.protected) },
+      { id: 'bilibili', label: 'B站收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
     ]
   }, [navigation, summary?.videoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
@@ -577,7 +586,13 @@ export function FavoriteLibraryApp({
     <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
       {embedded ? null : <div className="favorite-library__header-spacer" aria-hidden="true" />}
       {!embedded ? (
-        <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts['result-unknown'])}
+        <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts.failed || summary?.syncCounts['result-unknown'])}
+          onGoToPending={() => {
+            setScopeId('pending')
+            setSelectedAids([])
+            setSelected(undefined)
+            if (accountMid) void load(accountMid, { kind: 'pending' })
+          }}
           onMinimize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('minimize') }}
           onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}>
           <div className="favorite-library__header-account"><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
@@ -642,10 +657,35 @@ export function FavoriteLibraryApp({
             setDetailSnapshot(undefined)
             if (accountMid) void load(accountMid, scopeForNavigation(id))
           }}
+          onManagedFolderAction={(id, action) => {
+            if (action === 'edit') {
+              uiCallbacks?.onManagedFolderAction?.(id, action)
+              return
+            }
+            const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
+            if (folder) setManagedFolderDialog({ id, title: folder.title })
+          }}
         />
+        <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? { title: managedFolderDialog.title, canDeleteRemotely: true } : undefined} onManagedFolderChoice={(choice) => {
+          if (managedFolderDialog) uiCallbacks?.onManagedFolderDeleteChoice?.(managedFolderDialog.id, choice)
+          setManagedFolderDialog(undefined)
+        }} />
         {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
-          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage}>
+          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!selectedAids.length} onBatchAction={(action) => {
+            uiCallbacks?.onBatchAction?.(action, [...selectedAids])
+            if (action === 'copy' || action === 'move') openSelectedPlacementPicker()
+            if (action === 'refresh') void runAction(async () => {
+              const api = window.bilimiDesktop
+              if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
+              return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
+            })
+            if (action === 'transcribe') void runAction(async () => {
+              const api = window.bilimiDesktop
+              if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
+              return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
+            })
+          }}>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
@@ -692,20 +732,20 @@ export function FavoriteLibraryApp({
             </button>
           ) : null}
         </section>
-        {detailOpen && detail ? (
-          <aside className="favorite-library__detail" aria-label={text.detail}>
-            <button type="button" onClick={() => setDetailOpen(false)}>{text.hideDetail}</button>
+        {detail ? (
+          <FavoriteLibraryDetail title={detail.title} collapsed={!detailOpen} onRestore={() => setDetailOpen(true)} onCollapse={() => setDetailOpen(false)}>
+            {eventsOpen ? <section className="favorite-library__detail-history" aria-label="完整处理记录">
+              <h2>完整处理记录</h2>
+              <ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {event.occurredAt}</li>)}</ol>
+              {events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更早记录</button> : null}
+              <button type="button" className="favorite-library__inline-action" onClick={() => setEventsOpen(false)}>返回视频详情</button>
+            </section> : <>
             <div className="favorite-library__detail-heading"><h2>{detail.title}</h2>{accountMid ? <button type="button" className="favorite-library__open-video" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.openFavoriteLibraryVideo) throw new Error(text.unavailable)
               await api.openFavoriteLibraryVideo(accountMid, detail.aid)
             })}>{text.openVideo}</button> : null}</div><p>{detail.author ?? text.unknownAuthor} · 视频 ID: {detail.aid}</p>
             {detail.tags.length ? <p className="favorite-library__tags">标签：{detail.tags.join('、')}</p> : null}
-            {(() => {
-              const description = detail.description ?? text.noDescription
-              const longDescription = description.length > 200
-              return <p className="favorite-library__description">{longDescription && !descriptionExpanded ? `${description.slice(0, 200)}…` : description}{longDescription ? <button type="button" className="favorite-library__inline-action" onClick={() => setDescriptionExpanded((current) => !current)}>{descriptionExpanded ? '收起简介' : '展开简介'}</button> : null}</p>
-            })()}
             {(() => {
               const metadataStale = detail.title === 'Video + ID' || !detail.author
               const chips = [
@@ -718,8 +758,8 @@ export function FavoriteLibraryApp({
               ]
               return <section className="favorite-library__status-tags" aria-label="视频状态">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}{statusExplanation ? <p role="status">{statusExplanation}</p> : null}{metadataStale ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(refreshMetadata)}>刷新资料</button> : null}</section>
             })()}
-            <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()} aria-expanded={eventsOpen}>查看完整处理记录</button>{eventsOpen ? <><ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {event.occurredAt}</li>)}</ol>{events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更多处理记录</button> : null}</> : null}</section>
-            <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}<button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}{(() => {
+            <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button></section>
+            <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}<button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" disabled={['failed', 'result-unknown', 'needs-review', 'syncing'].includes(detailSnapshot.position.state)} onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}{(() => {
               const remoteUnfavoriteAvailable = Boolean(accountMid && selected && window.bilimiDesktop?.previewFavoriteLibraryBilibiliUnfavorite && window.bilimiDesktop?.confirmFavoriteLibraryBilibiliUnfavorite && window.bilimiDesktop?.executeFavoriteLibraryBilibiliUnfavorite)
               return <><button type="button" className="favorite-library__inline-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认取消B站收藏" aria-busy={remoteUnfavoriteExecuting}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button></div> : null}</>
             })()}</section>
@@ -745,7 +785,8 @@ export function FavoriteLibraryApp({
               await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft, detailSnapshot?.video.cid)
             })}>{text.saveMemo}</button></> : null}</section>
             {detail.pendingStates.length ? <p>{text.pendingStates}{formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p> : null}
-          </aside>
+            </>}
+          </FavoriteLibraryDetail>
         ) : null}
       </div>
     </main>

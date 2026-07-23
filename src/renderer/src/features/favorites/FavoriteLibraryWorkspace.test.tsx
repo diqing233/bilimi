@@ -4,6 +4,7 @@ import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation } from './FavoriteLibraryNavigation'
 import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
+import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 
 describe('Favorite Library workspace components', () => {
   it('renders a compact top bar with conditional remote warning and labelled window controls', () => {
@@ -14,6 +15,13 @@ describe('Favorite Library workspace components', () => {
     rerender(<FavoriteLibraryHeader title="收藏库" remoteWarning maximized />)
     expect(screen.getByRole('status')).toHaveTextContent('\\u8fdc\\u7a0b\\u72b6\\u6001\\u5f85\\u786e\\u8ba4')
     expect(screen.getByRole('button', { name: '还原' })).toBeInTheDocument()
+  })
+
+  it('routes failed and unknown remote warnings to the pending scope', () => {
+    const onGoToPending = vi.fn()
+    render(<FavoriteLibraryHeader title="收藏库" remoteWarning onGoToPending={onGoToPending} />)
+    fireEvent.click(screen.getByRole('button', { name: 'go-pending-scope' }))
+    expect(onGoToPending).toHaveBeenCalledOnce()
   })
 
   it('groups navigation, persists uid collapse changes, retains zero counts, and selects stable ids', () => {
@@ -50,16 +58,21 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
     expect(screen.getByRole('button', { name: '复制至' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '移动至' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新所选信息' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '加入转写队列' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消B站收藏' })).toBeInTheDocument()
   })
 
   it('keeps detail visible until manually collapsed and changes the active row without changing list state', () => {
     const onCollapse = vi.fn()
     const { rerender } = render(<FavoriteLibraryDetail title="视频一" onCollapse={onCollapse} />)
-    expect(screen.getByRole('complementary', { name: '\\u89c6\\u9891\\u8be6\\u60c5' })).toHaveTextContent('视频一')
-    fireEvent.click(screen.getByRole('button', { name: '\\u6536\\u8d77\\u8be6\\u60c5' }))
+    expect(screen.getByRole('complementary')).toHaveTextContent('视频一')
+    fireEvent.click(screen.getByRole('button', { name: '收起详情' }))
     expect(onCollapse).toHaveBeenCalledWith(true)
     rerender(<FavoriteLibraryDetail title="视频二" onCollapse={onCollapse} />)
-    expect(screen.getByRole('complementary', { name: '\\u89c6\\u9891\\u8be6\\u60c5' })).toHaveTextContent('视频二')
+    expect(screen.getByRole('complementary')).toHaveTextContent('视频二')
   })
 
   it('exposes stable workspace divider and split footer contracts', () => {
@@ -68,5 +81,20 @@ describe('Favorite Library workspace components', () => {
     document.head.append(style)
     expect(style.textContent).toContain('favorite-library__workspace')
     style.remove()
+  })
+
+  it('restores a manually collapsed detail without changing the selected video', () => {
+    const onRestore = vi.fn()
+    render(<FavoriteLibraryDetail title="视频一" collapsed onRestore={onRestore} onCollapse={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '恢复视频详情' }))
+    expect(onRestore).toHaveBeenCalledOnce()
+  })
+
+  it('keeps managed-folder deletion as an explicit choice with a safe local default', () => {
+    const onChoose = vi.fn()
+    render(<FavoriteLibraryDialogs managedFolder={{ title: '工作夹', canDeleteRemotely: true }} onManagedFolderChoice={onChoose} />)
+    fireEvent.click(screen.getByRole('button', { name: '仅从收藏库删除' }))
+    expect(onChoose).toHaveBeenCalledWith('local')
+    expect(screen.getByRole('button', { name: '删除并同步到B站' })).toBeInTheDocument()
   })
 })
