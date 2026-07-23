@@ -97,6 +97,7 @@ export class LocalDataService {
     const archive = parseMigrationArchiveV1(content)
     if (archive.checksum !== pending.archive.checksum) throw new Error('Migration source changed after preview.')
     const before = Object.fromEntries(await Promise.all((await this.options.persistence.listAccountUids()).map(async (uid) => [uid, await this.options.persistence.readAccount(uid)] as const)))
+    const beforeSharedSettings = await this.options.persistence.readSharedSettings()
     const staged = input.mode === 'merge' ? mergeMigrationAccounts(before, archive.accounts) : { ...before, ...archive.accounts }
     for (const uid of archive.selectedUids) staged[uid] = restorePortableAccountState(staged[uid])
     const rollbackPath = join(this.options.root, `.migration-rollback-${randomUUID()}.json`)
@@ -107,13 +108,17 @@ export class LocalDataService {
       await this.atomicWrite(stagingPath, JSON.stringify(staged))
       if (input.injectFailureAfterStage) throw new Error('injected import failure')
       if (!this.options.persistence.writePortableState) throw new Error('Local data persistence does not support atomic import.')
-      const beforeSharedSettings = await this.options.persistence.readSharedSettings()
       const sharedSettings = archive.sharedSettings ? { ...beforeSharedSettings, ...archive.sharedSettings } : beforeSharedSettings
       await this.options.persistence.writePortableState({ accounts: staged, sharedSettings })
       await rm(stagingPath, { force: true })
     } catch (error) {
-      // The transaction contract guarantees its own rollback; this snapshot is
-      // retained solely as a recoverable audit artifact until the operation ends.
+      // Persistence implementations can fail after one durable backend has
+      // published. Replaying the complete pre-import state is the compensating
+      // transaction; it deliberately never retries the requested import.
+      if (this.options.persistence.writePortableState) {
+        try { await this.options.persistence.writePortableState({ accounts: before, sharedSettings: beforeSharedSettings }) }
+        catch (rollbackError) { throw new Error(`Migration import failed and rollback could not be completed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`) }
+      }
       throw error
     } finally { await rm(rollbackPath, { force: true }) }
   }
@@ -125,6 +130,12 @@ export class LocalDataService {
       await this.options.persistence.writeAccounts({})
       await this.options.persistence.writeSharedSettings({})
       await this.hooks.clearLoginSessions?.()
+      // The profile root is local-only. Remove residual repository, draft,
+      // cache, log, and temporary files after coordinated structured cleanup.
+      const entries = await readdir(this.options.root, { withFileTypes: true }).catch(() => [])
+      await Promise.all(entries.filter((entry) => !entry.isSymbolicLink()).map((entry) =>
+        rm(join(this.options.root, entry.name), { recursive: entry.isDirectory(), force: true })
+      ))
       await this.hooks.exitApp?.()
       return
     }

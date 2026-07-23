@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -57,6 +57,28 @@ describe('LocalDataService', () => {
     expect(await persistence.readSharedSettings()).toEqual(beforeShared)
   })
 
+  it('compensates a partially applied import with the complete account and shared-settings snapshot', async () => {
+    const { root, accounts, persistence, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
+    const preview = await service.previewImport(archive)
+    const beforeAccounts = structuredClone(accounts)
+    const beforeShared = await persistence.readSharedSettings()
+    let calls = 0
+    persistence.writePortableState = vi.fn((next) => {
+      calls++
+      for (const uid of Object.keys(accounts)) delete accounts[uid]
+      Object.assign(accounts, structuredClone(next.accounts))
+      if (calls === 1) throw new Error('repository publish failed after store mutation')
+    })
+
+    await expect(service.applyImport(preview, { mode: 'overwrite' })).rejects.toThrow('repository publish failed')
+    expect(calls).toBe(2)
+    expect(accounts).toEqual(beforeAccounts)
+    expect(await persistence.readSharedSettings()).toEqual(beforeShared)
+    expect(vi.mocked(persistence.writePortableState).mock.calls[1]?.[0].sharedSettings).toEqual(beforeShared)
+  })
+
   it('validates account UIDs at the service boundary before export or account cleanup', async () => {
     const { root, service } = await makeService()
     await expect(service.exportArchive({ uids: ['../../200'], outputPath: join(root, 'portable.json') })).rejects.toThrow('account')
@@ -106,11 +128,12 @@ describe('LocalDataService', () => {
   })
 
   it('keeps cleanup UID-scoped and coordinates shutdown plus login removal for a full clear', async () => {
-    const { accounts, service } = await makeService()
+    const { root, accounts, service } = await makeService()
     const stopActiveWork = vi.fn()
     const clearLoginSessions = vi.fn()
     const exitApp = vi.fn()
     service.setDestructiveHooks({ stopActiveWork, clearLoginSessions, exitApp })
+    await writeFile(join(root, 'local-repository.json'), 'local-only')
     await service.applyCleanup({ level: 'current-account-data', uid: '100' })
     expect(accounts['100']).toBeUndefined()
     expect(accounts['200']).toBeDefined()
@@ -118,6 +141,7 @@ describe('LocalDataService', () => {
     expect(stopActiveWork).toHaveBeenCalledOnce()
     expect(clearLoginSessions).toHaveBeenCalledOnce()
     expect(exitApp).toHaveBeenCalledOnce()
+    await expect(access(join(root, 'local-repository.json'))).rejects.toThrow()
   })
 
   it('previews destructive cleanup, permits usage cancellation, and never presents server data as a target', async () => {
