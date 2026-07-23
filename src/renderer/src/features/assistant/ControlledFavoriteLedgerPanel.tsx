@@ -228,6 +228,15 @@ export function ControlledFavoriteLedgerPanel({
       await onRefreshOrganizationState?.()
     }
   }
+  const closeGuide = () => {
+    setGuideOpen(false)
+    setStep('scan')
+    setScanStartFailure(null)
+  }
+  const abandonCurrentWorkspace = async () => {
+    const result = await workspace.abandonCurrentWorkspace()
+    if (!result) closeGuide()
+  }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
 
   return (
@@ -267,7 +276,7 @@ export function ControlledFavoriteLedgerPanel({
         <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
       </OldFavoriteModal> : null}
       {resumeDialogOpen ? <OldFavoriteModal title="整理旧藏"
-        onCancel={() => setResumeDialogOpen(false)}
+        onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
           <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>
           {canRestartFromResume ? <button type="button" onClick={() => {
@@ -279,7 +288,7 @@ export function ControlledFavoriteLedgerPanel({
         <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
       </OldFavoriteModal> : null}
       {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
-        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null) }}
+        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null); closeGuide() }}
         onConfirm={() => {
           const canConfirm = canConfirmFullReorganization(fullReorganizationAccountMid, currentAccountMid)
           setFullReorganizationConfirmOpen(false)
@@ -325,7 +334,8 @@ export function ControlledFavoriteLedgerPanel({
         onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
         onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
-        onAbandonCurrentWorkspace={() => void workspace.abandonCurrentWorkspace()}
+        onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
+        onAcknowledgeCompletion={closeGuide}
         onConfirmAndSync={() => void confirmAndSync()}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onReconcile={() => void reconcile()}

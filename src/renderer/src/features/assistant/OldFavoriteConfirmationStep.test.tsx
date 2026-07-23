@@ -4,6 +4,23 @@ import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteConfirmationStep', () => {
+  it('lets the user acknowledge a completed Bilibili sync', () => {
+    const acknowledge = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'completed', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }, completionMode: 'bilibili'
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      onAcknowledgeCompletion={acknowledge}
+    />)
+
+    screen.getByRole('button', { name: '好的' }).click()
+    expect(acknowledge).toHaveBeenCalledOnce()
+  })
+
   it('lets the user abandon a previewed organization round before any sync starts', () => {
     const abandon = vi.fn()
     render(<OldFavoriteConfirmationStep

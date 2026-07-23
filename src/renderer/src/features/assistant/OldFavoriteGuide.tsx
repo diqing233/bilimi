@@ -46,6 +46,7 @@ type OldFavoriteGuideProps = {
   onCreateLocalLedgerAndReclassify: (title: string) => void
   onSaveLocally: () => void
   onAbandonCurrentWorkspace?: () => void
+  onAcknowledgeCompletion?: () => void
   onConfirmAndSync: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
@@ -94,6 +95,7 @@ export function OldFavoriteGuide({
   onCreateLocalLedgerAndReclassify,
   onSaveLocally,
   onAbandonCurrentWorkspace = () => undefined,
+  onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
   onReconcile
@@ -176,6 +178,7 @@ export function OldFavoriteGuide({
       executionError={executionError}
       onSaveLocally={onSaveLocally}
       onAbandonCurrentWorkspace={onAbandonCurrentWorkspace}
+      onAcknowledgeCompletion={onAcknowledgeCompletion}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}
       onReconcile={onReconcile}

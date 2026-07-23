@@ -192,6 +192,72 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('region', { name: '整理旧藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
   })
 
+  it('closes the guide when the user dismisses a resume decision', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }))
+
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+  })
+
+  it('closes the guide when the user cancels a full reorganization reset', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+  })
+
+  it('closes the guide after abandoning the current preview round', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '放弃本轮整理' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument())
+  })
+
   it('offers full reorganization for an interrupted remote execution after explaining its local-only reset', async () => {
     const executing = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
@@ -639,7 +705,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     const userTable = await screen.findByRole('table', { name: '用户收藏夹' })
-    expect(within(userTable).getByRole('columnheader', { name: '本轮待整理' })).toBeInTheDocument()
+    expect(within(userTable).getByRole('columnheader', { name: '已选来源' })).toBeInTheDocument()
     expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
     const bilimiTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
     expect(within(bilimiTable).getByText('Bilimi Inbox')).toBeInTheDocument()
@@ -1003,7 +1069,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '继续上次整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
     expect(await screen.findByText('标签补取已完成：已处理 2 / 2 条。')).toBeInTheDocument()
-    expect(screen.getByText('已获取标签 1 条；确认无标签 1 条；读取失败 1 条。')).toBeInTheDocument()
+    const tagResults = screen.getByLabelText('标签补取结果')
+    expect(tagResults).toHaveTextContent('本轮获取标签1')
+    expect(tagResults).toHaveTextContent('本轮确认无标签0')
+    expect(tagResults).toHaveTextContent('读取失败1')
   })
 
   it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {
@@ -1731,6 +1800,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
     expect(await screen.findByRole('status')).toHaveTextContent('本轮已完成同步到 B 站')
     expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '好的' }))
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
   })
 
   it('refreshes the surrounding repository projection after reconciliation settles', async () => {

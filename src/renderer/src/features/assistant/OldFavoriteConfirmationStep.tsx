@@ -8,6 +8,7 @@ type OldFavoriteConfirmationStepProps = {
   executionError?: string | null
   onSaveLocally: () => void
   onAbandonCurrentWorkspace?: () => void
+  onAcknowledgeCompletion?: () => void
   onConfirmAndSync: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
@@ -31,6 +32,7 @@ export function OldFavoriteConfirmationStep({
   executionError,
   onSaveLocally,
   onAbandonCurrentWorkspace = () => undefined,
+  onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
   onReconcile
@@ -45,6 +47,7 @@ export function OldFavoriteConfirmationStep({
       <p role="status">{snapshot.completionMode === 'local'
         ? '本轮已保存到收藏库。'
         : '本轮已完成同步到 B 站。已提交的 B 站操作不会在此撤销。'}</p>
+      <button type="button" onClick={onAcknowledgeCompletion}>好的</button>
     </section>
   }
 
