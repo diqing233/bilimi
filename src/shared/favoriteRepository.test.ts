@@ -159,7 +159,7 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
-  it('tombstones a local record without deleting its observed Bilibili source or retaining protection, and prevents scan rediscovery', () => {
+  it('tombstones a local record without deleting its observed Bilibili source or protection evidence, and prevents scan rediscovery', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
       videos: { '1': { aid: 1, title: 'Keep remote', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' } },
@@ -172,14 +172,14 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-23T00:01:00.000Z')
     expect(deleted.videos['1']).toBeUndefined()
     expect(deleted.memberships).toMatchObject({ 'local:inbox': [], 'bilimi-logical:music': [], 'bilibili:source': [1] })
-    expect(deleted.organizationRecords).toEqual([])
+    expect(deleted.organizationRecords).toEqual(snapshot.organizationRecords)
     expect(isFavoriteRepositoryScanVisible(deleted, 1)).toBe(false)
 
     const restored = applyFavoriteRepositoryCommand(deleted, {
       id: 'restore-local', accountMid: '100', issuedAt: '2026-07-23T00:02:00.000Z', type: 'restore-favorite-to-library', payload: { aid: 1 }
     }, '2026-07-23T00:02:00.000Z')
     expect(isFavoriteRepositoryScanVisible(restored, 1)).toBe(true)
-    expect(restored.organizationRecords).toEqual([])
+    expect(restored.organizationRecords).toEqual(snapshot.organizationRecords)
   })
 
   it('creates and validates a credential-free portable archive with a stable checksum', () => {

@@ -544,6 +544,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'delete-local-managed-folder'
+      payload: { logicalFolderId: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'restore-favorite-to-library' | 'forget-favorite-tombstone'
       payload: { aid: number }
     }
@@ -896,6 +904,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'delete-favorite-from-library':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
         Number.isNaN(Date.parse(payload.deletedAt)) || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
+      return
+    case 'delete-local-managed-folder':
+      if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
       return
     case 'restore-favorite-to-library':
     case 'forget-favorite-tombstone':
@@ -1351,8 +1362,8 @@ export function applyFavoriteRepositoryCommand(
       }
       delete videos[String(aid)]
       delete libraryMirrors[String(aid)]
-      delete positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
-      organizationRecords = organizationRecords.filter((record) => record.aid !== aid)
+      // A local library delete hides the video but retains remote observations,
+      // protection evidence, and external archive/transcript/event history for recovery.
       for (const folderId of Object.keys(memberships)) {
         if (folderId.startsWith('bilibili:')) continue
         const before = memberships[folderId] ?? []
@@ -1362,6 +1373,30 @@ export function applyFavoriteRepositoryCommand(
         }
       }
       affectedAids = [aid]
+      break
+    }
+    case 'delete-local-managed-folder': {
+      const logicalFolderId = command.payload.logicalFolderId.trim()
+      const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
+      if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
+      const removedShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalFolder.logicalLedgerId)
+      const removedFolderIds = new Set([logicalFolderId, ...removedShards.map((shard) => shard.folderId)])
+      const affected = new Set<number>()
+      for (const folderId of removedFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
+      folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
+      physicalShards = physicalShards.filter((shard) => shard.logicalLedgerId !== logicalFolder.logicalLedgerId)
+      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
+      for (const position of Object.values(positions)) {
+        if (!position.localDesiredFolderIds.includes(logicalFolderId)) continue
+        positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
+          ...position,
+          localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId),
+          positionState: 'local-only-change', updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
+        }
+        affected.add(position.aid)
+      }
+      affectedFolderIds = [...removedFolderIds]
+      affectedAids = [...affected]
       break
     }
     case 'restore-favorite-to-library':
