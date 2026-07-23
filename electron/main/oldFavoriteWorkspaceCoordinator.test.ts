@@ -345,6 +345,27 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('reuses legacy nonempty library tags without fetching them again', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await repository.commit('100', {
+      id: 'legacy-tagged', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Cached tags', tags: ['TypeScript'], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [{ aid: 1, title: 'Cached tags', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { items: [expect.objectContaining({ aid: 1, tags: ['TypeScript'] })] },
+      tagEnrichment: { status: 'complete', totalItemCount: 0, pendingItemCount: 0, reusedTagItemCount: 1, fetchedTagItemCount: 0 }
+    })
+  })
+
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

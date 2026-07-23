@@ -67,7 +67,10 @@ export function OldFavoriteScanOverviewStep({
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
   const failedTagItemCount = Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
-  const confirmedUntaggedItemCount = Math.max(0, untaggedItemCount - failedTagItemCount)
+  const confirmedUntaggedItemCount = tagEnrichment?.confirmedUntaggedItemCount ?? 0
+  const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
+  const fetchedTagItemCount = tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
+  const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
@@ -96,9 +99,23 @@ export function OldFavoriteScanOverviewStep({
         <strong>{untaggedItemCount ? `${untaggedItemCount} 条尚未取得标签` : '已识别'}</strong>
       </div> : null}
     </div>
+    {snapshot ? <>
+      <div className="favorite-ledger-panel__scan-metrics" aria-label="本轮整理统计">
+        <article><span>来源总数</span><strong>{totalItemCount}</strong></article>
+        <article><span>本轮待整理</span><strong>{selectedAidCount}</strong></article>
+        <article><span>已保护跳过</span><strong>{snapshot.protectedAidCount ?? 0}</strong></article>
+        <article><span>待续新增</span><strong>{snapshot.continuationCount}</strong></article>
+      </div>
+      <p className="favorite-ledger-panel__scan-explanation">扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。</p>
+    </> : null}
     {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
       <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
-      <p>已获取标签 {taggedItemCount} 条；确认无标签 {confirmedUntaggedItemCount} 条；读取失败 {failedTagItemCount} 条。</p>
+      <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
+        <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
+        <span><small>本轮获取标签</small><strong>{fetchedTagItemCount}</strong></span>
+        <span><small>本轮确认无标签</small><strong>{confirmedUntaggedItemCount}</strong></span>
+        <span><small>读取失败</small><strong>{failedTagItemCount}</strong></span>
+      </div>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'running'
           ? <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
@@ -108,6 +125,7 @@ export function OldFavoriteScanOverviewStep({
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={loading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
+      {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">暂停会保留已取得标签；采用当前标签会用当前结果继续本轮，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>
@@ -123,7 +141,7 @@ export function OldFavoriteScanOverviewStep({
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-label="选择" /><span role="columnheader">用户收藏夹</span>
-        <span role="columnheader">总数</span><span role="columnheader">本轮待整理</span>
+        <span role="columnheader">总数</span><span role="columnheader">已选来源</span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
         {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">

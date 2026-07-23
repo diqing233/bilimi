@@ -121,6 +121,8 @@ type TagEnrichment = {
   totalItemCount: number
   pendingAids: number[]
   failedAids: number[]
+  reusedTagItemCount: number
+  taggedAids: number[]
 }
 
 function stableTagRecommendationId(tag: string) {
@@ -563,11 +565,13 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      let reusedTagItemCount = 0
       for (const item of itemsByAid.values()) {
         const saved = repository.videos[String(item.aid)]
-        if (saved?.tagEvidence === 'confirmed' && !item.tags?.length) {
+        if (saved && !item.tags?.length && (saved.tagEvidence === 'confirmed' || saved.tags.length > 0)) {
           item.tags = [...saved.tags]
-          item.tagEvidence = 'confirmed'
+          if (saved.tags.length > 0) reusedTagItemCount += 1
+          if (saved.tagEvidence === 'confirmed') item.tagEvidence = 'confirmed'
         }
       }
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
@@ -683,7 +687,9 @@ export class OldFavoriteWorkspaceCoordinator {
         status: pendingTagAids.length ? 'running' : 'complete',
         totalItemCount: pendingTagAids.length,
         pendingAids: pendingTagAids,
-        failedAids: []
+        failedAids: [],
+        reusedTagItemCount,
+        taggedAids: []
       }
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
@@ -1399,6 +1405,9 @@ export class OldFavoriteWorkspaceCoordinator {
         ...enrichment,
         pendingAids,
         failedAids: enrichment.failedAids.filter((candidate) => candidate !== aid),
+        taggedAids: normalizedTags.length > 0
+          ? [...new Set([...enrichment.taggedAids, aid])].sort((left, right) => left - right)
+          : enrichment.taggedAids.filter((candidate) => candidate !== aid),
         status: pendingAids.length ? 'running' : 'complete'
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -2134,6 +2143,9 @@ export class OldFavoriteWorkspaceCoordinator {
             completedItemCount: enrichment.totalItemCount - enrichment.pendingAids.length,
             pendingItemCount: enrichment.pendingAids.length,
             failedItemCount: enrichment.failedAids.length
+            ,reusedTagItemCount: enrichment.reusedTagItemCount
+            ,fetchedTagItemCount: enrichment.taggedAids.length
+            ,confirmedUntaggedItemCount: Math.max(0, enrichment.totalItemCount - enrichment.pendingAids.length - enrichment.failedAids.length - enrichment.taggedAids.length)
           }
         })()
       } : {}),

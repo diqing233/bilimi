@@ -148,7 +148,8 @@ export function OldFavoriteArchivePreviewStep({
         <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
       </div>
     </div>
-    <p className="favorite-ledger-panel__step-note">当前分段 {items.length} 条；只加载并显示这一段。</p>
+    <p className="favorite-ledger-panel__step-note">当前分段 {items.length} 条；可调整分类和暂存，预览中的修改不会立即操作 B 站。</p>
+    <p className="favorite-ledger-panel__action-explanation">DeepSeek 只辅助更新预览；撤销、恢复和改动记录只处理本轮预览改动。</p>
     {snapshot.segments.length > 1 ? <div role="group" aria-label="整理分段">
       {snapshot.segments.map((segment) => <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
         disabled={snapshot.currentSegment?.id === segment.id || loading}
