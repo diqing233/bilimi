@@ -25,6 +25,8 @@ type PersistedRepository = {
   accountMid: string
   snapshot: AccountFavoriteRepositorySnapshot
   commandResults: Record<string, FavoriteRepositoryCommandReceipt>
+  /** Archive events are published with the repository generation, never appended after its receipt. */
+  importedEvents?: FavoriteRepositoryEvent[]
   syncCommandIds?: string[]
   generation?: string
 }
@@ -302,7 +304,11 @@ function validPersisted(value: unknown, accountMid: string): value is PersistedR
     validSnapshot(persisted.snapshot, accountMid) && !!persisted.commandResults &&
     typeof persisted.commandResults === 'object' && !Array.isArray(persisted.commandResults) &&
     (persisted.syncCommandIds === undefined ||
-      (Array.isArray(persisted.syncCommandIds) && persisted.syncCommandIds.every((id) => typeof id === 'string' && !!id)))
+      (Array.isArray(persisted.syncCommandIds) && persisted.syncCommandIds.every((id) => typeof id === 'string' && !!id))) &&
+    (persisted.importedEvents === undefined || (Array.isArray(persisted.importedEvents) && persisted.importedEvents.every((event) =>
+      event && typeof event === 'object' && (event as FavoriteRepositoryEvent).accountMid === accountMid &&
+      Number.isSafeInteger((event as FavoriteRepositoryEvent).aid) && (event as FavoriteRepositoryEvent).aid > 0 &&
+      typeof (event as FavoriteRepositoryEvent).id === 'string' && !!(event as FavoriteRepositoryEvent).id)))
 }
 
 function validManifest(value: unknown, accountMid: string): value is RepositoryManifest {
@@ -385,6 +391,12 @@ export class FavoriteRepositoryService {
     const account = normalizeAccountMid(accountMid)
     const archive = await input.validate()
     if (normalizeAccountMid(archive.accountMid) !== account) throw new Error('Favorite repository archive account mismatch.')
+    // Validate every event before calculating any projection or creating a new
+    // generation.  Import callers may provide a validator, but this boundary
+    // must remain safe even if that implementation is replaced.
+    if ((archive.events ?? []).some((event) => event.accountMid !== archive.accountMid || event.accountMid !== account)) {
+      throw new Error('Favorite repository archive event account mismatch.')
+    }
     const commandId = `archive-import:${archive.checksum.toLowerCase()}`
     this.pendingWriteCount++
     return this.queue(async () => {
@@ -392,6 +404,20 @@ export class FavoriteRepositoryService {
       const repository = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account))
       const existing = repository.commandResults[commandId]
       if (existing) return this.resultFromReceipt(repository.snapshot, existing)
+
+      // Stage the event projection in the same generation as the snapshot and
+      // receipt. A failure while publishing that generation leaves no visible
+      // snapshot/receipt/event state; unlike post-persist append, it cannot
+      // produce a restored repository with a missing user history.
+      const existingEventIds = new Set([
+        ...(repository.importedEvents ?? []).map((event) => event.id),
+        ...(await Promise.all([...new Set((archive.events ?? []).map((event) => event.aid))]
+          .map(async (aid) => (await this.readEvents(account, aid)).map((event) => event.id)))).flat()
+      ])
+      const importedEvents = [
+        ...(repository.importedEvents ?? []),
+        ...(archive.events ?? []).filter((event) => !existingEventIds.has(event.id)).map(clone)
+      ].sort((left, right) => left.aid - right.aid || left.sequence - right.sequence || left.id.localeCompare(right.id))
 
       const importedAids = new Set<number>([
         ...(archive.videos ?? []).map((video) => video.aid),
@@ -471,11 +497,12 @@ export class FavoriteRepositoryService {
       const next: PersistedRepository = {
         ...repository,
         snapshot,
+        importedEvents,
         commandResults: { ...repository.commandResults, [commandId]: receiptFromResult(result) }
       }
-      // Persist the entire portable state before publishing or writing its separate, deduplicated event projection.
+      // Snapshot, receipt, and staged archive event projection share one atomic
+      // generation publication; no event append happens after the receipt.
       const persisted = await this.persist(account, next, cached.manifest?.generation)
-      for (const event of archive.events ?? []) await this.appendEventOnce(account, { ...event, accountMid: account })
       this.cache.set(account, persisted)
       this.emitChange(result)
       return clone(result)
@@ -700,13 +727,17 @@ export class FavoriteRepositoryService {
     if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')
     const limit = pageLimit(options.limit)
     return this.queue(async () => {
-      const items = await this.readEvents(account, aid)
+      const repository = (await this.load(account)).repository
+      const byId = new Map<string, FavoriteRepositoryEvent>()
+      for (const event of repository.importedEvents ?? []) if (event.aid === aid && event.accountMid === account) byId.set(event.id, event)
+      for (const event of await this.readEvents(account, aid)) byId.set(event.id, event)
+      const items = [...byId.values()].sort((left, right) => right.sequence - left.sequence || right.id.localeCompare(left.id))
       const start = options.cursor ? Math.max(0, items.findIndex((event) => `${event.sequence}:${event.id}` === options.cursor) + 1) : 0
       const page = items.slice(start, start + limit)
       return {
         version: 1,
         accountMid: account,
-        revision: (await this.load(account)).repository.snapshot.revision,
+        revision: repository.snapshot.revision,
         items: page.map(clone),
         ...(start + limit < items.length ? { nextCursor: `${page.at(-1)!.sequence}:${page.at(-1)!.id}` } : {})
       }
@@ -724,6 +755,40 @@ export class FavoriteRepositoryService {
       throw new Error('Favorite repository folder was not found.')
     }
     return [...(index.folderAidsByFolderId.get(normalizedFolderId) ?? [])]
+  }
+
+  /**
+   * Resolves a renderer-supplied logical archive scope entirely in the main
+   * process. The returned IDs use the same canonical membership index as the
+   * library page, so every bound shard and bound Bilibili mirror contributes
+   * once without exposing those physical identifiers to the renderer.
+   */
+  async resolveArchiveRestoreLogicalFolderAids(accountMid: string, folderId: string): Promise<number[]> {
+    const account = normalizeAccountMid(accountMid)
+    const logicalFolderId = folderId.trim()
+    if (!/^bilimi-logical:\S+$/.test(logicalFolderId)) {
+      throw new Error('Archive restore scope must name a Bilimi logical folder.')
+    }
+    const snapshot = await this.getSnapshot(account)
+    const logicalFolder = snapshot.folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
+    if (!logicalFolder) throw new Error('Archive restore scope must name a Bilimi logical folder.')
+    if (logicalFolder.syncState !== 'bound' || !logicalFolder.logicalLedgerId) {
+      throw new Error('Archive restore logical folder is not currently bound.')
+    }
+    const boundShards = snapshot.physicalShards.filter((shard) =>
+      shard.logicalLedgerId === logicalFolder.logicalLedgerId && shard.bindingState === 'bound' && shard.remoteFolderId)
+    if (!boundShards.length) throw new Error('Archive restore logical folder is not currently bound.')
+    const logicalLedgerIdsByRemoteFolderId = new Map<string, Set<string>>()
+    for (const shard of snapshot.physicalShards) {
+      if (!shard.remoteFolderId) continue
+      const ledgerIds = logicalLedgerIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
+      ledgerIds.add(shard.logicalLedgerId)
+      logicalLedgerIdsByRemoteFolderId.set(shard.remoteFolderId, ledgerIds)
+    }
+    if (boundShards.some((shard) => logicalLedgerIdsByRemoteFolderId.get(shard.remoteFolderId!)!.size > 1)) {
+      throw new Error('Archive restore logical folder has conflicting remote bindings.')
+    }
+    return this.getLibraryFolderAids(account, logicalFolderId)
   }
 
   private emitChange(result: FavoriteRepositoryCommandResult) {

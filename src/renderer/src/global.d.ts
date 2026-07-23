@@ -41,6 +41,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
+import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
@@ -128,10 +129,24 @@ type BilimiDesktopApi = {
   deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   restoreFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   forgetFavoriteLibraryTombstone?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  previewFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[]) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoritePreview>
+  confirmFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoriteConfirmation>
+  executeFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string, confirmationToken: string) => Promise<FavoriteLibraryCommandResult>
   exportFavoriteRepositoryArchive?: (accountMid: string) => Promise<unknown>
   previewFavoriteRepositoryArchiveImport?: (accountMid: string, input: unknown) => Promise<unknown>
   applyFavoriteRepositoryArchiveImport?: (accountMid: string, input: unknown) => Promise<unknown>
-  createFavoriteRepositoryArchiveRestorePlan?: (accountMid: string, input: unknown, observed: unknown, mode: 'safe' | 'full') => Promise<unknown>
+  createFavoriteRepositoryArchiveRestorePlan?: (
+    accountMid: string, input: unknown, mode: 'safe' | 'full', scope: import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryArchiveRestoreScope
+  ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryArchiveRestorePreview>
+  confirmFavoriteRepositoryArchiveFullRestore?: (
+    accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string
+  ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryArchiveFullRestoreConfirmation>
+  executeFavoriteRepositoryArchiveRestore?: (
+    accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string, fullConfirmationToken?: string
+  ) => Promise<unknown>
+  reconcileFavoriteRepositoryArchiveRestore?: (
+    accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string
+  ) => Promise<unknown>
   enqueueFavoriteLibraryTranscription?: (
     accountMid: string,
     input: { aids: number[]; summarizeWithDeepSeek?: boolean }

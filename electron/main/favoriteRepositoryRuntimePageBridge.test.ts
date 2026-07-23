@@ -26,6 +26,23 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     })
   })
 
+  it('routes a global Bilibili unfavorite only through an explicitly bound page target', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100' })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+
+    await manager.bind('100', 'unfavorite-1')
+    await expect(manager.pageBridge('100', 'unfavorite-1').unfavorite({
+      accountMid: '100', operationKey: 'unfavorite-1:42', aid: 42
+    })).resolves.toEqual({ observedAccountMid: '100' })
+
+    expect(request).toHaveBeenLastCalledWith({
+      type: 'favorite-repository-page-operation', accountMid: '100', runId: 'unfavorite-1', target,
+      action: 'unfavorite', input: { accountMid: '100', operationKey: 'unfavorite-1:42', aid: 42 }
+    })
+  })
+
   it('isolates same run ids across accounts and rejects an account-changed result', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })

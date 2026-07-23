@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
@@ -11,7 +11,11 @@ import type {
 } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryLibraryDetail, FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteLibraryCommandService, FavoriteLibraryCommandResult, FavoriteLibraryPlacementInput } from './favoriteLibraryCommands'
-import type { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
+import type {
+  FavoriteRepositoryArchiveService,
+  FavoriteRepositoryRestorePlan,
+  FavoriteRepositoryRestoreWriter
+} from './favoriteRepositoryArchiveService'
 
 type IpcEvent = {
   sender: {
@@ -31,6 +35,23 @@ type LibraryPageScope =
   | { kind: 'pending' }
 
 const MAX_AFFECTED_FOLDER_IDS = 100
+const DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS = 5 * 60 * 1000
+const DEFAULT_REMOTE_UNFAVORITE_TOKEN_TTL_MS = 5 * 60 * 1000
+
+type ArchiveRestorePreviewToken = {
+  senderId: number
+  accountMid: string
+  mode: FavoriteRepositoryRestorePlan['mode']
+  digest: string
+  expiresAt: number
+}
+
+type RemoteUnfavoriteToken = {
+  senderId: number
+  accountMid: string
+  digest: string
+  expiresAt: number
+}
 
 export type FavoriteRepositorySnapshotSummary = {
   version: 1
@@ -73,6 +94,22 @@ export type FavoriteRepositoryLibraryRow = {
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
 export type FavoriteRepositoryOrganizationChanges = FavoriteRepositoryOrganizationChange[]
 export type FavoriteRepositoryEventPage = FavoriteRepositoryPage<FavoriteRepositoryEvent>
+export type FavoriteRepositoryArchiveRestorePreview = FavoriteRepositoryRestorePlan & {
+  executionToken: string
+  confirmationRequired: boolean
+}
+export type FavoriteRepositoryArchiveFullRestoreConfirmation = { confirmationToken: string }
+export type FavoriteRepositoryArchiveRestoreScope =
+  | { kind: 'all' }
+  | { kind: 'aids'; aids: number[] }
+  | { kind: 'logical-folder'; folderId: string }
+export type FavoriteLibraryUnfavoritePreview = {
+  accountMid: string
+  aids: number[]
+  executionToken: string
+  expiresAt: number
+}
+export type FavoriteLibraryUnfavoriteConfirmation = { confirmationToken: string }
 
 export type FavoriteLibraryArchiveSummary = {
   status: '未入档' | '已入档'
@@ -135,6 +172,18 @@ function expectedRevision(value: unknown) {
   return Number(value)
 }
 
+function unfavoriteAids(value: unknown) {
+  const aids = Array.isArray(value) ? Array.from(value) : []
+  if (!aids.length || aids.length > 100 || new Set(aids).size !== aids.length || aids.some((aid) => !Number.isSafeInteger(aid) || Number(aid) <= 0)) {
+    throw new Error('Favorite library unfavorite selection is invalid.')
+  }
+  return [...new Set(aids.map(Number))].sort((left, right) => left - right)
+}
+
+function unfavoriteDigest(accountMid: string, aids: number[]) {
+  return createHash('sha256').update(JSON.stringify({ accountMid, aids })).digest('hex')
+}
+
 function localPlacementInputs(value: unknown): FavoriteLibraryPlacementInput[] {
   if (!Array.isArray(value) || !value.length || value.length > 100) throw new Error('Favorite library placement is invalid.')
   const seen = new Set<number>()
@@ -154,6 +203,68 @@ function localPlacementInputs(value: unknown): FavoriteLibraryPlacementInput[] {
 function restoreMode(value: unknown): 'safe' | 'full' {
   if (value === 'safe' || value === 'full') return value
   throw new Error('Favorite repository restore mode is invalid.')
+}
+
+function archiveRestoreScope(value: unknown): FavoriteRepositoryArchiveRestoreScope {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Favorite repository archive restore scope is invalid.')
+  }
+  const candidate = value as { kind?: unknown; aids?: unknown; folderId?: unknown }
+  if (candidate.kind === 'all' && Object.keys(candidate).length === 1) return { kind: 'all' }
+  if (candidate.kind === 'aids' && Array.isArray(candidate.aids) && Object.keys(candidate).length === 2 &&
+    candidate.aids.length > 0 && candidate.aids.length <= 10_000 && new Set(candidate.aids).size === candidate.aids.length &&
+    candidate.aids.every((aid) => Number.isSafeInteger(aid) && Number(aid) > 0)) {
+    return { kind: 'aids', aids: candidate.aids.map(Number).sort((left, right) => left - right) }
+  }
+  if (candidate.kind === 'logical-folder' && typeof candidate.folderId === 'string' && Object.keys(candidate).length === 2 &&
+    /^bilimi-logical:\S+$/.test(candidate.folderId.trim())) {
+    return { kind: 'logical-folder', folderId: candidate.folderId.trim() }
+  }
+  throw new Error('Favorite repository archive restore scope is invalid.')
+}
+
+/** Renderer may select a previously previewed plan but never physical folder ids or writer behavior. */
+function restorePlan(value: unknown): FavoriteRepositoryRestorePlan {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Favorite repository restore plan is invalid.')
+  const candidate = value as { mode?: unknown; accountMid?: unknown; operations?: unknown }
+  if ((candidate.mode !== 'safe' && candidate.mode !== 'full') || typeof candidate.accountMid !== 'string' || !Array.isArray(candidate.operations)) {
+    throw new Error('Favorite repository restore plan is invalid.')
+  }
+  const accountMid = normalizedAccountMid(candidate.accountMid)
+  const operations = candidate.operations.map((operation) => {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) throw new Error('Favorite repository restore plan is invalid.')
+    const row = operation as Record<string, unknown>
+    const expectedKeys = ['aid', 'desiredLogicalFolderIds', 'appendLogicalFolderIds', 'removeLogicalFolderIds']
+    if (Object.keys(row).some((key) => !expectedKeys.includes(key)) || !Number.isSafeInteger(row.aid) || Number(row.aid) <= 0) {
+      throw new Error('Favorite repository restore plan is invalid.')
+    }
+    const folderIds = (key: 'desiredLogicalFolderIds' | 'appendLogicalFolderIds' | 'removeLogicalFolderIds') => {
+      const ids = row[key]
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !id.startsWith('bilimi-logical:'))) {
+        throw new Error('Favorite repository restore plan is invalid.')
+      }
+      return [...new Set(ids)].sort()
+    }
+    return {
+      aid: Number(row.aid),
+      desiredLogicalFolderIds: folderIds('desiredLogicalFolderIds'),
+      appendLogicalFolderIds: folderIds('appendLogicalFolderIds'),
+      removeLogicalFolderIds: folderIds('removeLogicalFolderIds')
+    }
+  })
+  if (operations.length > 10_000 || new Set(operations.map((operation) => operation.aid)).size !== operations.length) {
+    throw new Error('Favorite repository restore plan is invalid.')
+  }
+  return { mode: candidate.mode, accountMid, operations: operations.sort((left, right) => left.aid - right.aid) }
+}
+
+/** The plan has already discarded physical ids; hash its normalized logical form before issuing a renderer token. */
+function restorePlanDigest(plan: FavoriteRepositoryRestorePlan) {
+  return createHash('sha256').update(JSON.stringify({
+    accountMid: plan.accountMid,
+    mode: plan.mode,
+    operations: plan.operations
+  })).digest('hex')
 }
 
 function commandForAccount(value: unknown, accountMid: string): FavoriteRepositoryCommand {
@@ -247,10 +358,26 @@ export function registerFavoriteRepositoryIpc(options: {
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
-  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone'>
-  archiveService?: Pick<FavoriteRepositoryArchiveService, 'exportAccount' | 'previewImport' | 'applyImport' | 'createRestorePlan'>
+  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone' | 'cancelBilibiliFavorites'>
+  archiveService?: Pick<FavoriteRepositoryArchiveService, 'exportAccount' | 'previewImport' | 'applyImport' | 'createRestorePlanFromManagedScan' | 'executeRestorePlan' | 'reconcileRestorePlan'>
+  archiveRestoreWriter?: FavoriteRepositoryRestoreWriter
+  /** Injectable only for deterministic expiry tests; production uses Date.now(). */
+  now?: () => number
+  archiveRestoreTokenTtlMs?: number
+  remoteUnfavoriteTokenTtlMs?: number
 }) {
   const subscriptions = new Map<number, Map<string, Subscription>>()
+  const restoreExecutionTokens = new Map<string, ArchiveRestorePreviewToken>()
+  const restoreFullConfirmationTokens = new Map<string, ArchiveRestorePreviewToken>()
+  const remoteUnfavoriteExecutionTokens = new Map<string, RemoteUnfavoriteToken>()
+  const remoteUnfavoriteConfirmationTokens = new Map<string, RemoteUnfavoriteToken>()
+  const now = options.now ?? Date.now
+  const restoreTokenTtlMs = Number.isSafeInteger(options.archiveRestoreTokenTtlMs) && options.archiveRestoreTokenTtlMs! > 0
+    ? options.archiveRestoreTokenTtlMs!
+    : DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS
+  const remoteUnfavoriteTokenTtlMs = Number.isSafeInteger(options.remoteUnfavoriteTokenTtlMs) && options.remoteUnfavoriteTokenTtlMs! > 0
+    ? options.remoteUnfavoriteTokenTtlMs!
+    : DEFAULT_REMOTE_UNFAVORITE_TOKEN_TTL_MS
   const assertTrusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) {
       throw new Error('Favorite repository request came from an untrusted renderer.')
@@ -309,6 +436,68 @@ export function registerFavoriteRepositoryIpc(options: {
     records?.delete(subscriptionId)
     if (!records?.size) subscriptions.delete(senderId)
     return true
+  }
+  const issueRestoreToken = (
+    tokens: Map<string, ArchiveRestorePreviewToken>,
+    senderId: number,
+    plan: FavoriteRepositoryRestorePlan
+  ) => {
+    const timestamp = now()
+    for (const [token, record] of tokens) {
+      if (record.expiresAt <= timestamp) tokens.delete(token)
+    }
+    const token = randomUUID()
+    tokens.set(token, {
+      senderId,
+      accountMid: plan.accountMid,
+      mode: plan.mode,
+      digest: restorePlanDigest(plan),
+      expiresAt: timestamp + restoreTokenTtlMs
+    })
+    return token
+  }
+  const assertRestoreToken = (
+    tokens: Map<string, ArchiveRestorePreviewToken>,
+    token: unknown,
+    senderId: number,
+    plan: FavoriteRepositoryRestorePlan,
+    label: 'execution' | 'second confirmation'
+  ) => {
+    if (typeof token !== 'string' || !token) {
+      throw new Error(`Favorite repository archive restore requires an ${label} token.`)
+    }
+    const record = tokens.get(token)
+    if (!record) throw new Error('Favorite repository archive restore token does not match a preview.')
+    if (record.expiresAt <= now()) {
+      tokens.delete(token)
+      throw new Error('Favorite repository archive restore token expired.')
+    }
+    if (record.senderId !== senderId || record.accountMid !== plan.accountMid || record.mode !== plan.mode || record.digest !== restorePlanDigest(plan)) {
+      throw new Error('Favorite repository archive restore token does not match the preview.')
+    }
+  }
+  const issueRemoteUnfavoriteToken = (tokens: Map<string, RemoteUnfavoriteToken>, senderId: number, accountMid: string, aids: number[]) => {
+    const timestamp = now()
+    for (const [token, record] of tokens) if (record.expiresAt <= timestamp) tokens.delete(token)
+    const token = randomUUID()
+    tokens.set(token, {
+      senderId, accountMid, digest: unfavoriteDigest(accountMid, aids), expiresAt: timestamp + remoteUnfavoriteTokenTtlMs
+    })
+    return { token, expiresAt: timestamp + remoteUnfavoriteTokenTtlMs }
+  }
+  const assertRemoteUnfavoriteToken = (
+    tokens: Map<string, RemoteUnfavoriteToken>, token: unknown, senderId: number, accountMid: string, aids: number[], label: 'execution' | 'second confirmation'
+  ) => {
+    if (typeof token !== 'string' || !token) throw new Error(`Favorite library unfavorite requires an ${label} token.`)
+    const record = tokens.get(token)
+    if (!record) throw new Error('Favorite library unfavorite token does not match the preview.')
+    if (record.expiresAt <= now()) {
+      tokens.delete(token)
+      throw new Error('Favorite library unfavorite token expired.')
+    }
+    if (record.senderId !== senderId || record.accountMid !== accountMid || record.digest !== unfavoriteDigest(accountMid, aids)) {
+      throw new Error('Favorite library unfavorite token does not match the preview.')
+    }
   }
 
   const servicePublishesChanges = typeof options.service.onChanged === 'function'
@@ -410,6 +599,41 @@ export function registerFavoriteRepositoryIpc(options: {
       return options.commandService[method](accountMid, videoAid(requestedAid), expectedRevision(requestedRevision))
     })
   }
+  options.ipcMain.handle('favorite-library:unfavorite-preview', async (event, requestedAccountMid: string, requestedAids: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.commandService) throw new Error('Favorite library Bilibili unfavorite is unavailable.')
+    const aids = unfavoriteAids(requestedAids)
+    const issued = issueRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, event.sender.id, accountMid, aids)
+    return { accountMid, aids, executionToken: issued.token, expiresAt: issued.expiresAt } satisfies FavoriteLibraryUnfavoritePreview
+  })
+  options.ipcMain.handle('favorite-library:unfavorite-confirm', async (
+    event, requestedAccountMid: string, requestedAids: unknown, executionToken: unknown
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    const aids = unfavoriteAids(requestedAids)
+    assertRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, executionToken, event.sender.id, accountMid, aids, 'execution')
+    return {
+      confirmationToken: issueRemoteUnfavoriteToken(remoteUnfavoriteConfirmationTokens, event.sender.id, accountMid, aids).token
+    } satisfies FavoriteLibraryUnfavoriteConfirmation
+  })
+  options.ipcMain.handle('favorite-library:execute-unfavorite', async (
+    event, requestedAccountMid: string, requestedAids: unknown, executionToken: unknown, confirmationToken: unknown
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.commandService) throw new Error('Favorite library Bilibili unfavorite is unavailable.')
+    const aids = unfavoriteAids(requestedAids)
+    assertRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, executionToken, event.sender.id, accountMid, aids, 'execution')
+    assertRemoteUnfavoriteToken(remoteUnfavoriteConfirmationTokens, confirmationToken, event.sender.id, accountMid, aids, 'second confirmation')
+    // A dangerous authorization is one-shot even if the remote outcome is unknown.
+    remoteUnfavoriteConfirmationTokens.delete(confirmationToken as string)
+    return options.commandService.cancelBilibiliFavorites(accountMid, aids)
+  })
   options.ipcMain.handle('favorite-repository:archive-export', async (event, requestedAccountMid: string) => {
     assertTrusted(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
@@ -431,15 +655,68 @@ export function registerFavoriteRepositoryIpc(options: {
     if (!options.archiveService) throw new Error('Favorite repository archive is unavailable.')
     return options.archiveService.applyImport(input, accountMid)
   })
-  options.ipcMain.handle('favorite-repository:archive-restore-plan', async (event, requestedAccountMid: string, input: unknown, observed: unknown, mode: unknown) => {
+  options.ipcMain.handle('favorite-repository:archive-restore-plan', async (event, requestedAccountMid: string, input: unknown, mode: unknown, requestedScope: unknown) => {
     assertTrusted(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    if (!options.archiveService || !observed || typeof observed !== 'object' || Array.isArray(observed)) throw new Error('Favorite repository archive is unavailable.')
-    const plan = options.archiveService.createRestorePlan(input as never, observed as never, restoreMode(mode))
+    if (!options.archiveService || !options.archiveRestoreWriter) throw new Error('Favorite repository archive is unavailable.')
+    // Remote membership is read through the main-process bound-shard writer.
+    // The renderer never supplies either logical observations or physical IDs.
+    const scope = archiveRestoreScope(requestedScope)
+    const aids = scope.kind === 'aids'
+      ? scope.aids
+      : scope.kind === 'logical-folder'
+        ? await options.service.resolveArchiveRestoreLogicalFolderAids(accountMid, scope.folderId)
+        : undefined
+    const scannedPlan = aids
+      ? await options.archiveService.createRestorePlanFromManagedScan(input as never, restoreMode(mode), options.archiveRestoreWriter, aids)
+      : await options.archiveService.createRestorePlanFromManagedScan(input as never, restoreMode(mode), options.archiveRestoreWriter)
+    const plan = restorePlan(scannedPlan)
     if (normalizedAccountMid(plan.accountMid) !== accountMid) throw new Error('Favorite repository archive account mismatch.')
-    return plan
+    return {
+      ...plan,
+      executionToken: issueRestoreToken(restoreExecutionTokens, event.sender.id, plan),
+      confirmationRequired: plan.mode === 'full'
+    } satisfies FavoriteRepositoryArchiveRestorePreview
   })
+  options.ipcMain.handle('favorite-repository:archive-confirm-full-restore', async (
+    event, requestedAccountMid: string, requestedPlan: unknown, executionToken: unknown
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    const plan = restorePlan(requestedPlan)
+    if (plan.accountMid !== accountMid || plan.mode !== 'full') {
+      throw new Error('Favorite repository archive full restore confirmation is unavailable.')
+    }
+    assertRestoreToken(restoreExecutionTokens, executionToken, event.sender.id, plan, 'execution')
+    return { confirmationToken: issueRestoreToken(restoreFullConfirmationTokens, event.sender.id, plan) } satisfies FavoriteRepositoryArchiveFullRestoreConfirmation
+  })
+  for (const [channel, method] of [
+    ['favorite-repository:archive-execute-restore', 'executeRestorePlan'],
+    ['favorite-repository:archive-reconcile-restore', 'reconcileRestorePlan']
+  ] as const) {
+    options.ipcMain.handle(channel, async (
+      event, requestedAccountMid: string, requestedPlan: unknown, executionToken: unknown, fullConfirmationToken?: unknown
+    ) => {
+      assertTrusted(event)
+      const accountMid = normalizedAccountMid(requestedAccountMid)
+      await assertCurrentAccount(accountMid)
+      const plan = restorePlan(requestedPlan)
+      if (plan.accountMid !== accountMid || !options.archiveService || !options.archiveRestoreWriter) {
+        throw new Error('Favorite repository archive restore is unavailable.')
+      }
+      assertRestoreToken(restoreExecutionTokens, executionToken, event.sender.id, plan, 'execution')
+      if (method === 'executeRestorePlan' && plan.mode === 'full') {
+        assertRestoreToken(restoreFullConfirmationTokens, fullConfirmationToken, event.sender.id, plan, 'second confirmation')
+      }
+      const result = await options.archiveService[method](plan, options.archiveRestoreWriter)
+      if (method === 'executeRestorePlan' && plan.mode === 'full' && typeof fullConfirmationToken === 'string') {
+        restoreFullConfirmationTokens.delete(fullConfirmationToken)
+      }
+      return result
+    })
+  }
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
   ) => {

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createFavoriteRepositoryArchiveExport,
   type FavoriteRepositoryArchiveExport
@@ -81,7 +81,37 @@ describe('FavoriteRepositoryService', () => {
     await expect(restarted.getEventPage('100', 2, { limit: 10 })).resolves.toMatchObject({
       items: [expect.objectContaining({ id: 'import-event' })]
     })
-    expect((await readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(1)
+    await expect(readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const before = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport(before, { generatedAt: '2026-07-23T01:00:00.000Z' })
+    archive.events = [{ id: 'foreign-event', sequence: 1, accountMid: '200', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:30:00.000Z' }]
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('event account mismatch')
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({ items: [] })
+  })
+
+  it('keeps archive snapshot, receipt, and staged user events invisible when generation publication fails', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const before = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...before,
+      videos: { '1': { aid: 1, title: 'Imported', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' } }
+    }, {
+      generatedAt: '2026-07-23T01:00:00.000Z',
+      events: [{ id: 'staged-event', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:30:00.000Z' }]
+    })
+    vi.spyOn(service as never as { persist: () => Promise<never> }, 'persist').mockRejectedValueOnce(new Error('event append failed'))
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('event append failed')
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({ items: [] })
   })
 
   it('counts only actionable placement and remote-operation work as pending', async () => {
@@ -361,8 +391,55 @@ describe('FavoriteRepositoryService', () => {
           { video: { aid: 2 }, folderIds: ['bilimi-logical:music'] },
           { video: { aid: 3 }, folderIds: ['bilimi-logical:music'] }
         ]
-      })
+    })
     await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: ['bilimi-logical:music'] })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3])
+  })
+
+  it('rejects non-logical, unbound, and conflicted logical archive restore scopes with an actionable reason', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'local:inbox')).rejects.toThrow('Bilimi logical folder')
+    await service.commit('100', {
+      id: 'pending-music', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'pending-reconcile' }
+    })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).rejects.toThrow('currently bound')
+    for (const logicalLedgerId of ['games', 'music']) {
+      await service.commit('100', {
+        id: `bound-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId === 'music' ? 'Music' : logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared', bindingState: 'bound', remoteFolderId: 'shared-remote' }
+      })
+    }
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).rejects.toThrow('conflicting')
+  })
+
+  it('resolves every deduplicated member across multiple bound logical shards and their canonical mirrors for archive restore', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    for (const [shardNumber, remoteFolderId, memberAids] of [[1, 'music-1', [1, 2]], [2, 'music-2', [2, 3]]] as const) {
+      await service.commit('100', {
+        id: `music-shard-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids, remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await service.commit('100', {
+      id: 'bound-mirror-members', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace',
+        folders: [{ id: 'bilibili:music-1', title: 'Music 1', remoteFolderId: 'music-1' }, { id: 'bilibili:music-2', title: 'Music 2', remoteFolderId: 'music-2' }],
+        memberAidsByFolderId: { 'bilibili:music-1': [3, 4], 'bilibili:music-2': [1, 4] },
+        videos: [1, 2, 3, 4].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3, 4])
   })
 
   it('publishes canonical folder ids when a raw bound folder changes', async () => {

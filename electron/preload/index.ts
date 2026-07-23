@@ -37,6 +37,11 @@ import type {
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
 import type {
+  FavoriteRepositoryArchiveFullRestoreConfirmation,
+  FavoriteRepositoryArchiveRestorePreview,
+  FavoriteRepositoryArchiveRestoreScope,
+  FavoriteLibraryUnfavoriteConfirmation,
+  FavoriteLibraryUnfavoritePreview,
   FavoriteRepositoryLibraryPage,
   FavoriteRepositoryLibraryVideoDetail,
   FavoriteRepositoryOrganizationChanges
@@ -46,6 +51,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
+import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
@@ -168,14 +174,29 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:restore-to-library', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   forgetFavoriteLibraryTombstone: (accountMid: string, aid: number, expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library:forget-tombstone', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  previewFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[]) =>
+    ipcRenderer.invoke('favorite-library:unfavorite-preview', accountMid, aids) as Promise<FavoriteLibraryUnfavoritePreview>,
+  confirmFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[], executionToken: string) =>
+    ipcRenderer.invoke('favorite-library:unfavorite-confirm', accountMid, aids, executionToken) as Promise<FavoriteLibraryUnfavoriteConfirmation>,
+  executeFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[], executionToken: string, confirmationToken: string) =>
+    ipcRenderer.invoke('favorite-library:execute-unfavorite', accountMid, aids, executionToken, confirmationToken) as Promise<FavoriteLibraryCommandResult>,
   exportFavoriteRepositoryArchive: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:archive-export', accountMid) as Promise<unknown>,
   previewFavoriteRepositoryArchiveImport: (accountMid: string, input: unknown) =>
     ipcRenderer.invoke('favorite-repository:archive-preview-import', accountMid, input) as Promise<unknown>,
   applyFavoriteRepositoryArchiveImport: (accountMid: string, input: unknown) =>
     ipcRenderer.invoke('favorite-repository:archive-apply-import', accountMid, input) as Promise<unknown>,
-  createFavoriteRepositoryArchiveRestorePlan: (accountMid: string, input: unknown, observed: unknown, mode: 'safe' | 'full') =>
-    ipcRenderer.invoke('favorite-repository:archive-restore-plan', accountMid, input, observed, mode) as Promise<unknown>,
+  createFavoriteRepositoryArchiveRestorePlan: (accountMid: string, input: unknown, mode: 'safe' | 'full', scope: FavoriteRepositoryArchiveRestoreScope) =>
+    ipcRenderer.invoke('favorite-repository:archive-restore-plan', accountMid, input, mode, scope) as Promise<FavoriteRepositoryArchiveRestorePreview>,
+  confirmFavoriteRepositoryArchiveFullRestore: (accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string) =>
+    ipcRenderer.invoke('favorite-repository:archive-confirm-full-restore', accountMid, plan, executionToken) as Promise<FavoriteRepositoryArchiveFullRestoreConfirmation>,
+  executeFavoriteRepositoryArchiveRestore: (
+    accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string, fullConfirmationToken?: string
+  ) => ipcRenderer.invoke(
+    'favorite-repository:archive-execute-restore', accountMid, plan, executionToken, fullConfirmationToken
+  ) as Promise<unknown>,
+  reconcileFavoriteRepositoryArchiveRestore: (accountMid: string, plan: FavoriteRepositoryRestorePlan, executionToken: string) =>
+    ipcRenderer.invoke('favorite-repository:archive-reconcile-restore', accountMid, plan, executionToken) as Promise<unknown>,
   enqueueFavoriteLibraryTranscription: (
     accountMid: string,
     input: { aids: number[]; summarizeWithDeepSeek?: boolean }

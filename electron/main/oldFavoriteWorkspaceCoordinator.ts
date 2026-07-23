@@ -11,6 +11,9 @@ import {
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
   type OldFavoriteWorkspaceHistoryEntry,
+  type OldFavoriteWorkspaceRecoveryDecision,
+  type OldFavoriteWorkspaceRecoveryDecisionResult,
+  type OldFavoriteWorkspaceRecoverySummary,
   type OldFavoriteWorkspaceRecoveryRequired,
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -99,6 +102,50 @@ function decodeJournalEvent(value: { kind: string }): WorkspaceJournalEvent | un
 function isRecoveryRequired(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null):
 value is OldFavoriteWorkspaceRecoveryRequired {
   return Boolean(value) && 'recovery' in value
+}
+
+function recoveryBaselineChangeEvidence(workspaceBaselineRevision: number, repositoryRevision: number, baseline?: {
+  aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string
+}, snapshot?: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>) {
+  const current = baseline && snapshot ? recoveryBaselineVector(snapshot, baseline.aids) : undefined
+  const changedDimensions = baseline && current ? [
+    ...(baseline.aidFingerprint !== current.aidFingerprint ? ['aid-revisions' as const] : []),
+    ...(baseline.mirrorFingerprint !== current.mirrorFingerprint ? ['mirror' as const] : []),
+    ...(baseline.bindingFingerprint !== current.bindingFingerprint ? ['bindings' as const] : [])
+  ] : []
+  return {
+    scope: 'account' as const,
+    workspaceBaselineRevision,
+    repositoryRevision,
+    changed: baseline && current ? changedDimensions.length > 0 : workspaceBaselineRevision !== repositoryRevision,
+    direction: workspaceBaselineRevision === repositoryRevision
+      ? 'unchanged' as const
+      : workspaceBaselineRevision < repositoryRevision ? 'advanced' as const : 'regressed' as const,
+    manualClassificationsRemainAuthoritative: true as const
+    ,changedDimensions
+    ,unavailableDimensions: ['rules', 'keywords', 'default-settings'] as const
+    ,...(baseline ? { fingerprint: baseline.fingerprint } : {})
+  }
+}
+
+function recoveryBaselineVector(snapshot: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>, aids: number[]) {
+  const normalizedAids = normalizeAids(aids)
+  const stable = (value: unknown) => JSON.stringify(value)
+  const aidFingerprint = stable(normalizedAids.map((aid) => ({ aid,
+    positionRevision: snapshot.positions[String(aid)]?.revision ?? 0,
+    metadataRevision: snapshot.libraryMirrors[String(aid)]?.metadataRevision ?? 0,
+    videoUpdatedAt: snapshot.videos[String(aid)]?.updatedAt ?? ''
+  })))
+  const mirrorFingerprint = stable(normalizedAids.map((aid) => ({ aid,
+    physical: snapshot.positions[String(aid)]?.remoteObservedPhysicalFolderIds ?? [],
+    logical: snapshot.positions[String(aid)]?.remoteObservedLogicalFolderIds ?? []
+  })))
+  const bindingFingerprint = stable(snapshot.physicalShards.map((shard) => ({
+    logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
+    remoteFolderId: shard.remoteFolderId ?? '', bindingState: shard.bindingState
+  })).sort((a, b) => stable(a).localeCompare(stable(b))))
+  return { aids: normalizedAids, aidFingerprint, mirrorFingerprint, bindingFingerprint,
+    fingerprint: stable({ aidFingerprint, mirrorFingerprint, bindingFingerprint }) }
 }
 
 function normalizeAids(aids: number[]) {
@@ -377,6 +424,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async recordScanPage(accountMid: string, input: {
     folderId: string
     page: number
+    hasMore?: boolean
     items: Array<{ aid: number; title?: string; author?: string; tags?: string[]; category?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>
   }, expectedRunId?: string) {
     return this.queue(async () => {
@@ -970,6 +1018,155 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Explicitly reclaims a durable scanning lease after restart; it never starts a fresh scan. */
+  async resumeScan(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not resumable.')
+      if (!this.scanRuns.get(workspace.accountMid)) throw new Error('Old favorite workspace scan needs an explicit rescan.')
+      return this.createSnapshot(workspace)
+    })
+  }
+
+  /** Trusted scan runners use this cursor to skip pages already persisted before interruption. */
+  async getScanResumeState(accountMid: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const runId = this.scanRuns.get(workspace.accountMid)
+      if (!runId) throw new Error('Old favorite workspace scan needs an explicit rescan.')
+      const pages = await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id)
+      const taggedAids = [...(this.scannedTagStates.get(workspace.accountMid) ?? new Map<number, boolean>()).entries()]
+        .filter(([, tagged]) => tagged).map(([aid]) => aid).sort((left, right) => left - right)
+      return {
+        runId,
+        completedPages: pages.map((page) => ({ folderId: page.folderId, page: page.page,
+          ...(typeof page.hasMore === 'boolean' ? { hasMore: page.hasMore } : {}) })),
+        taggedAids
+      }
+    })
+  }
+
+  /**
+   * Reads only the repository marker plus the workspace manifest. In
+   * particular, this must not load a baseline segment, start scanning, invoke
+   * DeepSeek, reconcile, or resume a frozen remote plan.
+   */
+  async getRecoverySummary(accountMid: string): Promise<OldFavoriteWorkspaceRecoverySummary | null> {
+    return this.queue(() => this.getRecoverySummaryUnsafe(accountMid))
+  }
+
+  /**
+   * A recovery decision is an acknowledgement guarded by both revisions. It
+   * deliberately has no side effect: callers must separately request a full
+   * workspace load or a scan after showing the observed changes to the user.
+   */
+  async selectRecoveryDecision(
+    accountMid: string,
+    decision: OldFavoriteWorkspaceRecoveryDecision
+  ): Promise<OldFavoriteWorkspaceRecoveryDecisionResult> {
+    return this.queue(async () => {
+      const summary = await this.getRecoverySummaryUnsafe(accountMid)
+      if (!summary || summary.workspaceId !== decision.workspaceId) {
+        throw new Error('Old favorite workspace recovery decision does not match the active workspace.')
+      }
+      if (summary.currentStep === 'result-unknown') {
+        throw new Error('Old favorite workspace result must be reconciled before it can be resumed.')
+      }
+      const evidence = summary.baselineChangeEvidence
+      if (decision.expectedBaselineRevision !== evidence.workspaceBaselineRevision ||
+        decision.expectedRepositoryRevision !== evidence.repositoryRevision) {
+        throw new Error('Old favorite workspace recovery baseline changed; read a new recovery summary first.')
+      }
+      if (!summary.recoveryChoices.includes(decision.choice)) {
+        throw new Error('Old favorite workspace recovery decision is not available for this workspace.')
+      }
+      await this.options.workspaceStore.setRecoveryDecision(accountMid, summary.workspaceId, {
+        choice: decision.choice,
+        expectedBaselineRevision: decision.expectedBaselineRevision,
+        expectedRepositoryRevision: decision.expectedRepositoryRevision,
+        ...(evidence.fingerprint ? { evidenceFingerprint: evidence.fingerprint } : {}),
+        recordedAt: this.now()
+      })
+      return {
+        accountMid: summary.accountMid,
+        workspaceId: summary.workspaceId,
+        choice: decision.choice,
+        manualClassificationsRemainAuthoritative: true,
+        requiresFullWorkspaceLoad: decision.choice !== 'rescan',
+        requiresExplicitScan: decision.choice === 'rescan'
+      }
+    })
+  }
+
+  private async getRecoverySummaryUnsafe(accountMid: string): Promise<OldFavoriteWorkspaceRecoverySummary | null> {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    const marker = snapshot.workspace
+    if (!marker) return null
+    const summary = await this.options.workspaceStore.readRecoverySummary(snapshot.accountMid, marker.id)
+    if ('recovery' in summary) {
+      return {
+        accountMid: snapshot.accountMid,
+        workspaceId: marker.id,
+        status: 'rebuild-required',
+        currentStep: 'rebuild-required',
+        baselineChangeEvidence: recoveryBaselineChangeEvidence(marker.workspaceRef.baselineRevision, snapshot.revision),
+        recoveryChoices: ['view']
+      }
+    }
+    // The manifest is the persisted baseline source. A disagreement with the
+    // compact repository marker is an integrity failure, not a merge choice.
+    const baselineChangeEvidence = recoveryBaselineChangeEvidence(summary.baselineRevision, snapshot.revision,
+      summary.recoveryBaseline, snapshot)
+    if (summary.baselineRevision !== marker.workspaceRef.baselineRevision) {
+      return {
+        accountMid: snapshot.accountMid,
+        workspaceId: marker.id,
+        status: 'rebuild-required',
+        currentStep: 'rebuild-required',
+        baselineChangeEvidence,
+        recoveryChoices: ['view']
+      }
+    }
+    const currentStep = marker.workspaceRef.currentStep ?? marker.status
+    const plannedCount = marker.workspaceRef.plannedCount ?? summary.plannedCount
+    const classifiedCount = marker.workspaceRef.classifiedCount ?? summary.classifiedCount
+    const unclassifiedCount = marker.workspaceRef.unclassifiedCount ?? summary.unclassifiedCount
+    const canRescan = (marker.status === 'scanning' || marker.status === 'previewing') && !marker.frozenSyncPlan
+    const canAbandon = marker.status === 'previewing' && !marker.frozenSyncPlan
+    const recoveryChoices = currentStep === 'result-unknown'
+      ? ['view', 'reconcile-result-unknown'] as const
+      : marker.status === 'completed'
+        ? ['view'] as const
+        : [
+            'view',
+            'continue-original',
+            ...(baselineChangeEvidence.changed ? ['merge-latest'] as const : []),
+            ...(canRescan ? ['rescan'] as const : []),
+            ...(canAbandon ? ['abandon'] as const : [])
+          ] as const
+    return {
+      accountMid: snapshot.accountMid,
+      workspaceId: marker.id,
+      status: marker.status,
+      currentSegmentId: marker.workspaceRef.currentSegmentId,
+      currentStep,
+      ...(plannedCount !== undefined ? { plannedCount } : {}),
+      ...(classifiedCount !== undefined ? { classifiedCount } : {}),
+      ...(unclassifiedCount !== undefined ? { unclassifiedCount } : {}),
+      manifestChecksum: summary.manifestChecksum,
+      ...(marker.workspaceRef.lastCommittedId ? { lastCommittedId: marker.workspaceRef.lastCommittedId } : {}),
+      baselineChangeEvidence,
+      recoveryChoices: [...recoveryChoices],
+      ...(currentStep === 'result-unknown' ? {
+        resultUnknownEvidence: {
+          operationCount: marker.frozenSyncPlan?.operations.length ?? 0,
+          ...(marker.frozenSyncPlan ? { planId: marker.frozenSyncPlan.id } : {})
+        }
+      } : {})
+    }
+  }
+
   /** Discards a draft before any Bilibili operation has been started. */
   async abandonCurrentWorkspace(accountMid: string): Promise<void> {
     return this.queue(async () => {
@@ -1217,9 +1414,10 @@ export class OldFavoriteWorkspaceCoordinator {
         ...workspace, status: 'completed' as const, classifications: {}, history: [], historyCursor: 0,
         completionMode: 'local' as const
       }
-      const marker = await this.createMarker(completed, undefined, 'local')
+      const localCommitId = `old-favorite-workspace:local:${workspace.id}`
+      const marker = await this.createMarker(completed, undefined, 'local', localCommitId)
       await this.options.repository.commit(workspace.accountMid, {
-        id: `old-favorite-workspace:local:${workspace.id}`,
+        id: localCommitId,
         accountMid: workspace.accountMid,
         issuedAt: this.now(),
         type: 'commit-local-plan',
@@ -1252,6 +1450,7 @@ export class OldFavoriteWorkspaceCoordinator {
           workspace: marker
         }
       })
+      await this.options.workspaceStore.markCommitted(workspace.accountMid, workspace.id, localCommitId)
       this.remember(completed, currentSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [],
         new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
       return clone(completed)
@@ -1742,6 +1941,21 @@ export class OldFavoriteWorkspaceCoordinator {
         workspaceId: marker.id
       }
     }
+    if (recovered.recoveryDecision && recovered.recoveryBaseline) {
+      const current = recoveryBaselineVector(await this.options.repository.getSnapshot(marker.accountMid), recovered.recoveryBaseline.aids)
+      if (recovered.recoveryDecision.evidenceFingerprint &&
+        recovered.recoveryDecision.evidenceFingerprint !== current.fingerprint) {
+        throw new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.')
+      }
+    }
+
+    // The repository commit is authoritative. If the process stopped between
+    // that idempotent commit and the workspace-manifest acknowledgement, repair
+    // only the local marker; never replay the repository command.
+    if (marker.status === 'completed' && marker.workspaceRef.lastCommittedId &&
+      (recovered.status !== 'completed' || recovered.lastCommittedId !== marker.workspaceRef.lastCommittedId)) {
+      await this.options.workspaceStore.markCommitted(marker.accountMid, marker.id, marker.workspaceRef.lastCommittedId)
+    }
 
     const events = recovered.history.map(decodeJournalEvent).filter((event): event is WorkspaceJournalEvent => Boolean(event))
     const scan = events.find((event): event is ScanJournalEvent => event.type === 'scan')
@@ -1752,6 +1966,23 @@ export class OldFavoriteWorkspaceCoordinator {
         scan: recovered.scan
       })
       this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
+      if (recovered.scanRunId) {
+        const pages = await this.options.workspaceStore.readScanPages(marker.accountMid, marker.id)
+        const scannedAids = new Set<number>()
+        const scannedTagStates = new Map<number, boolean>()
+        for (const page of pages) for (const item of page.items) {
+          scannedAids.add(item.aid)
+          scannedTagStates.set(item.aid, Boolean(scannedTagStates.get(item.aid) || item.tags?.length))
+        }
+        this.scanRuns.set(marker.accountMid, recovered.scanRunId)
+        this.scannedAids.set(marker.accountMid, scannedAids)
+        this.scannedTagStates.set(marker.accountMid, scannedTagStates)
+      } else {
+        this.scanRuns.delete(marker.accountMid)
+        this.scannedAids.delete(marker.accountMid)
+        this.scannedTagStates.delete(marker.accountMid)
+      }
+      if (recovered.tagEnrichment) this.tagEnrichments.set(marker.accountMid, clone(recovered.tagEnrichment))
       this.remember(scanning, '', [], new Set())
       return clone(scanning)
     }
@@ -2073,12 +2304,16 @@ export class OldFavoriteWorkspaceCoordinator {
       type: 'set-workspace',
       payload: marker
     })
+    const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+    await this.options.workspaceStore.setRecoveryBaseline(workspace.accountMid, workspace.id,
+      recoveryBaselineVector(snapshot, workspace.segments.flatMap((segment) => segment.aids)))
   }
 
   private async createMarker(
     workspace: OldFavoriteWorkspace,
     frozenSyncPlan?: FavoriteRepositoryWorkspace['frozenSyncPlan'],
-    completionMode?: FavoriteRepositoryWorkspace['completionMode']
+    completionMode?: FavoriteRepositoryWorkspace['completionMode'],
+    lastCommittedId?: string
   ): Promise<FavoriteRepositoryWorkspace> {
     const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
@@ -2097,7 +2332,9 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: recovered.currentSegmentId,
         overlayRevision: recovered.overlayRevision,
         journalCursor: recovered.journalCursor,
-        checksum: recovered.manifestChecksum
+        checksum: recovered.manifestChecksum,
+        ...(lastCommittedId ? { lastCommittedId } : snapshot.workspace?.id === workspace.id && snapshot.workspace.workspaceRef.lastCommittedId
+          ? { lastCommittedId: snapshot.workspace.workspaceRef.lastCommittedId } : {})
       },
       ...(frozenSyncPlan
         ? { frozenSyncPlan: clone(frozenSyncPlan) }

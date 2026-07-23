@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
+import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 
 const now = () => '2026-07-21T00:00:00.000Z'
 
@@ -23,6 +23,27 @@ function createService() {
 }
 
 describe('FavoriteLibraryCommandService', () => {
+  it('uses the per-account remote queue and stops an unfavorite batch after an unknown remote outcome', async () => {
+    const unfavorite = vi.fn().mockRejectedValue(new Error('network-failure'))
+    const pageBridgeManager = {
+      bind: vi.fn().mockResolvedValue(undefined),
+      pageBridge: vi.fn().mockReturnValue({ unfavorite }),
+      release: vi.fn()
+    }
+    const remoteOperations = {
+      enqueue: vi.fn(async (_accountMid: string, _options: unknown, run: () => Promise<unknown>) => run())
+    }
+
+    const adapter = createFavoriteLibraryRemoteUnfavorite({ pageBridgeManager, remoteOperations })
+    await expect(adapter.unfavorite('100', [1, 2])).resolves.toMatchObject({
+      status: 'result-unknown', completedOperationCount: 0, totalOperationCount: 2, affectedAids: [1, 2], reason: 'network-failure'
+    })
+
+    expect(remoteOperations.enqueue).toHaveBeenCalledTimes(1)
+    expect(unfavorite).toHaveBeenCalledTimes(1)
+    expect(pageBridgeManager.release).toHaveBeenCalledTimes(1)
+  })
+
   it('commits a deduplicated local placement batch before queuing remote work', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     const synchronizePlacements = vi.fn().mockResolvedValue({ status: 'queued', affectedAids: [1] })
@@ -94,6 +115,24 @@ describe('FavoriteLibraryCommandService', () => {
     expect(repository.commit).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ type: 'delete-favorite-from-library', expectedRevision: 4 }))
     expect(repository.commit).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ type: 'restore-favorite-to-library', expectedRevision: 5 }))
     expect(repository.commit).toHaveBeenNthCalledWith(3, '100', expect.objectContaining({ type: 'forget-favorite-tombstone', expectedRevision: 6 }))
+  })
+
+  it('cancels an explicitly selected Bilibili favorite through a separate remote adapter without touching local records', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    const unfavorite = vi.fn().mockResolvedValue({
+      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
+    })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      remoteUnfavorite: { unfavorite }
+    })
+
+    await expect(service.cancelBilibiliFavorites('100', [1])).resolves.toMatchObject({
+      status: 'succeeded', affectedAids: [1]
+    })
+
+    expect(unfavorite).toHaveBeenCalledWith('100', [1])
+    expect(repository.commit).not.toHaveBeenCalled()
   })
 
   it('refreshes selected metadata locally and never receives a page bridge or remote write dependency', async () => {

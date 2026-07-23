@@ -69,7 +69,7 @@ export type AssistantRuntimeRequest =
       runId: string
       target: FavoriteRepositoryPageTarget
       action: FavoriteRepositoryPageOperationAction
-      input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
+      input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
     }
   | { id: string; type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | {
@@ -128,12 +128,16 @@ export type FavoriteRepositoryPageOperationInput = {
   folderIds: string[]
 }
 
+/** A global Bilibili favorite toggle has no folder target by design. */
+export type FavoriteRepositoryUnfavoriteInput = { accountMid: string; operationKey: string; aid: number }
+
 export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
 export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
 export type FavoriteRepositoryFolderDeleteInput = { accountMid: string; operationKey: string; folderId: string }
 export type FavoriteRepositoryPageOperationAction =
   | 'append'
   | 'remove'
+  | 'unfavorite'
   | 'read-members'
   | 'read-folder-inventory'
   | 'create-folder'

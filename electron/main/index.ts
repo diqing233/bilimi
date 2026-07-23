@@ -81,7 +81,7 @@ import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
-import { FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
+import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import {
   createFavoriteLibraryArchiveSummary,
   createFavoriteLibraryTranscriptionSummary
@@ -1236,10 +1236,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     transcriptionQueue: getVideoTranscriptionQueue(),
     refreshVideo: refreshFavoriteLibraryVideo,
-    placementSync: favoriteRepositorySyncService
+    placementSync: favoriteRepositorySyncService,
+    remoteUnfavorite: createFavoriteLibraryRemoteUnfavorite({
+      pageBridgeManager: favoriteRepositoryPageBridgeManager!,
+      remoteOperations: favoriteRepositoryRemoteOperations
+    })
   })
   const favoriteRepositoryArchiveService = new FavoriteRepositoryArchiveService({
     repository: favoriteRepositoryService,
+    remoteOperations: favoriteRepositoryRemoteOperations,
     loadArchiveIndex: async (accountMid) => loadVideoNoteArchives(getDesktopStore()).flatMap((archive) =>
       archive.source.accountMid === accountMid
         ? archive.versions.flatMap((version) => {
@@ -1386,7 +1391,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
     commandService: favoriteLibraryCommandService,
-    archiveService: favoriteRepositoryArchiveService
+    archiveService: favoriteRepositoryArchiveService,
+    archiveRestoreWriter: favoriteRepositorySyncService.createArchiveRestoreWriter()
   })
   registerFavoriteLibraryCommandsIpc({
     ipcMain,

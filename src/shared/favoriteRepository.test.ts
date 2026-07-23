@@ -159,11 +159,12 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
-  it('tombstones a local record without deleting its observed Bilibili source and prevents scan rediscovery', () => {
+  it('tombstones a local record without deleting its observed Bilibili source or retaining protection, and prevents scan rediscovery', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
       videos: { '1': { aid: 1, title: 'Keep remote', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' } },
-      memberships: { 'local:inbox': [1], 'bilimi-logical:music': [1], 'bilibili:source': [1] }
+      memberships: { 'local:inbox': [1], 'bilimi-logical:music': [1], 'bilibili:source': [1] },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-23T00:00:00.000Z' }]
     }
     const deleted = applyFavoriteRepositoryCommand(snapshot, {
       id: 'delete-local', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'delete-favorite-from-library',
@@ -171,12 +172,14 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-23T00:01:00.000Z')
     expect(deleted.videos['1']).toBeUndefined()
     expect(deleted.memberships).toMatchObject({ 'local:inbox': [], 'bilimi-logical:music': [], 'bilibili:source': [1] })
+    expect(deleted.organizationRecords).toEqual([])
     expect(isFavoriteRepositoryScanVisible(deleted, 1)).toBe(false)
 
     const restored = applyFavoriteRepositoryCommand(deleted, {
       id: 'restore-local', accountMid: '100', issuedAt: '2026-07-23T00:02:00.000Z', type: 'restore-favorite-to-library', payload: { aid: 1 }
     }, '2026-07-23T00:02:00.000Z')
     expect(isFavoriteRepositoryScanVisible(restored, 1)).toBe(true)
+    expect(restored.organizationRecords).toEqual([])
   })
 
   it('creates and validates a credential-free portable archive with a stable checksum', () => {
@@ -197,6 +200,44 @@ describe('account favorite repository contracts', () => {
     expect(JSON.stringify(exported)).not.toContain('credential')
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
     expect(() => validateFavoriteRepositoryArchiveExport({ ...exported, checksum: '0'.repeat(64) })).toThrow('checksum')
+  })
+
+  it('rejects archive positions outside Bilimi logical ledgers and cross-account events', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' })
+    const valid = createFavoriteRepositoryArchiveExport(snapshot, {
+      generatedAt: '2026-07-23T01:00:00.000Z',
+      events: [{ id: 'event-1', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:30:00.000Z' }]
+    })
+    const withChecksum = <T extends Record<string, unknown>>(value: T) => ({
+      ...value,
+      checksum: createFavoriteRepositoryArchiveExportChecksum(value as unknown as typeof valid)
+    })
+
+    for (const folderId of ['local:music', 'bilibili:123', 'ordinary-folder', 'bilimi-logical:']) {
+      const invalid = withChecksum({
+        ...valid,
+        positions: [{ accountMid: '100', aid: 1, localDesiredFolderIds: [folderId], positionState: 'local-only-change', updatedAt: '2026-07-23T00:00:00.000Z' }]
+      })
+      expect(() => validateFavoriteRepositoryArchiveExport(invalid)).toThrow('invalid')
+    }
+
+    const crossAccountEvent = withChecksum({
+      ...valid,
+      events: [{ ...valid.events![0], accountMid: '200' }]
+    })
+    expect(() => validateFavoriteRepositoryArchiveExport(crossAccountEvent)).toThrow('invalid')
+  })
+
+  it('exports only portable Bilimi logical placement intent from mixed local repository positions', () => {
+    const exported = createFavoriteRepositoryArchiveExport({
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      positions: {
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['local:personal', 'bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-23T00:00:00.000Z', revision: 1 }
+      }
+    }, { generatedAt: '2026-07-23T01:00:00.000Z' })
+
+    expect(exported.positions).toEqual([expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] })])
+    expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
   })
 
   it('rejects a command for another account before changing the snapshot', () => {

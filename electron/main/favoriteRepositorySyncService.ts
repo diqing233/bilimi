@@ -1,5 +1,6 @@
 import {
   createAccountFavoriteRepositorySnapshot,
+  type AccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryFrozenSyncOperation,
   type FavoriteRepositoryFrozenSyncPlan,
   type FavoriteRepositoryOrganizationChange,
@@ -9,6 +10,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
+import type { FavoriteRepositoryRestoreWriter } from './favoriteRepositoryArchiveService'
 
 export type FrozenFavoriteSyncPlan = FavoriteRepositoryFrozenSyncPlan
 
@@ -81,12 +83,13 @@ function clonePlan(plan: FavoriteRepositoryFrozenSyncPlan): FavoriteRepositoryFr
 function withWorkspaceStatus(
   workspace: FavoriteRepositoryWorkspace,
   status: FavoriteRepositoryWorkspace['status'],
-  frozenSyncPlan: FavoriteRepositoryFrozenSyncPlan
+  frozenSyncPlan: FavoriteRepositoryFrozenSyncPlan,
+  currentStep: NonNullable<FavoriteRepositoryWorkspace['workspaceRef']['currentStep']> = status
 ): FavoriteRepositoryWorkspace {
   return {
     ...workspace,
     status,
-    workspaceRef: { ...workspace.workspaceRef, status },
+    workspaceRef: { ...workspace.workspaceRef, status, currentStep },
     frozenSyncPlan
   }
 }
@@ -230,7 +233,7 @@ export class FavoriteRepositorySyncService {
           // A restored/existing run is never rebound here. Callers must use
           // explicit reconciliation before deciding whether it may continue.
           if (workspace.status === 'executing' && existingRun.status === 'result-unknown') {
-            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `interrupted-unknown:${plan.id}`)
+            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan, 'result-unknown'), `interrupted-unknown:${plan.id}`)
           } else if (workspace.status === 'executing' && existingRun.status === 'ready-to-resume') {
             await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'frozen', workspace.frozenSyncPlan), `interrupted-retry-ready:${plan.id}`)
           } else if (workspace.status === 'executing' && !existingRun.completedOperationCount && existingRun.status === 'running') {
@@ -350,7 +353,9 @@ export class FavoriteRepositorySyncService {
           ? 'frozen'
           : 'reconciling'
       if (status === 'completed') await this.recordOrganizationProtections(account, plan)
-      await this.writeWorkspace(account, withWorkspaceStatus(workspace!, status, plan), `reconciled:${runId}`)
+      await this.writeWorkspace(account, withWorkspaceStatus(
+        workspace!, status, plan, run.status === 'result-unknown' ? 'result-unknown' : status
+      ), `reconciled:${runId}`)
       return run
     }))
   }
@@ -364,7 +369,7 @@ export class FavoriteRepositorySyncService {
       if (record?.status === 'succeeded') continue
       if (record?.status === 'failed') return this.summarize(plan, Array.from(records.values()))
       if (record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason)) {
-        await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'reconciling', plan), `unknown:${plan.id}`)
+        await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'reconciling', plan, 'result-unknown'), `unknown:${plan.id}`)
         return this.summarize(plan, Array.from(records.values()))
       }
 
@@ -392,8 +397,10 @@ export class FavoriteRepositorySyncService {
         ))
         await this.projectConfirmedOperation(accountMid, plan, operation, status)
         const run = this.summarize(plan, Array.from(records.values()))
+        const workspaceStatus = run.status === 'result-unknown' ? 'reconciling' : 'frozen'
         await this.writeWorkspace(accountMid, withWorkspaceStatus(
-          snapshot.workspace!, run.status === 'result-unknown' ? 'reconciling' : 'frozen', plan
+          snapshot.workspace!, workspaceStatus, plan,
+          run.status === 'result-unknown' ? 'result-unknown' : workspaceStatus
         ), `stopped:${plan.id}`)
         return run
       }
@@ -428,6 +435,104 @@ export class FavoriteRepositorySyncService {
       type: 'record-organization-protections',
       payload: { records }
     })
+  }
+
+  /**
+   * Provides the privileged physical-folder adapter used by archive recovery.
+   * It derives every target from the current bound-shard inventory; no caller
+   * can use this path to target an arbitrary ordinary Bilibili folder.
+   */
+  createArchiveRestoreWriter(): FavoriteRepositoryRestoreWriter {
+    const boundRuns = new Set<string>()
+    const runKey = (accountMid: string, restoreId: string) => `${accountMid}:${restoreId}`
+    return {
+      begin: async ({ accountMid, restoreId }) => {
+        const account = normalizeAccountMid(accountMid)
+        const key = runKey(account, restoreId)
+        if (boundRuns.has(key)) return
+        await this.bindPageTarget(account, restoreId)
+        boundRuns.add(key)
+      },
+      finish: async ({ accountMid, restoreId }) => {
+        const account = normalizeAccountMid(accountMid)
+        const key = runKey(account, restoreId)
+        if (!boundRuns.delete(key)) return
+        this.options.pageBridgeManager?.release(account, restoreId)
+      },
+      readBaseline: async ({ accountMid, restoreId, aid }) => {
+        const account = normalizeAccountMid(accountMid)
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const bound = snapshot.physicalShards
+          .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+          .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber || left.folderId.localeCompare(right.folderId))
+        const logicalLedgerIdsByRemoteFolderId = new Map<string, Set<string>>()
+        for (const shard of bound) {
+          const remoteFolderId = shard.remoteFolderId!
+          let logicalLedgerIds = logicalLedgerIdsByRemoteFolderId.get(remoteFolderId)
+          if (!logicalLedgerIds) {
+            logicalLedgerIds = new Set<string>()
+            logicalLedgerIdsByRemoteFolderId.set(remoteFolderId, logicalLedgerIds)
+          }
+          logicalLedgerIds.add(shard.logicalLedgerId)
+        }
+        if ([...logicalLedgerIdsByRemoteFolderId.values()].some((logicalLedgerIds) => logicalLedgerIds.size > 1)) {
+          throw new FavoriteRepositoryRemoteRejectedError('Archive restore cannot use a remote folder bound to multiple logical ledgers.')
+        }
+        const folderIds = [...new Set(bound.map((shard) => shard.remoteFolderId!))]
+        const members = folderIds.length
+          ? await this.readMembersForReconciliation(() => this.pageBridge(account, restoreId).readMembers({
+            accountMid: account, operationKey: `${restoreId}:baseline:${aid}`, aid, folderIds
+          }))
+          : { observedAccountMid: account, members: {} }
+        this.assertObservedAccount(account, members.observedAccountMid)
+        const managedPhysicalFolderIdsByLogicalFolderId: Record<string, string[]> = {}
+        for (const shard of bound) {
+          const logicalId = `bilimi-logical:${shard.logicalLedgerId}`
+          ;(managedPhysicalFolderIdsByLogicalFolderId[logicalId] ??= []).push(shard.remoteFolderId!)
+        }
+        for (const folderIdsForLogical of Object.values(managedPhysicalFolderIdsByLogicalFolderId)) folderIdsForLogical.sort()
+        return {
+          [aid]: {
+            managedLogicalFolderIds: Object.keys(managedPhysicalFolderIdsByLogicalFolderId).sort(),
+            managedPhysicalFolderIdsByLogicalFolderId,
+            managedObservedPhysicalFolderIds: folderIds.filter((folderId) => (members.members[folderId] ?? []).includes(aid))
+          }
+        }
+      },
+      write: async ({ accountMid, restoreId, aid, appendPhysicalFolderIds, removePhysicalFolderIds }) => {
+        const account = normalizeAccountMid(accountMid)
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const bound = snapshot.physicalShards.filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+        const logicalLedgerIdsByRemoteFolderId = new Map<string, Set<string>>()
+        for (const shard of bound) {
+          const remoteFolderId = shard.remoteFolderId!
+          let logicalLedgerIds = logicalLedgerIdsByRemoteFolderId.get(remoteFolderId)
+          if (!logicalLedgerIds) {
+            logicalLedgerIds = new Set<string>()
+            logicalLedgerIdsByRemoteFolderId.set(remoteFolderId, logicalLedgerIds)
+          }
+          logicalLedgerIds.add(shard.logicalLedgerId)
+        }
+        if ([...logicalLedgerIdsByRemoteFolderId.values()].some((logicalLedgerIds) => logicalLedgerIds.size > 1)) {
+          throw new FavoriteRepositoryRemoteRejectedError('Archive restore cannot use a remote folder bound to multiple logical ledgers.')
+        }
+        const managedIds = new Set(bound.map((shard) => shard.remoteFolderId!))
+        const append = [...new Set(appendPhysicalFolderIds)].filter((folderId) => managedIds.has(folderId)).sort()
+        const remove = [...new Set(removePhysicalFolderIds)].filter((folderId) => managedIds.has(folderId)).sort()
+        if (append.length !== appendPhysicalFolderIds.length || remove.length !== removePhysicalFolderIds.length) {
+          throw new FavoriteRepositoryRemoteRejectedError('Archive restore target is no longer a bound Bilimi folder.')
+        }
+        const bridge = this.pageBridge(account, restoreId)
+        if (append.length) {
+          const result = await this.writeToRemote(() => bridge.append({ accountMid: account, operationKey: `${restoreId}:${aid}:append`, aid, folderIds: append }))
+          this.assertObservedAccount(account, result.observedAccountMid)
+        }
+        if (remove.length) {
+          const result = await this.writeToRemote(() => bridge.remove({ accountMid: account, operationKey: `${restoreId}:${aid}:remove`, aid, folderIds: remove }))
+          this.assertObservedAccount(account, result.observedAccountMid)
+        }
+      }
+    }
   }
 
   /**

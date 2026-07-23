@@ -100,6 +100,21 @@ describe('favorite repository page bridge', () => {
     })
   })
 
+  it('uses the video-level Bilibili unfavorite endpoint without accepting any folder target', async () => {
+    const executeJavaScript = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100' })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+    const unfavorite = { accountMid: '100', operationKey: 'unfavorite:42', aid: 42 }
+
+    await expect(bridge.unfavorite(unfavorite)).resolves.toEqual({ status: 'ok', observedAccountMid: '100' })
+
+    const script = executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('https://api.bilibili.com/x/web-interface/archive/fav')
+    expect(script).toContain("body.set('aid', String(input.aid))")
+    expect(script).toContain("body.set('type', '2')")
+    expect(script).not.toContain('del_media_ids')
+    expect(script).toContain(JSON.stringify(unfavorite))
+  })
+
   it('ends a hanging page operation as unknown so remote queues can recover', async () => {
     vi.useFakeTimers()
     try {

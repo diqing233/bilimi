@@ -1126,6 +1126,26 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 1 }))
   })
 
+  it('restores a staged scanning lease and resumes without replacing completed pages or tag facts', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+    const runId = await first.getActiveScanRunId('100')
+    await first.recordScanInventory('100', { sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }] }, runId)
+    await first.recordScanPage('100', { folderId: 'source', page: 1, hasMore: false, items: [
+      { aid: 1, tags: ['kept'], sourceFolderIds: ['source'] }
+    ] }, runId)
+
+    const resumed = createCoordinator(new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }), new OldFavoriteWorkspaceStore({ root }))
+    await expect(resumed.resumeScan('100')).resolves.toMatchObject({ status: 'scanning', scan: { scannedItemCount: 1 } })
+    await expect(resumed.getActiveScanRunId('100')).resolves.toBe(runId)
+    await expect(resumed.getScanResumeState('100')).resolves.toEqual({
+      runId, completedPages: [{ folderId: 'source', page: 1, hasMore: false }], taggedAids: [1]
+    })
+  })
+
   it('reclassifies every segment while preserving manual and DeepSeek decisions', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
@@ -3307,6 +3327,142 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('repairs a locally committed workspace manifest after restart without replaying the repository commit', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    vi.spyOn(store, 'markCommitted').mockRejectedValueOnce(new Error('simulated post-commit interruption'))
+    const commits = vi.spyOn(repository, 'commit')
+    await expect(first.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('simulated post-commit interruption')
+    commits.mockClear()
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).readRecoverySummary('100', (await repository.getSnapshot('100')).workspace!.id))
+      .resolves.toMatchObject({ status: 'previewing' })
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).getSnapshot('100'))
+      .resolves.toMatchObject({ status: 'completed' })
+    expect(commits).not.toHaveBeenCalled()
+    await expect(new OldFavoriteWorkspaceStore({ root }).readRecoverySummary('100', (await repository.getSnapshot('100')).workspace!.id))
+      .resolves.toMatchObject({ status: 'completed', lastCommittedId: expect.stringMatching(/^old-favorite-workspace:local:/) })
+  })
+
+  it('returns the verified manifest checksum in a recovery summary without loading a baseline segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await first.saveCurrentSegmentToLocalLibrary('100')
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    const reader = new OldFavoriteWorkspaceStore({ root })
+    const expected = await reader.readRecoverySummary('100', workspaceId)
+    if ('recovery' in expected) throw new Error('workspace summary unexpectedly unavailable')
+    const restarted = createCoordinator(repository, reader, { initializeOnOpen: false })
+
+    await expect(restarted.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'completed', manifestChecksum: expected.manifestChecksum, recoveryChoices: ['view']
+    })
+    await expect(reader.readWorkspaceReads('100', workspaceId)).resolves.toEqual(['manifest.json', 'manifest.json'])
+  })
+
+  it('reports deterministic account-scoped baseline change evidence and requires an explicit recovery decision', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+
+    const summary = await first.getRecoverySummary('100')
+    expect(summary).toMatchObject({
+      accountMid: '100',
+      baselineChangeEvidence: {
+        scope: 'account', workspaceBaselineRevision: 1,
+        repositoryRevision: expect.any(Number), changed: false, direction: 'advanced',
+        manualClassificationsRemainAuthoritative: true
+      },
+      recoveryChoices: expect.arrayContaining(['continue-original', 'rescan'])
+    })
+    if (!summary) throw new Error('workspace summary unexpectedly unavailable')
+
+    await expect(first.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId,
+      choice: 'continue-original',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })).resolves.toMatchObject({
+      choice: 'continue-original',
+      manualClassificationsRemainAuthoritative: true,
+      requiresFullWorkspaceLoad: true
+    })
+
+    await repository.commit('100', {
+      id: 'advance-repository-revision', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'record-organization-protections',
+      payload: { records: [], replace: false }
+    })
+    await expect(first.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId,
+      choice: 'continue-original',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })).rejects.toThrow('baseline changed')
+  })
+
+  it('compares recovery baselines by affected aids and managed bindings instead of unrelated repository writes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const before = await coordinator.getRecoverySummary('100')
+    expect(before?.baselineChangeEvidence).toMatchObject({
+      changed: false, unavailableDimensions: ['rules', 'keywords', 'default-settings']
+    })
+
+    await repository.commit('100', {
+      id: 'unrelated-video', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 99, title: 'unrelated', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      baselineChangeEvidence: { changed: false, changedDimensions: [] }
+    })
+
+    await repository.commit('100', {
+      id: 'affected-metadata', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'affected', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:02.000Z' }
+    })
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      baselineChangeEvidence: { changed: true, changedDimensions: ['aid-revisions'] }
+    })
+  })
+
+  it('persists a recovery decision and rejects its full recovery after affected evidence becomes stale', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'continue-original',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).readRecoverySummary('100', summary.workspaceId))
+      .resolves.toMatchObject({ recoveryDecision: { choice: 'continue-original' } })
+    await repository.commit('100', {
+      id: 'stale-decision', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'new facts', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).open('100'))
+      .rejects.toThrow('recovery decision is stale')
+  })
+
   it('does not execute an interrupted frozen plan merely by reopening the workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3332,6 +3488,53 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await restarted.getSnapshot('100')
 
     expect(executeFrozenPlan).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a persisted unknown remote result after restart without loading or retrying the workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    const plan = {
+      id: 'run-unknown', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+      createdAt: '2026-07-20T00:00:00.000Z',
+      operations: [{ operationKey: 'append-1', aid: 1, kind: 'append' as const, folderIds: ['remote-a'] }]
+    }
+    await repository.commit('100', {
+      id: 'freeze-unknown-run', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker,
+        status: 'frozen',
+        workspaceRef: { ...marker.workspaceRef, status: 'frozen', currentStep: 'frozen' },
+        frozenSyncPlan: plan
+      }
+    })
+    const sync = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValue(new Error('network interrupted')),
+        remove: vi.fn(), readMembers: vi.fn()
+      },
+      now: () => '2026-07-20T00:00:01.000Z', pacingMs: 0
+    })
+
+    await expect(sync.executeFrozenPlan('100', plan)).resolves.toMatchObject({ status: 'result-unknown' })
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:02.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false }
+    )
+    await expect(restarted.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'reconciling', currentStep: 'result-unknown',
+      recoveryChoices: ['view', 'reconcile-result-unknown'],
+      resultUnknownEvidence: { operationCount: 1, planId: 'run-unknown' }
+    })
+    await expect(restarted.selectRecoveryDecision('100', {
+      workspaceId: workspace.id, choice: 'continue-original', expectedBaselineRevision: 1, expectedRepositoryRevision: 3
+    })).rejects.toThrow('must be reconciled')
   })
 
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {

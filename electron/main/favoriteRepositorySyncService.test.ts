@@ -77,6 +77,50 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('exposes an archive restore writer that resolves bound physical shards and never accepts renderer supplied folder ids', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-music': [1] } })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+
+    const writer = service.createArchiveRestoreWriter()
+    await expect(writer.readBaseline({ accountMid: '100', restoreId: 'restore-1', aid: 1 })).resolves.toEqual({
+      1: expect.objectContaining({
+        managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['remote-music'] },
+        managedObservedPhysicalFolderIds: ['remote-music']
+      })
+    })
+    await writer.write({ accountMid: '100', restoreId: 'restore-1', aid: 1, appendPhysicalFolderIds: ['remote-music'], removePhysicalFolderIds: [] })
+    expect(readMembers).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+  })
+
+  it('rejects an archive baseline where one remote folder is bound to multiple logical ledgers before reading or writing remote membership', async () => {
+    const repository = await createRepository()
+    for (const [logicalLedgerId, id] of [['games', 'games-binding'], ['music', 'music-binding']] as const) {
+      await repository.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared', bindingState: 'bound', remoteFolderId: 'remote-shared' }
+      })
+    }
+    const readMembers = vi.fn()
+    const append = vi.fn()
+    const writer = new FavoriteRepositorySyncService({
+      repository, pageBridge: { append, remove: vi.fn(), readMembers }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    }).createArchiveRestoreWriter()
+
+    await expect(writer.readBaseline({ accountMid: '100', restoreId: 'restore-duplicate', aid: 1 })).rejects.toThrow('multiple logical ledgers')
+    await expect(writer.write({ accountMid: '100', restoreId: 'restore-duplicate', aid: 1, appendPhysicalFolderIds: ['remote-shared'], removePhysicalFolderIds: [] })).rejects.toThrow('multiple logical ledgers')
+    expect(readMembers).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+  })
+
   it('marks an unbound desired logical target as target-missing without attempting a remote write', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
@@ -669,6 +713,12 @@ describe('FavoriteRepositorySyncService', () => {
     })
 
     expect(await service.executeFrozenPlan('100', plan())).toMatchObject({ status: 'result-unknown' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: {
+        status: 'reconciling',
+        workspaceRef: { currentStep: 'result-unknown' }
+      }
+    })
   })
 
   it('serializes concurrent requests for the same frozen run before any remote append', async () => {

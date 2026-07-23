@@ -15,6 +15,8 @@ type ScanPage = {
   folderId: string
   page: number
   items: ScanItem[]
+  /** Stored with new pages so a resumed scan can stop at a known terminal page. */
+  hasMore?: boolean
 }
 type ManagedMembers = { runId: string; members: Record<string, number[]> }
 type SourceFolder = {
@@ -84,6 +86,13 @@ type Manifest = {
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
+  /** Compact recovery state; do not load the journal or baseline chunks to show it. */
+  planReadiness?: { selectedAidCount: number; classifiedAidCount: number }
+  /** Durable witness that the matching local repository commit has succeeded. */
+  lastCommittedId?: string
+  /** Compact recovery comparison data; never requires reading baseline segments. */
+  recoveryBaseline?: { aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string }
+  recoveryDecision?: { choice: 'continue-original' | 'merge-latest' | 'rescan'; expectedBaselineRevision: number; expectedRepositoryRevision: number; evidenceFingerprint?: string; recordedAt: string }
   checksum: string
 }
 
@@ -175,7 +184,8 @@ export class OldFavoriteWorkspaceStore {
       if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
       if (manifest.scanRunId !== input.runId) throw new Error('Old favorite workspace scan run is stale.')
       const folderId = input.folderId.trim()
-      const content = JSON.stringify({ runId: input.runId, folderId, page: input.page, items: input.items.map(clone) })
+      const content = JSON.stringify({ runId: input.runId, folderId, page: input.page, items: input.items.map(clone),
+        ...(typeof input.hasMore === 'boolean' ? { hasMore: input.hasMore } : {}) })
       const file = `scan/pages/${checksum(`${input.runId}:${folderId}:${input.page}:${content}`)}.json`
       await this.atomicWrite(join(directory, file), content)
       const scanPages = (manifest.scanPages ?? []).filter((page) => page.folderId !== folderId || page.page !== input.page)
@@ -200,7 +210,8 @@ export class OldFavoriteWorkspaceStore {
       if (value.runId !== manifest.scanRunId || value.folderId !== page.folderId || value.page !== page.page || !Array.isArray(value.items)) {
         throw new Error('Old favorite workspace scan page is invalid.')
       }
-      pages.push({ folderId: value.folderId, page: value.page, items: value.items.map(clone) })
+      pages.push({ folderId: value.folderId, page: value.page, items: value.items.map(clone),
+        ...(typeof value.hasMore === 'boolean' ? { hasMore: value.hasMore } : {}) })
     }
     return pages
   }
@@ -217,7 +228,8 @@ export class OldFavoriteWorkspaceStore {
       if (value.runId !== manifest.scanRunId || value.folderId !== page.folderId || value.page !== page.page || !Array.isArray(value.items)) {
         throw new Error('Old favorite workspace scan page is invalid.')
       }
-      await visit({ runId: value.runId, folderId: value.folderId, page: value.page, items: value.items.map(clone) })
+      await visit({ runId: value.runId, folderId: value.folderId, page: value.page, items: value.items.map(clone),
+        ...(typeof value.hasMore === 'boolean' ? { hasMore: value.hasMore } : {}) })
     }
   }
 
@@ -287,7 +299,8 @@ export class OldFavoriteWorkspaceStore {
       currentSegmentId: overlay.currentSegmentId,
       overlayRevision: manifest.overlayRevision + 1,
       journalCursor: journal.byteLength,
-      journalChecksum: checksum(journal.toString('utf8'))
+      journalChecksum: checksum(journal.toString('utf8')),
+      ...(overlay.planReadiness ? { planReadiness: clone(overlay.planReadiness) } : {})
     }
     await this.writeManifest(directory, next)
     this.writeLog.set(this.key(account, workspaceId), ['manifest.json', 'overlay.journal.jsonl'])
@@ -360,8 +373,12 @@ export class OldFavoriteWorkspaceStore {
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
         baselineRevision: manifest.baselineRevision, currentSegmentId: manifest.currentSegmentId,
+        ...(manifest.scanRunId ? { scanRunId: manifest.scanRunId } : {}),
         overlayRevision: manifest.overlayRevision, journalCursor: manifest.journalCursor,
         manifestChecksum: manifest.checksum,
+        ...(manifest.lastCommittedId ? { lastCommittedId: manifest.lastCommittedId } : {}),
+        ...(manifest.recoveryBaseline ? { recoveryBaseline: clone(manifest.recoveryBaseline) } : {}),
+        ...(manifest.recoveryDecision ? { recoveryDecision: clone(manifest.recoveryDecision) } : {}),
         loadedSegmentAids: [...loadedSegment.aids],
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
         sourceFolders,
@@ -372,6 +389,32 @@ export class OldFavoriteWorkspaceStore {
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
     }
+  }
+
+  async setRecoveryBaseline(accountMid: string, workspaceId: string, baseline: {
+    aids: number[]; aidFingerprint: string; mirrorFingerprint: string; bindingFingerprint: string; fingerprint: string
+  }) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      const { checksum: _storedChecksum, ...withoutChecksum } = manifest
+      await this.writeManifest(directory, { ...withoutChecksum, recoveryBaseline: clone(baseline) })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json'])
+    })
+  }
+
+  async setRecoveryDecision(accountMid: string, workspaceId: string, decision: NonNullable<Manifest['recoveryDecision']>) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      const { checksum: _storedChecksum, ...withoutChecksum } = manifest
+      await this.writeManifest(directory, { ...withoutChecksum, recoveryDecision: clone(decision) })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json'])
+    })
   }
 
   /** Reads only the integrity-checked marker needed to offer a recovery action. */
@@ -392,8 +435,40 @@ export class OldFavoriteWorkspaceStore {
       scanPageCount: manifest.scanPages?.length ?? 0,
       overlayRevision: manifest.overlayRevision,
       journalCursor: manifest.journalCursor,
-      manifestChecksum: manifest.checksum
+      manifestChecksum: manifest.checksum,
+      ...(manifest.planReadiness ? {
+        plannedCount: manifest.planReadiness.selectedAidCount,
+        classifiedCount: manifest.planReadiness.classifiedAidCount,
+        unclassifiedCount: Math.max(0, manifest.planReadiness.selectedAidCount - manifest.planReadiness.classifiedAidCount)
+      } : {}),
+      ...(manifest.lastCommittedId ? { lastCommittedId: manifest.lastCommittedId } : {})
+      ,...(manifest.recoveryBaseline ? { recoveryBaseline: clone(manifest.recoveryBaseline) } : {})
+      ,...(manifest.recoveryDecision ? { recoveryDecision: clone(manifest.recoveryDecision) } : {})
     }
+  }
+
+  /**
+   * Records the second half of a local commit after the repository has already
+   * accepted its idempotent command. Repeating it is a no-op, so restart
+   * recovery can repair an interrupted boundary without re-applying data.
+   */
+  async markCommitted(accountMid: string, workspaceId: string, commitId: string) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      const normalizedCommitId = commitId.trim()
+      if (!normalizedCommitId) throw new Error('Old favorite workspace commit is invalid.')
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      if (manifest.status === 'completed' && manifest.lastCommittedId === normalizedCommitId) return
+      const { checksum: _storedChecksum, ...withoutChecksum } = manifest
+      await this.writeManifest(directory, {
+        ...withoutChecksum,
+        status: 'completed',
+        lastCommittedId: normalizedCommitId
+      })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json'])
+    })
   }
 
   /** Lets application shutdown wait for the serialized journal/manifest boundary. */

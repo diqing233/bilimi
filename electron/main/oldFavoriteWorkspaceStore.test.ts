@@ -120,6 +120,27 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
   })
 
+  it('keeps recovery readiness and the durable local-commit marker in the manifest-only summary', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 7, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      planReadiness: { selectedAidCount: 26, classifiedAidCount: 3 }
+    })
+    await store.markCommitted('100', 'workspace-1', 'workspace-commit-1')
+
+    const reader = new OldFavoriteWorkspaceStore({ root })
+    await expect(reader.readRecoverySummary('100', 'workspace-1')).resolves.toMatchObject({
+      status: 'completed', plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23,
+      lastCommittedId: 'workspace-commit-1', manifestChecksum: expect.stringMatching(/^[a-f0-9]{64}$/)
+    })
+    await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
+  })
+
   it('flushes queued workspace writes before shutdown', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

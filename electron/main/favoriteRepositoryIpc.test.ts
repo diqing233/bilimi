@@ -34,21 +34,153 @@ describe('registerFavoriteRepositoryIpc', () => {
     ], 4, false)).rejects.toThrow('logical folder')
   })
 
-  it('keeps archive import and restore-plan operations account-scoped and trusted', async () => {
+  it('requires a trusted, account-bound second confirmation before cancelling explicitly previewed Bilibili favorites', async () => {
     const ipcMain = new FakeIpcMain()
-    const previewImport = vi.fn().mockReturnValue({ canApply: true })
-    const createRestorePlan = vi.fn().mockReturnValue({ mode: 'safe', accountMid: '100', operations: [] })
+    let currentTime = 1_000
+    const cancelBilibiliFavorites = vi.fn().mockResolvedValue({
+      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2]
+    })
     registerFavoriteRepositoryIpc({
       ipcMain, service: {} as never, isTrustedSender: (id) => id === 7,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
-      archiveService: { previewImport, createRestorePlan } as never
+      commandService: { cancelBilibiliFavorites } as never,
+      now: () => currentTime, remoteUnfavoriteTokenTtlMs: 10
+    })
+
+    const preview = await ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2]) as {
+      accountMid: string; aids: number[]; executionToken: string
+    }
+    expect(preview).toMatchObject({ accountMid: '100', aids: [2] })
+    await expect(ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2, 2]))
+      .rejects.toThrow('selection is invalid')
+    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken))
+      .rejects.toThrow('second confirmation')
+    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 8, '100', [2], preview.executionToken))
+      .rejects.toThrow('untrusted renderer')
+    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [3], preview.executionToken))
+      .rejects.toThrow('does not match')
+
+    const confirmation = await ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [2], preview.executionToken) as { confirmationToken: string }
+    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken, confirmation.confirmationToken))
+      .resolves.toMatchObject({ status: 'succeeded', affectedAids: [2] })
+    expect(cancelBilibiliFavorites).toHaveBeenCalledWith('100', [2])
+    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken, confirmation.confirmationToken))
+      .rejects.toThrow('does not match')
+
+    const expired = await ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2]) as { executionToken: string }
+    currentTime += 11
+    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [2], expired.executionToken))
+      .rejects.toThrow('expired')
+  })
+
+  it('binds an archive restore preview to a trusted current account with an opaque execution token', async () => {
+    const ipcMain = new FakeIpcMain()
+    const previewImport = vi.fn().mockReturnValue({ canApply: true })
+    const createRestorePlanFromManagedScan = vi.fn().mockResolvedValue({ mode: 'safe', accountMid: '100', operations: [] })
+    const canonicalAids = Array.from({ length: 201 }, (_, index) => index + 1)
+    const resolveArchiveRestoreLogicalFolderAids = vi.fn().mockResolvedValue(canonicalAids)
+    const writer = { readBaseline: vi.fn(), write: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { resolveArchiveRestoreLogicalFolderAids } as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      archiveService: { previewImport, createRestorePlanFromManagedScan } as never,
+      archiveRestoreWriter: writer as never
     })
 
     await expect(ipcMain.invoke('favorite-repository:archive-preview-import', 7, '100', '{}')).resolves.toEqual({ canApply: true })
     expect(previewImport).toHaveBeenCalledWith('{}', '100')
-    await expect(ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', {}, 'safe'))
-      .resolves.toEqual({ mode: 'safe', accountMid: '100', operations: [] })
+    const preview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'all' }) as {
+      mode: string
+      accountMid: string
+      executionToken: string
+      confirmationRequired: boolean
+    }
+    expect(preview).toMatchObject({ mode: 'safe', accountMid: '100', confirmationRequired: false })
+    expect(preview.executionToken).toEqual(expect.any(String))
+    expect(createRestorePlanFromManagedScan).toHaveBeenCalledWith('{}', 'safe', writer)
+    await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'aids', aids: [4] })
+    expect(createRestorePlanFromManagedScan).toHaveBeenLastCalledWith('{}', 'safe', writer, [4])
+    await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'logical-folder', folderId: 'bilimi-logical:music' })
+    expect(resolveArchiveRestoreLogicalFolderAids).toHaveBeenCalledWith('100', 'bilimi-logical:music')
+    expect(createRestorePlanFromManagedScan).toHaveBeenLastCalledWith('{}', 'safe', writer, canonicalAids)
+    await expect(ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'logical-folder', folderId: 'local:inbox' }))
+      .rejects.toThrow('restore scope')
+    await expect(ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'aids', aids: [4, 4] }))
+      .rejects.toThrow('restore scope')
     await expect(ipcMain.invoke('favorite-repository:archive-preview-import', 8, '100', '{}')).rejects.toThrow('untrusted renderer')
+  })
+
+  it('executes and reconciles only a preview-token-bound safe restore plan through the main-process writer', async () => {
+    const ipcMain = new FakeIpcMain()
+    const plan = { mode: 'safe', accountMid: '100', operations: [] }
+    const createRestorePlanFromManagedScan = vi.fn().mockResolvedValue(plan)
+    const executeRestorePlan = vi.fn().mockResolvedValue({ status: 'succeeded', completedOperationCount: 0 })
+    const reconcileRestorePlan = vi.fn().mockResolvedValue({ status: 'succeeded', completedOperationCount: 0 })
+    const writer = { readBaseline: vi.fn(), write: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      archiveService: { createRestorePlanFromManagedScan, executeRestorePlan, reconcileRestorePlan } as never,
+      archiveRestoreWriter: writer as never
+    })
+
+    const preview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'all' }) as { executionToken: string }
+
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '100', plan, preview.executionToken))
+      .resolves.toMatchObject({ status: 'succeeded' })
+    await expect(ipcMain.invoke('favorite-repository:archive-reconcile-restore', 7, '100', plan, preview.executionToken))
+      .resolves.toMatchObject({ status: 'succeeded' })
+    expect(executeRestorePlan).toHaveBeenCalledWith(plan, writer)
+    expect(reconcileRestorePlan).toHaveBeenCalledWith(plan, writer)
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 8, '100', plan, preview.executionToken)).rejects.toThrow('untrusted renderer')
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '101', plan, preview.executionToken)).rejects.toThrow('current Bilibili account')
+  })
+
+  it('requires a second full-restore confirmation token and rejects missing, expired, or mismatched preview tokens', async () => {
+    const ipcMain = new FakeIpcMain()
+    let currentTime = 1_000
+    const fullPlan = {
+      mode: 'full' as const,
+      accountMid: '100',
+      operations: [{ aid: 1, desiredLogicalFolderIds: ['bilimi-logical:music'], appendLogicalFolderIds: [], removeLogicalFolderIds: ['bilimi-logical:old'] }]
+    }
+    const safePlan = { mode: 'safe' as const, accountMid: '100', operations: [] }
+    const createRestorePlanFromManagedScan = vi.fn((_input: unknown, mode: 'safe' | 'full') => Promise.resolve(mode === 'full' ? fullPlan : safePlan))
+    const executeRestorePlan = vi.fn().mockResolvedValue({ status: 'succeeded', completedOperationCount: 1 })
+    const writer = { readBaseline: vi.fn(), write: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      archiveService: { createRestorePlanFromManagedScan, executeRestorePlan } as never,
+      archiveRestoreWriter: writer as never,
+      now: () => currentTime,
+      archiveRestoreTokenTtlMs: 10
+    })
+
+    const safePreview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'all' }) as { executionToken: string }
+    const fullPreview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'full', { kind: 'all' }) as { executionToken: string }
+
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '100', fullPlan, fullPreview.executionToken))
+      .rejects.toThrow('second confirmation')
+    await expect(ipcMain.invoke('favorite-repository:archive-confirm-full-restore', 7, '100', fullPlan, safePreview.executionToken))
+      .rejects.toThrow('does not match')
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '100', fullPlan, safePreview.executionToken, 'not-a-confirmation'))
+      .rejects.toThrow('does not match')
+
+    const confirmation = await ipcMain.invoke('favorite-repository:archive-confirm-full-restore', 7, '100', fullPlan, fullPreview.executionToken) as { confirmationToken: string }
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '100', fullPlan, fullPreview.executionToken, confirmation.confirmationToken))
+      .resolves.toMatchObject({ status: 'succeeded' })
+
+    const expiredPreview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'all' }) as { executionToken: string }
+    currentTime += 11
+    await expect(ipcMain.invoke('favorite-repository:archive-reconcile-restore', 7, '100', safePlan, expiredPreview.executionToken))
+      .rejects.toThrow('expired')
+
+    const validPreview = await ipcMain.invoke('favorite-repository:archive-restore-plan', 7, '100', '{}', 'safe', { kind: 'all' }) as { executionToken: string }
+    await expect(ipcMain.invoke('favorite-repository:archive-execute-restore', 7, '100', {
+      ...safePlan,
+      operations: [{ aid: 2, desiredLogicalFolderIds: [], appendLogicalFolderIds: [], removeLogicalFolderIds: [] }]
+    }, validPreview.executionToken)).rejects.toThrow('does not match')
   })
   it('rejects every read and subscription for an account other than the current Bilibili account', async () => {
     const ipcMain = new FakeIpcMain()

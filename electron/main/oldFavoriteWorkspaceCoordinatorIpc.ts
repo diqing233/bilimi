@@ -1,6 +1,7 @@
 import type {
   ApplyWorkspaceClassificationBatchOptions,
-  OldFavoriteWorkspaceRecoveryRequired
+  OldFavoriteWorkspaceRecoveryRequired,
+  OldFavoriteWorkspaceRecoverySummary
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode } from '../../src/shared/types'
 import {
@@ -24,21 +25,11 @@ type IpcEvent = {
 }
 type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
 
-type WorkspaceRecoverySummary = {
-  accountMid: string
-  workspaceId: string
-  status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed' | 'rebuild-required'
-  currentSegmentId?: string
-  currentStep: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed' | 'rebuild-required'
-  plannedCount?: number
-  classifiedCount?: number
-  unclassifiedCount?: number
-  completedOperationCount?: number
-  totalOperationCount?: number
-}
+type WorkspaceRecoverySummary = OldFavoriteWorkspaceRecoverySummary
 
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
+  | { type: 'resume-scan' }
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
@@ -57,6 +48,13 @@ type WorkspaceCommand =
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
+  | {
+      type: 'select-recovery-decision'
+      workspaceId: string
+      choice: 'continue-original' | 'merge-latest' | 'rescan'
+      expectedBaselineRevision: number
+      expectedRepositoryRevision: number
+    }
   | { type: 'abandon-current-workspace' }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'confirm-and-execute-bilibili-plan' }
@@ -69,30 +67,6 @@ function normalizeAccountMid(value: unknown) {
     throw new Error('Old favorite workspace account is invalid.')
   }
   return BigInt(value.trim()).toString()
-}
-
-function recoverySummary(value: Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>): WorkspaceRecoverySummary | null {
-  if (!value) return null
-  if ('recovery' in value) {
-    return {
-      accountMid: value.accountMid,
-      workspaceId: value.workspaceId,
-      status: 'rebuild-required',
-      currentStep: 'rebuild-required'
-    }
-  }
-  return {
-    accountMid: value.accountMid,
-    workspaceId: value.workspaceId,
-    status: value.status,
-    currentSegmentId: value.currentSegment?.id,
-    currentStep: value.status,
-    plannedCount: value.planReadiness?.selectedAidCount,
-    classifiedCount: value.planReadiness?.classifiedAidCount,
-    unclassifiedCount: value.planReadiness?.unclassifiedAidCount,
-    completedOperationCount: value.executionProgress?.completedOperationCount,
-    totalOperationCount: value.executionProgress?.totalOperationCount
-  }
 }
 
 function validAssignments(value: unknown): value is ApplyWorkspaceClassificationBatchOptions['assignments'] {
@@ -132,6 +106,9 @@ function command(value: unknown): WorkspaceCommand {
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
   }
+  if (candidate.type === 'resume-scan' && Object.keys(candidate).length === 1) {
+    return { type: 'resume-scan' }
+  }
   if (candidate.type === 'cancel-deepseek-current-segment' && Object.keys(candidate).length === 1) {
     return { type: 'cancel-deepseek-current-segment' }
   }
@@ -165,6 +142,17 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
     return { type: 'save-current-segment-locally' }
+  }
+  if (candidate.type === 'select-recovery-decision' && typeof candidate.workspaceId === 'string' && candidate.workspaceId.trim().length > 0 &&
+    candidate.workspaceId.trim().length <= 256 &&
+    (candidate.choice === 'continue-original' || candidate.choice === 'merge-latest' || candidate.choice === 'rescan') &&
+    Number.isSafeInteger(candidate.expectedBaselineRevision) && Number(candidate.expectedBaselineRevision) >= 0 &&
+    Number.isSafeInteger(candidate.expectedRepositoryRevision) && Number(candidate.expectedRepositoryRevision) >= 0 &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'workspaceId' || key === 'choice' || key === 'expectedBaselineRevision' || key === 'expectedRepositoryRevision')) {
+    return {
+      type: 'select-recovery-decision', workspaceId: candidate.workspaceId.trim(), choice: candidate.choice,
+      expectedBaselineRevision: candidate.expectedBaselineRevision, expectedRepositoryRevision: candidate.expectedRepositoryRevision
+    }
   }
   if (candidate.type === 'abandon-current-workspace' && Object.keys(candidate).length === 1) {
     return { type: 'abandon-current-workspace' }
@@ -211,7 +199,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   // Reading a recovery summary never resumes scanning, reconciliation, or remote writes.
   options.ipcMain.handle('old-favorite-workspace-v1:recovery-summary', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace recovery summary arguments are invalid.')
-    return recoverySummary(await options.coordinator.getSnapshot(await assertAccount(event, requestedAccountMid)))
+    return options.coordinator.getRecoverySummary(await assertAccount(event, requestedAccountMid)) as Promise<WorkspaceRecoverySummary | null>
   })
   options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[]) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
@@ -255,6 +243,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       : requested.clearBilibiliMirror
         ? options.coordinator.beginScan(accountMid, requested.mode, { clearBilibiliMirror: true })
         : options.coordinator.beginScan(accountMid, requested.mode)
+    if (requested.type === 'resume-scan') return snapshot(await options.coordinator.resumeScan(accountMid))
     if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
       ? options.rebuildAndStartScan(accountMid)
       : options.coordinator.rebuildAfterRecovery(accountMid)
@@ -283,6 +272,14 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
+    if (requested.type === 'select-recovery-decision') {
+      return options.coordinator.selectRecoveryDecision(accountMid, {
+        workspaceId: requested.workspaceId,
+        choice: requested.choice,
+        expectedBaselineRevision: requested.expectedBaselineRevision,
+        expectedRepositoryRevision: requested.expectedRepositoryRevision
+      })
+    }
     if (requested.type === 'abandon-current-workspace') await options.coordinator.abandonCurrentWorkspace(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
     if (requested.type === 'confirm-and-execute-bilibili-plan') return options.coordinator.beginBilibiliExecution(accountMid)

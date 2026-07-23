@@ -10,16 +10,34 @@ export type FavoriteLibrarySyncSelection =
   | { kind: 'folder'; folderId: string }
 
 export type FavoriteLibraryCommandResult = {
-  status: 'succeeded' | 'failed' | 'queued'
+  status: 'succeeded' | 'failed' | 'queued' | 'result-unknown'
   completedOperationCount: number
   totalOperationCount: number
   affectedAids: number[]
+  reason?: string
 }
 
 export type FavoriteLibraryPlacementInput = { aid: number; folderIds: string[] }
 
 export type FavoriteLibraryPlacementSync = {
   synchronizePlacements(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
+}
+
+/** Kept separate from local record lifecycle commands: it only changes Bilibili's favorite state. */
+export type FavoriteLibraryRemoteUnfavorite = {
+  unfavorite(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
+}
+
+type UnfavoritePageBridgeManager = {
+  bind(accountMid: string, runId: string): Promise<void>
+  pageBridge(accountMid: string, runId: string): {
+    unfavorite(input: { accountMid: string; operationKey: string; aid: number }): Promise<{ observedAccountMid: string }>
+  }
+  release(accountMid: string, runId: string): void
+}
+
+type RemoteOperationQueue = {
+  enqueue<T>(accountMid: string, options: { priority: 'user-single'; videoKey: string }, operation: () => Promise<T>): Promise<T>
 }
 
 type TranscriptionQueue = { enqueue(request: VideoAudioTranscriptionRequest): unknown }
@@ -41,6 +59,55 @@ function uniquePositiveAids(value: unknown) {
   return aids
 }
 
+function isKnownRemoteRejection(error: unknown) {
+  return typeof error === 'object' && error !== null && (error as { remoteWriteRejected?: unknown }).remoteWriteRejected === true
+}
+
+/**
+ * Runs a real Bilibili video-level unfavorite via the already trusted, account-bound
+ * page bridge. It intentionally has no repository write path.
+ */
+export function createFavoriteLibraryRemoteUnfavorite(options: {
+  pageBridgeManager: UnfavoritePageBridgeManager
+  remoteOperations: RemoteOperationQueue
+}): FavoriteLibraryRemoteUnfavorite {
+  return {
+    async unfavorite(accountMid, requestedAids) {
+      const account = normalizeAccountMid(accountMid)
+      const aids = uniquePositiveAids(requestedAids)
+      if (aids.length > 100) throw new Error('Bilibili unfavorite selection is invalid.')
+      let completed = 0
+      let status: FavoriteLibraryCommandResult['status'] = 'succeeded'
+      let reason: string | undefined
+      for (const aid of aids) {
+        try {
+          await options.remoteOperations.enqueue(account, { priority: 'user-single', videoKey: `unfavorite:${aid}` }, async () => {
+            const runId = `favorite-unfavorite:${randomUUID()}`
+            await options.pageBridgeManager.bind(account, runId)
+            try {
+              await options.pageBridgeManager.pageBridge(account, runId).unfavorite({
+                accountMid: account, operationKey: `${runId}:${aid}`, aid
+              })
+            } finally {
+              options.pageBridgeManager.release(account, runId)
+            }
+          })
+          completed++
+        } catch (error) {
+          reason = error instanceof Error ? error.message : String(error)
+          status = isKnownRemoteRejection(error) ? 'failed' : 'result-unknown'
+          // An ambiguous write must be reconciled before any later item is touched.
+          if (status === 'result-unknown') break
+        }
+      }
+      return {
+        status, completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids,
+        ...(reason ? { reason } : {})
+      }
+    }
+  }
+}
+
 function selectedAids(snapshot: AccountFavoriteRepositorySnapshot, selection: FavoriteLibrarySyncSelection) {
   if (selection.kind === 'aids') return uniquePositiveAids(selection.aids)
   if (typeof selection.folderId !== 'string' || !selection.folderId.trim()) throw new Error('来源收藏夹无效。')
@@ -58,6 +125,8 @@ export class FavoriteLibraryCommandService {
     transcriptionQueue: TranscriptionQueue
     /** Optional so metadata refresh remains a strictly local operation. */
     placementSync?: FavoriteLibraryPlacementSync
+    /** Optional because this dangerous global Bilibili action requires an explicit main-process adapter. */
+    remoteUnfavorite?: FavoriteLibraryRemoteUnfavorite
     now?: () => string
   }) {}
 
@@ -143,6 +212,14 @@ export class FavoriteLibraryCommandService {
 
   async deleteFromLibrary(accountMid: string, aid: number, expectedRevision: number) {
     return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'delete-favorite-from-library')
+  }
+
+  /** Does not commit, delete, or modify any local favorite-library, transcription, or archive record. */
+  async cancelBilibiliFavorites(accountMid: string, requestedAids: number[]): Promise<FavoriteLibraryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    const aids = uniquePositiveAids(requestedAids)
+    if (!this.options.remoteUnfavorite) throw new Error('Bilibili unfavorite is unavailable.')
+    return this.options.remoteUnfavorite.unfavorite(account, aids)
   }
 
   async restoreToLibrary(accountMid: string, aid: number, expectedRevision: number) {

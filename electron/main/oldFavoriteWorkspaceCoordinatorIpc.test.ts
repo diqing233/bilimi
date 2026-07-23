@@ -38,6 +38,14 @@ describe('old favorite workspace coordinator IPC', () => {
   it('returns an account-validated recovery summary without starting scan or remote execution', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
+      getRecoverySummary: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'executing' as const,
+        currentSegmentId: 'segment-1', currentStep: 'result-unknown' as const,
+        plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23,
+        manifestChecksum: 'a'.repeat(64), lastCommittedId: 'commit-1',
+        recoveryChoices: ['view', 'reconcile-result-unknown'] as const,
+        resultUnknownEvidence: { operationCount: 2 }
+      }),
       getSnapshot: vi.fn().mockResolvedValue({
         ...snapshot,
         status: 'executing' as const,
@@ -54,14 +62,46 @@ describe('old favorite workspace coordinator IPC', () => {
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '00100')).resolves.toEqual({
       accountMid: '100', workspaceId: 'workspace-1', status: 'executing', currentSegmentId: 'segment-1',
-      currentStep: 'executing', plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23,
-      completedOperationCount: 8, totalOperationCount: 26
+      currentStep: 'result-unknown', plannedCount: 26, classifiedCount: 3, unclassifiedCount: 23,
+      manifestChecksum: 'a'.repeat(64), lastCommittedId: 'commit-1',
+      recoveryChoices: ['view', 'reconcile-result-unknown'], resultUnknownEvidence: { operationCount: 2 }
     })
-    expect(coordinator.getSnapshot).toHaveBeenCalledWith('100')
+    expect(coordinator.getRecoverySummary).toHaveBeenCalledWith('100')
+    expect(coordinator.getSnapshot).not.toHaveBeenCalled()
     expect(coordinator.beginScan).not.toHaveBeenCalled()
     expect(coordinator.executeFrozenBilibiliPlan).not.toHaveBeenCalled()
     await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 8, '100')).rejects.toThrow('untrusted')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '200')).rejects.toThrow('current Bilibili account')
+  })
+
+  it('accepts only an explicit, revision-guarded recovery decision from the current trusted account', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      selectRecoveryDecision: vi.fn().mockResolvedValue({
+        choice: 'merge-latest', requiresFullWorkspaceLoad: true, manualClassificationsRemainAuthoritative: true
+      })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '00100', {
+      type: 'select-recovery-decision', workspaceId: 'workspace-1', choice: 'merge-latest',
+      expectedBaselineRevision: 4, expectedRepositoryRevision: 9
+    })).resolves.toMatchObject({ choice: 'merge-latest', requiresFullWorkspaceLoad: true })
+    expect(coordinator.selectRecoveryDecision).toHaveBeenCalledWith('100', {
+      workspaceId: 'workspace-1', choice: 'merge-latest', expectedBaselineRevision: 4, expectedRepositoryRevision: 9
+    })
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'select-recovery-decision', workspaceId: 'workspace-1', choice: 'merge-latest',
+      expectedBaselineRevision: 4, expectedRepositoryRevision: 9, unexpected: true
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 8, '100', {
+      type: 'select-recovery-decision', workspaceId: 'workspace-1', choice: 'merge-latest',
+      expectedBaselineRevision: 4, expectedRepositoryRevision: 9
+    })).rejects.toThrow('untrusted')
   })
 
   it('runs DeepSeek only through a main-process current-segment service with no renderer result payload', async () => {

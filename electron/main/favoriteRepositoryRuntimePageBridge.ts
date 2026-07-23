@@ -13,7 +13,7 @@ export type FavoriteRepositoryRuntimePageBridgeInput = {
   folderId?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -64,7 +64,9 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
     this.bindings.set(bindingKey(account, runId), result.target)
   }
 
-  pageBridge(accountMid: string, runId: string): FavoriteRepositoryPageBridge {
+  pageBridge(accountMid: string, runId: string): FavoriteRepositoryPageBridge & {
+    unfavorite(input: { accountMid: string; operationKey: string; aid: number }): Promise<{ observedAccountMid: string }>
+  } {
     const account = normalizedAccountMid(accountMid)
     const target = this.bindings.get(bindingKey(account, runId))
     const execute = async (action: FavoriteRepositoryRuntimePageBridgeOperation, input: FavoriteRepositoryRuntimePageBridgeInput) => {
@@ -83,6 +85,10 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
       },
       async remove(input) {
         const result = await execute('remove', input)
+        return { observedAccountMid: result.observedAccountMid }
+      },
+      async unfavorite(input) {
+        const result = await execute('unfavorite', input)
         return { observedAccountMid: result.observedAccountMid }
       },
       async readMembers(input) {

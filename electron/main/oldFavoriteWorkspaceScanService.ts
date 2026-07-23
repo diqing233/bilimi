@@ -23,6 +23,12 @@ type RuntimeRequest =
   | { type: 'old-favorite-workspace-read-video-tags'; accountMid: string; target: ScanTarget; aid: number }
   | { type: 'old-favorite-workspace-read-managed-members'; accountMid: string; target: ScanTarget; folderIds: string[] }
 
+type PersistedScanResumeState = {
+  runId: string
+  completedPages: Array<{ folderId: string; page: number; hasMore?: boolean }>
+  taggedAids: number[]
+}
+
 function normalizeAccountMid(value: string) {
   return /^\d+$/.test(value.trim()) && BigInt(value.trim()) > 0n ? BigInt(value.trim()).toString() : ''
 }
@@ -119,7 +125,48 @@ export class OldFavoriteWorkspaceScanService {
     return snapshot
   }
 
-  private async runInventory(accountMid: string, runId: string, isCurrent: () => boolean, workspaceId?: string) {
+  /** Explicitly resumes an existing durable scan lease; construction never starts or resumes work. */
+  async resume(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    const account = normalizeAccountMid(accountMid)
+    if (!account) throw new Error('Old favorite workspace account is invalid.')
+    const active = this.activeScans.get(account)
+    if (active) return active.snapshot
+
+    let run!: { mode: OldFavoriteWorkspaceMode; snapshot: Promise<OldFavoriteWorkspaceSnapshot> }
+    const isCurrent = () => this.activeScans.get(account) === run
+    const snapshot = this.resumeExisting(account, isCurrent)
+    run = { mode: 'incremental', snapshot }
+    this.activeScans.set(account, run)
+    void snapshot.catch(() => {
+      if (isCurrent()) this.activeScans.delete(account)
+    })
+    return snapshot
+  }
+
+  private async resumeExisting(accountMid: string, isCurrent: () => boolean) {
+    const snapshot = await this.options.coordinator.resumeScan(accountMid)
+    const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
+    const resumeState = await this.options.coordinator.getScanResumeState(accountMid) as PersistedScanResumeState
+    if (resumeState.runId !== runId) throw new Error('Old favorite workspace scan lease changed while resuming.')
+    // Old staged pages did not retain the terminal marker, so they cannot be
+    // safely skipped. New pages carry hasMore and can be resumed exactly.
+    const completedPages = new Map(resumeState.completedPages
+      .filter((page) => typeof page.hasMore === 'boolean')
+      .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
+    void this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids)).finally(() => {
+      if (isCurrent()) this.activeScans.delete(accountMid)
+    })
+    return snapshot
+  }
+
+  private async runInventory(
+    accountMid: string,
+    runId: string,
+    isCurrent: () => boolean,
+    workspaceId?: string,
+    completedPages = new Map<string, boolean>(),
+    taggedAids = new Set<number>()
+  ) {
     try {
       const binding = await this.request(accountMid, { type: 'old-favorite-workspace-bind-scan-target', accountMid })
       if (!isCurrent()) return
@@ -169,6 +216,15 @@ export class OldFavoriteWorkspaceScanService {
         let page = 1
         let hasMore = true
         while (hasMore) {
+          const persistedHasMore = completedPages.get(`${folder.id}\u0000${page}`)
+          if (persistedHasMore !== undefined) {
+            if (!persistedHasMore) {
+              hasMore = false
+              continue
+            }
+            page += 1
+            continue
+          }
           const sourcePage = await this.request(accountMid, {
             type: 'old-favorite-workspace-read-source-page', accountMid, target: binding.target,
             folderId: folder.id, page, pageSize: 20
@@ -189,6 +245,7 @@ export class OldFavoriteWorkspaceScanService {
           await this.options.coordinator.recordScanPage(accountMid, {
             folderId: folder.id,
             page,
+            hasMore: sourcePage.hasMore,
             items: sourcePage.items.map((item) => ({
               aid: item.aid, title: item.title, author: item.upperName, cover: item.cover,
               addedAt: item.addedAt, tags: item.tags, category: item.category, sourceFolderIds: [folder.id]
@@ -201,7 +258,7 @@ export class OldFavoriteWorkspaceScanService {
       if (!isCurrent()) return
       await this.options.coordinator.finishScan(accountMid, runId)
       if (workspaceId && typeof this.options.coordinator.getPendingTagEnrichmentAids === 'function') {
-        void this.runTagEnrichment(accountMid, binding.target, workspaceId)
+        void this.runTagEnrichment(accountMid, binding.target, workspaceId, taggedAids)
       }
     } catch {
       if (!isCurrent()) return
@@ -233,7 +290,7 @@ export class OldFavoriteWorkspaceScanService {
     if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
   }
 
-  private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string) {
+  private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string, skipTaggedAids?: ReadonlySet<number>) {
     const current = this.enrichmentRuns.get(accountMid)
     if (current) {
       if (current.workspaceId !== workspaceId) current.successor = { target, workspaceId }
@@ -245,7 +302,8 @@ export class OldFavoriteWorkspaceScanService {
       while (true) {
         const aids = await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
         if (!aids.length) return
-        const aid = aids[0]
+        const aid = aids.find((candidate) => !skipTaggedAids?.has(candidate))
+        if (aid === undefined) return
         let result!: RuntimeInventoryResult
         let recoverableFailure: RuntimeInventoryResult | undefined
         for (let attempt = 0; attempt < 3; attempt += 1) {

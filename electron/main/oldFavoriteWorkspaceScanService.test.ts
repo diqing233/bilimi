@@ -3,6 +3,88 @@ import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRe
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('resumes a persisted scan lease without rereading completed source pages', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn(),
+      resumeScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('persisted-run-7'),
+      getScanResumeState: vi.fn().mockResolvedValue({
+        runId: 'persisted-run-7',
+        completedPages: [{ folderId: 'source-1', page: 1, hasMore: true }],
+        taggedAids: [1]
+      }),
+      recordScanInventory: vi.fn(),
+      recordScanPage: vi.fn(),
+      finishScan: vi.fn(),
+      recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([1])
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 40 }] })
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100', items: [
+          { aid: 2, title: 'V2', upperName: 'UP', cover: '', addedAt: 0 }
+        ], hasMore: false
+      })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await expect(service.resume('100')).resolves.toMatchObject({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning'
+    })
+
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'persisted-run-7'))
+    expect(coordinator.beginScan).not.toHaveBeenCalled()
+    expect(coordinator.getActiveScanRunId).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.getScanResumeState).toHaveBeenCalledExactlyOnceWith('100')
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', folderId: 'source-1', page: 1
+    }))
+    expect(runtime).toHaveBeenCalledWith({
+      type: 'old-favorite-workspace-read-source-page', accountMid: '100', target, folderId: 'source-1', page: 2, pageSize: 20
+    })
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' }))
+    expect(coordinator.recordScanPage).toHaveBeenCalledWith('100', expect.objectContaining({
+      folderId: 'source-1', page: 2
+    }), 'persisted-run-7')
+  })
+
+  it('does not resume a durable scan lease merely by constructing the service', () => {
+    const coordinator = {
+      resumeScan: vi.fn(), getActiveScanRunId: vi.fn(), getScanResumeState: vi.fn()
+    }
+
+    new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: vi.fn() })
+
+    expect(coordinator.resumeScan).not.toHaveBeenCalled()
+    expect(coordinator.getActiveScanRunId).not.toHaveBeenCalled()
+    expect(coordinator.getScanResumeState).not.toHaveBeenCalled()
+  })
+
+  it('stops at a persisted terminal page instead of incrementing an unbounded cursor', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      resumeScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('persisted-run-8'),
+      getScanResumeState: vi.fn().mockResolvedValue({
+        runId: 'persisted-run-8', completedPages: [{ folderId: 'source-1', page: 1, hasMore: false }], taggedAids: []
+      }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 20 }] })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.resume('100')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'persisted-run-8'))
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-source-page' }))
+  })
+
   it('cancels an active DeepSeek organization before a full reorganization replaces its workspace', async () => {
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),

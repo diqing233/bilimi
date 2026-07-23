@@ -213,7 +213,10 @@ export function createFavoriteRepositoryArchiveExport(
     videos: Object.values(snapshot.videos).map((video) => ({ ...video, tags: [...video.tags] })),
     positions: Object.values(snapshot.positions ?? {}).map((position) => ({
       aid: position.aid,
-      localDesiredFolderIds: [...position.localDesiredFolderIds],
+      // A portable archive carries only Bilimi's logical recovery intent;
+      // local/physical identifiers belong exclusively to their originating
+      // device and must not become remote restore targets.
+      localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => /^bilimi-logical:\S+$/.test(folderId.trim())),
       positionState: position.positionState,
       updatedAt: position.updatedAt
     })),
@@ -244,12 +247,15 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
   if (archive.positions !== undefined && (!Array.isArray(archive.positions) || !archive.positions.every((position) =>
     position && typeof position === 'object' && isPositionPayload({
       ...(position as Record<string, unknown>), remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: []
-    })))) throw new Error('Favorite repository archive is invalid.')
+    }) && Array.isArray((position as Record<string, unknown>).localDesiredFolderIds) &&
+      ((position as Record<string, unknown>).localDesiredFolderIds as unknown[]).every((folderId) =>
+        typeof folderId === 'string' && /^bilimi-logical:\S+$/.test(folderId.trim()))))) throw new Error('Favorite repository archive is invalid.')
   if (archive.protections !== undefined && (!Array.isArray(archive.protections) || !archive.protections.every((record) =>
     record && typeof record === 'object' && Number.isSafeInteger((record as Record<string, unknown>).aid) && Number((record as Record<string, unknown>).aid) > 0 &&
     typeof (record as Record<string, unknown>).completedAt === 'string' && !Number.isNaN(Date.parse(String((record as Record<string, unknown>).completedAt)))))) throw new Error('Favorite repository archive is invalid.')
   if (archive.events !== undefined && (!Array.isArray(archive.events) || !archive.events.every((event) =>
-    event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>)))) throw new Error('Favorite repository archive is invalid.')
+    event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>) &&
+      (event as Record<string, unknown>).accountMid === archive.accountMid))) throw new Error('Favorite repository archive is invalid.')
   const typed = archive as unknown as FavoriteRepositoryArchiveExport & { checksum: string }
   if (createFavoriteRepositoryArchiveExportChecksum(typed) !== typed.checksum.toLowerCase()) throw new Error('Favorite repository archive checksum is invalid.')
   return typed
@@ -1346,6 +1352,7 @@ export function applyFavoriteRepositoryCommand(
       delete videos[String(aid)]
       delete libraryMirrors[String(aid)]
       delete positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+      organizationRecords = organizationRecords.filter((record) => record.aid !== aid)
       for (const folderId of Object.keys(memberships)) {
         if (folderId.startsWith('bilibili:')) continue
         const before = memberships[folderId] ?? []

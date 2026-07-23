@@ -25,7 +25,7 @@ export type FavoriteRepositoryPageBridgeReadResult = FavoriteRepositoryPageBridg
 
 type ExecuteJavaScript = (script: string, userGesture?: boolean) => Promise<unknown>
 
-type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
 
 export const FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS = 15_000
 
@@ -68,7 +68,7 @@ function isPageResult(value: unknown, action: PageBridgeAction): value is Favori
   return true
 }
 
-function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): string {
+function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): string {
   const payload = JSON.stringify(input)
   const mutationField = action === 'append' ? 'add_media_ids' : 'del_media_ids'
   const mutation = action === 'append' || action === 'remove'
@@ -124,6 +124,28 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
         let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
         return response.ok && json?.code === 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid ? { status: 'ok', observedAccountMid } : { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+      })()
+    `
+  }
+
+  if (action === 'unfavorite') {
+    return `
+      (async () => {
+        const input = ${payload};
+        const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
+        const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+        const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
+        const reject = (reason) => ({ status: 'rejected', observedAccountMid, reason });
+        if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim() || !Number.isSafeInteger(input.aid) || input.aid <= 0) return reject('invalid-operation');
+        const csrf = readCookie('bili_jct'); if (!csrf) return reject('csrf-missing');
+        const body = new URLSearchParams(); body.set('aid', String(input.aid)); body.set('type', '2'); body.set('csrf', csrf);
+        let response; try {
+          response = await fetch('https://api.bilibili.com/x/web-interface/archive/fav', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body });
+        } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
+        if (response.ok && json?.code === 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid };
+        if (response.ok && json?.code !== 0) return reject('known-unapplied-remote-rejection');
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
       })()
     `
   }
@@ -242,7 +264,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
 }
 
 export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript; timeoutMs?: number }) {
-  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
+  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
     try {
       const execution = options.executeJavaScript(pageScript(action, input), true)
       const result = await new Promise<unknown>((resolve, reject) => {
@@ -264,9 +286,13 @@ export function createFavoriteRepositoryPageBridge(options: { executeJavaScript:
   return {
     append: (input: FavoriteRepositoryPageBridgeInput) => run('append', input),
     remove: (input: FavoriteRepositoryPageBridgeInput) => run('remove', input),
+    unfavorite: (input: FavoriteRepositoryUnfavoriteInput) => run('unfavorite', input),
     readMembers: (input: FavoriteRepositoryPageBridgeInput) => run('read-members', input),
     readFolderInventory: (input: FavoriteRepositoryFolderInventoryInput) => run('read-folder-inventory', input),
     createFolder: (input: FavoriteRepositoryFolderCreateInput) => run('create-folder', input)
     ,deleteFolder: (input: FavoriteRepositoryFolderDeleteInput) => run('delete-folder', input)
   }
 }
+
+/** Global Bilibili unfavorite deliberately accepts no physical folder ids. */
+export type FavoriteRepositoryUnfavoriteInput = { accountMid: string; operationKey: string; aid: number }

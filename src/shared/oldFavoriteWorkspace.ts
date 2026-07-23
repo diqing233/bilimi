@@ -151,6 +151,67 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   workspaceId: string
 }
 
+/** A compact, manifest/marker-only recovery entry point. It never resumes work. */
+export type OldFavoriteWorkspaceRecoveryChoice =
+  | 'view'
+  | 'continue-original'
+  | 'merge-latest'
+  | 'rescan'
+  | 'abandon'
+  | 'reconcile-result-unknown'
+
+/**
+ * Evidence available without loading the workspace's baseline pages or replaying
+ * its journal. The repository revision is intentionally account-scoped.
+ */
+export type OldFavoriteWorkspaceBaselineChangeEvidence = {
+  scope: 'account'
+  workspaceBaselineRevision: number
+  repositoryRevision: number
+  changed: boolean
+  direction: 'unchanged' | 'advanced' | 'regressed'
+  /** Any later merge must preserve manual choices; it cannot silently replace them. */
+  manualClassificationsRemainAuthoritative: true
+  /** Dimensions which differ from the durable workspace baseline. */
+  changedDimensions: Array<'aid-revisions' | 'mirror' | 'bindings'>
+  /** This deployment has no durable rule/settings revision source; never infer one. */
+  unavailableDimensions: Array<'rules' | 'keywords' | 'default-settings'>
+  fingerprint?: string
+}
+
+export type OldFavoriteWorkspaceRecoveryDecision = {
+  workspaceId: string
+  choice: 'continue-original' | 'merge-latest' | 'rescan'
+  expectedBaselineRevision: number
+  expectedRepositoryRevision: number
+}
+
+/** Explicit acknowledgement only: it never resumes, rescans, or mutates a workspace. */
+export type OldFavoriteWorkspaceRecoveryDecisionResult = {
+  accountMid: string
+  workspaceId: string
+  choice: OldFavoriteWorkspaceRecoveryDecision['choice']
+  manualClassificationsRemainAuthoritative: true
+  requiresFullWorkspaceLoad: boolean
+  requiresExplicitScan: boolean
+}
+
+export type OldFavoriteWorkspaceRecoverySummary = {
+  accountMid: string
+  workspaceId: string
+  status: OldFavoriteWorkspaceStatus | 'rebuild-required'
+  currentSegmentId?: string
+  currentStep: OldFavoriteWorkspaceStatus | 'confirmation' | 'result-unknown' | 'rebuild-required'
+  plannedCount?: number
+  classifiedCount?: number
+  unclassifiedCount?: number
+  manifestChecksum?: string
+  lastCommittedId?: string
+  baselineChangeEvidence: OldFavoriteWorkspaceBaselineChangeEvidence
+  recoveryChoices: OldFavoriteWorkspaceRecoveryChoice[]
+  resultUnknownEvidence?: { operationCount: number; planId?: string }
+}
+
 export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null
 
 export type OldFavoriteWorkspaceDeepSeekFailure = {

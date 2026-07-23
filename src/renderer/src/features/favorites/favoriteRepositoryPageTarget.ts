@@ -1,13 +1,14 @@
 import {
   createFavoriteRepositoryPageBridge,
   type FavoriteRepositoryPageBridgeInput,
+  type FavoriteRepositoryUnfavoriteInput,
   type FavoriteRepositoryFolderCreateInput,
   type FavoriteRepositoryFolderInventoryInput,
   type FavoriteRepositoryFolderDeleteInput,
   type FavoriteRepositoryPageBridgeReadResult
 } from './favoriteRepositoryPageBridge'
 
-type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
@@ -38,7 +39,7 @@ export function createFavoriteRepositoryPageTarget(options: {
     async run(
       binding: FavoriteRepositoryPageTarget,
       action: PageBridgeAction,
-      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
+      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
     ): Promise<FavoriteRepositoryPageBridgeReadResult> {
       const target = options.findWebviewById(binding.webContentsId) ?? null
       if (!target?.executeJavaScript) {
@@ -55,6 +56,8 @@ export function createFavoriteRepositoryPageTarget(options: {
         ? bridge.append(input as FavoriteRepositoryPageBridgeInput)
         : action === 'remove'
           ? bridge.remove(input as FavoriteRepositoryPageBridgeInput)
+          : action === 'unfavorite'
+            ? bridge.unfavorite(input as FavoriteRepositoryUnfavoriteInput)
           : action === 'read-members'
             ? bridge.readMembers(input as FavoriteRepositoryPageBridgeInput)
             : action === 'read-folder-inventory'

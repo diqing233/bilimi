@@ -874,7 +874,7 @@ export default function App() {
     accountMid: string,
     runId: string,
     target: FavoriteRepositoryPageTarget,
-    action: 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder',
+    action: 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder',
     input: { accountMid: string; operationKey: string; aid?: number; folderIds?: string[]; title?: string; folderId?: string }
   ) {
     favoriteRepositoryPageTargetRef.current ??= createFavoriteRepositoryPageTarget({
