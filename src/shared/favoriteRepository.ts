@@ -33,6 +33,157 @@ export type FavoriteRepositoryVideo = {
   updatedAt: string
 }
 
+export type FavoriteRepositoryPositionState =
+  | 'aligned'
+  | 'local-only-change'
+  | 'syncing'
+  | 'failed'
+  | 'result-unknown'
+  | 'remote-removed'
+  | 'target-missing'
+  | 'needs-review'
+
+/** Current local intent and last observed remote placement; protection is deliberately not part of this record. */
+export type FavoriteRepositoryPositionRecord = {
+  accountMid: string
+  aid: number
+  localDesiredFolderIds: string[]
+  remoteObservedPhysicalFolderIds: string[]
+  remoteObservedLogicalFolderIds: string[]
+  positionState: FavoriteRepositoryPositionState
+  observedAt?: string
+  updatedAt: string
+  reason?: string
+  revision: number
+}
+
+export type FavoriteRepositoryEventKind =
+  | 'entered'
+  | 'daily-review'
+  | 'old-favorite-organization'
+  | 'manual-move'
+  | 'scan-observed'
+  | 'remote-sync'
+  | 'adopt-local'
+  | 'adopt-remote'
+  | 'transcription'
+  | 'archive-registration'
+
+/** Lightweight user-visible history. Technical logs remain outside this model. */
+export type FavoriteRepositoryEvent = {
+  id: string
+  sequence: number
+  accountMid: string
+  aid: number
+  kind: FavoriteRepositoryEventKind
+  occurredAt: string
+  titleAtTime?: string
+  folderTitlesAtTime?: string[]
+  detail?: string
+}
+
+export type FavoriteRepositoryTombstone = {
+  accountMid: string
+  aid: number
+  deletedAt: string
+  allowRediscovery: boolean
+}
+
+export type FavoriteRepositoryArchiveExport = {
+  version: 1
+  accountMid: string
+  generatedAt: string
+  archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
+}
+
+export function createFavoriteRepositoryPositionKey(accountMid: string, aid: number) {
+  return `${normalizedAccountMid(accountMid)}:${aid}`
+}
+
+function normalizeFolderIds(folderIds: string[]) {
+  return [...new Set(folderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()
+}
+
+export function deriveFavoriteRepositoryPositionState(input: Pick<FavoriteRepositoryPositionRecord,
+  'localDesiredFolderIds' | 'remoteObservedPhysicalFolderIds' | 'remoteObservedLogicalFolderIds'> & Partial<Pick<FavoriteRepositoryPositionRecord, 'positionState'>>) {
+  const requested = input.positionState
+  if (requested && !['aligned', 'local-only-change'].includes(requested)) return requested
+  const local = normalizeFolderIds(input.localDesiredFolderIds)
+  const remote = normalizeFolderIds(input.remoteObservedLogicalFolderIds)
+  return local.length === remote.length && local.every((folderId, index) => folderId === remote[index])
+    ? 'aligned'
+    : 'local-only-change'
+}
+
+export function isFavoriteRepositoryMetadataStale(video: FavoriteRepositoryVideo) {
+  return /^video\s*\+\s*id$/i.test(video.title.trim()) || !video.author?.trim()
+}
+
+function hasFavoriteRepositoryPlaceholderTitle(video: FavoriteRepositoryVideo) {
+  return /^video\s*\+\s*id$/i.test(video.title.trim())
+}
+
+/** Never replace confirmed metadata with sparse scan placeholders. */
+export function mergeFavoriteRepositoryVideo(existing: FavoriteRepositoryVideo | undefined, incoming: FavoriteRepositoryVideo) {
+  if (!existing) return { ...incoming, tags: [...incoming.tags] }
+  const incomingIsPlaceholder = hasFavoriteRepositoryPlaceholderTitle(incoming)
+  return {
+    ...incoming,
+    ...(incomingIsPlaceholder && !hasFavoriteRepositoryPlaceholderTitle(existing) ? { title: existing.title } : {}),
+    ...(existing.author && !incoming.author ? { author: existing.author } : {}),
+    ...(existing.description && !incoming.description ? { description: existing.description } : {}),
+    ...(existing.coverUrl && !incoming.coverUrl ? { coverUrl: existing.coverUrl } : {}),
+    tags: incoming.tags.length ? [...incoming.tags] : [...existing.tags],
+    ...(incoming.tagEvidence ?? existing.tagEvidence ? { tagEvidence: incoming.tagEvidence ?? existing.tagEvidence } : {}),
+    updatedAt: existing.updatedAt
+  }
+}
+
+function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  const bitLength = bytes.length * 8
+  const paddedLength = (((bytes.length + 9 + 63) >> 6) << 6)
+  const padded = new Uint8Array(paddedLength)
+  padded.set(bytes)
+  padded[bytes.length] = 0x80
+  const view = new DataView(padded.buffer)
+  view.setUint32(paddedLength - 4, bitLength >>> 0)
+  view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x1_0000_0000))
+  const words = new Uint32Array(64)
+  let h0 = 0x6a09e667; let h1 = 0xbb67ae85; let h2 = 0x3c6ef372; let h3 = 0xa54ff53a
+  let h4 = 0x510e527f; let h5 = 0x9b05688c; let h6 = 0x1f83d9ab; let h7 = 0x5be0cd19
+  const constants = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let index = 0; index < 16; index++) words[index] = view.getUint32(offset + index * 4)
+    for (let index = 16; index < 64; index++) {
+      const a = words[index - 15]; const b = words[index - 2]
+      words[index] = (((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3)) + words[index - 16] +
+        (((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10)) + words[index - 7]
+    }
+    let a = h0; let b = h1; let c = h2; let d = h3; let e = h4; let f = h5; let g = h6; let h = h7
+    for (let index = 0; index < 64; index++) {
+      const s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))
+      const choice = (e & f) ^ (~e & g)
+      const temp1 = (h + s1 + choice + constants[index] + words[index]) >>> 0
+      const s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))
+      const majority = (a & b) ^ (a & c) ^ (b & c)
+      h = g; g = f; f = e; e = (d + temp1) >>> 0; d = c; c = b; b = a; a = (temp1 + s0 + majority) >>> 0
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0
+    h4 = (h4 + e) >>> 0; h5 = (h5 + f) >>> 0; h6 = (h6 + g) >>> 0; h7 = (h7 + h) >>> 0
+  }
+  return [h0, h1, h2, h3, h4, h5, h6, h7].map((part) => part.toString(16).padStart(8, '0')).join('')
+}
+
+export function createFavoriteRepositoryArchiveExportChecksum(exported: FavoriteRepositoryArchiveExport) {
+  return sha256(JSON.stringify({
+    version: exported.version,
+    accountMid: normalizedAccountMid(exported.accountMid),
+    generatedAt: normalizedTimestamp(exported.generatedAt),
+    archives: [...exported.archives].map((archive) => ({ ...archive })).sort((left, right) => left.aid - right.aid || left.archiveId.localeCompare(right.archiveId))
+  }))
+}
+
 /** Local, account-scoped metadata mirror. It never describes a Bilibili write. */
 export type FavoriteLibraryMirrorRecord = {
   aid: number
@@ -91,6 +242,13 @@ export type FavoriteRepositoryWorkspaceRef = {
   overlayRevision: number
   journalCursor: number
   checksum: string
+  /** Optional persisted progress summary; full workspace data stays outside this snapshot. */
+  currentStep?: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'confirmation' | 'result-unknown' | 'completed'
+  plannedCount?: number
+  classifiedCount?: number
+  unclassifiedCount?: number
+  updatedAt?: string
+  lastCommittedId?: string
 }
 
 export type FavoriteRepositoryWorkspace = {
@@ -264,6 +422,30 @@ export type FavoriteRepositoryCommand =
       type: 'record-organization-change'
       payload: { change: FavoriteRepositoryOrganizationChange }
     }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'set-favorite-position' | 'set-favorite-placement'
+      payload: Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'record-favorite-event'
+      payload: Omit<FavoriteRepositoryEvent, 'accountMid'>
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'tombstone-favorite-video'
+      payload: Omit<FavoriteRepositoryTombstone, 'accountMid'> & { allowRediscovery?: boolean }
+    }
 
 export type AccountFavoriteRepositorySnapshot = {
   version: 1
@@ -280,6 +462,8 @@ export type AccountFavoriteRepositorySnapshot = {
   organizationRecords: FavoriteRepositoryOrganizationRecord[]
   organizationBatches: FavoriteRepositoryOrganizationChange[]
   organizationMigrationInitialized: boolean
+  positions: Record<string, FavoriteRepositoryPositionRecord>
+  tombstones: Record<string, FavoriteRepositoryTombstone>
 }
 
 export type FavoriteRepositoryCommandResult = AccountFavoriteRepositorySnapshot & {
@@ -330,7 +514,8 @@ function isWorkspaceRef(
   const ref = value as Record<string, unknown>
   const allowedKeys = new Set([
     'workspaceId', 'accountMid', 'status', 'baselineRevision', 'currentSegmentId',
-    'overlayRevision', 'journalCursor', 'checksum'
+    'overlayRevision', 'journalCursor', 'checksum', 'currentStep', 'plannedCount',
+    'classifiedCount', 'unclassifiedCount', 'updatedAt', 'lastCommittedId'
   ])
   if (Object.keys(ref).some((key) => !allowedKeys.has(key)) ||
     typeof ref.workspaceId !== 'string' || ref.workspaceId.trim() !== workspaceId ||
@@ -338,7 +523,11 @@ function isWorkspaceRef(
     ref.status !== status || !Number.isSafeInteger(ref.baselineRevision) || ref.baselineRevision !== baselineRevision ||
     typeof ref.currentSegmentId !== 'string' || !Number.isSafeInteger(ref.overlayRevision) ||
     Number(ref.overlayRevision) < 0 || !Number.isSafeInteger(ref.journalCursor) || Number(ref.journalCursor) < 0 ||
-    typeof ref.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(ref.checksum)) return false
+    typeof ref.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(ref.checksum) ||
+    (ref.currentStep !== undefined && !['scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'confirmation', 'result-unknown', 'completed'].includes(String(ref.currentStep))) ||
+    ['plannedCount', 'classifiedCount', 'unclassifiedCount'].some((key) => ref[key] !== undefined && (!Number.isSafeInteger(ref[key]) || Number(ref[key]) < 0)) ||
+    (ref.updatedAt !== undefined && (typeof ref.updatedAt !== 'string' || Number.isNaN(Date.parse(ref.updatedAt)))) ||
+    (ref.lastCommittedId !== undefined && (typeof ref.lastCommittedId !== 'string' || !ref.lastCommittedId.trim()))) return false
   return true
 }
 
@@ -410,11 +599,51 @@ function isRepositoryVideo(value: unknown) {
     (video.description === undefined || typeof video.description === 'string')
 }
 
+function isLocalPlanFolder(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const folder = value as Record<string, unknown>
+  return typeof folder.id === 'string' && !!folder.id.trim() && typeof folder.title === 'string' && !!folder.title.trim() &&
+    folder.kind === 'local' && folder.syncState === 'local-only'
+}
+
+function isBilibiliMirrorFolder(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const folder = value as Record<string, unknown>
+  return typeof folder.id === 'string' && folder.id.trim().startsWith('bilibili:') &&
+    typeof folder.title === 'string' && !!folder.title.trim() &&
+    typeof folder.remoteFolderId === 'string' && !!folder.remoteFolderId.trim()
+}
+
+function isPositionState(value: unknown): value is FavoriteRepositoryPositionState {
+  return ['aligned', 'local-only-change', 'syncing', 'failed', 'result-unknown', 'remote-removed', 'target-missing', 'needs-review'].includes(String(value))
+}
+
+function isPositionPayload(value: Record<string, unknown>) {
+  return Number.isSafeInteger(value.aid) && Number(value.aid) > 0 &&
+    ['localDesiredFolderIds', 'remoteObservedPhysicalFolderIds', 'remoteObservedLogicalFolderIds'].every((key) =>
+      Array.isArray(value[key]) && (value[key] as unknown[]).every((folderId) => typeof folderId === 'string' && !!folderId.trim())) &&
+    typeof value.updatedAt === 'string' && !Number.isNaN(Date.parse(value.updatedAt)) &&
+    (value.observedAt === undefined || (typeof value.observedAt === 'string' && !Number.isNaN(Date.parse(value.observedAt)))) &&
+    (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.positionState === undefined || isPositionState(value.positionState))
+}
+
+function isRepositoryEvent(value: Record<string, unknown>) {
+  return typeof value.id === 'string' && !!value.id.trim() && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0 &&
+    Number.isSafeInteger(value.aid) && Number(value.aid) > 0 &&
+    ['entered', 'daily-review', 'old-favorite-organization', 'manual-move', 'scan-observed', 'remote-sync', 'adopt-local', 'adopt-remote', 'transcription', 'archive-registration'].includes(String(value.kind)) &&
+    typeof value.occurredAt === 'string' && !Number.isNaN(Date.parse(value.occurredAt)) &&
+    (value.titleAtTime === undefined || typeof value.titleAtTime === 'string') &&
+    (value.folderTitlesAtTime === undefined || (Array.isArray(value.folderTitlesAtTime) && value.folderTitlesAtTime.every((title) => typeof title === 'string'))) &&
+    (value.detail === undefined || typeof value.detail === 'string')
+}
+
 function validateCommand(command: unknown): asserts command is FavoriteRepositoryCommand {
   if (!command || typeof command !== 'object') invalidCommand()
   const record = command as Record<string, unknown>
   if (typeof record.id !== 'string' || !record.id.trim() || typeof record.accountMid !== 'string' ||
     typeof record.issuedAt !== 'string' || !record.issuedAt) invalidCommand()
+  if (record.expectedRevision !== undefined && (!Number.isSafeInteger(record.expectedRevision) || Number(record.expectedRevision) < 0)) invalidCommand()
   if (!record.payload || typeof record.payload !== 'object' || Array.isArray(record.payload)) invalidCommand()
   const payload = record.payload as Record<string, unknown>
   switch (record.type) {
@@ -425,17 +654,13 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       for (const aids of Object.values(payload.memberAidsByFolderId as Record<string, unknown>)) {
         if (!isValidAidList(aids)) invalidCommand()
       }
-      if (payload.folders !== undefined && (!Array.isArray(payload.folders) || payload.folders.some((folder) =>
-        !folder || typeof folder !== 'object' || Array.isArray(folder) ||
-        typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
-        typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
-         (folder as Record<string, unknown>).kind !== 'local' || (folder as Record<string, unknown>).syncState !== 'local-only'))) invalidCommand()
+      if (payload.folders !== undefined && (!Array.isArray(payload.folders) || !payload.folders.every(isLocalPlanFolder))) invalidCommand()
       if (payload.videos !== undefined && (!Array.isArray(payload.videos) || payload.videos.some((video) =>
         !video || typeof video !== 'object' || Array.isArray(video) ||
         !Number.isSafeInteger((video as Record<string, unknown>).aid) || Number((video as Record<string, unknown>).aid) <= 0 ||
         typeof (video as Record<string, unknown>).title !== 'string' ||
         !Array.isArray((video as Record<string, unknown>).tags) ||
-        !(video as Record<string, unknown>).tags?.every((tag) => typeof tag === 'string') ||
+        !((video as Record<string, unknown>).tags as unknown[]).every((tag) => typeof tag === 'string') ||
         typeof (video as Record<string, unknown>).updatedAt !== 'string' ||
         ((video as Record<string, unknown>).author !== undefined && typeof (video as Record<string, unknown>).author !== 'string') ||
         ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string')))) invalidCommand()
@@ -514,11 +739,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'record-bilibili-mirror':
       if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim() ||
         !payload.memberAidsByFolderId || typeof payload.memberAidsByFolderId !== 'object' || Array.isArray(payload.memberAidsByFolderId) ||
-        !Array.isArray(payload.folders) || payload.folders.some((folder) => !folder || typeof folder !== 'object' || Array.isArray(folder) ||
-          typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
-          !String((folder as Record<string, unknown>).id).startsWith('bilibili:') ||
-          typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
-          typeof (folder as Record<string, unknown>).remoteFolderId !== 'string' || !(folder as Record<string, unknown>).remoteFolderId.trim()) ||
+        !Array.isArray(payload.folders) || !payload.folders.every(isBilibiliMirrorFolder) ||
         !Array.isArray(payload.videos) || !payload.videos.every(isRepositoryVideo)) invalidCommand()
       for (const [folderId, aids] of Object.entries(payload.memberAidsByFolderId as Record<string, unknown>)) {
         if (!folderId.trim().startsWith('bilibili:') || !isValidAidList(aids)) invalidCommand()
@@ -551,6 +772,17 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'record-organization-change':
       if (!isOrganizationChange(payload.change) || normalizedAccountMid((payload.change as FavoriteRepositoryOrganizationChange).accountMid) !== normalizedAccountMid(record.accountMid)) invalidCommand()
       return
+    case 'set-favorite-position':
+    case 'set-favorite-placement':
+      if (!isPositionPayload(payload)) invalidCommand()
+      return
+    case 'record-favorite-event':
+      if (!isRepositoryEvent(payload)) invalidCommand()
+      return
+    case 'tombstone-favorite-video':
+      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
+        Number.isNaN(Date.parse(payload.deletedAt)) || (payload.allowRediscovery !== undefined && typeof payload.allowRediscovery !== 'boolean')) invalidCommand()
+      return
     default:
       invalidCommand()
   }
@@ -573,7 +805,9 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     syncRecords: [],
     organizationRecords: [],
     organizationBatches: [],
-    organizationMigrationInitialized: false
+    organizationMigrationInitialized: false,
+    positions: {},
+    tombstones: {}
   }
 }
 
@@ -586,6 +820,10 @@ export function applyFavoriteRepositoryCommand(
   const normalizedAcceptedAt = normalizedTimestamp(acceptedAt)
   if (snapshot.accountMid !== normalizedAccountMid(command.accountMid)) {
     throw new Error('Favorite repository account mismatch.')
+  }
+  const expectedRevision = (command as { expectedRevision?: number }).expectedRevision
+  if (expectedRevision !== undefined && expectedRevision !== snapshot.revision) {
+    throw new Error('Favorite repository revision mismatch.')
   }
 
   let affectedFolderIds: string[] = []
@@ -600,6 +838,8 @@ export function applyFavoriteRepositoryCommand(
   let libraryMirrors = { ...snapshot.libraryMirrors }
   let folders = [...snapshot.folders]
   let physicalShards = [...snapshot.physicalShards]
+  let positions = { ...(snapshot.positions ?? {}) }
+  let tombstones = { ...(snapshot.tombstones ?? {}) }
   const removeFromLocalInbox = (aids: Iterable<number>) => {
     const removed = new Set(aids)
     if (!removed.size || !memberships['local:inbox']?.some((aid) => removed.has(aid))) return
@@ -620,7 +860,7 @@ export function applyFavoriteRepositoryCommand(
         ]))
       }
       for (const video of command.payload.videos ?? []) {
-        videos[String(video.aid)] = { ...video, tags: [...video.tags] }
+        videos[String(video.aid)] = mergeFavoriteRepositoryVideo(videos[String(video.aid)], video)
       }
       if (command.payload.organizationRecords) {
         const records = new Map(organizationRecords.map((record) => [record.aid, record]))
@@ -678,7 +918,7 @@ export function applyFavoriteRepositoryCommand(
     }
     case 'upsert-video':
       affectedAids = [command.payload.aid]
-      videos[String(command.payload.aid)] = { ...command.payload, tags: [...command.payload.tags] }
+      videos[String(command.payload.aid)] = mergeFavoriteRepositoryVideo(videos[String(command.payload.aid)], command.payload)
       break
     case 'record-library-mirror':
       affectedAids = [command.payload.aid]
@@ -707,14 +947,7 @@ export function applyFavoriteRepositoryCommand(
       }
       for (const video of command.payload.videos) {
         const existing = videos[String(video.aid)]
-        videos[String(video.aid)] = {
-          ...video,
-          ...(existing?.author && !video.author ? { author: existing.author } : {}),
-          ...(existing?.description && !video.description ? { description: existing.description } : {}),
-          tags: video.tags.length ? [...video.tags] : [...(existing?.tags ?? [])],
-          ...(video.tagEvidence ?? existing?.tagEvidence ? { tagEvidence: video.tagEvidence ?? existing?.tagEvidence } : {}),
-          updatedAt: existing?.updatedAt ?? video.updatedAt
-        }
+        videos[String(video.aid)] = mergeFavoriteRepositoryVideo(existing, video)
       }
       for (const aid of mirroredAids) {
         const existing = libraryMirrors[String(aid)]
@@ -757,6 +990,8 @@ export function applyFavoriteRepositoryCommand(
       organizationRecords = []
       organizationBatches = []
       organizationMigrationInitialized = false
+      positions = {}
+      tombstones = {}
       workspace = undefined
       break
     }
@@ -938,6 +1173,62 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = [change.aid]
       break
     }
+    case 'set-favorite-position':
+    case 'set-favorite-placement': {
+      const payload = command.payload
+      const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, payload.aid)
+      const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
+      const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
+      const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
+      positions[key] = {
+        accountMid: snapshot.accountMid,
+        aid: payload.aid,
+        localDesiredFolderIds,
+        remoteObservedPhysicalFolderIds,
+        remoteObservedLogicalFolderIds,
+        positionState: deriveFavoriteRepositoryPositionState({
+          localDesiredFolderIds,
+          remoteObservedPhysicalFolderIds,
+          remoteObservedLogicalFolderIds,
+          ...(payload.positionState ? { positionState: payload.positionState } : {})
+        }),
+        ...(payload.observedAt ? { observedAt: normalizedTimestamp(payload.observedAt) } : {}),
+        updatedAt: normalizedTimestamp(payload.updatedAt),
+        ...(payload.reason ? { reason: payload.reason } : {}),
+        revision: snapshot.revision + 1
+      }
+      const formalFolderIds = Object.keys(memberships).filter((folderId) =>
+        folderId.startsWith('local:') && folderId !== 'local:inbox' || folderId.startsWith('bilimi-logical:'))
+      const nextFormalFolderIds = new Set(localDesiredFolderIds)
+      for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
+        const members = new Set(memberships[folderId] ?? [])
+        if (nextFormalFolderIds.has(folderId)) members.add(payload.aid)
+        else members.delete(payload.aid)
+        memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
+        affectedFolderIds.push(folderId)
+      }
+      const inbox = new Set(memberships['local:inbox'] ?? [])
+      if (localDesiredFolderIds.length) inbox.delete(payload.aid)
+      else inbox.add(payload.aid)
+      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
+      affectedFolderIds = [...new Set([...affectedFolderIds, 'local:inbox'])].sort()
+      affectedAids = [payload.aid]
+      break
+    }
+    case 'record-favorite-event':
+      affectedAids = [command.payload.aid]
+      break
+    case 'tombstone-favorite-video': {
+      const aid = command.payload.aid
+      tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)] = {
+        accountMid: snapshot.accountMid,
+        aid,
+        deletedAt: normalizedTimestamp(command.payload.deletedAt),
+        allowRediscovery: command.payload.allowRediscovery ?? false
+      }
+      affectedAids = [aid]
+      break
+    }
   }
 
   return {
@@ -954,6 +1245,8 @@ export function applyFavoriteRepositoryCommand(
     organizationRecords,
     organizationBatches,
     organizationMigrationInitialized,
+    positions,
+    tombstones,
     commandId: command.id,
     affectedFolderIds,
     affectedAids

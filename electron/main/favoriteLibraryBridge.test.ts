@@ -88,7 +88,7 @@ describe('favorite library bridge IPC', () => {
     expect(openMainUrl).toHaveBeenCalledWith('https://space.bilibili.com/42/favlist?fid=9988&ftype=create')
   })
 
-  it('opens the first physical shard for a canonical logical folder', async () => {
+  it('requires an explicit shard when a canonical logical folder has multiple bound shards', async () => {
     const handlers = new Map<string, Handler>()
     const openMainUrl = vi.fn()
     registerFavoriteLibraryBridgeIpc({
@@ -106,9 +106,98 @@ describe('favorite library bridge IPC', () => {
       loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
     })
 
+    await expect(handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi-logical:music')).rejects.toThrow(
+      'Multiple physical folders require an explicit selection'
+    )
+
+    expect(openMainUrl).not.toHaveBeenCalled()
+  })
+
+  it('opens a canonical logical folder only when it resolves to one bound shard', async () => {
+    const handlers = new Map<string, Handler>()
+    const openMainUrl = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn().mockResolvedValue({
+        folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: '100' }
+        ]
+      }),
+      loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
+    })
+
     await handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi-logical:music')
 
     expect(openMainUrl).toHaveBeenCalledWith('https://space.bilibili.com/42/favlist?fid=100&ftype=create')
+  })
+
+  it('opens an explicitly selected bound physical shard', async () => {
+    const handlers = new Map<string, Handler>()
+    const openMainUrl = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn().mockResolvedValue({
+        folders: [],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteTitle: 'Music 2', bindingState: 'bound', remoteFolderId: '200' }
+        ]
+      }),
+      loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
+    })
+
+    await handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi:music:002')
+
+    expect(openMainUrl).toHaveBeenCalledWith('https://space.bilibili.com/42/favlist?fid=200&ftype=create')
+  })
+
+  it('refuses a canonical logical folder whose only shard is pending or unbound', async () => {
+    const handlers = new Map<string, Handler>()
+    const openMainUrl = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn().mockResolvedValue({
+        folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'pending-reconcile' }
+        ]
+      }),
+      loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
+    })
+
+    await expect(handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi-logical:music')).rejects.toThrow('来源收藏夹不可打开')
+    expect(openMainUrl).not.toHaveBeenCalled()
+  })
+
+  it('does not silently skip a pending shard while opening a canonical logical folder', async () => {
+    const handlers = new Map<string, Handler>()
+    const openMainUrl = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn().mockResolvedValue({
+        folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: '100' },
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteTitle: 'Music 2', bindingState: 'pending-reconcile' }
+        ]
+      }),
+      loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
+    })
+
+    await expect(handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi-logical:music')).rejects.toThrow('来源收藏夹不可打开')
+    expect(openMainUrl).not.toHaveBeenCalled()
   })
 
   it('refuses a source folder that has no remote Bilibili favorite', async () => {

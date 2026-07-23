@@ -69,6 +69,25 @@ export function formatFavoriteLibraryOrganizationStatus(states: readonly Favorit
   return states.includes('protected') ? '已整理' : '未整理'
 }
 
+export function formatFavoriteLibraryMetadataStatus(status: string | undefined, isPlaceholder = false) {
+  if (isPlaceholder || status === 'never' || status === 'refreshing' || status === undefined) return '资料待刷新'
+  return status === 'failed' ? '资料刷新失败' : '资料已刷新'
+}
+
+export function formatFavoriteLibraryPositionStatus(state: string | undefined) {
+  switch (state) {
+    case 'aligned': return '位置一致'
+    case 'local-only-change': return '仅本地调整'
+    case 'syncing': return '同步中'
+    case 'failed': return '同步失败'
+    case 'result-unknown':
+    case 'needs-review': return '结果待确认'
+    case 'remote-removed': return 'B站已移除'
+    case 'target-missing': return '目标不存在'
+    default: return '尚未扫描B站位置'
+  }
+}
+
 function validAid(aid: number) {
   return Number.isSafeInteger(aid) && aid > 0
 }

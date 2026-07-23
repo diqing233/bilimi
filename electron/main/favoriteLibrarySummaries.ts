@@ -32,9 +32,17 @@ export function createFavoriteLibraryTranscriptionSummary(
   aid: number,
   items: readonly VideoAudioTranscriptionQueueItem[]
 ): FavoriteLibraryTranscriptionSummary {
-  const statuses = items
+  const matchingItems = items
     .filter((item) => item.accountMid === accountMid && Number(item.aid) === aid)
-    .map((item) => item.status)
+  const statuses = matchingItems.map((item) => item.status)
+  if (
+    statuses.includes('completed') &&
+    matchingItems.some((item) => (item as VideoAudioTranscriptionQueueItem & {
+      archiveRegistrationStatus?: 'failed'
+    }).archiveRegistrationStatus === 'failed')
+  ) {
+    return { status: '转写完成', archiveRegistrationFailed: true } as FavoriteLibraryTranscriptionSummary
+  }
   if (statuses.includes('running')) return { status: '正在转写' }
   if (statuses.includes('pending')) return { status: '等待转写' }
   if (statuses.includes('completed')) return { status: '转写完成' }

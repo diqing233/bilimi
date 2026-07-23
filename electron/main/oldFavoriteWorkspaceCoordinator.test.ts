@@ -278,6 +278,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('projects a completed scan into remote placement without replacing local intent or adding a user event', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-formal', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'Knowledge', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi Knowledge', bindingState: 'bound', remoteFolderId: 'formal'
+      }
+    })
+    await repository.commit('100', {
+      id: 'keep-local-intent', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 7, localDesiredFolderIds: ['local:keep'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-20T00:00:01.000Z'
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'formal', title: 'bilimi Knowledge', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { formal: [7] })
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.positions['100:7']).toMatchObject({
+      localDesiredFolderIds: ['local:keep'],
+      remoteObservedPhysicalFolderIds: ['formal'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+      observedAt: '2026-07-19T00:00:00.000Z'
+    })
+  })
+
   it('resumes only the remaining tag reads after accepting the current tags', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

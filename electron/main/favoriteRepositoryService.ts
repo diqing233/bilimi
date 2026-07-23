@@ -7,6 +7,7 @@ import {
   type AccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
+  type FavoriteRepositoryEvent,
   type FavoriteRepositoryPage,
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
@@ -80,6 +81,11 @@ type BindingJournalEntry = {
   acceptedAt: string
 }
 
+type EventJournalEntry = {
+  command: Extract<FavoriteRepositoryCommand, { type: 'record-favorite-event' }>
+  acceptedAt: string
+}
+
 type FolderPageOptions = {
   limit: number
   cursor?: string
@@ -95,7 +101,16 @@ function checksum(content: string) {
 
 function commandFingerprint(command: FavoriteRepositoryCommand) {
   const { issuedAt: _issuedAt, ...stableCommand } = command
-  return checksum(JSON.stringify(stableCommand))
+  return checksum(stableJson(stableCommand))
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
 }
 
 function receiptFromResult(
@@ -224,6 +239,16 @@ export type FavoriteRepositoryLibraryDetail = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
   pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
+  protected: boolean
+  position?: {
+    state: NonNullable<AccountFavoriteRepositorySnapshot['positions'][string]>['positionState']
+    localDesiredFolderIds: string[]
+    remoteObservedPhysicalFolderIds: string[]
+    remoteObservedLogicalFolderIds: string[]
+    observedAt?: string
+    updatedAt: string
+    reason?: string
+  }
   sourceShards?: Array<{ folderId: string; shardNumber: number; remoteFolderId: string; title: string }>
   mirror: {
     status: '未同步' | '同步中' | '已同步' | '同步失败' | '待确认'
@@ -258,7 +283,9 @@ function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): Account
     libraryMirrors: snapshot.libraryMirrors ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
     organizationBatches: snapshot.organizationBatches ?? [],
-    organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false
+    organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false,
+    positions: snapshot.positions ?? {},
+    tombstones: snapshot.tombstones ?? {}
   }
 }
 
@@ -436,10 +463,18 @@ export class FavoriteRepositoryService {
         this.emitChange(publishedResult)
         return clone(result)
       }
+      if (command.type === 'record-favorite-event') {
+        await this.appendEventJournal(account, { command: clone(command), acceptedAt })
+        await this.appendEventOnce(account, { ...command.payload, accountMid: account })
+        this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
+        this.emitChange(publishedResult)
+        return clone(result)
+      }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
       await rm(this.syncJournalPath(account), { force: true })
       await rm(this.syncCheckpointJournalPath(account), { force: true })
       await rm(this.bindingJournalPath(account), { force: true })
+      await rm(this.eventJournalPath(account), { force: true })
       this.syncCheckpointState.delete(account)
       this.cache.set(account, persisted)
       this.emitChange(publishedResult)
@@ -497,6 +532,10 @@ export class FavoriteRepositoryService {
       video: { ...video, tags: [...video.tags] },
       folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
+      protected: snapshot.organizationRecords.some((record) => record.aid === aid),
+      ...(snapshot.positions[`${snapshot.accountMid}:${aid}`] ? {
+        position: this.positionSummary(snapshot.positions[`${snapshot.accountMid}:${aid}`])
+      } : {}),
       sourceShards: snapshot.physicalShards
         .filter((shard) => Boolean(shard.remoteFolderId) && (snapshot.memberships[shard.folderId] ?? []).includes(aid))
         .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
@@ -540,6 +579,24 @@ export class FavoriteRepositoryService {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
+  async getEventPage(accountMid: string, aid: number, options: FolderPageOptions): Promise<FavoriteRepositoryPage<FavoriteRepositoryEvent>> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')
+    const limit = pageLimit(options.limit)
+    return this.queue(async () => {
+      const items = await this.readEvents(account, aid)
+      const start = options.cursor ? Math.max(0, items.findIndex((event) => `${event.sequence}:${event.id}` === options.cursor) + 1) : 0
+      const page = items.slice(start, start + limit)
+      return {
+        version: 1,
+        accountMid: account,
+        revision: (await this.load(account)).repository.snapshot.revision,
+        items: page.map(clone),
+        ...(start + limit < items.length ? { nextCursor: `${page.at(-1)!.sequence}:${page.at(-1)!.id}` } : {})
+      }
+    })
+  }
+
   async getLibraryFolderAids(accountMid: string, folderId: string): Promise<number[]> {
     const account = normalizeAccountMid(accountMid)
     const normalizedFolderId = folderId.trim()
@@ -562,6 +619,12 @@ export class FavoriteRepositoryService {
     previousSnapshot?: AccountFavoriteRepositorySnapshot
   ) {
     const canonicalFolderIds = new Set(result.affectedFolderIds)
+    if (previousSnapshot) {
+      const beforeRawIds = new Set(previousSnapshot.folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id))
+      const afterRawIds = new Set(result.folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id))
+      for (const folderId of beforeRawIds) if (!afterRawIds.has(folderId)) canonicalFolderIds.add(folderId)
+      for (const folderId of afterRawIds) if (!beforeRawIds.has(folderId)) canonicalFolderIds.add(folderId)
+    }
     for (const snapshot of [previousSnapshot, result].filter(Boolean) as AccountFavoriteRepositorySnapshot[]) {
       for (const shard of snapshot.physicalShards) {
         if (canonicalFolderIds.has(shard.folderId) || (shard.remoteFolderId && snapshot.folders.some((folder) =>
@@ -663,18 +726,17 @@ export class FavoriteRepositoryService {
     const protectedAids = new Set(snapshot.organizationRecords.map((record) => record.aid))
     for (const aid of protectedAids) addState(aid, 'protected')
     for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
-    for (const aid of Object.keys(snapshot.videos).map(Number)) {
-      if (protectedAids.has(aid)) continue
-      const mirror = snapshot.libraryMirrors?.[String(aid)]
-      if (!mirror || mirror.status === 'never' || mirror.status === 'refreshing') addState(aid, 'unsynced')
-      if (mirror?.status === 'failed') addState(aid, 'failed')
-    }
     for (const record of snapshot.syncRecords) {
       const state = record.status === 'pending' ? 'unsynced'
         : record.status === 'failed' || record.status === 'result-unknown' ? record.status : undefined
       if (state) for (const aid of record.affectedAids) {
-        if (!protectedAids.has(aid)) addState(aid, state)
+        addState(aid, state)
       }
+    }
+    for (const position of Object.values(snapshot.positions ?? {})) {
+      if (position.positionState === 'failed') addState(position.aid, 'failed')
+      if (position.positionState === 'result-unknown') addState(position.aid, 'result-unknown')
+      if (position.positionState === 'local-only-change') addState(position.aid, 'unsynced')
     }
     for (const item of this.options.getTranscriptionItems?.() ?? []) {
       if (item.accountMid !== snapshot.accountMid || !['pending', 'running', 'failed'].includes(item.status)) continue
@@ -722,6 +784,18 @@ export class FavoriteRepositoryService {
       commandId: command.id,
       affectedFolderIds: [],
       affectedAids: [...command.payload.affectedAids]
+    }
+  }
+
+  private positionSummary(position: AccountFavoriteRepositorySnapshot['positions'][string]) {
+    return {
+      state: position.positionState,
+      localDesiredFolderIds: [...position.localDesiredFolderIds],
+      remoteObservedPhysicalFolderIds: [...position.remoteObservedPhysicalFolderIds],
+      remoteObservedLogicalFolderIds: [...position.remoteObservedLogicalFolderIds],
+      ...(position.observedAt ? { observedAt: position.observedAt } : {}),
+      updatedAt: position.updatedAt,
+      ...(position.reason ? { reason: position.reason } : {})
     }
   }
 
@@ -781,6 +855,16 @@ export class FavoriteRepositoryService {
         snapshot: this.snapshotFromResult(result),
         commandResults: { ...repository.commandResults, [entry.command.id]: receiptFromResult(result, entry.command) }
       }
+    }
+    for (const entry of await this.readEventJournal(accountMid)) {
+      if (repository.commandResults[entry.command.id]) continue
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, entry.command, entry.acceptedAt)
+      repository = {
+        ...repository,
+        snapshot: this.snapshotFromResult(result),
+        commandResults: { ...repository.commandResults, [entry.command.id]: receiptFromResult(result, entry.command) }
+      }
+      await this.appendEventOnce(accountMid, { ...entry.command.payload, accountMid })
     }
     const result = { repository, manifest: loaded?.manifest }
     this.cache.set(accountMid, result)
@@ -917,6 +1001,59 @@ export class FavoriteRepositoryService {
     await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
   }
 
+  private async appendEventJournal(accountMid: string, entry: EventJournalEntry) {
+    const path = this.eventJournalPath(accountMid)
+    await mkdir(dirname(path), { recursive: true })
+    await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
+  }
+
+  private async appendEvent(accountMid: string, event: FavoriteRepositoryEvent) {
+    const path = this.eventPath(accountMid, event.aid)
+    await mkdir(dirname(path), { recursive: true })
+    await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8')
+  }
+
+  private async appendEventOnce(accountMid: string, event: FavoriteRepositoryEvent) {
+    const events = await this.readEvents(accountMid, event.aid)
+    if (events.some((candidate) => candidate.id === event.id)) return
+    await this.appendEvent(accountMid, event)
+  }
+
+  private async readEvents(accountMid: string, aid: number): Promise<FavoriteRepositoryEvent[]> {
+    try {
+      const byId = new Map<string, FavoriteRepositoryEvent>()
+      for (const line of (await readFile(this.eventPath(accountMid, aid), 'utf8')).split('\n').filter(Boolean)) {
+        try {
+          const event = JSON.parse(line) as FavoriteRepositoryEvent
+          if (event.accountMid === accountMid && event.aid === aid && Number.isSafeInteger(event.sequence) && event.sequence > 0 && event.id) byId.set(event.id, event)
+        } catch { break }
+      }
+      return [...byId.values()].sort((left, right) => right.sequence - left.sequence || right.id.localeCompare(left.id))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
+  private async readEventJournal(accountMid: string): Promise<EventJournalEntry[]> {
+    try {
+      const entries: EventJournalEntry[] = []
+      for (const line of (await readFile(this.eventJournalPath(accountMid), 'utf8')).split('\n').filter(Boolean)) {
+        try {
+          const entry = JSON.parse(line) as Partial<EventJournalEntry>
+          if (!entry.command || entry.command.type !== 'record-favorite-event' || typeof entry.acceptedAt !== 'string') break
+          entries.push(entry as EventJournalEntry)
+        } catch {
+          break
+        }
+      }
+      return entries
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
   private async loadSyncCheckpointState(accountMid: string): Promise<SyncCheckpointState> {
     const cached = this.syncCheckpointState.get(accountMid)
     if (cached) return cached
@@ -1008,6 +1145,14 @@ export class FavoriteRepositoryService {
 
   private bindingJournalPath(accountMid: string) {
     return join(this.accountDirectory(accountMid), 'physical-shard-bindings.jsonl')
+  }
+
+  private eventPath(accountMid: string, aid: number) {
+    return join(this.accountDirectory(accountMid), 'events', `${aid}.jsonl`)
+  }
+
+  private eventJournalPath(accountMid: string) {
+    return join(this.accountDirectory(accountMid), 'event-commands.jsonl')
   }
 
   private generationDirectory(accountMid: string, generation: string) {

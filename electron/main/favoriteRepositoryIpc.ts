@@ -3,6 +3,7 @@ import type {
   AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
+  FavoriteRepositoryEvent,
   FavoriteRepositoryFolder,
   FavoriteRepositoryOrganizationChange,
   FavoriteRepositoryPage,
@@ -44,7 +45,7 @@ export type FavoriteRepositorySnapshotSummary = {
   pendingAidCount: number
   workspace?: {
     id: string
-    status: AccountFavoriteRepositorySnapshot['workspace']['status']
+    status: NonNullable<AccountFavoriteRepositorySnapshot['workspace']>['status']
     baselineRevision: number
     continuationCount: number
   }
@@ -69,6 +70,7 @@ export type FavoriteRepositoryLibraryRow = {
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
 export type FavoriteRepositoryOrganizationChanges = FavoriteRepositoryOrganizationChange[]
+export type FavoriteRepositoryEventPage = FavoriteRepositoryPage<FavoriteRepositoryEvent>
 
 export type FavoriteLibraryArchiveSummary = {
   status: '未入档' | '已入档'
@@ -104,7 +106,7 @@ function pageOptions(value: unknown): FolderPageOptions {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || (cursor !== undefined && typeof cursor !== 'string')) {
     throw new Error('Favorite repository page options are invalid.')
   }
-  return cursor ? { limit, cursor } : { limit }
+  return cursor ? { limit: limit!, cursor } : { limit: limit! }
 }
 
 function libraryPageScope(value: unknown): LibraryPageScope {
@@ -332,6 +334,14 @@ export function registerFavoriteRepositoryIpc(options: {
       },
       transcription: options.getTranscriptionSummary?.(accountMid, detail.video.aid) ?? { status: '未转写' }
     } satisfies FavoriteRepositoryLibraryVideoDetail
+  })
+  options.ipcMain.handle('favorite-repository:get-library-video-events', async (
+    event, requestedAccountMid: string, requestedAid: unknown, requestedOptions: FolderPageOptions
+  ) => {
+    assertReader(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.service.getEventPage(accountMid, videoAid(requestedAid), pageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:get-organization-changes', async (event, requestedAccountMid: string) => {
     assertReader(event)

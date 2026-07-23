@@ -8,6 +8,7 @@ import {
   buildPendingLibraryRows,
   createFavoriteLibraryPageCursor
   , formatFavoriteLibraryMirrorStatus, formatFavoriteLibraryOrganizationStatus
+  , formatFavoriteLibraryMetadataStatus, formatFavoriteLibraryPositionStatus
 } from './favoriteLibraryModel'
 
 const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => ({
@@ -46,6 +47,14 @@ describe('favoriteLibraryModel', () => {
     ], 0)
 
     expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: '未匹配分类' }))
+  })
+
+  it('keeps metadata refresh and collection position labels separate', () => {
+    expect(formatFavoriteLibraryMetadataStatus('synced', true)).toBe('资料待刷新')
+    expect(formatFavoriteLibraryMetadataStatus('synced', false)).toBe('资料已刷新')
+    expect(formatFavoriteLibraryMetadataStatus('failed', false)).toBe('资料刷新失败')
+    expect(formatFavoriteLibraryPositionStatus('failed')).toBe('同步失败')
+    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('位置一致')
   })
 
   it('returns one global-search row per aid and retains every folder membership', () => {

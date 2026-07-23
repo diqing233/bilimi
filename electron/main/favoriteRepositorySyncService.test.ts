@@ -259,9 +259,8 @@ describe('FavoriteRepositorySyncService', () => {
         addedFolderIds: ['remote-games', 'remote-music'], removedFolderIds: [], status: 'succeeded'
       })]
     })
-    expect((await repository.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).items).toEqual([
-      expect.objectContaining({ video: expect.objectContaining({ aid: 1 }), pendingStates: ['protected'] })
-    ])
+    // Protection only skips future organization scans; it is not a pending action.
+    await expect(repository.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
   })
 
   it('projects reconciliation-confirmed remote membership but never fabricates an absent write', async () => {

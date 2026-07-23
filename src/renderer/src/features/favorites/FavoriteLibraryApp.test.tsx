@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+﻿import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -93,6 +93,36 @@ describe('FavoriteLibraryApp', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('收藏库操作失败。')
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
+  })
+
+  it('shows independent placement and metadata labels for an unavailable video', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 1,
+        folders: [{ id: 'local:inbox', title: 'inbox', kind: 'local', syncState: 'local-only' }], physicalShardCount: 0,
+        syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2,
+        items: [{ video: { aid: 1, title: 'Video + ID', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local:inbox'], pendingStates: ['protected'] }]
+      }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2,
+        video: { aid: 1, title: 'Video + ID', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local:inbox'], pendingStates: ['protected'], protected: true,
+        position: { state: 'failed', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:00:00.000Z' },
+        mirror: { status: 'failed' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('Video + ID'))
+    const detail = await screen.findByRole('complementary', { name: text.detail })
+    expect(detail).toHaveTextContent('资料待刷新')
+    expect(detail).toHaveTextContent('同步失败')
+    expect(detail).toHaveTextContent('已保护')
+    expect(detail).toHaveTextContent('未匹配分类')
   })
 
   it('uses Chinese controls, selects the current page, and identifies the signed-in account', async () => {

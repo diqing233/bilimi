@@ -306,6 +306,39 @@ describe('video transcription queue', () => {
     expect(store.current()).toEqual([])
   })
 
+  it('keeps a completed transcript with failed archive registration across restart for registration-only retry', () => {
+    const draftNote = {
+      id: 'account:42:aid:7:cid:70',
+      source: { accountMid: '42', title: 'Queue video', url: 'https://www.bilibili.com/video/av7', tags: [] },
+      transcriptSource: 'audio', transcript: createTranscript('persisted transcript'), chapters: [],
+      overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '',
+      createdAt: '2026-07-23T00:00:00.000Z', updatedAt: '2026-07-23T00:00:00.000Z'
+    } as VideoNote
+    const store = createStore([{
+      ...createRequest({ accountMid: '42', aid: 7, cid: 70 }), id: 'account:42:aid:7:cid:70',
+      status: 'completed', createdAt: '2026-07-23T00:00:00.000Z', updatedAt: '2026-07-23T00:00:01.000Z',
+      completedAt: '2026-07-23T00:00:01.000Z', draftNote, archiveSummaryText: 'persisted summary',
+      archiveRegistrationStatus: 'failed', archiveRegistrationError: 'Archive storage is unavailable.'
+    }])
+    const transcribe = vi.fn()
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: store.load, saveItems: store.save, transcribe, saveArchiveVersion,
+      now: () => '2026-07-23T00:00:02.000Z'
+    })
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed', archiveRegistrationStatus: 'failed', draftNote
+    })
+    queue.retryArchiveRegistration('account:42:aid:7:cid:70')
+
+    expect(transcribe).not.toHaveBeenCalled()
+    expect(saveArchiveVersion).toHaveBeenCalledWith(draftNote, 'persisted summary')
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed', archiveRegistrationStatus: 'registered', draftNote: undefined
+    })
+  })
+
   it('cancels a running job with an abort signal and does not continue failed processing', async () => {
     let runningSignal: AbortSignal | undefined
     const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
@@ -495,6 +528,137 @@ describe('video transcription queue', () => {
     expect(transcribe).toHaveBeenCalledOnce()
 
     first.resolve({ transcript: createTranscript('first'), transcriptSource: 'audio' })
+    await flushMicrotasks()
+  })
+
+  it('retains a successful transcript when archive registration fails and retries only registration', async () => {
+    const store = createStore()
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('transcript survives archive registration failure'),
+      transcriptSource: 'audio'
+    })
+    const saveArchiveVersion = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('Archive storage is unavailable.')
+      })
+      .mockReturnValueOnce(undefined)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: store.load,
+      saveItems: store.save,
+      transcribe,
+      saveArchiveVersion,
+      now: () => '2026-07-23T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ accountMid: '42', aid: 7, cid: 70, metadataRevision: 3 }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed',
+      archiveRegistrationStatus: 'failed',
+      archiveRegistrationError: 'Archive storage is unavailable.',
+      draftNote: expect.objectContaining({ transcript: createTranscript('transcript survives archive registration failure') })
+    })
+    expect(transcribe).toHaveBeenCalledOnce()
+
+    queue.retryArchiveRegistration('account:42:aid:7:cid:70')
+    await flushMicrotasks()
+
+    expect(transcribe).toHaveBeenCalledOnce()
+    expect(saveArchiveVersion).toHaveBeenCalledTimes(2)
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed',
+      archiveRegistrationStatus: 'registered',
+      archiveNoteId: 'account:42:aid:7:cid:70',
+      draftNote: undefined
+    })
+  })
+
+  it('retries archive registration instead of retranscribing when the same request is enqueued again', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('already transcribed'),
+      transcriptSource: 'audio'
+    })
+    const saveArchiveVersion = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('Archive storage is unavailable.')
+      })
+      .mockReturnValueOnce(undefined)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion,
+      now: () => '2026-07-23T00:00:00.000Z'
+    })
+    const request = createRequest({ accountMid: '42', aid: 7, cid: 70, metadataRevision: 3 })
+
+    queue.enqueue(request)
+    await flushMicrotasks()
+    await flushMicrotasks()
+    queue.enqueue(request)
+
+    expect(transcribe).toHaveBeenCalledOnce()
+    expect(saveArchiveVersion).toHaveBeenCalledTimes(2)
+    expect(queue.getSnapshot().items).toHaveLength(1)
+    expect(queue.getSnapshot().items[0]).toMatchObject({ archiveRegistrationStatus: 'registered' })
+  })
+
+  it('keeps the generated summary for archive registration retry', async () => {
+    const saveArchiveVersion = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('Archive storage is unavailable.')
+      })
+      .mockReturnValueOnce(undefined)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn().mockResolvedValue({
+        transcript: createTranscript('summary survives registration failure'),
+        transcriptSource: 'audio'
+      }),
+      summarizeNote: vi.fn().mockResolvedValue('summary survives registration failure'),
+      saveArchiveVersion,
+      now: () => '2026-07-23T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ accountMid: '42', aid: 7, summarizeWithDeepSeek: true }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+    queue.retryArchiveRegistration('account:42:aid:7')
+
+    expect(saveArchiveVersion).toHaveBeenLastCalledWith(expect.anything(), 'summary survives registration failure')
+  })
+
+  it('deduplicates the same account, aid, cid, and metadata revision', async () => {
+    const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi.fn().mockReturnValue(running.promise)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-07-23T00:00:00.000Z'
+    })
+
+    const request = createRequest({ accountMid: '42', aid: 7, cid: 70, metadataRevision: 3 })
+    queue.enqueue(request)
+    queue.enqueue(request)
+    await flushMicrotasks()
+
+    expect(queue.getSnapshot().items).toHaveLength(1)
+    expect(queue.getSnapshot().items[0]?.id).toBe('account:42:aid:7:cid:70')
+
+    queue.enqueue({ ...request, metadataRevision: 4 })
+
+    expect(queue.getSnapshot().items).toHaveLength(2)
+    expect(queue.getSnapshot().items[1]).toMatchObject({ metadataRevision: 4, status: 'pending' })
+
+    running.resolve({ transcript: createTranscript('first'), transcriptSource: 'audio' })
     await flushMicrotasks()
   })
 })

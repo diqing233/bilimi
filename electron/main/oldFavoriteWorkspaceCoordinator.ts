@@ -616,6 +616,52 @@ export class OldFavoriteWorkspaceCoordinator {
           ]
         }
       })
+      // A scan records remote facts only. Local placement remains the user's intent
+      // until an explicit adopt/sync command changes it.
+      const mirroredSnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+      const logicalLedgerByRemoteFolderId = new Map(
+        mirroredSnapshot.physicalShards
+          .filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+          .map((shard) => [shard.remoteFolderId!, `bilimi-logical:${shard.logicalLedgerId}`])
+      )
+      const observedPhysicalFolderIdsByAid = new Map<number, Set<string>>()
+      const recordObservedFolders = (aid: number, folderIds: readonly string[]) => {
+        const observed = observedPhysicalFolderIdsByAid.get(aid) ?? new Set<string>()
+        for (const folderId of folderIds) observed.add(folderId)
+        observedPhysicalFolderIdsByAid.set(aid, observed)
+      }
+      for (const item of itemsByAid.values()) recordObservedFolders(item.aid, item.sourceFolderIds)
+      for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+        for (const aid of managedMembers[folder.id] ?? []) recordObservedFolders(aid, [folder.id])
+      }
+      const managedRemoteFolderIds = new Set(sourceFolders
+        .filter((folder) => folder.isBilimiWorkFolder)
+        .map((folder) => folder.id))
+      for (const [aid, observedPhysicalFolderIds] of observedPhysicalFolderIdsByAid) {
+        const existing = mirroredSnapshot.positions[`${workspace.accountMid}:${aid}`]
+        const remoteObservedPhysicalFolderIds = [...observedPhysicalFolderIds].sort()
+        if (!existing && !remoteObservedPhysicalFolderIds.some((folderId) => managedRemoteFolderIds.has(folderId))) continue
+        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds
+          .map((folderId) => logicalLedgerByRemoteFolderId.get(folderId))
+          .filter((folderId): folderId is string => Boolean(folderId)))].sort()
+        if (existing &&
+          JSON.stringify(existing.remoteObservedPhysicalFolderIds) === JSON.stringify(remoteObservedPhysicalFolderIds) &&
+          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds)) continue
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:observed:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}:${aid}`,
+          accountMid: workspace.accountMid,
+          issuedAt: mirrorUpdatedAt,
+          type: 'set-favorite-placement',
+          payload: {
+            aid,
+            localDesiredFolderIds: existing?.localDesiredFolderIds ?? [],
+            remoteObservedPhysicalFolderIds,
+            remoteObservedLogicalFolderIds,
+            observedAt: mirrorUpdatedAt,
+            updatedAt: mirrorUpdatedAt
+          }
+        })
+      }
       const formalManagedFolderIds = new Set(sourceFolders
         .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
         .map((folder) => folder.id))

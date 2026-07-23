@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   applyFavoriteRepositoryCommand,
   createAccountFavoriteRepositorySnapshot,
+  createFavoriteRepositoryArchiveExportChecksum,
+  deriveFavoriteRepositoryPositionState,
+  isFavoriteRepositoryMetadataStale,
+  mergeFavoriteRepositoryVideo,
   type FavoriteRepositoryWorkspaceRef
 } from './favoriteRepository'
 
@@ -22,6 +26,116 @@ function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): 
 }
 
 describe('account favorite repository contracts', () => {
+  it('keeps local desired and remote observed positions separate while deriving their state', () => {
+    expect(deriveFavoriteRepositoryPositionState({
+      localDesiredFolderIds: ['bilimi-logical:music'],
+      remoteObservedPhysicalFolderIds: ['bilibili:1'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:music']
+    })).toBe('aligned')
+
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' })
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'local-intent', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', expectedRevision: 0,
+      type: 'set-favorite-position', payload: {
+        aid: 1,
+        localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['bilibili:1'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:games'],
+        updatedAt: '2026-07-23T00:01:00.000Z'
+      }
+    }, '2026-07-23T00:01:00.000Z')
+
+    expect(result.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: ['bilimi-logical:music'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:games'],
+      positionState: 'local-only-change'
+    })
+    expect(() => applyFavoriteRepositoryCommand(result, {
+      id: 'stale-write', accountMid: '100', issuedAt: '2026-07-23T00:02:00.000Z', expectedRevision: 0,
+      type: 'set-favorite-position', payload: {
+        aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-07-23T00:02:00.000Z'
+      }
+    }, '2026-07-23T00:02:00.000Z')).toThrow('Favorite repository revision mismatch.')
+  })
+
+  it('projects only unmatched local intent into the inbox without treating protection as a placement', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      memberships: { 'local:inbox': [1] },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['legacy'], completedAt: '2026-07-23T00:00:00.000Z' }]
+    }
+    const classified = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'classify', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'set-favorite-position',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:01:00.000Z' }
+    }, '2026-07-23T00:01:00.000Z')
+    const unmatched = applyFavoriteRepositoryCommand(classified, {
+      id: 'unclassify', accountMid: '100', issuedAt: '2026-07-23T00:02:00.000Z', type: 'set-favorite-position',
+      payload: { aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:02:00.000Z' }
+    }, '2026-07-23T00:02:00.000Z')
+
+    expect(classified.memberships['local:inbox']).toEqual([])
+    expect(unmatched.memberships['local:inbox']).toEqual([1])
+  })
+
+  it('atomically projects final local positions without changing raw Bilibili source memberships', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      memberships: {
+        'local:inbox': [1],
+        'local:music': [1],
+        'bilimi-logical:games': [1],
+        'bilibili:source': [1]
+      }
+    }
+    const moved = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'move', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['local:knowledge', 'bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['bilibili:source'], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-07-23T00:01:00.000Z'
+      }
+    }, '2026-07-23T00:01:00.000Z')
+    const unmatched = applyFavoriteRepositoryCommand(moved, {
+      id: 'empty', accountMid: '100', issuedAt: '2026-07-23T00:02:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:source'],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:02:00.000Z'
+      }
+    }, '2026-07-23T00:02:00.000Z')
+
+    expect(moved.memberships).toMatchObject({
+      'local:inbox': [], 'local:music': [], 'bilimi-logical:games': [],
+      'local:knowledge': [1], 'bilimi-logical:music': [1], 'bilibili:source': [1]
+    })
+    expect(unmatched.memberships).toMatchObject({
+      'local:knowledge': [], 'bilimi-logical:music': [], 'local:inbox': [1], 'bilibili:source': [1]
+    })
+  })
+
+  it('keeps complete metadata when a scan supplies a Video + ID placeholder', () => {
+    const merged = mergeFavoriteRepositoryVideo(
+      { aid: 1, title: 'Complete title', author: 'Creator', description: 'Description', tags: ['tag'], coverUrl: 'cover', updatedAt: '2026-07-23T00:00:00.000Z' },
+      { aid: 1, title: 'Video + ID', tags: [], updatedAt: '2026-07-23T00:01:00.000Z' }
+    )
+
+    expect(merged).toMatchObject({ title: 'Complete title', author: 'Creator', description: 'Description', tags: ['tag'], coverUrl: 'cover' })
+    expect(isFavoriteRepositoryMetadataStale({ aid: 2, title: 'Video + ID', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' })).toBe(true)
+  })
+
+  it('exports archive records without credentials and with a stable checksum', () => {
+    const exported = {
+      version: 1 as const,
+      accountMid: '100',
+      generatedAt: '2026-07-23T00:00:00.000Z',
+      archives: [{ aid: 1, archiveId: 'archive-1', registeredAt: '2026-07-23T00:00:00.000Z' }]
+    }
+    expect(createFavoriteRepositoryArchiveExportChecksum(exported)).toMatch(/^[a-f0-9]{64}$/)
+    expect(createFavoriteRepositoryArchiveExportChecksum({ ...exported, credentials: 'not allowed' } as unknown as typeof exported)).toBe(
+      createFavoriteRepositoryArchiveExportChecksum(exported)
+    )
+  })
+
   it('rejects a command for another account before changing the snapshot', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '100',

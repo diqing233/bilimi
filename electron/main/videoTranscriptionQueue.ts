@@ -23,16 +23,27 @@ type QueueDeps = {
   onSnapshot?: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
 }
 
+type QueueItem = VideoAudioTranscriptionQueueItem
+
 type VideoTranscriptionQueue = {
   getSnapshot: () => VideoAudioTranscriptionQueueSnapshot
   enqueue: (request: VideoAudioTranscriptionRequest) => VideoAudioTranscriptionQueueSnapshot
   cancel: (id: string) => VideoAudioTranscriptionQueueSnapshot
   retry: (id: string) => VideoAudioTranscriptionQueueSnapshot
+  retryArchiveRegistration: (id: string) => VideoAudioTranscriptionQueueSnapshot
 }
 
 function createQueueItemId(request: VideoAudioTranscriptionRequest): string {
   const account = request.accountMid?.trim() ? `account:${request.accountMid.trim()}:` : ''
+  if (request.aid !== undefined) {
+    const cid = request.cid === undefined ? '' : `:cid:${request.cid}`
+    return `${account}aid:${request.aid}${cid}`
+  }
   return request.bvid ? `${account}bvid:${request.bvid}` : `${account}url:${request.url}`
+}
+
+function matchesRequestRevision(item: QueueItem, request: VideoAudioTranscriptionRequest): boolean {
+  return item.metadataRevision === request.metadataRevision
 }
 
 function createErrorMessage(error: unknown): string {
@@ -44,7 +55,7 @@ function createNoteFromQueueItem(
   transcript: TranscriptSegment[],
   now: string
 ): VideoNote {
-  return createLocalVideoNoteDraft({
+  const note = createLocalVideoNoteDraft({
     now,
     source: {
       accountMid: item.accountMid,
@@ -57,10 +68,12 @@ function createNoteFromQueueItem(
     transcript,
     transcriptSource: 'audio'
   })
+  // Library jobs have a stable account/video identity even when a BV changes.
+  return item.aid === undefined ? note : { ...note, id: item.id }
 }
 
 function snapshotFromItems(
-  items: VideoAudioTranscriptionQueueItem[],
+  items: QueueItem[],
   sessionCompletedCount: number
 ): VideoAudioTranscriptionQueueSnapshot {
   return {
@@ -79,9 +92,13 @@ export function createVideoTranscriptionQueue({
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {
-  let items = loadItems()
-  if (items.length > 0) {
-    items = []
+  let items: QueueItem[] = loadItems()
+  // A completed transcript with an unregistered archive is safe to resume without audio work.
+  const resumableRegistrationItems = items.filter(
+    (item) => item.status === 'completed' && item.archiveRegistrationStatus === 'failed' && item.draftNote
+  )
+  if (items.length > 0 && resumableRegistrationItems.length !== items.length) {
+    items = resumableRegistrationItems
     saveItems(items)
   }
   let sessionCompletedCount = 0
@@ -97,7 +114,7 @@ export function createVideoTranscriptionQueue({
 
   function updateItem(
     id: string,
-    updater: (item: VideoAudioTranscriptionQueueItem) => VideoAudioTranscriptionQueueItem
+    updater: (item: QueueItem) => QueueItem
   ) {
     items = items.map((item) => (item.id === id ? updater(item) : item))
   }
@@ -171,7 +188,24 @@ export function createVideoTranscriptionQueue({
       }))
       publish()
 
-      saveArchiveVersion(note, summaryText)
+      try {
+        saveArchiveVersion(note, summaryText)
+      } catch (error) {
+        updateItem(runningItem.id, (item) => ({
+          ...item,
+          status: 'completed',
+          completedAt,
+          updatedAt: completedAt,
+          draftNote: note,
+          progress: { step: 'queue-completed', message: 'Transcription completed; archive registration needs retry.' },
+          errorMessage: summaryErrorMessage,
+          archiveRegistrationStatus: 'failed',
+          archiveRegistrationError: createErrorMessage(error),
+          archiveSummaryText: summaryText
+        }))
+        sessionCompletedCount += 1
+        return
+      }
       updateItem(runningItem.id, (item) => ({
         ...item,
         status: 'completed',
@@ -180,7 +214,10 @@ export function createVideoTranscriptionQueue({
         archiveNoteId: note.id,
         draftNote: undefined,
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
-        errorMessage: summaryErrorMessage
+        errorMessage: summaryErrorMessage,
+        archiveRegistrationStatus: 'registered',
+        archiveRegistrationError: undefined,
+        archiveSummaryText: undefined
       }))
       sessionCompletedCount += 1
     } catch (error) {
@@ -202,7 +239,11 @@ export function createVideoTranscriptionQueue({
 
   function enqueue(request: VideoAudioTranscriptionRequest): VideoAudioTranscriptionQueueSnapshot {
     const id = createQueueItemId(request)
-    const existing = items.find((item) => item.id === id)
+    const existing = items.find((item) => item.id === id && matchesRequestRevision(item, request))
+
+    if (existing?.status === 'completed' && existing.archiveRegistrationStatus === 'failed') {
+      return retryArchiveRegistration(existing.id)
+    }
 
     if (!existing || existing.status === 'completed') {
       const createdAt = now()
@@ -265,6 +306,35 @@ export function createVideoTranscriptionQueue({
     return snapshot
   }
 
+  function retryArchiveRegistration(id: string): VideoAudioTranscriptionQueueSnapshot {
+    const item = items.find((candidate) => candidate.id === id)
+    if (!item || item.status !== 'completed' || item.archiveRegistrationStatus !== 'failed' || !item.draftNote) {
+      return snapshotFromItems(items, sessionCompletedCount)
+    }
+
+    try {
+      saveArchiveVersion(item.draftNote, item.archiveSummaryText ?? '')
+      updateItem(id, (candidate) => ({
+        ...candidate,
+        archiveNoteId: item.draftNote?.id,
+        archiveRegistrationStatus: 'registered',
+        archiveRegistrationError: undefined,
+        archiveSummaryText: undefined,
+        draftNote: undefined,
+        updatedAt: now()
+      }))
+    } catch (error) {
+      updateItem(id, (candidate) => ({
+        ...candidate,
+        archiveRegistrationStatus: 'failed',
+        archiveRegistrationError: createErrorMessage(error),
+        updatedAt: now()
+      }))
+    }
+
+    return publish()
+  }
+
   if (items.some((item) => item.status === 'pending')) {
     publish()
     queueMicrotask(() => {
@@ -276,7 +346,8 @@ export function createVideoTranscriptionQueue({
     getSnapshot: () => snapshotFromItems(items, sessionCompletedCount),
     enqueue,
     cancel,
-    retry
+    retry,
+    retryArchiveRegistration
   }
 }
 

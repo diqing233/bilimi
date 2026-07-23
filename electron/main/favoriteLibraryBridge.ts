@@ -33,9 +33,23 @@ function sourceFavoriteId(snapshot: Pick<AccountFavoriteRepositorySnapshot, 'fol
   const logicalLedgerId = folder?.logicalLedgerId ?? (requestedFolderId.startsWith('bilimi-logical:')
     ? requestedFolderId.slice('bilimi-logical:'.length)
     : undefined)
+  if (logicalLedgerId && folder?.kind === 'bilimi-logical') {
+    const logicalShards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+    if (logicalShards.some((shard) => shard.bindingState !== 'bound' ||
+      typeof shard.remoteFolderId !== 'string' || !/^\d+$/.test(shard.remoteFolderId))) {
+      throw new Error('来源收藏夹不可打开。')
+    }
+    const boundShards = logicalShards
+      .sort((left, right) => left.shardNumber - right.shardNumber)
+    if (boundShards.length > 1) {
+      throw new Error('Multiple physical folders require an explicit selection.')
+    }
+    const remoteFolderId = boundShards[0]?.remoteFolderId
+    if (!remoteFolderId) throw new Error('来源收藏夹不可打开。')
+    return remoteFolderId
+  }
   const remoteFolderId = folder?.remoteFolderId ?? snapshot.physicalShards
-    .filter((shard) => shard.folderId === requestedFolderId || shard.logicalLedgerId === logicalLedgerId)
-    .sort((left, right) => left.shardNumber - right.shardNumber)
+    .filter((shard) => shard.folderId === requestedFolderId && shard.bindingState === 'bound')
     .find((shard) => shard.remoteFolderId)?.remoteFolderId
   if (!remoteFolderId || !/^\d+$/.test(remoteFolderId)) throw new Error('来源收藏夹不可打开。')
   return remoteFolderId

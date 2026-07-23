@@ -115,6 +115,11 @@ type BilimiDesktopApi = {
     accountMid: string,
     aid: number
   ) => Promise<FavoriteRepositoryLibraryVideoDetail>
+  getFavoriteRepositoryVideoEvents?: (
+    accountMid: string,
+    aid: number,
+    options: { limit: number; cursor?: string }
+  ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>
   getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
   enqueueFavoriteLibraryTranscription?: (

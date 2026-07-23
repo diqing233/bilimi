@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FavoriteRepositoryFolder } from '@shared/favoriteRepository'
 import type {
   FavoriteRepositoryLibraryPage,
@@ -9,8 +9,10 @@ import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
+  formatFavoriteLibraryMetadataStatus,
   formatFavoriteLibraryMirrorStatus,
   formatFavoriteLibraryOrganizationStatus,
+  formatFavoriteLibraryPositionStatus,
   type FavoriteLibraryRow
 } from './favoriteLibraryModel'
 import './FavoriteLibraryApp.css'
@@ -219,7 +221,7 @@ export function FavoriteLibraryApp({
       ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates] }
       : selected,
     folders,
-    { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)] }
+    { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)].filter((state) => state !== 'transcription') }
   ) : undefined
   const navigation = summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : []
   const toggleAid = (aid: number) => setSelectedAids((current) => current.includes(aid)
@@ -337,10 +339,14 @@ export function FavoriteLibraryApp({
         {detailOpen && detail ? (
           <aside className="favorite-library__detail" aria-label={text.detail}>
             <button type="button" onClick={() => setDetailOpen(false)}>{text.hideDetail}</button>
-            <h2>{detail.title}</h2><p>{detail.author ?? text.unknownAuthor}</p>
+            <div className="favorite-library__detail-heading"><h2>{detail.title}</h2>{accountMid ? <button type="button" className="favorite-library__open-video" onClick={() => void runDetailAction(async () => {
+              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+              if (!api.openFavoriteLibraryVideo) throw new Error(text.unavailable)
+              await api.openFavoriteLibraryVideo(accountMid, detail.aid)
+            })}>{text.openVideo}</button> : null}</div><p>{detail.author ?? text.unknownAuthor} · 视频 ID: {detail.aid}</p>
             <p>{detail.description ?? text.noDescription}</p>
-            <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次同步：${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
-            <section><h3>整理状态</h3><p>{formatFavoriteLibraryOrganizationStatus(detail.pendingStates)}</p></section>
+            <section className="favorite-library__status-tags" aria-label="视频状态"><button type="button" aria-label="资料状态说明">{formatFavoriteLibraryMetadataStatus(detailSnapshot?.mirror.status, detail.title === 'Video + ID' || !detail.author)}</button><button type="button" aria-label="整理状态说明">{formatFavoriteLibraryOrganizationStatus(detail.pendingStates)}</button>{detailSnapshot?.protected ? <button type="button" aria-label="保护状态说明">已保护</button> : null}<button type="button" aria-label="位置状态说明">{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</button></section>
+            <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次刷新: ${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
             <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid && folder.kind === 'bilibili' ? <button type="button" onClick={() => void runDetailAction(async () => {
                const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
                if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
@@ -351,7 +357,7 @@ export function FavoriteLibraryApp({
               if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
               await api.openFavoriteLibrarySource(accountMid, shard.folderId)
             })}>{`打开第 ${shard.shardNumber} 分册`}</button> : null}</li>)}</ul></section> : null}
-            <section><h3>{text.scan}</h3><p>{text.videoId}\uff1a{detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号：{detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长：{Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区：{detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签：{detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}\uff1a{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
+            <section><h3>{text.scan}</h3><p>{text.videoId}: {detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号: {detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长: {Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区: {detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签: {detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}: {detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
             <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.toggleFavoriteLibraryArchiveStar) throw new Error(text.unavailable)
@@ -361,11 +367,6 @@ export function FavoriteLibraryApp({
               if (!api.saveFavoriteLibraryArchiveMemo) throw new Error(text.unavailable)
               await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft)
             })}>{text.saveMemo}</button></> : null}</section>
-            {accountMid ? <button type="button" className="favorite-library__open-video" onClick={() => void runDetailAction(async () => {
-              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
-              if (!api.openFavoriteLibraryVideo) throw new Error(text.unavailable)
-              await api.openFavoriteLibraryVideo(accountMid, detail.aid)
-            })}>{text.openVideo}</button> : null}
             {detail.pendingStates.length ? <p>{text.pendingStates}{formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p> : null}
           </aside>
         ) : null}

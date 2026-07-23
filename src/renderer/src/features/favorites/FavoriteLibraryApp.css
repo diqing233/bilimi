@@ -29,6 +29,8 @@
 .favorite-library__row:hover { background: #f0f6ff; }.favorite-library__row small { color: #64748b; }
 .favorite-library__next-page { margin-top: 8px; padding: 6px 10px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; }
 .favorite-library__detail { min-width: 0; padding: 12px; border-left: 1px solid #dbe7f7; overflow: auto; }.favorite-library__detail h2 { overflow-wrap: anywhere; }
+.favorite-library__detail-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }.favorite-library__detail-title h2 { margin: 0; }
+.favorite-library__status-tags { display: flex; flex-wrap: wrap; gap: 5px; }.favorite-library__status-tags button, .favorite-library__inline-action { float: none; padding: 3px 6px; border: 1px solid #cbdcf5; border-radius: 999px; background: #fff; font-size: 12px; }
 .favorite-library[data-embedded='true'] .favorite-library__nav, .favorite-library[data-embedded='true'] .favorite-library__detail { min-height: 0; }
 .favorite-library__detail button { float: right; padding: 5px 7px; color: #2563eb; }.favorite-library__detail ul { padding-left: 18px; }
 .favorite-library__detail section { clear: both; margin: 14px 0; }

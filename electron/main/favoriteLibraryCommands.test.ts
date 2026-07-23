@@ -35,10 +35,19 @@ describe('FavoriteLibraryCommandService', () => {
     expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-library-mirror', payload: expect.objectContaining({ status: 'synced' }) }))
   })
 
-  it('refreshes the canonical membership union for a managed folder', async () => {
+  it('refreshes the deduplicated logical-folder union across logical, physical, and bound remote members', async () => {
     const repository = {
-      getSnapshot: vi.fn().mockResolvedValue(snapshot()),
-      getLibraryFolderAids: vi.fn().mockResolvedValue([1, 2]),
+      getSnapshot: vi.fn().mockResolvedValue({
+        ...snapshot(),
+        folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        memberships: {
+          'bilimi-logical:music': [1],
+          'bilimi:music:001': [1, 2],
+          'bilibili:900': [2, 3]
+        },
+        physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: '900' }]
+      }),
+      getLibraryFolderAids: vi.fn().mockResolvedValue([1, 2, 3]),
       commit: vi.fn().mockResolvedValue(undefined)
     }
     const refreshVideo = vi.fn(async (_accountMid: string, aid: number) => ({
@@ -49,8 +58,12 @@ describe('FavoriteLibraryCommandService', () => {
     })
 
     await expect(service.syncSelection('100', { kind: 'folder', folderId: 'bilimi-logical:music' }))
-      .resolves.toMatchObject({ affectedAids: [1, 2] })
+      .resolves.toMatchObject({ affectedAids: [1, 2, 3] })
     expect(repository.getLibraryFolderAids).toHaveBeenCalledWith('100', 'bilimi-logical:music')
+    expect(refreshVideo).toHaveBeenCalledTimes(3)
+    expect(refreshVideo).toHaveBeenNthCalledWith(1, '100', 1)
+    expect(refreshVideo).toHaveBeenNthCalledWith(2, '100', 2)
+    expect(refreshVideo).toHaveBeenNthCalledWith(3, '100', 3)
   })
 
   it('refreshes metadata before enqueuing an unsynced video and pins the queue request to that snapshot', async () => {

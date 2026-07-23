@@ -601,6 +601,10 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
   errorMessage?: string
   archiveNoteId?: string
   draftNote?: VideoNote
+  /** Registration is separate from transcription so a retry never re-downloads audio. */
+  archiveRegistrationStatus?: 'pending' | 'registered' | 'failed'
+  archiveRegistrationError?: string
+  archiveSummaryText?: string
 }
 
 export type VideoAudioTranscriptionQueueSnapshot = {

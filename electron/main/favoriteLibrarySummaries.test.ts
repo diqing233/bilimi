@@ -24,4 +24,20 @@ describe('favorite library summaries', () => {
       { id: 'active', accountMid: '42', aid: '7', url: 'https://www.bilibili.com/video/av7', title: 'Video', status: 'running', createdAt: '', updatedAt: '' }
     ])).toEqual({ status: '正在转写' })
   })
+
+  it('keeps a completed transcript distinct from a retryable archive registration failure', () => {
+    expect(createFavoriteLibraryTranscriptionSummary('42', 7, [
+      {
+        id: 'account:42:aid:7:cid:70', accountMid: '42', aid: 7, cid: 70,
+        url: 'https://www.bilibili.com/video/av7', title: 'Video', status: 'completed',
+        createdAt: '', updatedAt: '', archiveRegistrationStatus: 'failed'
+      } as never
+    ])).toEqual({ status: '转写完成', archiveRegistrationFailed: true })
+  })
+
+  it('reports no archive after the matching archive is removed', () => {
+    expect(createFavoriteLibraryArchiveSummary('42', 7, [])).toEqual({
+      status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false
+    })
+  })
 })

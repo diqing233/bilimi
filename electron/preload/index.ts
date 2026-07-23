@@ -150,6 +150,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   ) => ipcRenderer.invoke('favorite-repository:get-library-page', accountMid, scope, options) as Promise<FavoriteRepositoryLibraryPage>,
   getFavoriteRepositoryLibraryVideoDetail: (accountMid: string, aid: number) =>
     ipcRenderer.invoke('favorite-repository:get-library-video-detail', accountMid, aid) as Promise<FavoriteRepositoryLibraryVideoDetail>,
+  getFavoriteRepositoryVideoEvents: (accountMid: string, aid: number, options: { limit: number; cursor?: string }) =>
+    ipcRenderer.invoke('favorite-repository:get-library-video-events', accountMid, aid, options) as Promise<import('../main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>,
   getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>

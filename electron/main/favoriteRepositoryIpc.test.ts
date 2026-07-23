@@ -430,4 +430,27 @@ describe('registerFavoriteRepositoryIpc', () => {
     await expect(ipcMain.invoke('favorite-repository:get-library-video-detail', 8, '101', 1))
       .rejects.toThrow('current Bilibili account')
   })
+
+  it('returns a trusted current-account page of user-visible video events', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = {
+      getEventPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 5,
+        items: [{ id: 'event-2', sequence: 2, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:00:00.000Z' }],
+        nextCursor: '2:event-2'
+      })
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => false, isTrustedReader: (id) => id === 8,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-library-video-events', 8, '100', 1, { limit: 20 }))
+      .resolves.toMatchObject({ accountMid: '100', items: [expect.objectContaining({ id: 'event-2', aid: 1 })] })
+    expect(service.getEventPage).toHaveBeenCalledWith('100', 1, { limit: 20 })
+    await expect(ipcMain.invoke('favorite-repository:get-library-video-events', 8, '101', 1, { limit: 20 }))
+      .rejects.toThrow('current Bilibili account')
+    await expect(ipcMain.invoke('favorite-repository:get-library-video-events', 8, '100', 0, { limit: 20 }))
+      .rejects.toThrow('Favorite library video is invalid')
+  })
 })
