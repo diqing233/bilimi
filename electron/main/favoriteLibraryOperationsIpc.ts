@@ -13,11 +13,11 @@ function aids(value: unknown) {
   if (!Array.isArray(value) || !value.length || value.length > 100 || new Set(value).size !== value.length || value.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
     throw new Error('Favorite operation aids are invalid.')
   }
-  return [...value].sort((left, right) => left - right)
+  return (value as number[]).slice().sort((left, right) => left - right)
 }
 
 function revision(value: unknown) {
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error('Favorite operation baseline is invalid.')
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Favorite operation baseline is invalid.')
   return value
 }
 
