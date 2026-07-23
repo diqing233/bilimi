@@ -3479,13 +3479,16 @@ export function FloatingAssistantApp({
               <LocalDataSettings
                 userDataPath={localDataInfo.path}
                 accounts={localDataInfo.accounts}
+                currentAccountUid={resolvedSnapshot.accountMid}
                 calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? { totalBytes: 0, calculatedAt: new Date().toISOString() }}
                 onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
-                onExport={async (scope, includeSharedSettings) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings }) }}
+                onExport={async (scope, includeSharedSettings, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings, ...(uids?.length ? { uids } : {}) }) }}
                 onImport={async () => {
                   const preview = await window.bilimiDesktop.previewLocalDataImport?.()
-                  return { accounts: preview?.accounts ?? [] }
+                  return preview ? { token: preview.token, accounts: preview.accounts ?? [] } : undefined
                 }}
+                onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
+                onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false }}
                 onFullClear={async () => {
                   await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
                   await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')
