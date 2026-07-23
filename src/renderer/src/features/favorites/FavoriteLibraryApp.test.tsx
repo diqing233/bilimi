@@ -227,12 +227,12 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(deleteFavoriteLibraryVideo).toHaveBeenCalledWith('100', 1, 4))
   })
   it('requires a separate second confirmation before cancelling the selected video on Bilibili', async () => {
-    const previewFavoriteLibraryBilibiliUnfavorite = vi.fn().mockResolvedValue({
-      accountMid: '100', aids: [1], executionToken: 'preview-token', expiresAt: Date.now() + 60_000
+    const previewFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({
+      accountMid: '100', aids: [1], executionToken: 'preview-token', baselineRevision: 4
     })
-    const confirmFavoriteLibraryBilibiliUnfavorite = vi.fn().mockResolvedValue({ confirmationToken: 'confirm-token' })
-    const executeFavoriteLibraryBilibiliUnfavorite = vi.fn().mockResolvedValue({
-      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
+    const confirmFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({ confirmationToken: 'confirm-token' })
+    const executeFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({
+      status: 'succeeded', operationId: 'operation-1', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
     })
     const deleteFavoriteLibraryVideo = vi.fn()
     window.bilimiDesktop = {
@@ -240,18 +240,18 @@ describe('FavoriteLibraryApp', () => {
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
-      previewFavoriteLibraryBilibiliUnfavorite, confirmFavoriteLibraryBilibiliUnfavorite, executeFavoriteLibraryBilibiliUnfavorite,
+      previewFavoriteLibraryRemoteUnfavoriteOperation, confirmFavoriteLibraryRemoteUnfavoriteOperation, executeFavoriteLibraryRemoteUnfavoriteOperation,
       deleteFavoriteLibraryVideo, subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
     fireEvent.click(await screen.findByRole('button', { name: '取消B站收藏' }))
-    await waitFor(() => expect(previewFavoriteLibraryBilibiliUnfavorite).toHaveBeenCalledWith('100', [1]))
+    await waitFor(() => expect(previewFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', [1], 4))
     expect(screen.getByRole('alertdialog', { name: '确认取消B站收藏' })).toHaveTextContent('视频一')
     fireEvent.click(screen.getByRole('button', { name: '确认取消 B 站收藏' }))
-    await waitFor(() => expect(confirmFavoriteLibraryBilibiliUnfavorite).toHaveBeenCalledWith('100', [1], 'preview-token'))
-    expect(executeFavoriteLibraryBilibiliUnfavorite).toHaveBeenCalledWith('100', [1], 'preview-token', 'confirm-token')
+    await waitFor(() => expect(confirmFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'preview-token'))
+    expect(executeFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'preview-token', 'confirm-token')
     expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
   })
   it('holds batch remote-unfavorite at a visible preview until the dangerous confirmation is clicked', async () => {

@@ -463,31 +463,32 @@ export function FavoriteLibraryApp({
   }
   const beginRemoteUnfavorite = async () => {
     const api = window.bilimiDesktop
-    if (!accountMid || !selected || !api?.previewFavoriteLibraryBilibiliUnfavorite) throw new Error(text.unavailable)
+    if (!accountMid || !selected || !summary || !api?.previewFavoriteLibraryRemoteUnfavoriteOperation) throw new Error(text.unavailable)
     setRemoteUnfavoritePreparing(true)
     try {
-      const preview = await api.previewFavoriteLibraryBilibiliUnfavorite(accountMid, [selected.aid])
-      setRemoteUnfavoritePreview({ aids: preview.aids, executionToken: preview.executionToken })
+      const preview = await api.previewFavoriteLibraryRemoteUnfavoriteOperation(accountMid, [selected.aid], summary.revision) as {
+        aids?: number[]; executionToken?: string
+      }
+      if (!preview.executionToken) throw new Error(text.unavailable)
+      setRemoteUnfavoritePreview({ aids: preview.aids?.length ? preview.aids : [selected.aid], executionToken: preview.executionToken })
     } finally {
       setRemoteUnfavoritePreparing(false)
     }
   }
   const confirmRemoteUnfavorite = async () => {
     const api = window.bilimiDesktop
-    if (!accountMid || !remoteUnfavoritePreview || !api?.confirmFavoriteLibraryBilibiliUnfavorite || !api?.executeFavoriteLibraryBilibiliUnfavorite) {
+    if (!accountMid || !remoteUnfavoritePreview || !api?.confirmFavoriteLibraryRemoteUnfavoriteOperation || !api?.executeFavoriteLibraryRemoteUnfavoriteOperation) {
       throw new Error(text.unavailable)
     }
     setRemoteUnfavoriteExecuting(true)
     try {
-      const confirmation = await api.confirmFavoriteLibraryBilibiliUnfavorite(
-        accountMid, remoteUnfavoritePreview.aids, remoteUnfavoritePreview.executionToken
-      )
-      const result = await api.executeFavoriteLibraryBilibiliUnfavorite(
-        accountMid, remoteUnfavoritePreview.aids, remoteUnfavoritePreview.executionToken, confirmation.confirmationToken
-      )
+      const confirmation = await api.confirmFavoriteLibraryRemoteUnfavoriteOperation(accountMid, remoteUnfavoritePreview.executionToken)
+      const result = await api.executeFavoriteLibraryRemoteUnfavoriteOperation(
+        accountMid, remoteUnfavoritePreview.executionToken, confirmation.confirmationToken
+      ) as { status?: string; operationId?: string; reason?: string }
       setRemoteUnfavoritePreview(undefined)
       if (result.status === 'result-unknown') {
-        setRemoteReconciliation({ kind: 'unfavorite', operationId: remoteUnfavoritePreview.executionToken })
+        setRemoteReconciliation({ kind: 'unfavorite', operationId: result.operationId ?? remoteUnfavoritePreview.executionToken })
       } else if (result.status === 'failed') {
         setError(`取消 B 站收藏失败${result.reason ? `：${result.reason}` : '，请稍后重试。'}`)
       }
@@ -902,7 +903,7 @@ export function FavoriteLibraryApp({
             })()}
             <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button></section>
             <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}<button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" disabled={['failed', 'result-unknown', 'needs-review', 'syncing'].includes(detailSnapshot.position.state)} onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}{(() => {
-              const remoteUnfavoriteAvailable = Boolean(accountMid && selected && window.bilimiDesktop?.previewFavoriteLibraryBilibiliUnfavorite && window.bilimiDesktop?.confirmFavoriteLibraryBilibiliUnfavorite && window.bilimiDesktop?.executeFavoriteLibraryBilibiliUnfavorite)
+              const remoteUnfavoriteAvailable = Boolean(accountMid && selected && summary && window.bilimiDesktop?.previewFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.confirmFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.executeFavoriteLibraryRemoteUnfavoriteOperation)
               return <><button type="button" className="favorite-library__inline-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认取消B站收藏" aria-busy={remoteUnfavoriteExecuting}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button></div> : null}</>
             })()}</section>
             <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次刷新: ${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
