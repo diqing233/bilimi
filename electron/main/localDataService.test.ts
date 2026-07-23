@@ -12,7 +12,7 @@ const makeService = async () => {
   const persistence: LocalDataPersistence = {
     listAccountUids: () => Object.keys(accounts), readAccount: (uid) => structuredClone(accounts[uid] ?? {}),
     writeAccounts: (next) => { for (const uid of Object.keys(accounts)) delete accounts[uid]; Object.assign(accounts, structuredClone(next)) },
-    readSharedSettings: () => ({ theme: 'light', deepseekApiKey: 'must-never-export' }), writeSharedSettings: vi.fn()
+    readSharedSettings: () => ({ theme: 'light', deepseekApiKey: 'must-never-export', cookies: 'session', encryptionKey: 'machine-only', proxyState: 'runtime-only' }), writeSharedSettings: vi.fn()
   }
   return { root, accounts, persistence, service: new LocalDataService({ root, appVersion: '1.1.0', persistence }) }
 }
@@ -38,7 +38,11 @@ describe('LocalDataService', () => {
     const { root, accounts, service } = await makeService()
     const archive = join(root, 'portable.json')
     await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
-    expect(JSON.parse(await readFile(archive, 'utf8'))).not.toHaveProperty('deepseekApiKey')
+    const content = await readFile(archive, 'utf8')
+    expect(content).not.toContain('deepseekApiKey')
+    expect(content).not.toContain('cookies')
+    expect(content).not.toContain('encryptionKey')
+    expect(content).not.toContain('proxyState')
     const preview = await service.previewImport(archive)
     expect(preview.accounts).toEqual([{ uid: '100', action: 'merge' }])
     await expect(service.applyImport(preview, { mode: 'merge', injectFailureAfterStage: true })).rejects.toThrow('injected')
