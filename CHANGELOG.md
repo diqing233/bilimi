@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 - 2026-07-24
+
+- Added the three-column Favorite Library workspace with virtualized video rows, folder navigation, video details, selection, filtering, sorting, pagination, and operation history.
+- Added explicit local copy, move, local-delete, Bilibili-unfavorite, and managed-folder deletion safety flows. Remote destructive actions are previewed, explicitly confirmed, executed once, and reconciled when their result is unknown.
+- Added account-scoped local-data export, import preview, merge/overwrite choices, cleanup controls, and documented credential/session exclusions.
+- Added a lightweight Bilibili danmaku repaint after a settled timeline seek without changing playback or the user's danmaku switch.
+
 ## 1.0.4 - 2026-07-16
 
 - Kept strictly serial old-favorite execution responsive and correctly paced when Chromium clamps background timers by measuring waits against real elapsed time.
