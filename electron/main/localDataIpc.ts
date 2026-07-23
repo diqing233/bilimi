@@ -34,13 +34,16 @@ export function registerLocalDataIpc(options: {
   })
   options.ipcMain.handle('local-data:calculate-usage', async (event) => { trusted(event); return options.service.calculateUsage() })
   options.ipcMain.handle('local-data:open-path', async (event) => { trusted(event); await options.openUserDataPath() })
-  options.ipcMain.handle('local-data:export', async (event, input: { scope?: unknown; includeSharedSettings?: unknown }) => {
+  options.ipcMain.handle('local-data:export', async (event, input: { scope?: unknown; uids?: unknown; includeSharedSettings?: unknown }) => {
     trusted(event)
     const destination = await options.chooseExportPath()
     if (!destination) return { cancelled: true }
     const scope = input?.scope
     const all = await options.service.listAccounts()
-    const uids = scope === 'all' || scope === 'selected' ? all.map((item) => item.uid) : [await current()]
+    const uids = scope === 'all' ? all.map((item) => item.uid)
+      : scope === 'selected' && Array.isArray(input?.uids) && input.uids.length
+        ? input.uids.map(account)
+        : scope === 'current' ? [await current()] : (() => { throw new Error('Local data export scope is invalid.') })()
     return options.service.exportArchive({ uids, includeSharedSettings: input?.includeSharedSettings === true, outputPath: destination })
   })
   options.ipcMain.handle('local-data:preview-import', async (event) => {
@@ -50,8 +53,8 @@ export function registerLocalDataIpc(options: {
   })
   options.ipcMain.handle('local-data:apply-import', async (event, preview: unknown, mode: unknown) => {
     trusted(event)
-    if (mode !== 'merge' && mode !== 'overwrite' || !preview || typeof preview !== 'object') throw new Error('Local data import request is invalid.')
-    return options.service.applyImport(preview as Awaited<ReturnType<LocalDataService['previewImport']>>, { mode })
+    if ((mode !== 'merge' && mode !== 'overwrite') || typeof preview !== 'string' || !preview.trim()) throw new Error('Local data import request is invalid.')
+    return options.service.applyImport({ token: preview }, { mode })
   })
   options.ipcMain.handle('local-data:preview-cleanup', async (event, level: unknown, requestedUid?: unknown, confirmation?: unknown) => {
     trusted(event)

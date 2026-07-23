@@ -33,6 +33,8 @@ type LibraryPageScope =
   | { kind: 'all' }
   | { kind: 'folder'; folderId: string }
   | { kind: 'pending' }
+  | { kind: 'protected' }
+  | { kind: 'unsynced' }
 
 const MAX_AFFECTED_FOLDER_IDS = 100
 const DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -61,6 +63,8 @@ export type FavoriteRepositorySnapshotSummary = {
   videoCount: number
   folderCount: number
   folders: FavoriteRepositoryFolder[]
+  folderCounts: Record<string, number>
+  scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
   folderConflicts?: Array<{ title: string; folderIds: string[] }>
   physicalShardCount: number
   syncRecordCount: number
@@ -155,7 +159,7 @@ function libraryPageScope(value: unknown): LibraryPageScope {
   }
   const candidate = value as { kind?: unknown; folderId?: unknown }
   if (candidate.kind === 'all' && Object.keys(candidate).length === 1) return { kind: 'all' }
-  if (candidate.kind === 'pending' && Object.keys(candidate).length === 1) return { kind: 'pending' }
+  if ((candidate.kind === 'pending' || candidate.kind === 'protected' || candidate.kind === 'unsynced') && Object.keys(candidate).length === 1) return { kind: candidate.kind }
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && candidate.folderId.trim() && Object.keys(candidate).length === 2) {
     return { kind: 'folder', folderId: candidate.folderId.trim() }
   }

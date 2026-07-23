@@ -29,7 +29,7 @@ import {
 } from './favoriteLibraryModel'
 import './FavoriteLibraryApp.css'
 
-type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' }
+type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
 
 type FavoriteLibraryDesktopExtensions = {
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
@@ -98,6 +98,8 @@ function pendingCount(summary: FavoriteRepositorySnapshotSummary) {
 
 function scopeForNavigation(id: string): LibraryScope {
   if (id === 'pending') return { kind: 'pending' }
+  if (id === 'protected') return { kind: 'protected' }
+  if (id === 'unsynced') return { kind: 'unsynced' }
   if (id.startsWith('folder:')) return { kind: 'folder', folderId: id.slice('folder:'.length) }
   return { kind: 'all' }
 }
@@ -280,12 +282,16 @@ export function FavoriteLibraryApp({
     const items = navigation.map((item) => ({
       id: item.id,
       label: item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title,
-      count: item.kind === 'pending' ? item.count : item.kind === 'all' ? (summary?.videoCount ?? 0) : 0,
+      count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
       managed: item.kind === 'folder' && item.source === 'bilimi-logical',
       protected: item.kind === 'folder' && /unmatched|inbox/i.test(item.folderId)
     }))
     return [
-      { id: 'range', label: '收藏范围', items: items.filter((item) => item.id === 'all' || item.id === 'pending') },
+      { id: 'range', label: '收藏范围', items: [
+        ...items.filter((item) => item.id === 'all' || item.id === 'pending'),
+        { id: 'protected', label: '已保护', count: summary?.scopeCounts?.protected ?? 0 },
+        { id: 'unsynced', label: '未同步', count: summary?.scopeCounts?.unsynced ?? 0 }
+      ] },
       { id: 'workspace', label: 'bilimi 工作夹', items: items.filter((item) => item.managed || item.protected) },
       { id: 'bilibili', label: 'B站收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
     ]

@@ -18,6 +18,7 @@ type Dependencies = {
   getArchives(): VideoNoteArchiveEntry[] | Promise<VideoNoteArchiveEntry[]>
   getTranscriptionItems(): VideoAudioTranscriptionQueueItem[] | Promise<VideoAudioTranscriptionQueueItem[]>
   applyPortableBatch(batch: PortableBatch): void | Promise<void>
+  applyPortableState(batch: PortableBatch, sharedSettings: Record<string, unknown>): void | Promise<void>
   readSharedSettings(): Record<string, unknown> | Promise<Record<string, unknown>>
   writeSharedSettings(settings: Record<string, unknown>): void | Promise<void>
 }
@@ -75,6 +76,24 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
         transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
       }
       await dependencies.applyPortableBatch({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid })
+    },
+    async writePortableState(state) {
+      const repositoryArchives: Record<string, RepositoryArchive> = {}
+      const settingsByUid: Record<string, Record<string, unknown>> = {}
+      const archivesByUid: Record<string, VideoNoteArchiveEntry[]> = {}
+      const transcriptionByUid: Record<string, VideoAudioTranscriptionQueueItem[]> = {}
+      for (const [rawUid, data] of Object.entries(state.accounts)) {
+        const accountMid = uid(rawUid)
+        repositoryArchives[accountMid] = repositoryArchive(accountMid, data.repository)
+        if (isRecord(data.settings)) settingsByUid[accountMid] = structuredClone(data.settings)
+        const archives = Array.isArray(data.archives) ? data.archives : []
+        const transcription = Array.isArray(data.transcription) ? data.transcription : []
+        if (archives.some((entry) => !isRecord(entry) || !isRecord(entry.source) || entry.source.accountMid !== accountMid)) throw new Error('Portable archive account mismatch.')
+        if (transcription.some((entry) => !isRecord(entry) || entry.accountMid !== accountMid)) throw new Error('Portable transcription account mismatch.')
+        archivesByUid[accountMid] = structuredClone(archives) as VideoNoteArchiveEntry[]
+        transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
+      }
+      await dependencies.applyPortableState({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid }, structuredClone(state.sharedSettings))
     },
     readSharedSettings: dependencies.readSharedSettings,
     writeSharedSettings: dependencies.writeSharedSettings

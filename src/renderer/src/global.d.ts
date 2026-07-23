@@ -115,7 +115,7 @@ type BilimiDesktopApi = {
   ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
   getFavoriteRepositoryLibraryPage?: (
     accountMid: string,
-    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
     options: { limit: number; cursor?: string }
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
   getFavoriteRepositoryLibraryVideoDetail?: (
@@ -131,9 +131,9 @@ type BilimiDesktopApi = {
   getLocalDataInfo?: () => Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>
   calculateLocalDataUsage?: () => Promise<{ totalBytes: number; calculatedAt: string }>
   openLocalDataPath?: () => Promise<void>
-  exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; includeSharedSettings: boolean }) => Promise<unknown>
-  previewLocalDataImport?: () => Promise<{ accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>
-  applyLocalDataImport?: (preview: unknown, mode: 'merge' | 'overwrite') => Promise<void>
+  exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) => Promise<unknown>
+  previewLocalDataImport?: () => Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>
+  applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>

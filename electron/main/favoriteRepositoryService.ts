@@ -233,6 +233,8 @@ export type FavoriteRepositoryLibraryPageScope =
   | { kind: 'all' }
   | { kind: 'folder'; folderId: string }
   | { kind: 'pending' }
+  | { kind: 'protected' }
+  | { kind: 'unsynced' }
 
 export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
@@ -272,6 +274,8 @@ export type FavoriteRepositoryLibrarySummary = {
   videoCount: number
   folderCount: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  folderCounts: Record<string, number>
+  scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
   folderConflicts?: Array<{ title: string; folderIds: string[] }>
   physicalShardCount: number
   syncRecordCount: number
@@ -354,6 +358,9 @@ export class FavoriteRepositoryService {
     for (const record of snapshot.syncRecords) syncCounts[record.status]++
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
+    const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
+    const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
+      [...index.pendingStatesByAid].filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(state)).length
     return {
       version: 1,
       accountMid: snapshot.accountMid,
@@ -362,6 +369,8 @@ export class FavoriteRepositoryService {
       videoCount: Object.keys(snapshot.videos).length,
       folderCount: index.folders.length,
       folders: index.folders.map((folder) => ({ ...folder })),
+      folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
+      scopeCounts: { all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'), unsynced: stateCount('unsynced') },
       ...(index.folderConflicts.length ? { folderConflicts: index.folderConflicts.map((conflict) => ({
         title: conflict.title, folderIds: [...conflict.folderIds]
       })) } : {}),
@@ -718,6 +727,12 @@ export class FavoriteRepositoryService {
     await this.writeTail
   }
 
+  /** Invalidates in-memory generations after an externally staged local-data publish. */
+  clearCache() {
+    this.cache.clear()
+    this.syncCheckpointState.clear()
+  }
+
   private now() {
     return this.options.now?.() ?? new Date().toISOString()
   }
@@ -962,6 +977,11 @@ export class FavoriteRepositoryService {
     }
     if (scope.kind === 'pending') {
       return this.actionablePendingAids(snapshot)
+    }
+    if (scope.kind === 'protected' || scope.kind === 'unsynced') {
+      return [...index.pendingStatesByAid]
+        .filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(scope.kind))
+        .map(([aid]) => aid).sort((left, right) => left - right)
     }
     return index.allAids
   }

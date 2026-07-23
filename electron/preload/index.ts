@@ -163,7 +163,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:search-page', accountMid, query, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
   getFavoriteRepositoryLibraryPage: (
     accountMid: string,
-    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
     options: { limit: number; cursor?: string }
   ) => ipcRenderer.invoke('favorite-repository:get-library-page', accountMid, scope, options) as Promise<FavoriteRepositoryLibraryPage>,
   getFavoriteRepositoryLibraryVideoDetail: (accountMid: string, aid: number) =>
@@ -175,11 +175,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>,
   calculateLocalDataUsage: () => ipcRenderer.invoke('local-data:calculate-usage') as Promise<{ totalBytes: number; calculatedAt: string }>,
   openLocalDataPath: () => ipcRenderer.invoke('local-data:open-path') as Promise<void>,
-  exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; includeSharedSettings: boolean }) =>
+  exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) =>
     ipcRenderer.invoke('local-data:export', input) as Promise<unknown>,
-  previewLocalDataImport: () => ipcRenderer.invoke('local-data:preview-import') as Promise<{ accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>,
-  applyLocalDataImport: (preview: unknown, mode: 'merge' | 'overwrite') =>
-    ipcRenderer.invoke('local-data:apply-import', preview, mode) as Promise<void>,
+  previewLocalDataImport: () => ipcRenderer.invoke('local-data:preview-import') as Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>,
+  applyLocalDataImport: (previewToken: string, mode: 'merge' | 'overwrite') =>
+    ipcRenderer.invoke('local-data:apply-import', previewToken, mode) as Promise<void>,
   previewLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>

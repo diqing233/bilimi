@@ -11,12 +11,13 @@ describe('local data persistence adapter', () => {
       organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['local:music'], completedAt: '2026-07-24T00:00:00.000Z' }]
     }
     const applyPortableBatch = vi.fn()
+    const applyPortableState = vi.fn()
     const adapter = createLocalDataPersistenceAdapter({
       listAccountUids: () => ['100'], getRepository: vi.fn().mockResolvedValue(repository),
       getAccountSettings: () => ({ favoriteLedgers: [], updatedAt: '2026-07-24T00:00:00.000Z' }),
       getArchives: () => [{ id: 'archive-1', source: { accountMid: '100', aid: 1 }, versions: [], createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z' }],
       getTranscriptionItems: () => [{ id: 'job-1', accountMid: '100', aid: 1, cid: 11, url: 'https://x', title: 'video', status: 'pending', createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z' }],
-      applyPortableBatch, readSharedSettings: () => ({ closeBehavior: 'minimize-to-tray' }), writeSharedSettings: vi.fn()
+      applyPortableBatch, applyPortableState, readSharedSettings: () => ({ closeBehavior: 'minimize-to-tray' }), writeSharedSettings: vi.fn()
     })
 
     const portable = await adapter.readAccount('100')
@@ -27,12 +28,14 @@ describe('local data persistence adapter', () => {
       archivesByUid: { '100': [expect.objectContaining({ id: 'archive-1' })] },
       transcriptionByUid: { '100': [expect.objectContaining({ id: 'job-1' })] }
     }))
+    await adapter.writePortableState?.({ accounts: { '100': portable }, sharedSettings: { closeBehavior: 'exit-launcher' } })
+    expect(applyPortableState).toHaveBeenCalledWith(expect.objectContaining({ repositoryArchives: expect.any(Object) }), { closeBehavior: 'exit-launcher' })
   })
 
   it('does not allow raw repository snapshots or cross-account archives into the portable batch', async () => {
     const adapter = createLocalDataPersistenceAdapter({
       listAccountUids: () => ['100'], getRepository: vi.fn(), getAccountSettings: () => ({}), getArchives: () => [], getTranscriptionItems: () => [],
-      applyPortableBatch: vi.fn(), readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+      applyPortableBatch: vi.fn(), applyPortableState: vi.fn(), readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
     })
     await expect(adapter.writeAccounts({ '100': { repository: { videos: [], positions: [], protections: [] }, archives: [{ source: { accountMid: '200' } }] } })).rejects.toThrow('archive account')
   })

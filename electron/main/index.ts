@@ -1368,6 +1368,35 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           Object.entries(preferences.favoriteAccountPreferences).filter(([uid]) => retainedUids.has(uid))
         ))
       },
+      applyPortableState: async (batch, sharedSettings) => {
+        // The store update is published only after all repository generations have validated.
+        const retainedUids = new Set(Object.keys(batch.repositoryArchives))
+        const store = getDesktopStore()
+        const previous = {
+          archives: loadVideoNoteArchives(store),
+          transcription: getVideoTranscriptionQueue().getSnapshot().items,
+          preferences: loadAssistantPreferences(store)
+        }
+        try {
+          const existingUids = Object.keys(previous.preferences.favoriteAccountPreferences)
+          for (const uid of existingUids.filter((uid) => !retainedUids.has(uid))) await favoriteRepositoryService!.deleteAccountLocalData(uid)
+          for (const [uid, archive] of Object.entries(batch.repositoryArchives)) await favoriteRepositoryService!.applyArchiveImport(uid, { validate: () => archive })
+          const accountPreferences = Object.fromEntries(Object.entries(batch.settingsByUid).map(([uid, settings]) => {
+            const current = loadFavoriteAccountPreferences(store, uid)
+            const candidate = settings as Partial<typeof current>
+            return [uid, { ...current, ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {}) }]
+          }))
+          store.set('videoNoteArchives', Object.values(batch.archivesByUid).flat())
+          saveVideoAudioTranscriptionQueue(store, Object.values(batch.transcriptionByUid).flat())
+          store.set('favoriteAccountPreferences', accountPreferences)
+          if (sharedSettings.closeBehavior === 'minimize-to-tray' || sharedSettings.closeBehavior === 'exit-launcher') patchAssistantPreferences(store, { closeBehavior: sharedSettings.closeBehavior })
+        } catch (error) {
+          store.set('videoNoteArchives', previous.archives)
+          saveVideoAudioTranscriptionQueue(store, previous.transcription)
+          store.set('favoriteAccountPreferences', previous.preferences.favoriteAccountPreferences)
+          throw error
+        }
+      },
       readSharedSettings: () => ({ closeBehavior: loadAssistantPreferences(getDesktopStore()).closeBehavior }),
       writeSharedSettings: (settings) => {
         if (settings.closeBehavior === 'minimize-to-tray' || settings.closeBehavior === 'exit-launcher') {
