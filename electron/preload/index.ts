@@ -184,6 +184,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
+  copyFavoriteLibrarySelection: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library-operations:copy', accountMid, aids, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  moveFavoriteLibrarySelection: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library-operations:move', accountMid, aids, sourceFolderId, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision) as Promise<unknown>,
   confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>

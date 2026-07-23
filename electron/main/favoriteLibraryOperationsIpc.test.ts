@@ -8,6 +8,24 @@ class FakeIpcMain {
 }
 
 describe('registerFavoriteLibraryOperationsIpc', () => {
+  it('exposes validated account-bound copy and move operations without granting filesystem access', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = {
+      copy: vi.fn().mockResolvedValue({ status: 'succeeded' }),
+      move: vi.fn().mockResolvedValue({ status: 'succeeded' }),
+      previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn()
+    }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100') })
+
+    await ipcMain.invoke('favorite-library-operations:copy', 7, '100', [3, 1], ['bilimi-logical:target'], 4)
+    await ipcMain.invoke('favorite-library-operations:move', 7, '100', [3, 1], 'bilimi-logical:source', ['bilimi-logical:target'], 4)
+
+    expect(batch.copy).toHaveBeenCalledWith('100', [1, 3], ['bilimi-logical:target'], 4)
+    expect(batch.move).toHaveBeenCalledWith('100', [1, 3], 'bilimi-logical:source', ['bilimi-logical:target'], 4)
+    await expect(ipcMain.invoke('favorite-library-operations:copy', 7, '100', [1], ['C:\\escape'], 4)).rejects.toThrow('target')
+  })
+
   it('keeps remote unfavorite behind trusted account-bound preview, confirmation, execution, and reconciliation', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = {

@@ -21,6 +21,18 @@ function revision(value: unknown) {
   return value
 }
 
+function targets(value: unknown) {
+  if (!Array.isArray(value) || !value.length || value.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId))) {
+    throw new Error('Favorite operation target is invalid.')
+  }
+  return [...new Set(value)].sort()
+}
+
+function sourceFolder(value: unknown) {
+  if (typeof value !== 'string' || !/^bilimi-logical:\S+$/u.test(value)) throw new Error('Favorite move source is invalid.')
+  return value
+}
+
 function token(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) throw new Error('Favorite operation token is invalid.')
   return value
@@ -42,6 +54,12 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     if (normalized !== account(await options.getCurrentAccountMid())) throw new Error('Favorite operation account changed.')
     return normalized
   }
+  options.ipcMain.handle('favorite-library-operations:copy', async (event, requestedAccount, requestedAids, requestedTargets, expectedRevision) => {
+    trusted(event); return options.batch.copy(await current(requestedAccount), aids(requestedAids), targets(requestedTargets), revision(expectedRevision))
+  })
+  options.ipcMain.handle('favorite-library-operations:move', async (event, requestedAccount, requestedAids, requestedSourceFolder, requestedTargets, expectedRevision) => {
+    trusted(event); return options.batch.move(await current(requestedAccount), aids(requestedAids), sourceFolder(requestedSourceFolder), targets(requestedTargets), revision(expectedRevision))
+  })
   options.ipcMain.handle('favorite-library-operations:preview-unfavorite', async (event, requestedAccount, requestedAids, expectedRevision) => {
     trusted(event); return options.batch.previewRemoteUnfavorite(await current(requestedAccount), aids(requestedAids), revision(expectedRevision))
   })
