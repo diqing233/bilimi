@@ -673,7 +673,22 @@ export function FavoriteLibraryApp({
           }}
         />
         <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? { title: managedFolderDialog.title, canDeleteRemotely: true } : undefined} onManagedFolderChoice={(choice) => {
-          if (managedFolderDialog) uiCallbacks?.onManagedFolderDeleteChoice?.(managedFolderDialog.id, choice)
+          if (managedFolderDialog) {
+            uiCallbacks?.onManagedFolderDeleteChoice?.(managedFolderDialog.id, choice)
+            const folderId = managedFolderDialog.id.replace(/^folder:/u, '')
+            if (accountMid) void (async () => {
+              const api = window.bilimiDesktop
+              const preview = await api.previewFavoriteLibraryManagedFolderDelete?.(accountMid, folderId) as { executionToken?: string; operationId?: string } | undefined
+              if (!preview?.executionToken) throw new Error(text.unavailable)
+              if (choice === 'local') await api.deleteFavoriteLibraryManagedFolderLocal?.(accountMid, preview.executionToken)
+              else {
+                const confirmation = await api.confirmFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken)
+                if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
+                await api.executeFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken, confirmation.confirmationToken)
+              }
+              await refresh(accountMid)
+            })().catch(() => setError(text.actionFailed))
+          }
           setManagedFolderDialog(undefined)
         }} />
         {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
@@ -691,6 +706,15 @@ export function FavoriteLibraryApp({
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
             })
+            if (action === 'unfavorite-remote' && accountMid && summary) void (async () => {
+              const api = window.bilimiDesktop
+              const preview = await api.previewFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, selectedAids, summary.revision) as { executionToken?: string } | undefined
+              if (!preview?.executionToken) throw new Error(text.unavailable)
+              const confirmation = await api.confirmFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, preview.executionToken)
+              if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
+              await api.executeFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, preview.executionToken, confirmation.confirmationToken)
+              await refresh(accountMid)
+            })().catch(() => setError(text.actionFailed))
           }}>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop

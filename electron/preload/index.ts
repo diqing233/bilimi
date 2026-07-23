@@ -184,6 +184,24 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
+  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision) as Promise<unknown>,
+  confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:confirm-unfavorite', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
+  executeFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string, confirmationToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:execute-unfavorite', accountMid, executionToken, confirmationToken) as Promise<unknown>,
+  reconcileFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, operationId: string) =>
+    ipcRenderer.invoke('favorite-library-operations:reconcile-unfavorite', accountMid, operationId) as Promise<unknown>,
+  previewFavoriteLibraryManagedFolderDelete: (accountMid: string, folderId: string) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-managed-folder-delete', accountMid, folderId) as Promise<unknown>,
+  deleteFavoriteLibraryManagedFolderLocal: (accountMid: string, executionToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:delete-managed-folder-local', accountMid, executionToken) as Promise<unknown>,
+  confirmFavoriteLibraryManagedFolderRemoteDelete: (accountMid: string, executionToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:confirm-managed-folder-remote-delete', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
+  executeFavoriteLibraryManagedFolderRemoteDelete: (accountMid: string, executionToken: string, confirmationToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:execute-managed-folder-remote-delete', accountMid, executionToken, confirmationToken) as Promise<unknown>,
+  reconcileFavoriteLibraryManagedFolderDelete: (accountMid: string, operationId: string) =>
+    ipcRenderer.invoke('favorite-library-operations:reconcile-managed-folder-delete', accountMid, operationId) as Promise<unknown>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
