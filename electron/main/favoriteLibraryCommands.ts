@@ -46,7 +46,8 @@ function selectedAids(snapshot: AccountFavoriteRepositorySnapshot, selection: Fa
 /** Main-process local mirror commands. This service never receives a page bridge or remote writer. */
 export class FavoriteLibraryCommandService {
   constructor(private readonly options: {
-    repository: Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'>
+    repository: Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'> &
+      Partial<Pick<FavoriteRepositoryService, 'getLibraryFolderAids'>>
     refreshVideo: RefreshVideo
     transcriptionQueue: TranscriptionQueue
     now?: () => string
@@ -55,7 +56,9 @@ export class FavoriteLibraryCommandService {
   async syncSelection(accountMid: string, selection: FavoriteLibrarySyncSelection): Promise<FavoriteLibraryCommandResult> {
     const account = normalizeAccountMid(accountMid)
     const snapshot = await this.options.repository.getSnapshot(account)
-    const aids = selectedAids(snapshot, selection)
+    const aids = selection.kind === 'folder' && this.options.repository.getLibraryFolderAids
+      ? uniquePositiveAids(await this.options.repository.getLibraryFolderAids(account, selection.folderId))
+      : selectedAids(snapshot, selection)
     let completed = 0
     for (const aid of aids) {
       await this.refreshAndPersist(account, aid)

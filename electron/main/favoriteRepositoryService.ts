@@ -17,7 +17,7 @@ type PersistedRepository = {
   version: 1
   accountMid: string
   snapshot: AccountFavoriteRepositorySnapshot
-  commandResults: Record<string, FavoriteRepositoryCommandResult>
+  commandResults: Record<string, FavoriteRepositoryCommandReceipt>
   syncCommandIds?: string[]
   generation?: string
 }
@@ -40,7 +40,20 @@ type CachedRepository = {
   libraryIndex?: FavoriteRepositoryLibraryIndex
 }
 
+type FavoriteRepositoryCommandReceipt = {
+  commandId: string
+  commandType?: FavoriteRepositoryCommand['type']
+  commandFingerprint?: string
+  acceptedRevision: number
+  acceptedAt: string
+  affectedFolderIds: string[]
+  affectedAids: number[]
+}
+
 type FavoriteRepositoryLibraryIndex = {
+  revision: number
+  folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  folderConflicts: Array<{ title: string; folderIds: string[] }>
   allAids: number[]
   folderAidsByFolderId: Map<string, number[]>
   folderIdsByAid: Map<number, string[]>
@@ -78,6 +91,45 @@ function clone<T>(value: T): T {
 
 function checksum(content: string) {
   return createHash('sha256').update(content).digest('hex')
+}
+
+function commandFingerprint(command: FavoriteRepositoryCommand) {
+  const { issuedAt: _issuedAt, ...stableCommand } = command
+  return checksum(JSON.stringify(stableCommand))
+}
+
+function receiptFromResult(
+  result: FavoriteRepositoryCommandResult,
+  command?: FavoriteRepositoryCommand
+): FavoriteRepositoryCommandReceipt {
+  return {
+    commandId: result.commandId,
+    ...(command ? { commandType: command.type, commandFingerprint: commandFingerprint(command) } : {}),
+    acceptedRevision: result.revision,
+    acceptedAt: result.updatedAt,
+    affectedFolderIds: [...result.affectedFolderIds],
+    affectedAids: [...result.affectedAids]
+  }
+}
+
+function normalizeCommandReceipts(value: Record<string, unknown>) {
+  const receipts: Record<string, FavoriteRepositoryCommandReceipt> = {}
+  for (const [id, entry] of Object.entries(value)) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as Partial<FavoriteRepositoryCommandReceipt & FavoriteRepositoryCommandResult>
+    const acceptedRevision = candidate.acceptedRevision ?? candidate.revision
+    if (typeof candidate.commandId !== 'string' || !Number.isSafeInteger(acceptedRevision)) continue
+    receipts[id] = {
+      commandId: candidate.commandId,
+      ...(candidate.commandType ? { commandType: candidate.commandType } : {}),
+      ...(candidate.commandFingerprint ? { commandFingerprint: candidate.commandFingerprint } : {}),
+      acceptedRevision: acceptedRevision!,
+      acceptedAt: candidate.acceptedAt ?? candidate.updatedAt ?? '1970-01-01T00:00:00.000Z',
+      affectedFolderIds: Array.isArray(candidate.affectedFolderIds) ? [...candidate.affectedFolderIds] : [],
+      affectedAids: Array.isArray(candidate.affectedAids) ? [...candidate.affectedAids] : []
+    }
+  }
+  return receipts
 }
 
 function normalizeAccountMid(accountMid: string) {
@@ -186,6 +238,7 @@ export type FavoriteRepositoryLibrarySummary = {
   videoCount: number
   folderCount: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  folderConflicts?: Array<{ title: string; folderIds: string[] }>
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
@@ -260,14 +313,18 @@ export class FavoriteRepositoryService {
     }
     for (const record of snapshot.syncRecords) syncCounts[record.status]++
     const pendingAidCount = this.pendingStatesByAid(snapshot).size
+    const index = this.libraryIndex(cached, snapshot)
     return {
       version: 1,
       accountMid: snapshot.accountMid,
       revision: snapshot.revision,
       updatedAt: snapshot.updatedAt,
       videoCount: Object.keys(snapshot.videos).length,
-      folderCount: snapshot.folders.length,
-      folders: snapshot.folders.map((folder) => ({ ...folder })),
+      folderCount: index.folders.length,
+      folders: index.folders.map((folder) => ({ ...folder })),
+      ...(index.folderConflicts.length ? { folderConflicts: index.folderConflicts.map((conflict) => ({
+        title: conflict.title, folderIds: [...conflict.folderIds]
+      })) } : {}),
       physicalShardCount: snapshot.physicalShards.length,
       syncRecordCount: snapshot.syncRecords.length,
       syncCounts,
@@ -331,6 +388,7 @@ export class FavoriteRepositoryService {
       }
       const cached = await this.load(account)
       let repository = cached.repository
+      const previousSnapshot = repository.snapshot
       if (command.type !== 'record-sync-result' && command.type !== 'upsert-physical-shard-binding') {
         repository = this.mergeSyncCheckpoints(repository, await this.loadSyncCheckpointState(account))
       }
@@ -343,7 +401,10 @@ export class FavoriteRepositoryService {
           ? hasAppliedWorkspace(repository.snapshot, command)
           : true
       if (existing && retainedResultStillApplies) {
-        return clone(existing)
+        if (existing.commandFingerprint && existing.commandFingerprint !== commandFingerprint(command)) {
+          throw new Error('Favorite repository command id conflict.')
+        }
+        return this.resultFromReceipt(repository.snapshot, existing)
       }
       if (command.type === 'record-sync-result' && repository.syncCommandIds?.includes(command.id)) {
         return this.duplicateSyncResult(repository.snapshot, command)
@@ -351,12 +412,13 @@ export class FavoriteRepositoryService {
 
       const acceptedAt = this.now()
       const result = applyFavoriteRepositoryCommand(repository.snapshot, command, acceptedAt)
+      const publishedResult = this.withCanonicalAffectedFolders(result, previousSnapshot)
       const next: PersistedRepository = {
         ...repository,
         snapshot: this.snapshotFromResult(result),
         commandResults: command.type === 'record-sync-result'
           ? repository.commandResults
-          : { ...repository.commandResults, [command.id]: clone(result) },
+          : { ...repository.commandResults, [command.id]: receiptFromResult(result, command) },
         ...(command.type === 'record-sync-result'
           ? { syncCommandIds: [...new Set([...(repository.syncCommandIds ?? []), command.id])] }
           : {})
@@ -364,13 +426,13 @@ export class FavoriteRepositoryService {
       if (command.type === 'record-sync-result') {
         await this.appendSyncJournal(account, { command: clone(command), acceptedAt })
         this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
-        this.emitChange(result)
+        this.emitChange(publishedResult)
         return clone(result)
       }
       if (command.type === 'upsert-physical-shard-binding') {
         await this.appendBindingJournal(account, { command: clone(command), acceptedAt })
         this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
-        this.emitChange(result)
+        this.emitChange(publishedResult)
         return clone(result)
       }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
@@ -379,7 +441,7 @@ export class FavoriteRepositoryService {
       await rm(this.bindingJournalPath(account), { force: true })
       this.syncCheckpointState.delete(account)
       this.cache.set(account, persisted)
-      this.emitChange(result)
+      this.emitChange(publishedResult)
       return clone(result)
     }).finally(() => {
       this.pendingWriteCount--
@@ -395,8 +457,7 @@ export class FavoriteRepositoryService {
     const limit = pageLimit(options.limit)
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
-    const index = this.options.getTranscriptionItems ? this.createLibraryIndex(snapshot) : cached.libraryIndex ?? this.createLibraryIndex(snapshot)
-    cached.libraryIndex = index
+    const index = this.libraryIndex(cached, snapshot)
     const scopedAids = this.libraryAids(snapshot, scope, index)
     const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
     if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
@@ -426,8 +487,7 @@ export class FavoriteRepositoryService {
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
     const video = snapshot.videos[String(aid)]
     if (!video) return null
-    const index = this.options.getTranscriptionItems ? this.createLibraryIndex(snapshot) : cached.libraryIndex ?? this.createLibraryIndex(snapshot)
-    cached.libraryIndex = index
+    const index = this.libraryIndex(cached, snapshot)
     const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
     return {
       version: 1,
@@ -475,8 +535,40 @@ export class FavoriteRepositoryService {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
+  async getLibraryFolderAids(accountMid: string, folderId: string): Promise<number[]> {
+    const account = normalizeAccountMid(accountMid)
+    const normalizedFolderId = folderId.trim()
+    if (!normalizedFolderId) throw new Error('Favorite repository folder id is invalid.')
+    const cached = await this.load(account)
+    const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
+    const index = this.libraryIndex(cached, snapshot)
+    if (!index.folders.some((folder) => folder.id === normalizedFolderId)) {
+      throw new Error('Favorite repository folder was not found.')
+    }
+    return [...(index.folderAidsByFolderId.get(normalizedFolderId) ?? [])]
+  }
+
   private emitChange(result: FavoriteRepositoryCommandResult) {
     for (const listener of this.changeListeners) listener(clone(result))
+  }
+
+  private withCanonicalAffectedFolders(
+    result: FavoriteRepositoryCommandResult,
+    previousSnapshot?: AccountFavoriteRepositorySnapshot
+  ) {
+    const canonicalFolderIds = new Set(result.affectedFolderIds)
+    for (const snapshot of [previousSnapshot, result].filter(Boolean) as AccountFavoriteRepositorySnapshot[]) {
+      for (const shard of snapshot.physicalShards) {
+        if (canonicalFolderIds.has(shard.folderId) || (shard.remoteFolderId && snapshot.folders.some((folder) =>
+          canonicalFolderIds.has(folder.id) && folder.remoteFolderId === shard.remoteFolderId))) {
+          canonicalFolderIds.add(`bilimi-logical:${shard.logicalLedgerId}`)
+        }
+      }
+      if (canonicalFolderIds.has('local:inbox') && snapshot.folders.some((folder) => folder.id === 'bilimi-logical:inbox')) {
+        canonicalFolderIds.add('bilimi-logical:inbox')
+      }
+    }
+    return { ...result, affectedFolderIds: [...canonicalFolderIds].sort() }
   }
 
   private snapshotFromResult(result: FavoriteRepositoryCommandResult): AccountFavoriteRepositorySnapshot {
@@ -484,21 +576,76 @@ export class FavoriteRepositoryService {
     return snapshot
   }
 
+  private libraryIndex(cached: CachedRepository, snapshot: AccountFavoriteRepositorySnapshot) {
+    if (!cached.libraryIndex || cached.libraryIndex.revision !== snapshot.revision) {
+      cached.libraryIndex = this.createLibraryIndex(snapshot)
+    }
+    if (!this.options.getTranscriptionItems) return cached.libraryIndex
+    return { ...cached.libraryIndex, pendingStatesByAid: this.pendingStatesByAid(snapshot) }
+  }
+
   private createLibraryIndex(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibraryIndex {
+    const canonicalIdByRawId = new Map(snapshot.folders.map((folder) => [folder.id, folder.id]))
+    const logicalFolders = new Map(snapshot.folders
+      .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+      .map((folder) => [folder.logicalLedgerId!, folder]))
+    const inbox = logicalFolders.get('inbox')
+    if (inbox && snapshot.folders.some((folder) => folder.id === 'local:inbox')) {
+      canonicalIdByRawId.set('local:inbox', inbox.id)
+    }
+    const logicalIdsByRemoteFolderId = new Map<string, Set<string>>()
+    for (const shard of snapshot.physicalShards) {
+      if (!shard.remoteFolderId) continue
+      const logicalIds = logicalIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
+      logicalIds.add(shard.logicalLedgerId)
+      logicalIdsByRemoteFolderId.set(shard.remoteFolderId, logicalIds)
+    }
+    for (const shard of snapshot.physicalShards) {
+      const logical = logicalFolders.get(shard.logicalLedgerId)
+      if (!logical) continue
+      canonicalIdByRawId.set(shard.folderId, logical.id)
+      if (shard.remoteFolderId && logicalIdsByRemoteFolderId.get(shard.remoteFolderId)?.size === 1) {
+        const remote = snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === shard.remoteFolderId)
+        if (remote) canonicalIdByRawId.set(remote.id, logical.id)
+      }
+    }
+    const folders = snapshot.folders.filter((folder) => canonicalIdByRawId.get(folder.id) === folder.id)
+    const foldersByTitle = new Map<string, typeof folders>()
+    for (const folder of folders) {
+      const title = folder.title.trim()
+      foldersByTitle.set(title, [...(foldersByTitle.get(title) ?? []), folder])
+    }
+    const titleConflicts = [...foldersByTitle.entries()]
+      .filter(([title, matches]) => title && matches.length > 1)
+      .map(([title, matches]) => ({ title, folderIds: matches.map((folder) => folder.id).sort() }))
+    const bindingConflicts = [...logicalIdsByRemoteFolderId.entries()]
+      .filter(([, logicalIds]) => logicalIds.size > 1)
+      .map(([remoteFolderId, logicalIds]) => ({
+        title: snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === remoteFolderId)?.title ?? remoteFolderId,
+        folderIds: [...logicalIds].map((logicalId) => `bilimi-logical:${logicalId}`).sort()
+      }))
+    const folderConflicts = [...titleConflicts, ...bindingConflicts]
+      .sort((left, right) => left.title.localeCompare(right.title) || left.folderIds.join().localeCompare(right.folderIds.join()))
     const folderIdsByAid = new Map<number, Set<string>>()
-    const folderAidsByFolderId = new Map<string, number[]>()
+    const aidsByCanonicalFolderId = new Map<string, Set<number>>()
     for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
+      const canonicalFolderId = canonicalIdByRawId.get(folderId) ?? folderId
+      const canonicalAids = aidsByCanonicalFolderId.get(canonicalFolderId) ?? new Set<number>()
       const validAids = aids.filter((aid) => Boolean(snapshot.videos[String(aid)]))
-      folderAidsByFolderId.set(folderId, validAids)
+      for (const aid of validAids) canonicalAids.add(aid)
+      aidsByCanonicalFolderId.set(canonicalFolderId, canonicalAids)
       for (const aid of validAids) {
         const folderIds = folderIdsByAid.get(aid) ?? new Set<string>()
-        folderIds.add(folderId)
+        folderIds.add(canonicalFolderId)
         folderIdsByAid.set(aid, folderIds)
       }
     }
     return {
+      revision: snapshot.revision,
+      folders,
+      folderConflicts,
       allAids: Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right),
-      folderAidsByFolderId,
+      folderAidsByFolderId: new Map([...aidsByCanonicalFolderId].map(([id, aids]) => [id, [...aids].sort((left, right) => left - right)])),
       folderIdsByAid: new Map([...folderIdsByAid].map(([aid, ids]) => [aid, [...ids].sort((left, right) => left.localeCompare(right))])),
       pendingStatesByAid: this.pendingStatesByAid(snapshot)
     }
@@ -568,6 +715,18 @@ export class FavoriteRepositoryService {
     }
   }
 
+  private resultFromReceipt(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    receipt: FavoriteRepositoryCommandReceipt
+  ): FavoriteRepositoryCommandResult {
+    return {
+      ...clone(snapshot),
+      commandId: receipt.commandId,
+      affectedFolderIds: [...receipt.affectedFolderIds],
+      affectedAids: [...receipt.affectedAids]
+    }
+  }
+
   private async load(accountMid: string): Promise<CachedRepository> {
     const cached = this.cache.get(accountMid)
     if (cached) return cached
@@ -598,7 +757,7 @@ export class FavoriteRepositoryService {
         snapshot: this.snapshotFromResult(result),
         commandResults: entry.command.type === 'record-sync-result'
           ? repository.commandResults
-          : { ...repository.commandResults, [entry.command.id]: clone(result) },
+          : { ...repository.commandResults, [entry.command.id]: receiptFromResult(result, entry.command) },
         ...(entry.command.type === 'record-sync-result'
           ? { syncCommandIds: [...new Set([...(repository.syncCommandIds ?? []), entry.command.id])] }
           : {})
@@ -610,7 +769,7 @@ export class FavoriteRepositoryService {
       repository = {
         ...repository,
         snapshot: this.snapshotFromResult(result),
-        commandResults: { ...repository.commandResults, [entry.command.id]: clone(result) }
+        commandResults: { ...repository.commandResults, [entry.command.id]: receiptFromResult(result, entry.command) }
       }
     }
     const result = { repository, manifest: loaded?.manifest }
@@ -648,7 +807,11 @@ export class FavoriteRepositoryService {
     try {
       const repository = JSON.parse(repositoryContent) as unknown
       return validPersisted(repository, accountMid)
-        ? { repository: { ...repository, snapshot: normalizeSnapshot(repository.snapshot) }, manifest }
+        ? { repository: {
+          ...repository,
+          snapshot: normalizeSnapshot(repository.snapshot),
+          commandResults: normalizeCommandReceipts(repository.commandResults as Record<string, unknown>)
+        }, manifest }
         : null
     } catch (error) {
       if (error instanceof SyntaxError) return null
@@ -704,6 +867,7 @@ export class FavoriteRepositoryService {
     await rename(temporaryDirectory, generationDirectory)
     await this.atomicWrite(this.manifestPath(accountMid), JSON.stringify(manifest))
     await this.cleanupLegacyRecords(accountMid)
+    await this.cleanupRepositoryGenerations(accountMid, new Set([generation, previousGeneration].filter(Boolean) as string[]))
     return { repository: persisted, manifest }
   }
 
@@ -845,6 +1009,18 @@ export class FavoriteRepositoryService {
     try {
       const entries = await readdir(generations, { withFileTypes: true })
       await Promise.all(entries.filter((entry) => entry.isDirectory() && entry.name.endsWith('.tmp'))
+        .map((entry) => rm(join(generations, entry.name), { recursive: true, force: true })))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+
+  private async cleanupRepositoryGenerations(accountMid: string, retained: Set<string>) {
+    const generations = join(this.accountDirectory(accountMid), 'generations')
+    try {
+      const entries = await readdir(generations, { withFileTypes: true })
+      // Bound cleanup work so upgrading a repository with hundreds of old generations does not stall one commit.
+      await Promise.all(entries.filter((entry) => entry.isDirectory() && !entry.name.endsWith('.tmp') && !retained.has(entry.name)).slice(0, 8)
         .map((entry) => rm(join(generations, entry.name), { recursive: true, force: true })))
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

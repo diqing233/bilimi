@@ -88,6 +88,29 @@ describe('favorite library bridge IPC', () => {
     expect(openMainUrl).toHaveBeenCalledWith('https://space.bilibili.com/42/favlist?fid=9988&ftype=create')
   })
 
+  it('opens the first physical shard for a canonical logical folder', async () => {
+    const handlers = new Map<string, Handler>()
+    const openMainUrl = vi.fn()
+    registerFavoriteLibraryBridgeIpc({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      isTrustedLibrarySender: () => true,
+      readAccount: vi.fn().mockResolvedValue({ mid: '42' }),
+      getCurrentAccountMid: vi.fn().mockResolvedValue('42'),
+      getSnapshot: vi.fn().mockResolvedValue({
+        folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteTitle: 'Music 2', bindingState: 'bound', remoteFolderId: '200' },
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: '100' }
+        ]
+      }),
+      loadArchives: vi.fn().mockReturnValue([]), updateArchiveVersion: vi.fn(), openMainUrl
+    })
+
+    await handlers.get('favorite-library:open-source')?.({ sender: { id: 7 } }, '42', 'bilimi-logical:music')
+
+    expect(openMainUrl).toHaveBeenCalledWith('https://space.bilibili.com/42/favlist?fid=100&ftype=create')
+  })
+
   it('refuses a source folder that has no remote Bilibili favorite', async () => {
     const { handlers, openMainUrl } = createHarness()
 

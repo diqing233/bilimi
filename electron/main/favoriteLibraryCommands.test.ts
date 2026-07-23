@@ -35,6 +35,24 @@ describe('FavoriteLibraryCommandService', () => {
     expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-library-mirror', payload: expect.objectContaining({ status: 'synced' }) }))
   })
 
+  it('refreshes the canonical membership union for a managed folder', async () => {
+    const repository = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot()),
+      getLibraryFolderAids: vi.fn().mockResolvedValue([1, 2]),
+      commit: vi.fn().mockResolvedValue(undefined)
+    }
+    const refreshVideo = vi.fn(async (_accountMid: string, aid: number) => ({
+      aid, title: `Video ${aid}`, tags: [], updatedAt: now()
+    }))
+    const service = new FavoriteLibraryCommandService({
+      repository, refreshVideo, transcriptionQueue: { enqueue: vi.fn() }, now
+    })
+
+    await expect(service.syncSelection('100', { kind: 'folder', folderId: 'bilimi-logical:music' }))
+      .resolves.toMatchObject({ affectedAids: [1, 2] })
+    expect(repository.getLibraryFolderAids).toHaveBeenCalledWith('100', 'bilimi-logical:music')
+  })
+
   it('refreshes metadata before enqueuing an unsynced video and pins the queue request to that snapshot', async () => {
     const { service, refreshVideo, transcriptionQueue } = createService()
 

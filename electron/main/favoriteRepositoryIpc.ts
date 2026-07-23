@@ -37,6 +37,7 @@ export type FavoriteRepositorySnapshotSummary = {
   videoCount: number
   folderCount: number
   folders: FavoriteRepositoryFolder[]
+  folderConflicts?: Array<{ title: string; folderIds: string[] }>
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>

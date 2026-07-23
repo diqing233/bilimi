@@ -30,7 +30,13 @@ function folderId(value: unknown) {
 
 function sourceFavoriteId(snapshot: Pick<AccountFavoriteRepositorySnapshot, 'folders' | 'physicalShards'>, requestedFolderId: string) {
   const folder = snapshot.folders.find((candidate) => candidate.id === requestedFolderId)
-  const remoteFolderId = folder?.remoteFolderId ?? snapshot.physicalShards.find((shard) => shard.folderId === requestedFolderId)?.remoteFolderId
+  const logicalLedgerId = folder?.logicalLedgerId ?? (requestedFolderId.startsWith('bilimi-logical:')
+    ? requestedFolderId.slice('bilimi-logical:'.length)
+    : undefined)
+  const remoteFolderId = folder?.remoteFolderId ?? snapshot.physicalShards
+    .filter((shard) => shard.folderId === requestedFolderId || shard.logicalLedgerId === logicalLedgerId)
+    .sort((left, right) => left.shardNumber - right.shardNumber)
+    .find((shard) => shard.remoteFolderId)?.remoteFolderId
   if (!remoteFolderId || !/^\d+$/.test(remoteFolderId)) throw new Error('来源收藏夹不可打开。')
   return remoteFolderId
 }

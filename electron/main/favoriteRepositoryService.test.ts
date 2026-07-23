@@ -121,7 +121,7 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('returns the original result when the same command id is replayed', async () => {
+  it('returns an equivalent result when the same command is replayed', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const command = {
@@ -130,10 +130,264 @@ describe('FavoriteRepositoryService', () => {
     }
 
     const first = await service.commit('100', command)
-    const replay = await service.commit('100', { ...command, payload: { ...command.payload, title: 'Ignored' } })
+    const replay = await service.commit('100', command)
 
     expect(replay).toEqual(first)
     expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
+
+  it('treats a retry timestamp as non-semantic command metadata', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, issuedAt: '2026-07-19T00:01:00.000Z' })).resolves.toEqual(first)
+  })
+
+  it('rejects reuse of a command id with different command content', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+
+    await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, payload: { ...command.payload, title: 'Different' } }))
+      .rejects.toThrow('command id conflict')
+    expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
+
+  it('aggregates logical, physical, and bound remote folders in the Favorite Library read model', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [1, 2],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '3990843511'
+      }
+    })
+    await service.commit('100', {
+      id: 'music-logical-members', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'set-folder-members',
+      payload: { folderId: 'bilimi-logical:music', aids: [1] }
+    })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'bilibili:3990843511': [2, 3] },
+        folders: [{ id: 'bilibili:3990843511', title: 'bilimi·音乐', remoteFolderId: '3990843511' }],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folderCount).toBe(1)
+    expect(summary.folders).toEqual([
+      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music' })
+    ])
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, { limit: 10 }))
+      .resolves.toMatchObject({
+        items: [
+          { video: { aid: 1 }, folderIds: ['bilimi-logical:music'] },
+          { video: { aid: 2 }, folderIds: ['bilimi-logical:music'] },
+          { video: { aid: 3 }, folderIds: ['bilimi-logical:music'] }
+        ]
+      })
+    await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: ['bilimi-logical:music'] })
+  })
+
+  it('publishes canonical folder ids when a raw bound folder changes', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music',
+        bindingState: 'bound', remoteFolderId: '3990843511'
+      }
+    })
+    const changes: string[][] = []
+    service.onChanged((result) => changes.push(result.affectedFolderIds))
+
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:3990843511': [1] },
+        folders: [{ id: 'bilibili:3990843511', title: 'Music', remoteFolderId: '3990843511' }],
+        videos: [{ aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }]
+      }
+    })
+
+    expect(changes.at(-1)).toContain('bilimi-logical:music')
+  })
+
+  it('keeps unbound same-title Bilibili folders separate and reports the conflict', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        folders: [
+          { id: 'bilibili:1', title: '同名收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '同名收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 2,
+      folderConflicts: [{ title: '同名收藏夹', folderIds: ['bilibili:1', 'bilibili:2'] }]
+    })
+  })
+
+  it('does not merge a remote mirror bound to multiple logical ledgers', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const logicalLedgerId of ['music', 'games']) {
+      await service.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared',
+          bindingState: 'bound', remoteFolderId: '99'
+        }
+      })
+    }
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:99': [1] },
+        folders: [{ id: 'bilibili:99', title: 'Shared', remoteFolderId: '99' }],
+        videos: [{ aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }]
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 3,
+      folderConflicts: expect.arrayContaining([{ title: 'Shared', folderIds: ['bilimi-logical:games', 'bilimi-logical:music'] }])
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ folderIds: ['bilibili:99'] })
+  })
+
+  it('aggregates local staging with the explicitly identified inbox ledger', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'inbox-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'inbox', logicalTitle: 'bilimi·暂存', shardNumber: 1, memberAids: [2],
+        remoteTitle: 'bilimi·暂存', bindingState: 'bound', remoteFolderId: '9008'
+      }
+    })
+    await service.commit('100', {
+      id: 'local-plan', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:inbox': [1] },
+        folders: [{ id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }]
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1,
+      folders: [{ id: 'bilimi-logical:inbox' }]
+    })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:inbox' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }, { video: { aid: 2 } }] })
+  })
+
+  it('persists compact command receipts without embedded repository snapshots', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
+    const persisted = JSON.parse(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, Record<string, unknown>>
+    }
+
+    expect(persisted.commandResults['video-1']).toMatchObject({
+      commandId: 'video-1', commandType: 'upsert-video', acceptedRevision: 1, affectedAids: [1]
+    })
+    expect(persisted.commandResults['video-1']).not.toHaveProperty('videos')
+    expect(JSON.stringify(persisted.commandResults['video-1']).length).toBeLessThan(1_000)
+  })
+
+  it('compacts legacy full command results on the next atomic persistence', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    }
+    const result = await first.commit('100', command)
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifestPath = join(accountDirectory, 'repository.manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const generationDirectory = join(accountDirectory, 'generations', manifest.generation)
+    const repositoryPath = join(generationDirectory, 'repository.json')
+    const legacy = JSON.parse(await readFile(repositoryPath, 'utf8')) as { commandResults: Record<string, unknown> }
+    legacy.commandResults['video-1'] = result
+    const repositoryContent = JSON.stringify(legacy)
+    await writeFile(repositoryPath, repositoryContent, 'utf8')
+    const generationManifestPath = join(generationDirectory, 'manifest.json')
+    const generationManifest = JSON.parse(await readFile(generationManifestPath, 'utf8')) as { checksums: { repository: string } }
+    const { createHash } = await import('node:crypto')
+    generationManifest.checksums.repository = createHash('sha256').update(repositoryContent).digest('hex')
+    await writeFile(generationManifestPath, JSON.stringify(generationManifest), 'utf8')
+    await writeFile(manifestPath, JSON.stringify(generationManifest), 'utf8')
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:01.000Z' })
+    await restarted.commit('100', {
+      id: 'video-2', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Video 2', tags: [], updatedAt: '2026-07-23T00:00:01.000Z' }
+    })
+    const compactManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const compact = JSON.parse(await readFile(join(accountDirectory, 'generations', compactManifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, Record<string, unknown>>
+    }
+    expect(compact.commandResults['video-1']).not.toHaveProperty('videos')
+    expect(compact.commandResults['video-1']).toMatchObject({ commandId: 'video-1', acceptedRevision: 1 })
+  })
+
+  it('retains only the active and rollback repository generations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifest = JSON.parse(await readFile(join(accountDirectory, 'repository.manifest.json'), 'utf8')) as {
+      generation: string
+      previousGeneration?: string
+    }
+    const generations = await readdir(join(accountDirectory, 'generations'))
+    expect(generations.sort()).toEqual([manifest.generation, manifest.previousGeneration].filter(Boolean).sort())
   })
 
   it('rejects a cross-account command even when its id was already committed', async () => {
