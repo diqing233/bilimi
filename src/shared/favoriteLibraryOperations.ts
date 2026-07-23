@@ -22,7 +22,7 @@ export type FavoriteOperationSourceScopeKind =
 export type FavoriteOperationEligibility = {
   sourceScopeKind: FavoriteOperationSourceScopeKind
   eligibleAids: number[]
-  skipped: Array<{ aid: number; reason: 'invalid-aid' }>
+  skipped: Array<{ aid: number; reason: 'invalid-aid' | 'bilibili-folder-copy-only' }>
   allowedActions: FavoriteOperationAction[]
 }
 
@@ -33,11 +33,12 @@ export function determineFavoriteOperationEligibility(input: {
   source: FavoriteOperationSource
   aids: number[]
   folders: FavoriteRepositoryFolder[]
+  /** Virtual pages can carry source provenance per row without exposing remote IDs. */
+  aidScopeKinds?: Record<number, FavoriteOperationSourceScopeKind>
 }): FavoriteOperationEligibility {
-  const skipped = input.aids.filter((aid) => !Number.isSafeInteger(aid) || aid <= 0)
+  const skipped: FavoriteOperationEligibility['skipped'] = input.aids.filter((aid) => !Number.isSafeInteger(aid) || aid <= 0)
     .map((aid) => ({ aid, reason: 'invalid-aid' as const }))
     .sort((left, right) => left.aid - right.aid)
-  const eligibleAids = [...new Set(input.aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
   let sourceScopeKind: FavoriteOperationSourceScopeKind = 'mixed-virtual'
   const source = input.source
   if (source.kind === 'folder') {
@@ -46,12 +47,23 @@ export function determineFavoriteOperationEligibility(input: {
     else if (folder?.id === 'local:inbox') sourceScopeKind = 'unmatched'
     else if (folder?.kind === 'bilibili') sourceScopeKind = folder.remoteFolderId === '1' ? 'bilibili-default' : 'bilibili-user-folder'
   }
+  const eligibleAids = [...new Set(input.aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))]
+    .filter((aid) => {
+      if (sourceScopeKind !== 'mixed-virtual') return true
+      const perAidScope = input.aidScopeKinds?.[aid]
+      if (perAidScope !== 'bilibili-default' && perAidScope !== 'bilibili-user-folder') return true
+      skipped.push({ aid, reason: 'bilibili-folder-copy-only' })
+      return false
+    }).sort((left, right) => left - right)
+  skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason))
   return {
     sourceScopeKind,
     eligibleAids,
     skipped,
     allowedActions: sourceScopeKind === 'bilimi-work-folder'
       ? [...BASE_ACTIONS, 'delete-managed-folder-local', 'delete-managed-folder-remote']
+      : sourceScopeKind === 'bilibili-default' || sourceScopeKind === 'bilibili-user-folder'
+        ? ['copy']
       : [...BASE_ACTIONS]
   }
 }
