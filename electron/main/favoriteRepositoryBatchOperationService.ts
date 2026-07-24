@@ -123,14 +123,20 @@ export class FavoriteRepositoryBatchOperationService {
     operation.confirmationToken = undefined
     if (!this.options.remoteUnfavorite) throw new Error('Favorite remote unfavorite is unavailable.')
     return this.serializeRemoteExecution(operation.accountMid, async () => {
-      // The adapter owns page-operation serialization. This narrower guard
-      // keeps the preview baseline protected through result persistence.
+      // Preserve the immediate stale-preview rejection for legacy adapters;
+      // production adapters repeat this guard in their actual arbiter slot.
       const current = await this.options.repository.getSnapshot(operation.accountMid)
-      if (current.revision !== operation.baselineRevision) throw new Error('Favorite remote unfavorite baseline is stale.')
+      if (current.revision !== operation.baselineRevision) throw this.staleRemoteUnfavoriteBaselineError()
       const result = await (async () => {
         try {
-          return await this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids)
+          return await this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids, {
+            beforeRemoteWrite: async () => {
+              const current = await this.options.repository.getSnapshot(operation.accountMid)
+              if (current.revision !== operation.baselineRevision) throw this.staleRemoteUnfavoriteBaselineError()
+            }
+          })
         } catch (error) {
+          if (this.isStaleRemoteUnfavoriteBaselineError(error)) throw error
           const reason = error instanceof Error ? error.message : String(error)
           return {
             status: this.isKnownRemoteRejection(error) ? 'failed' as const : 'result-unknown' as const,
@@ -183,8 +189,13 @@ export class FavoriteRepositoryBatchOperationService {
         normalizedAccount, { priority: 'reconcile' }, () => this.options.remoteObserver!.areUnfavorited(normalizedAccount, operation.aids)
       )
       if (observation !== 'unknown') {
-        operation.status = observation === 'removed' ? 'succeeded' : 'failed'
-        await this.recordRemoteResult(operation, operation.status, observation === 'removed' ? undefined : 'Remote still reports the videos as favorited.', 'reconcile')
+        const reconciledStatus = observation === 'removed' ? 'succeeded' : 'failed'
+        try {
+          await this.recordRemoteResult(operation, reconciledStatus, observation === 'removed' ? undefined : 'Remote still reports the videos as favorited.', 'reconcile')
+          operation.status = reconciledStatus
+        } catch {
+          return { status: 'reconciliation-required' as const, operationId, aids: [...operation.aids] }
+        }
       }
     }
     return operation.status === 'result-unknown' || operation.status === 'reconciliation-required'
@@ -294,6 +305,14 @@ export class FavoriteRepositoryBatchOperationService {
   private isKnownRemoteRejection(error: unknown) {
     return typeof error === 'object' && error !== null &&
       ((error as { remoteWriteRejected?: unknown }).remoteWriteRejected === true || (error as { code?: unknown }).code === 'REMOTE_REJECTED')
+  }
+
+  private staleRemoteUnfavoriteBaselineError() {
+    return Object.assign(new Error('Favorite remote unfavorite baseline is stale.'), { code: 'FAVORITE_REMOTE_UNFAVORITE_BASELINE_STALE' })
+  }
+
+  private isStaleRemoteUnfavoriteBaselineError(error: unknown) {
+    return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'FAVORITE_REMOTE_UNFAVORITE_BASELINE_STALE'
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

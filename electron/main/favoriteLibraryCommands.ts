@@ -25,7 +25,8 @@ export type FavoriteLibraryPlacementSync = {
 
 /** Kept separate from local record lifecycle commands: it only changes Bilibili's favorite state. */
 export type FavoriteLibraryRemoteUnfavorite = {
-  unfavorite(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
+  /** Runs immediately before each irreversible page write while it owns the shared remote arbiter slot. */
+  unfavorite(accountMid: string, aids: number[], options?: { beforeRemoteWrite?: () => Promise<void> }): Promise<FavoriteLibraryCommandResult>
 }
 
 type UnfavoritePageBridgeManager = {
@@ -72,7 +73,7 @@ export function createFavoriteLibraryRemoteUnfavorite(options: {
   remoteOperations: RemoteOperationQueue
 }): FavoriteLibraryRemoteUnfavorite {
   return {
-    async unfavorite(accountMid, requestedAids) {
+    async unfavorite(accountMid, requestedAids, operationOptions) {
       const account = normalizeAccountMid(accountMid)
       const aids = uniquePositiveAids(requestedAids)
       if (aids.length > 100) throw new Error('Bilibili unfavorite selection is invalid.')
@@ -80,8 +81,11 @@ export function createFavoriteLibraryRemoteUnfavorite(options: {
       let status: FavoriteLibraryCommandResult['status'] = 'succeeded'
       let reason: string | undefined
       for (const aid of aids) {
+        let remoteWriteStarted = false
         try {
           await options.remoteOperations.enqueue(account, { priority: 'user-single', videoKey: `unfavorite:${aid}` }, async () => {
+            await operationOptions?.beforeRemoteWrite?.()
+            remoteWriteStarted = true
             const runId = `favorite-unfavorite:${randomUUID()}`
             await options.pageBridgeManager.bind(account, runId)
             try {
@@ -94,6 +98,8 @@ export function createFavoriteLibraryRemoteUnfavorite(options: {
           })
           completed++
         } catch (error) {
+          // A stale local baseline is known before the page bridge receives a write.
+          if (!remoteWriteStarted) throw error
           reason = error instanceof Error ? error.message : String(error)
           status = isKnownRemoteRejection(error) ? 'failed' : 'result-unknown'
           // An ambiguous write must be reconciled before any later item is touched.

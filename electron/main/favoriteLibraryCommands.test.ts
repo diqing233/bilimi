@@ -44,6 +44,26 @@ describe('FavoriteLibraryCommandService', () => {
     expect(pageBridgeManager.release).toHaveBeenCalledTimes(1)
   })
 
+  it('runs the remote-unfavorite precondition inside the arbiter work item before the page write', async () => {
+    const order: string[] = []
+    const pageBridgeManager = {
+      bind: vi.fn(async () => { order.push('bind') }),
+      pageBridge: vi.fn(() => ({ unfavorite: vi.fn(async () => { order.push('write') }) })),
+      release: vi.fn(() => { order.push('release') })
+    }
+    const remoteOperations = {
+      enqueue: vi.fn(async (_accountMid: string, _options: unknown, run: () => Promise<unknown>) => {
+        order.push('arbiter')
+        return run()
+      })
+    }
+    const adapter = createFavoriteLibraryRemoteUnfavorite({ pageBridgeManager, remoteOperations })
+
+    await adapter.unfavorite('100', [1], { beforeRemoteWrite: async () => { order.push('baseline') } })
+
+    expect(order).toEqual(['arbiter', 'baseline', 'bind', 'write', 'release'])
+  })
+
   it('commits a deduplicated local placement batch before queuing remote work', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     const synchronizePlacements = vi.fn().mockResolvedValue({ status: 'queued', affectedAids: [1] })
