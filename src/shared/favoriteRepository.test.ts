@@ -269,6 +269,25 @@ describe('account favorite repository contracts', () => {
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
   })
 
+  it('rejects nested recovery bindings before they can be imported or checksummed as portable', () => {
+    const valid = createFavoriteRepositoryArchiveExport(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }), { generatedAt: '2026-07-24T00:00:00.000Z' })
+    const invalid = {
+      ...valid,
+      recovery: {
+        ...valid.recovery!,
+        syncRecords: [{ id: 'sync-1', commandId: 'sync-1', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z', targetFolderIds: ['bilibili:900'] }],
+        workspace: {
+          id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 0, continuationAids: [],
+          workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' },
+          frozenSyncPlan: { id: 'plan-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 0, createdAt: '2026-07-24T00:00:00.000Z', operations: [{ operationKey: 'op-1', aid: 1, kind: 'append', folderIds: ['bilimi-logical:music'], beforeFolderIds: ['bilibili:900'] }] }
+        }
+      }
+    }
+    invalid.checksum = createFavoriteRepositoryArchiveExportChecksum(invalid)
+
+    expect(() => validateFavoriteRepositoryArchiveExport(invalid)).toThrow('invalid')
+  })
+
   it('round-trips account-local repository recovery state while excluding remote observations', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),

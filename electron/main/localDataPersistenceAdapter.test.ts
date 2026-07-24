@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
+import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 import { createLocalDataPersistenceAdapter } from './localDataPersistenceAdapter'
 
 describe('local data persistence adapter', () => {
@@ -69,11 +69,17 @@ describe('local data persistence adapter', () => {
     const applyPortableState = vi.fn()
     const adapter = createLocalDataPersistenceAdapter({
       listAccountUids: () => ['100'], listRetainedAccountUids: () => ['200', '100'],
-      getRepository: vi.fn().mockResolvedValue(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })),
+      getRepository: vi.fn().mockResolvedValue({
+        ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }),
+        workspace: {
+          id: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+          workspaceRef: { workspaceId: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+        },
+        syncRecords: [{ id: 'unknown-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }]
+      }),
       getAccountSettings: () => ({ updatedAt: '2026-07-24T00:00:00.000Z' }), getArchives: () => [], getTranscriptionItems: () => [],
       getAuditEvents: () => [{ id: 'event-1', accountMid: '100', aid: 1, sequence: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }],
-      getWorkspaces: () => [{ id: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [], workspaceRef: { workspaceId: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }, updatedAt: '2026-07-24T00:00:00.000Z' }],
-      getRemoteOperations: () => [{ id: 'unknown-1', commandId: 'command-1', accountMid: '100', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }],
+      getWorkspaces: () => [], getRemoteOperations: () => [],
       applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
     })
 
@@ -109,5 +115,49 @@ describe('local data persistence adapter', () => {
       events: [expect.objectContaining({ id: 'event-1' })],
       recovery: { workspace: expect.objectContaining({ id: 'workspace-1' }), syncRecords: [expect.objectContaining({ id: 'sync-1' })] }
     })
+  })
+
+  it('exports only canonical repository recovery instead of raw workspace and sync records', async () => {
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'],
+      getRepository: vi.fn().mockResolvedValue({
+        ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }),
+        workspace: {
+          id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 2, continuationAids: [],
+          workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 2, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T01:00:00.000Z' },
+          frozenSyncPlan: { id: 'plan-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2, createdAt: '2026-07-24T01:00:00.000Z', operations: [{ operationKey: 'op-1', aid: 1, kind: 'append', folderIds: ['bilimi-logical:music'], beforeFolderIds: ['bilibili:900'] }] }
+        },
+        syncRecords: [{ id: 'sync-1', commandId: 'sync-1', status: 'result-unknown', affectedAids: [1], targetFolderIds: ['bilibili:900', 'bilimi-logical:music'], updatedAt: '2026-07-24T01:00:00.000Z' }]
+      }),
+      getAccountSettings: () => ({ defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt: '2026-07-24T00:00:00.000Z' }), getArchives: () => [], getTranscriptionItems: () => [],
+      getWorkspaces: () => [{ id: 'raw-workspace', accountMid: '100', status: 'scanning', updatedAt: '2026-07-24T02:00:00.000Z', remoteFolderId: 'bilibili:900' }],
+      getRemoteOperations: () => [{ id: 'raw-sync', accountMid: '100', status: 'result-unknown', updatedAt: '2026-07-24T02:00:00.000Z', targetFolderIds: ['bilibili:900'] }],
+      applyPortableBatch: vi.fn(), applyPortableState: vi.fn(), readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+
+    const portable = await adapter.readAccount('100')
+
+    expect(JSON.stringify(portable)).not.toContain('bilibili:900')
+    expect(portable.workspaces).toEqual([expect.objectContaining({ id: 'workspace-1', updatedAt: '2026-07-24T01:00:00.000Z' })])
+    expect(portable.remoteOperations).toEqual([expect.objectContaining({ id: 'sync-1', targetFolderIds: ['bilimi-logical:music'] })])
+  })
+
+  it('selects the newest canonical workspace rather than the last separately merged record', async () => {
+    const applyPortableState = vi.fn()
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'], getRepository: vi.fn(), getAccountSettings: () => ({}), getArchives: () => [], getTranscriptionItems: () => [],
+      applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+    const repository = createFavoriteRepositoryArchiveExport(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }), { generatedAt: '2026-07-24T00:00:00.000Z' })
+    const workspace = (id: string, revision: number, updatedAt: string) => ({
+      id, accountMid: '100', status: 'scanning', baselineRevision: revision, continuationAids: [], updatedAt,
+      workspaceRef: { workspaceId: id, accountMid: '100', status: 'scanning', baselineRevision: revision, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt }
+    })
+
+    await adapter.writePortableState?.({ accounts: {
+      '100': { repository, settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt: '2026-07-24T00:00:00.000Z' }, archives: [], transcription: [], auditEvents: [], remoteOperations: [], workspaces: [workspace('newer', 2, '2026-07-24T02:00:00.000Z'), workspace('older', 1, '2026-07-24T01:00:00.000Z')] }
+    }, sharedSettings: {} }, { mode: 'merge', selectedUids: ['100'] })
+
+    expect(applyPortableState.mock.calls[0]?.[0].repositoryArchives['100'].recovery.workspace).toMatchObject({ id: 'newer', baselineRevision: 2 })
   })
 })

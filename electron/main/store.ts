@@ -132,6 +132,9 @@ function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPre
     ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
       ? { favoriteLibraryCollapsedGroups: Object.fromEntries(Object.entries(candidate.favoriteLibraryCollapsedGroups)
         .filter(([key, value]) => /^[a-z-]+$/u.test(key) && typeof value === 'boolean')) }
+      : {}),
+    ...(typeof candidate.updatedAt === 'string' && Number.isFinite(Date.parse(candidate.updatedAt))
+      ? { updatedAt: new Date(Date.parse(candidate.updatedAt)).toISOString() }
       : {})
   }
 }
@@ -585,12 +588,14 @@ export function loadFavoriteAccountPreferences(
   if (existing) return {
     defaultFavoriteSystemEnabled: existing.defaultFavoriteSystemEnabled,
     favoriteLedgers: normalizeFavoriteLedgers(existing.favoriteLedgers),
-    ...(existing.favoriteLibraryCollapsedGroups ? { favoriteLibraryCollapsedGroups: { ...existing.favoriteLibraryCollapsedGroups } } : {})
+    ...(existing.favoriteLibraryCollapsedGroups ? { favoriteLibraryCollapsedGroups: { ...existing.favoriteLibraryCollapsedGroups } } : {}),
+    ...(existing.updatedAt ? { updatedAt: existing.updatedAt } : {})
   }
 
   const initialized: FavoriteAccountPreferences = {
     defaultFavoriteSystemEnabled: true,
-    favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers)
+    favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
+    updatedAt: new Date().toISOString()
   }
   store.set({ favoriteAccountPreferences: { ...preferences.favoriteAccountPreferences, [account]: initialized } })
   return initialized
@@ -602,7 +607,7 @@ export function saveFavoriteAccountPreferences(
   preferences: FavoriteAccountPreferences
 ) {
   const account = normalizeFavoriteAccountMid(accountMid)
-  const normalized = normalizeFavoriteAccountPreferences(preferences)
+  const normalized = normalizeFavoriteAccountPreferences({ ...preferences, updatedAt: new Date().toISOString() })
   if (!normalized) throw new Error('Favorite account preferences are invalid.')
   const current = loadAssistantPreferences(store)
   store.set({ favoriteAccountPreferences: { ...current.favoriteAccountPreferences, [account]: normalized } })

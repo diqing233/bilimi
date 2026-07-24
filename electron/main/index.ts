@@ -1361,6 +1361,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
             saveFavoriteAccountPreferences(getDesktopStore(), uid, {
               defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
               favoriteLedgers: candidate.favoriteLedgers,
+              ...(typeof candidate.updatedAt === 'string' ? { updatedAt: candidate.updatedAt } : {}),
               ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
                 ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
             })
@@ -1405,6 +1406,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
             accountPreferences[uid] = {
               defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
               favoriteLedgers: candidate.favoriteLedgers,
+              ...(typeof candidate.updatedAt === 'string' ? { updatedAt: candidate.updatedAt } : {}),
               ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
                 ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
             }

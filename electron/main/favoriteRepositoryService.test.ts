@@ -195,6 +195,26 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
   })
 
+  it('applies imported tombstones as authoritative local deletions instead of leaving library rows visible', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '7': { aid: 7, title: 'Deleted import', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      positions: { '100:7': { accountMid: '100', aid: 7, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-24T00:00:00.000Z', revision: 1 } },
+      folders: [...base.folders, { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }],
+      memberships: { ...base.memberships, 'bilimi-logical:music': [7] },
+      tombstones: { '100:7': { accountMid: '100', aid: 7, deletedAt: '2026-07-24T01:00:00.000Z', allowRediscovery: false } }
+    }, { generatedAt: '2026-07-24T01:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: {}, positions: {}, memberships: { 'bilimi-logical:music': [] }, tombstones: { '100:7': expect.any(Object) }
+    })
+  })
+
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

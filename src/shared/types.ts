@@ -234,6 +234,8 @@ export type FavoriteAccountPreferences = {
   favoriteLedgers: FavoriteLedger[]
   /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
   favoriteLibraryCollapsedGroups?: Record<string, boolean>
+  /** Durable conflict-resolution timestamp for portable account settings. */
+  updatedAt?: string
 }
 
 export type AssistantAutomationResult = {

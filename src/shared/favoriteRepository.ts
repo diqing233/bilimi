@@ -134,6 +134,10 @@ function portableWorkspace(workspace: FavoriteRepositoryWorkspace) {
   }
 }
 
+function isPortableLogicalFolderId(folderId: unknown) {
+  return typeof folderId === 'string' && /^bilimi-logical:\S+$/u.test(folderId.trim())
+}
+
 function portableSyncRecord(record: FavoriteRepositorySyncRecord) {
   return {
     ...record,
@@ -840,7 +844,14 @@ function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
     Number.isSafeInteger(workspace.baselineRevision) && Number(workspace.baselineRevision) >= 0 && isValidAidList(workspace.continuationAids) &&
     isWorkspaceRef(workspace.workspaceRef, accountMid, workspace.id, workspace.status as FavoriteRepositoryWorkspace['status'], Number(workspace.baselineRevision)) &&
     (workspace.completionMode === undefined || workspace.completionMode === 'bilibili' || workspace.completionMode === 'local') &&
-    (workspace.frozenSyncPlan === undefined || isFrozenSyncPlan(workspace.frozenSyncPlan, accountMid, workspace.id))
+    (workspace.frozenSyncPlan === undefined || isPortableFrozenSyncPlan(workspace.frozenSyncPlan, accountMid, workspace.id))
+}
+
+function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: string) {
+  if (!isFrozenSyncPlan(value, accountMid, workspaceId)) return false
+  const plan = value as FavoriteRepositoryFrozenSyncPlan
+  return plan.operations.every((operation) => operation.folderIds.every(isPortableLogicalFolderId) &&
+    (operation.beforeFolderIds === undefined || operation.beforeFolderIds.every(isPortableLogicalFolderId)))
 }
 
 function isPortableRecoverySyncRecord(value: unknown) {
@@ -850,7 +861,7 @@ function isPortableRecoverySyncRecord(value: unknown) {
     isSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
     (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
-    (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
+    (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
     (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0))
 }
 

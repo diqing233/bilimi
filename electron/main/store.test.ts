@@ -467,6 +467,17 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('persists a durable timestamp with every favorite-account preference projection', () => {
+    const store = createFakeStore()
+
+    const initialized = loadFavoriteAccountPreferences(store, '100')
+    const saved = saveFavoriteAccountPreferences(store, '100', { ...initialized, defaultFavoriteSystemEnabled: false })
+
+    expect(initialized).toMatchObject({ updatedAt: expect.any(String) })
+    expect(saved).toMatchObject({ defaultFavoriteSystemEnabled: false, updatedAt: expect.any(String) })
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ updatedAt: saved.updatedAt })
+  })
+
   it('saves favorites folder name and preference counts and returns the persisted shape', () => {
     const store = createFakeStore()
 

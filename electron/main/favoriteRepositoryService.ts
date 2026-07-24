@@ -417,7 +417,7 @@ export class FavoriteRepositoryService {
     if ((archive.events ?? []).some((event) => event.accountMid !== archive.accountMid || event.accountMid !== account)) {
       throw new Error('Favorite repository archive event account mismatch.')
     }
-    const commandId = `archive-import:${archive.checksum.toLowerCase()}`
+    const commandId = `archive-import:${mode}:${archive.checksum.toLowerCase()}`
     this.pendingWriteCount++
     return this.queue(async () => {
       const cached = await this.load(account)
@@ -549,6 +549,15 @@ export class FavoriteRepositoryService {
         const key = createFavoriteRepositoryPositionKey(account, tombstone.aid)
         const previous = tombstones[key]
         if (!previous || tombstone.deletedAt >= previous.deletedAt) tombstones[key] = clone(tombstone)
+      }
+      for (const tombstone of Object.values(tombstones)) {
+        const aid = tombstone.aid
+        delete videos[String(aid)]
+        delete positions[createFavoriteRepositoryPositionKey(account, aid)]
+        for (const folderId of Object.keys(memberships)) {
+          memberships[folderId] = (memberships[folderId] ?? []).filter((memberAid) => memberAid !== aid)
+          affectedFolderIds.add(folderId)
+        }
       }
       const physicalShardByKey = new Map((mode === 'overwrite' ? [] : repository.snapshot.physicalShards).map((shard) => [`${shard.logicalLedgerId}:${shard.shardNumber}`, shard]))
       for (const shard of recovery?.physicalShards ?? []) physicalShardByKey.set(`${shard.logicalLedgerId}:${shard.shardNumber}`, clone(shard))

@@ -46,6 +46,29 @@ function recordsForAccount(records: Record<string, unknown>[], accountMid: strin
   return records.filter((record) => record.accountMid === accountMid).map((record) => structuredClone(record))
 }
 
+function portableWorkspaceRecord(value: unknown, accountMid: string) {
+  if (!isRecord(value) || value.accountMid !== accountMid || !isRecord(value.workspaceRef)) return undefined
+  const reference = value.workspaceRef
+  if (typeof value.id !== 'string' || typeof value.status !== 'string' || !Number.isSafeInteger(value.baselineRevision) ||
+    typeof reference.updatedAt !== 'string' || !Number.isFinite(Date.parse(reference.updatedAt))) return undefined
+  return structuredClone(value)
+}
+
+function recoveryTimestamp(value: Record<string, unknown>) {
+  const reference = isRecord(value.workspaceRef) ? value.workspaceRef : undefined
+  return typeof reference?.updatedAt === 'string' ? reference.updatedAt : typeof value.updatedAt === 'string' ? value.updatedAt : ''
+}
+
+function canonicalRecoveryRecords(snapshot: AccountFavoriteRepositorySnapshot, accountMid: string) {
+  const archive = portableRepository(snapshot, [])
+  const workspace = archive.recovery?.workspace
+  const syncRecords = archive.recovery?.syncRecords ?? []
+  return {
+    workspaces: workspace ? [{ ...structuredClone(workspace), updatedAt: workspace.workspaceRef.updatedAt ?? snapshot.updatedAt }] : [],
+    remoteOperations: structuredClone(syncRecords)
+  }
+}
+
 function repositoryArchive(uidValue: string, value: unknown): RepositoryArchive {
   let validated: RepositoryArchive
   try { validated = validateFavoriteRepositoryArchiveExport(value) } catch { throw new Error('Portable repository section is invalid.') }
@@ -67,7 +90,8 @@ function repositoryWithPortableRecovery(
     folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [],
     organizationBatches: [], organizationMigrationInitialized: false, tombstones: []
   }
-  const workspace = workspaces.at(-1)
+  const workspace = workspaces.map((item) => portableWorkspaceRecord(item, uidValue)).filter((item): item is Record<string, unknown> => Boolean(item))
+    .sort((left, right) => recoveryTimestamp(right).localeCompare(recoveryTimestamp(left)) || Number(right.baselineRevision) - Number(left.baselineRevision))[0]
   const next: FavoriteRepositoryArchiveExport = {
     ...repository,
     events: structuredClone(auditEvents) as FavoriteRepositoryArchiveExport['events'],
@@ -94,11 +118,12 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
         dependencies.getAuditEvents?.(accountMid) ?? [], dependencies.getWorkspaces?.(accountMid) ?? [], dependencies.getRemoteOperations?.(accountMid) ?? []
       ])
       if (snapshot.accountMid !== accountMid) throw new Error('Repository account mismatch.')
+      const canonical = canonicalRecoveryRecords(snapshot, accountMid)
       return {
         repository: portableRepository(snapshot, recordsForAccount(auditEvents, accountMid)), settings: structuredClone(settings),
         archives: archives.filter((entry) => entry.source.accountMid === accountMid).map((entry) => structuredClone(entry)),
         transcription: transcription.filter((item) => item.accountMid === accountMid).map((item) => structuredClone(item)),
-        auditEvents: recordsForAccount(auditEvents, accountMid), workspaces: recordsForAccount(workspaces, accountMid), remoteOperations: recordsForAccount(remoteOperations, accountMid)
+        auditEvents: recordsForAccount(auditEvents, accountMid), workspaces: canonical.workspaces, remoteOperations: canonical.remoteOperations
       }
     },
     async writeAccounts(accounts: Record<string, PortableAccountData>) {
