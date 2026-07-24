@@ -69,6 +69,22 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(unfavorite).toHaveBeenCalledTimes(1)
     await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).rejects.toThrow('confirmation')
     await expect(service.reconcileRemoteUnfavorite('100', preview.operationId)).resolves.toMatchObject({ status: 'reconciliation-required' })
+    expect(commit.mock.calls.some((call) => call[1].type === 'record-sync-result' && call[1].payload.status === 'result-unknown')).toBe(true)
+  })
+
+  it('keeps a known remote unfavorite rejection failed and actionable', async () => {
+    const current = snapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit },
+      remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'failed' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1], reason: 'rejected' })) }
+    })
+    const preview = await service.previewRemoteUnfavorite('100', [1], 7)
+    const confirmation = service.confirmRemoteUnfavorite(preview.executionToken)
+
+    await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'failed' })
+    await expect(service.reconcileRemoteUnfavorite('100', preview.operationId)).resolves.toMatchObject({ status: 'failed' })
+    expect(commit.mock.calls.some((call) => call[1].type === 'record-sync-result' && call[1].payload.status === 'failed')).toBe(true)
   })
 
   it('rejects a remote-unfavorite execution whose repository baseline changed after preview', async () => {
@@ -101,7 +117,9 @@ describe('FavoriteRepositoryBatchOperationService', () => {
 
   it('keeps a result-unknown remote outcome while surfacing failed audit persistence', async () => {
     const current = snapshot()
-    const commit = vi.fn().mockRejectedValue(new Error('audit unavailable'))
+    const commit = vi.fn()
+      .mockResolvedValueOnce({ ...current, commandId: 'remote-result', affectedAids: [1], affectedFolderIds: [] })
+      .mockRejectedValueOnce(new Error('audit unavailable'))
     const service = new FavoriteRepositoryBatchOperationService({
       repository: { getSnapshot: vi.fn(async () => current), commit },
       remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'result-unknown' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1] })) }

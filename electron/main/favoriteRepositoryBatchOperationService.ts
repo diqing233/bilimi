@@ -24,7 +24,7 @@ export type FavoriteRemoteUnfavoritePreview = {
   executionToken: string
 }
 
-type PendingRemoteUnfavorite = FavoriteRemoteUnfavoritePreview & { confirmationToken?: string; status: 'previewed' | 'result-unknown' | 'succeeded' }
+type PendingRemoteUnfavorite = FavoriteRemoteUnfavoritePreview & { confirmationToken?: string; status: 'previewed' | 'result-unknown' | 'failed' | 'succeeded' }
 
 function account(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Favorite operation account is invalid.')
@@ -108,7 +108,23 @@ export class FavoriteRepositoryBatchOperationService {
     if (current.revision !== operation.baselineRevision) throw new Error('Favorite remote unfavorite baseline is stale.')
     if (!this.options.remoteUnfavorite) throw new Error('Favorite remote unfavorite is unavailable.')
     const result = await this.options.remoteUnfavorite.unfavorite(operation.accountMid, operation.aids)
-    operation.status = result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
+    const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
+    operation.status = remoteStatus
+    await this.options.repository.commit(operation.accountMid, {
+      id: `favorite-remote-unfavorite:${operation.operationId}`,
+      accountMid: operation.accountMid,
+      issuedAt: this.now(),
+      type: 'record-sync-result',
+      payload: {
+        id: `favorite-remote-unfavorite:${operation.operationId}`,
+        commandId: operation.operationId,
+        status: remoteStatus,
+        affectedAids: operation.aids,
+        updatedAt: this.now(),
+        reason: result.reason,
+        operationKey: 'favorite-library-unfavorite'
+      }
+    })
     const auditStatus = await this.audit(
       operation.accountMid,
       operation.aids,
@@ -123,7 +139,9 @@ export class FavoriteRepositoryBatchOperationService {
     if (!operation || operation.accountMid !== account(accountMid)) throw new Error('Favorite remote unfavorite operation was not found.')
     return operation.status === 'result-unknown'
       ? { status: 'reconciliation-required' as const, operationId, aids: [...operation.aids] }
-      : { status: 'completed' as const, operationId, aids: [...operation.aids] }
+      : operation.status === 'failed'
+        ? { status: 'failed' as const, operationId, aids: [...operation.aids] }
+        : { status: 'completed' as const, operationId, aids: [...operation.aids] }
   }
 
   private async changePlacements(

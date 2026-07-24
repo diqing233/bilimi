@@ -109,6 +109,14 @@ export class FavoriteRepositoryManagedFolderService {
       const auditStatus = await this.audit(operation, 'managed-folder-delete-remote-result-unknown', error instanceof Error ? error.message : String(error))
       return { status: 'result-unknown' as const, operationId: operation.operationId, auditStatus }
     }
+    await this.options.repository.commit(operation.accountMid, {
+      id: `managed-folder:delete-local:${operation.operationId}`,
+      accountMid: operation.accountMid,
+      issuedAt: this.now(),
+      expectedRevision: snapshot.revision,
+      type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: operation.logicalFolderId }
+    })
     operation.status = 'succeeded'
     const auditStatus = await this.audit(operation, 'managed-folder-delete-remote')
     return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus }
