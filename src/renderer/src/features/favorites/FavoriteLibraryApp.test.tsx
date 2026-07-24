@@ -876,7 +876,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('已扫描视频'))
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('本地镜像')
+    expect(screen.getByRole('button', { name: '同步状态说明' })).toBeInTheDocument()
     expect(detail).toHaveTextContent('已同步')
     expect(detail).toHaveTextContent('转写完成')
     expect(detail).toHaveTextContent('已入档')
@@ -887,6 +887,29 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '档案备注' }), { target: { value: '新备注' } })
     fireEvent.click(screen.getByRole('button', { name: '保存备注' }))
     await waitFor(() => expect(saveFavoriteLibraryArchiveMemo).toHaveBeenCalledWith('100', 1, '新备注', 70))
+  })
+
+  it('groups a selected video into compact detail sections without legacy scan fragments', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, cid: 70, bvid: 'BV1xx', title: '结构化详情', author: 'UP 主', tags: ['音乐'], favoriteAt: '2026-07-20T08:00:00.000Z', updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, cid: 70, bvid: 'BV1xx', title: '结构化详情', author: 'UP 主', tags: ['音乐'], favoriteAt: '2026-07-20T08:00:00.000Z', updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], position: { state: 'synced', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-20T00:00:00.000Z' }, mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('结构化详情'))
+
+    const detail = await screen.findByRole('complementary')
+    expect(detail).toHaveTextContent('来源与时间')
+    expect(detail).toHaveTextContent('音频与档案')
+    expect(detail).toHaveTextContent('BV1xx')
+    expect(detail).toHaveTextContent('分P CID：70')
+    expect(detail).not.toHaveTextContent('本地镜像')
+    expect(detail).not.toHaveTextContent('视频来源')
+    expect(detail).not.toHaveTextContent('来源分册')
+    expect(detail).not.toHaveTextContent('扫描信息')
   })
 
   it('renders pending reasons in Chinese instead of repository enum values', async () => {

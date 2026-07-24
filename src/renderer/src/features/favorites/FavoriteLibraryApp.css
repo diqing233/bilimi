@@ -87,14 +87,16 @@
 .favorite-library__detail, .favorite-library__detail-restore { min-width: 0; padding: 12px; border-left: 1px solid #dbe7f7; overflow: auto; }.favorite-library__detail h2 { overflow-wrap: anywhere; }
 .favorite-library__detail-restore { display: grid; place-items: start center; align-content: start; padding-top: 18px; }
 .favorite-library__detail-restore button { padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; }
-.favorite-library__detail-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }.favorite-library__detail-title h2 { margin: 0; }
+.favorite-library__detail-title, .favorite-library__detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }.favorite-library__detail-title h2, .favorite-library__detail-heading h2 { margin: 0; }
 .favorite-library__status-tags { display: flex; flex-wrap: wrap; gap: 5px; }.favorite-library__status-tags button, .favorite-library__inline-action { float: none; padding: 3px 6px; border: 1px solid #cbdcf5; border-radius: 999px; background: #fff; font-size: 12px; }
 .favorite-library[data-embedded='true'] .favorite-library__nav, .favorite-library[data-embedded='true'] .favorite-library__detail { min-height: 0; }
-.favorite-library__detail button { float: right; padding: 5px 7px; color: #2563eb; }.favorite-library__detail ul { padding-left: 18px; }
+.favorite-library__detail button { padding: 5px 7px; color: #2563eb; }.favorite-library__detail ul { padding-left: 18px; }
 .favorite-library__detail section { clear: both; margin: 14px 0; }
 .favorite-library__detail section h3 { margin: 0 0 5px; font-size: 15px; }
 .favorite-library__detail section p { margin: 0; color: #64748b; }
 .favorite-library__detail .favorite-library__open-video { float: none; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; }
+.favorite-library__detail-heading-actions, .favorite-library__detail-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.favorite-library__detail-danger { padding: 8px; border: 1px solid #f0b6a8; border-radius: 8px; background: #fff9f7; }
 .favorite-library__tags { margin: 8px 0 0; color: #475569; font-size: 13px; overflow-wrap: anywhere; }
 .favorite-library__description { overflow-wrap: anywhere; }
 .favorite-library__description .favorite-library__inline-action { margin-left: 6px; }
