@@ -265,7 +265,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByText('视频 #2：失败（managed target is unbound）')).toBeInTheDocument()
   })
   it('sets one final local placement for every selected video from the compact batch picker', async () => {
-    const setFavoriteLibraryLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 3, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 2, folderCount: 2, folders: [{ id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }, { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 2, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -273,25 +273,25 @@ describe('FavoriteLibraryApp', () => {
         { video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] },
         { video: { aid: 2, title: '视频二', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:games'], pendingStates: [] }
       ] }),
-      setFavoriteLibraryLocalPlacements,
+      copyFavoriteLibrarySelection,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频二' }))
-    fireEvent.click(screen.getByRole('button', { name: '调整所选本地归属' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制至' }))
 
-    expect(screen.getByText(/将调整 2 个所选视频/)).toBeInTheDocument()
-    expect(screen.getByText('最终本地归属：未匹配分类')).toBeInTheDocument()
+    expect(screen.getByText(/将复制 2 个所选视频/)).toBeInTheDocument()
+    expect(screen.getByText('新增本地归属：未匹配分类；原有归属保持不变。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '游戏' }))
-    expect(screen.getByText('最终本地归属：游戏')).toBeInTheDocument()
+    expect(screen.getByText('新增本地归属：游戏；原有归属保持不变。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '保存本地归属' }))
 
-    await waitFor(() => expect(setFavoriteLibraryLocalPlacements).toHaveBeenCalledWith('100', [
-      { aid: 1, folderIds: ['bilimi-logical:games'] },
-      { aid: 2, folderIds: ['bilimi-logical:games'] }
-    ], 3, false))
+    await waitFor(() => expect(copyFavoriteLibrarySelection).toHaveBeenCalledWith(
+      '100', [1, 2], ['bilimi-logical:games'], 3, expect.any(Object)
+    ))
   })
   it('previews final multi-folder local placement and submits optional remote sync only when checked', async () => {
     const setFavoriteLibraryLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -481,7 +481,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1, 2], 5, expect.any(Object)))
     expect(deleteFavoriteLibrarySelection).toHaveBeenCalledTimes(1)
     expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.getByRole('button', { name: '调整所选本地归属' })).toBeDisabled())
+    await waitFor(() => expect(screen.getByText('已选 0 项')).toBeInTheDocument())
     expect(getFavoriteRepositoryLibraryPage.mock.calls.length).toBeGreaterThan(1)
   })
   it('uses the additive copy and current-work-folder-only move contracts for batch placement', async () => {
@@ -738,6 +738,7 @@ describe('FavoriteLibraryApp', () => {
     expect(root).toHaveAttribute('data-embedded', 'true')
     expect(root.querySelector('.favorite-library__header')).not.toBeInTheDocument()
     expect(root.querySelector('.favorite-library__layout')).toHaveAttribute('data-embedded-layout', 'true')
+    expect(await screen.findByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
     expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
     expect(root.children[0]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
@@ -781,7 +782,8 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
 
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
-    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('收藏库操作失败。')
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
@@ -845,8 +847,9 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('checkbox', { name: '全选当前页' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页' }))
     expect(screen.getByText('已选 2 项')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    expect(screen.getByRole('button', { name: '刷新所选信息' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1, 2] }))
   })
 
@@ -1039,9 +1042,11 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     await screen.findByText('One')
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
-    fireEvent.click(screen.getByRole('button', { name: '将所选加入转写队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入转写队列' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
-    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
   })
 
@@ -1075,15 +1080,16 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, cursor: 'next-all-page' }))
     expect(screen.getByRole('button', { name: '上一页' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: /All video/ }))
-    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    expect(screen.getByRole('button', { name: '刷新所选信息' })).toBeInTheDocument()
     fireEvent.click(screen.getByText('All video'))
     expect(await screen.findByRole('complementary')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
 
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '上一页' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeDisabled()
-    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新所选信息' })).toBeDisabled()
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
   })
 
   it('clears the prior account and rebinds when a repository revision observes an account switch', async () => {

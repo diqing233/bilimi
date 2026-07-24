@@ -887,7 +887,7 @@ export function FavoriteLibraryApp({
                 if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
                 const result = await api.executeFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken, confirmation.confirmationToken) as { status?: string; operationId?: string } | undefined
                 if (result?.status === 'result-unknown') {
-                  setRemoteReconciliation({ kind: 'managed-folder', operationId: result.operationId ?? preview.executionToken })
+                  setRemoteReconciliations((current) => [...current, { kind: 'managed-folder', operationId: result.operationId ?? preview.executionToken }])
                   return
                 }
               }
@@ -942,32 +942,19 @@ export function FavoriteLibraryApp({
                 baselineRevision: preview.baselineRevision
               })
             })().catch(() => setError(text.actionFailed))
+          }} pageSize={pageSize} onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize)
+            cursorHistoryRef.current = []
+            setCursorHistory([])
+            if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
           }}>
             {batchEligibilityNotice ? <p role="status" className="favorite-library__batch-eligibility">{batchEligibilityNotice}</p> : null}
-            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
-              const api = window.bilimiDesktop
-              if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
-              return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
-            })} aria-label="刷新当前选择">{(allSelectedSynced ? '\u91cd\u65b0' : '') + text.syncSelected}</button>
-            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => openSelectedPlacementPicker()} aria-expanded={placementPickerOpen && placementPickerBatch}>调整所选本地归属</button>
             {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid || !currentFolderId) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, { kind: 'folder', folderId: currentFolderId })
             })}>{text.syncFolder}</button> : null}
-            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
-              const api = window.bilimiDesktop
-              if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
-              return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
-            })} aria-label="将所选加入转写队列">{text.transcription}</button>
             {placementPickerOpen && placementPickerBatch ? renderPlacementPicker() : null}
-            <label className="favorite-library__page-size">每页<select aria-label="每页数量" value={pageSize} onChange={(event) => {
-              const nextPageSize = Number(event.currentTarget.value) as 25 | 50 | 100
-              setPageSize(nextPageSize)
-              cursorHistoryRef.current = []
-              setCursorHistory([])
-              if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
-            }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
           </FavoriteLibraryToolbar>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
@@ -983,8 +970,8 @@ export function FavoriteLibraryApp({
             )}
           />
         </section>
-        {detail ? (
-          <FavoriteLibraryDetail title={detail.title} collapsed={!detailOpen} onRestore={() => setDetailOpen(true)} onCollapse={() => setDetailOpen(false)}>
+        <FavoriteLibraryDetail title={detail?.title} collapsed={Boolean(detail && !detailOpen)} onRestore={() => setDetailOpen(true)} onCollapse={() => setDetailOpen(false)}>
+          {detail ? <>
             {eventsOpen ? <section className="favorite-library__detail-history" aria-label="完整处理记录">
               <h2>完整处理记录</h2>
               <ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {event.occurredAt}</li>)}</ol>
@@ -1044,9 +1031,8 @@ export function FavoriteLibraryApp({
               await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft, detailSnapshot?.video.cid)
             })}>{text.saveMemo}</button></> : null}</section>
             {detail.pendingStates.length ? <p>{text.pendingStates}{formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p> : null}
-            </>}
-          </FavoriteLibraryDetail>
-        ) : null}
+            </>}</> : null}
+        </FavoriteLibraryDetail>
       </div>
       <FavoriteLibraryFooter
         hasPreviousPage={cursorHistory.length > 0}

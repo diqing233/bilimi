@@ -45,6 +45,7 @@ function isVisible(element: HTMLElement) {
 
 export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedChange }: FavoriteLibraryDrawerProps) {
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
+  const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const hasBeenOpenedRef = useRef(open)
@@ -76,6 +77,17 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
 
   if (!hasBeenOpenedRef.current) {
     return null
+  }
+
+  const maximized = heightBeforeMaximize !== undefined
+  const toggleMaximumHeight = () => {
+    if (maximized) {
+      setHeight(clampHeight(heightBeforeMaximize))
+      setHeightBeforeMaximize(undefined)
+      return
+    }
+    setHeightBeforeMaximize(height)
+    setHeight(maximumHeight())
   }
 
   return (
@@ -131,10 +143,14 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
       />
       <header className="favorite-library-drawer__header">
         <div className="favorite-library-drawer__title">
-          <strong>收藏库</strong>
-          {account ? <span>{`当前账号：${account.nickname ?? ''}${account.nickname ? '（' : ''}UID：${account.mid}${account.nickname ? '）' : ''}`}</span> : null}
+          <span className="favorite-library-drawer__brand-mark" aria-hidden="true">米</span>
+          <strong>小咪收藏库</strong>
+          {account ? <span>{account.nickname ?? `UID：${account.mid}`}</span> : null}
         </div>
         <div className="favorite-library-drawer__actions">
+          <button type="button" aria-label={maximized ? '恢复高度' : '拉到最高'} title={maximized ? '恢复高度' : '拉到最高'} onClick={toggleMaximumHeight}>
+            {maximized ? '恢复高度' : '拉到最高'}
+          </button>
           <button
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}
