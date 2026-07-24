@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FavoriteRepositoryFolder } from '@shared/favoriteRepository'
+import { determineFavoriteOperationEligibility } from '@shared/favoriteLibraryOperations'
 import type {
   FavoriteRepositoryLibraryPage,
   FavoriteRepositoryLibraryVideoDetail,
@@ -626,6 +627,15 @@ export function FavoriteLibraryApp({
   const currentLogicalFolderId = currentFolderId && folders.find((folder) => folder.id === currentFolderId)?.kind === 'bilimi-logical'
     ? currentFolderId
     : undefined
+  const sourceEligibility = useMemo(() => determineFavoriteOperationEligibility({
+    source: currentFolderId ? { kind: 'folder', folderId: currentFolderId } : { kind: 'virtual', label: scope.kind },
+    aids: selectedAids,
+    folders
+  }), [currentFolderId, folders, scope.kind, selectedAids])
+  const batchAllowedActions = useMemo(() => {
+    if (sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder') return ['copy'] as const
+    return ['copy', 'move', 'refresh', 'transcribe', 'sync', 'delete-local', 'unfavorite-remote'] as const
+  }, [sourceEligibility.sourceScopeKind])
   const currentLogicalFolderAids = currentLogicalFolderId
     ? [...new Set(rows.filter((row) => row.folderIds.includes(currentLogicalFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
     : []
@@ -816,7 +826,7 @@ export function FavoriteLibraryApp({
         }} />
         {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
-          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!selectedAids.length} onBatchAction={(action) => {
+          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!selectedAids.length} allowedActions={[...batchAllowedActions]} onBatchAction={(action) => {
             uiCallbacks?.onBatchAction?.(action, [...selectedAids])
             if (action === 'copy' || action === 'move') openSelectedPlacementPicker(action)
             if (action === 'refresh') void runAction(async () => {
