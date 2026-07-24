@@ -474,6 +474,25 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
+  it('uses the favorite library brand mark instead of the backup portrait', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn(),
+      openFavoriteLibrary: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    const backupIcon = screen.getByRole('button', { name: '备册' }).querySelector('img')
+    const libraryEntry = screen.getByRole('button', { name: '收藏库' })
+    expect(backupIcon).toBeInTheDocument()
+    expect(libraryEntry.querySelector('img')).not.toBeInTheDocument()
+    expect(libraryEntry.querySelector('[data-testid="favorite-library-entry-mark"]')).toHaveTextContent('米')
+  })
+
   it('opens the organize guide without changing the independent library entry', async () => {
     const command = vi.fn()
     const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)

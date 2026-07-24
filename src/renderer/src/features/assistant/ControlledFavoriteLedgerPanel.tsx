@@ -288,7 +288,7 @@ export function ControlledFavoriteLedgerPanel({
             onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
             label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
-            onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={clickedPetUrl} iconAlt="小咪收藏库" badge="库"
+            onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} iconMark="米" badge="库"
             label="收藏库" description="在独立窗口浏览收藏库" />
         </div>
       </div>
