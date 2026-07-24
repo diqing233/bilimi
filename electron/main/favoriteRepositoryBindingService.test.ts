@@ -405,4 +405,145 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] })).rejects.toThrow('folder limit')
     expect(createFolder).not.toHaveBeenCalled()
   })
+
+  it('adopts one exact existing remote shard without mutating the remote folder', async () => {
+    const repository = await createRepository()
+    const bind = vi.fn().mockResolvedValue(undefined)
+    const release = vi.fn()
+    const createFolder = vi.fn()
+    const append = vi.fn()
+    const remove = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind, release,
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: '4070414411', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }]
+          }),
+          createFolder, append, remove, readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'bilimi\u00b7\u5de5\u4f5c\u5939',
+      remoteDisplayTitle: 'bilimi\u00b7\u6682\u5b58', expectedRemoteTitle: 'bilimi\u00b7\u6682\u5b58',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: [9, 3, 9]
+    })).resolves.toEqual({
+      logicalLedgers: [{ id: 'inbox', title: 'bilimi\u00b7\u5de5\u4f5c\u5939', syncState: 'bound' }],
+      shards: [{
+        logicalLedgerId: 'inbox', folderId: 'bilimi:inbox:001', shardNumber: 1,
+        remoteFolderId: '4070414411', remoteTitle: 'bilimi\u00b7\u6682\u5b58',
+        bindingState: 'bound', remoteMemberCount: 7
+      }]
+    })
+    expect(bind).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-adoption:/))
+    expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-adoption:/))
+    expect(createFolder).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing remote id', { id: 'different', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }, 'absent'],
+    ['wrong remote id', { id: '4070414411', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }, 'absent'],
+    ['title mismatch', { id: '4070414411', title: 'other', memberCount: 7 }, 'title']
+  ])('does not persist an adoption when the remote folder is %s', async (_caseName, folder, error) => {
+    const repository = await createRepository()
+    const remoteFolderId = _caseName === 'wrong remote id' ? 'missing' : '4070414411'
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [folder] }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Staging', expectedRemoteTitle: 'bilimi\u00b7\u6682\u5b58',
+      remoteFolderId, shardNumber: 1, memberAids: []
+    })).rejects.toThrow(error)
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
+  })
+
+  it('does not persist an adoption observed under another account', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '200', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Staging', expectedRemoteTitle: 'Staging',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('account mismatch')
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
+  })
+
+  it('does not replace conflicting bindings while adopting an existing remote shard', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    await service.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteFolderId: '4070414411',
+      observedAccountMid: '100', inventory: [{ id: '4070414411', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    const before = await service.getBindings('100')
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Staging', expectedRemoteTitle: 'Staging',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('already bound')
+    expect(await service.getBindings('100')).toEqual(before)
+  })
+
+  it('does not replace a logical shard bound to another remote id during adoption', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    await service.preparePhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', shardNumber: 1, memberAids: [], remoteFolderId: 'old-inbox',
+      observedAccountMid: '100', inventory: [{ id: 'old-inbox', title: 'B-inbox-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    const before = await service.getBindings('100')
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Staging', expectedRemoteTitle: 'Staging',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('conflicts')
+    expect(await service.getBindings('100')).toEqual(before)
+  })
 })

@@ -24,6 +24,16 @@ export type PreparePhysicalShardInput = {
   inventory: FavoriteRepositoryRemoteFolderInventory[]
 }
 
+export type AdoptExistingPhysicalShardInput = {
+  logicalLedgerId: string
+  logicalTitle: string
+  remoteDisplayTitle?: string
+  expectedRemoteTitle?: string
+  remoteFolderId: string
+  shardNumber: number
+  memberAids: number[]
+}
+
 export type FavoriteRepositoryBindingSnapshot = {
   logicalLedgers: Array<{ id: string; title: string; syncState: 'bound' | 'pending-reconcile' }>
   shards: Array<{
@@ -104,6 +114,23 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
   return { logicalLedgerId, logicalTitle, memberAids, remoteFolderId, title, inventory, remote }
 }
 
+function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
+  const logicalLedgerId = input.logicalLedgerId.trim()
+  const logicalTitle = input.logicalTitle.trim()
+  const remoteFolderId = input.remoteFolderId.trim()
+  const expectedRemoteTitle = input.expectedRemoteTitle?.trim() || input.remoteDisplayTitle?.trim()
+  if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !expectedRemoteTitle ||
+    !Number.isSafeInteger(input.shardNumber) || input.shardNumber < 1 ||
+    !Array.isArray(input.memberAids) || input.memberAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
+    throw new Error('Favorite repository shard adoption is invalid.')
+  }
+  const memberAids = [...new Set(input.memberAids)].sort((left, right) => left - right)
+  if (memberAids.length > REMOTE_FAVORITE_SHARD_CAPACITY) {
+    throw new Error('Favorite repository shard capacity is exceeded.')
+  }
+  return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids }
+}
+
 function bindingSnapshot(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryBindingSnapshot {
   const logicalLedgers = snapshot.folders
     .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
@@ -143,6 +170,71 @@ export class FavoriteRepositoryBindingService {
     const account = normalizedAccountMid(accountMid)
     const bindingToken = this.options.newBindingToken?.().trim() || randomUUID()
     return this.preparePhysicalShardWithToken(account, input, bindingToken)
+  }
+
+  async adoptExistingPhysicalShard(accountMid: string, input: AdoptExistingPhysicalShardInput) {
+    const account = normalizedAccountMid(accountMid)
+    return this.options.remoteOperations?.run(account, () => this.adoptExistingPhysicalShardUnsafe(account, input)) ??
+      this.adoptExistingPhysicalShardUnsafe(account, input)
+  }
+
+  private async adoptExistingPhysicalShardUnsafe(account: string, input: AdoptExistingPhysicalShardInput) {
+    const pageBridgeManager = this.options.pageBridgeManager
+    if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+    const normalized = normalizeAdoptionInput(input)
+    const runId = `favorite-adoption:${normalized.logicalLedgerId}:${normalized.shardNumber}:${randomUUID()}`
+    await pageBridgeManager.bind(account, runId)
+    try {
+      const bridge = pageBridgeManager.pageBridge(account, runId)
+      let inventory
+      try {
+        inventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:inventory` })
+      } catch {
+        throw new Error('Favorite repository remote folder inventory is unavailable.')
+      }
+      if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+        throw new Error('Favorite repository remote account mismatch.')
+      }
+      // Adoption is deliberately ID-only: duplicate names must never affect the target.
+      const matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+      if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
+      const remote = matches[0]
+      if (remote.title !== normalized.expectedRemoteTitle) {
+        throw new Error('Favorite repository remote shard title is invalid.')
+      }
+      if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||
+        remote.memberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
+        throw new Error('Favorite repository remote shard inventory is invalid.')
+      }
+      const snapshot = await this.options.repository.getSnapshot(account)
+      const remoteConflict = snapshot.physicalShards.find((shard) =>
+        shard.remoteFolderId === normalized.remoteFolderId &&
+        (shard.logicalLedgerId !== normalized.logicalLedgerId || shard.shardNumber !== input.shardNumber))
+      if (remoteConflict) throw new Error('Favorite repository remote shard is already bound.')
+      const targetConflict = snapshot.physicalShards.find((shard) =>
+        shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
+        shard.remoteFolderId && shard.remoteFolderId !== normalized.remoteFolderId)
+      if (targetConflict) throw new Error('Favorite repository logical shard conflicts with another remote id.')
+      await this.options.repository.commit(account, {
+        id: `favorite-adoption:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}`,
+        accountMid: account,
+        issuedAt: this.now(),
+        type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: normalized.logicalLedgerId,
+          logicalTitle: normalized.logicalTitle,
+          shardNumber: input.shardNumber,
+          memberAids: normalized.memberAids,
+          remoteTitle: remote.title,
+          bindingState: 'bound',
+          remoteFolderId: normalized.remoteFolderId,
+          remoteMemberCount: remote.memberCount
+        }
+      })
+      return this.getBindings(account)
+    } finally {
+      pageBridgeManager.release(account, runId)
+    }
   }
 
   private async preparePhysicalShardWithToken(account: string, input: PreparePhysicalShardInput, bindingToken: string) {
