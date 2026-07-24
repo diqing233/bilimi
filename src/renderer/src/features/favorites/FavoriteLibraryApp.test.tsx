@@ -415,6 +415,29 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(getFavoriteRepositoryVideoEvents).toHaveBeenCalledWith('100', 1, { limit: 20 }))
     expect(screen.getAllByText(/manual-move/)).not.toHaveLength(0)
   })
+  it('discards a delayed timeline response after the selected video changes', async () => {
+    let resolveEvents: ((value: { version: 1; accountMid: string; revision: number; items: Array<{ id: string; sequence: number; accountMid: string; aid: number; kind: string; occurredAt: string }> }) => void) | undefined
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 2, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [
+        { video: { aid: 1, title: 'First video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] },
+        { video: { aid: 2, title: 'Second video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }
+      ] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn(async (_account, aid) => ({ video: { aid, title: aid === 1 ? 'First video' : 'Second video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } })),
+      getFavoriteRepositoryVideoEvents: vi.fn(() => new Promise((resolve) => { resolveEvents = resolve })),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('First video'))
+    fireEvent.click(await screen.findByRole('button', { name: '查看完整处理记录' }))
+    fireEvent.click(await screen.findByText('Second video'))
+    await act(async () => {
+      resolveEvents?.({ version: 1, accountMid: '100', revision: 1, items: [{ id: 'old-event', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:00:00.000Z' }] })
+      await Promise.resolve()
+    })
+    expect(screen.queryByText(/manual-move/)).not.toBeInTheDocument()
+  })
   it('loads a subsequent event page without replaying the first page', async () => {
     const getFavoriteRepositoryVideoEvents = vi.fn()
       .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 1, items: [{ id: 'event-2', sequence: 2, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:00:00.000Z' }], nextCursor: '2:event-2' })

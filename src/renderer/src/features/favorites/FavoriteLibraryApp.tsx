@@ -179,6 +179,7 @@ export function FavoriteLibraryApp({
     operationId: string
   }>()
   const requestIdRef = useRef(0)
+  const selectedAidRef = useRef<number>()
 
   useEffect(() => {
     onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
@@ -265,6 +266,7 @@ export function FavoriteLibraryApp({
   }, [accountMid, refresh, scope])
 
   useEffect(() => {
+    selectedAidRef.current = selected?.aid
     let disposed = false
     setDetailSnapshot(undefined)
     setEvents(undefined)
@@ -359,9 +361,11 @@ export function FavoriteLibraryApp({
   }
   const loadEvents = async () => {
     if (!accountMid || !selected || !window.bilimiDesktop?.getFavoriteRepositoryVideoEvents) throw new Error(text.unavailable)
+    const selectedAid = selected.aid
     try {
       setError(undefined)
-      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selected.aid, { limit: 20 })
+      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selectedAid, { limit: 20 })
+      if (selectedAid !== selectedAidRef.current) return
       setEvents(next)
       setEventsOpen(true)
     } catch {
@@ -370,9 +374,12 @@ export function FavoriteLibraryApp({
   }
   const loadMoreEvents = async () => {
     if (!accountMid || !selected || !events?.nextCursor || !window.bilimiDesktop?.getFavoriteRepositoryVideoEvents) return
+    const selectedAid = selected.aid
+    const cursor = events.nextCursor
     try {
-      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selected.aid, { limit: 20, cursor: events.nextCursor })
-      setEvents((current) => current ? {
+      const next = await window.bilimiDesktop.getFavoriteRepositoryVideoEvents(accountMid, selectedAid, { limit: 20, cursor })
+      if (selectedAid !== selectedAidRef.current) return
+      setEvents((current) => current && selectedAid === selectedAidRef.current ? {
         ...next,
         items: [...current.items, ...next.items.filter((event) => !current.items.some((existing) => existing.id === event.id))]
       } : next)
