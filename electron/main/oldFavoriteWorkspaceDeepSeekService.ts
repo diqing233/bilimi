@@ -27,6 +27,7 @@ type WorkspaceExpectation = {
 
 type ActiveDeepSeekRun = {
   cancelRequested: boolean
+  work?: Promise<OldFavoriteWorkspaceDeepSeekResult>
 }
 
 function multiArchiveLimit(mode: FavoriteArchiveMultiMode) {
@@ -39,6 +40,7 @@ function uniqueTargets(targets: string[]) {
 
 /** Builds, validates, and applies a DeepSeek batch entirely in the main process. */
 export class OldFavoriteWorkspaceDeepSeekService {
+  private destructiveMaintenance = false
   private readonly failedRuns = new Map<string, { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }>()
   private readonly activeRuns = new Map<string, ActiveDeepSeekRun>()
 
@@ -80,17 +82,32 @@ export class OldFavoriteWorkspaceDeepSeekService {
     return true
   }
 
+  /** Fences future organization and waits for each in-flight request to relinquish ownership. */
+  async quiesceForDestructiveMaintenance() {
+    this.destructiveMaintenance = true
+    this.failedRuns.clear()
+    for (const run of this.activeRuns.values()) run.cancelRequested = true
+    while (this.activeRuns.size) {
+      await Promise.allSettled([...this.activeRuns.values()].map((run) => run.work ?? Promise.resolve()))
+    }
+  }
+
   private async runOrganize(
     accountMid: string,
     mode: DeepSeekArchiveMode,
     retry: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] } | undefined,
     onProgress: ((progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void) | undefined
   ) {
+    if (this.destructiveMaintenance) {
+      throw new Error('DeepSeek organization is unavailable during destructive maintenance.')
+    }
     if (this.activeRuns.has(accountMid)) throw new Error('DeepSeek is already organizing this old favorite segment.')
     const run: ActiveDeepSeekRun = { cancelRequested: false }
     this.activeRuns.set(accountMid, run)
     try {
-      return await this.organize(accountMid, mode, retry, onProgress, run)
+      const work = this.organize(accountMid, mode, retry, onProgress, run)
+      run.work = work
+      return await work
     } finally {
       if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
     }
@@ -254,6 +271,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
+    if (this.destructiveMaintenance) {
+      return this.result(snapshot, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, true)
+    }
     if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested))
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,

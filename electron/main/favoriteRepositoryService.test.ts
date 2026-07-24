@@ -47,6 +47,20 @@ describe('FavoriteRepositoryService', () => {
     })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
   })
 
+  it('searches video descriptions before globally paginating the library', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, description] of [[1, 'first page'], [2, 'needle in description']] as const) {
+      await service.commit('100', {
+        id: `description-row-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, description, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 2 } }] })
+  })
+
   it('persists portable audit history, workspace recovery, and reconciliation records in the canonical archive', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

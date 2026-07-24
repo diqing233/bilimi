@@ -48,6 +48,8 @@ function tagReadFailureReason(result: RuntimeInventoryResult) {
 
 /** Runs a fixed, read-only inventory against the explicitly bound Bilibili tab. */
 export class OldFavoriteWorkspaceScanService {
+  private destructiveMaintenance = false
+  private readonly activeWork = new Set<Promise<unknown>>()
   private readonly activeScans = new Map<string, {
     mode: OldFavoriteWorkspaceMode
     snapshot: Promise<OldFavoriteWorkspaceSnapshot>
@@ -70,6 +72,31 @@ export class OldFavoriteWorkspaceScanService {
     wait?: (milliseconds: number) => Promise<void>
     random?: () => number
   }) {}
+
+  private track<T>(work: Promise<T>) {
+    this.activeWork.add(work)
+    void work.finally(() => this.activeWork.delete(work))
+    return work
+  }
+
+  private assertAcceptingWork() {
+    if (this.destructiveMaintenance) {
+      throw new Error('Old favorite workspace scan is unavailable during destructive maintenance.')
+    }
+  }
+
+  /** Fences new work and waits until every invalidated read has settled. */
+  async quiesceForDestructiveMaintenance() {
+    this.destructiveMaintenance = true
+    this.activeScans.clear()
+    this.enrichmentRuns.clear()
+    while (this.activeWork.size) {
+      const pending = [...this.activeWork]
+      await Promise.allSettled(pending)
+      // `finally` removes each tracked promise on the next microtask.
+      await Promise.resolve()
+    }
+  }
 
   private request(accountMid: string, request: RuntimeRequest) {
     const work = () => this.options.requestRuntime(request)
@@ -95,6 +122,7 @@ export class OldFavoriteWorkspaceScanService {
   }
 
   async start(accountMid: string, mode: OldFavoriteWorkspaceMode, options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
+    this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     if (mode === 'full') this.options.cancelDeepSeek?.(account)
@@ -104,8 +132,8 @@ export class OldFavoriteWorkspaceScanService {
     if (active && mode !== 'full' && (active.mode === mode || active.mode === 'full')) return active.snapshot
 
     let run!: { mode: OldFavoriteWorkspaceMode; snapshot: Promise<OldFavoriteWorkspaceSnapshot> }
-    const isCurrent = () => this.activeScans.get(account) === run
-    const snapshot = this.begin(account, mode, isCurrent, options)
+    const isCurrent = () => !this.destructiveMaintenance && this.activeScans.get(account) === run
+    const snapshot = this.track(this.begin(account, mode, isCurrent, options))
     run = { mode, snapshot }
     this.activeScans.set(account, run)
     void snapshot.catch(() => {
@@ -118,8 +146,9 @@ export class OldFavoriteWorkspaceScanService {
     const snapshot = options?.clearBilibiliMirror
       ? await this.options.coordinator.beginScan(accountMid, mode, { clearBilibiliMirror: true })
       : await this.options.coordinator.beginScan(accountMid, mode)
+    if (!isCurrent()) return snapshot
     const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
-    void this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId).finally(() => {
+    void this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId)).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
@@ -127,14 +156,15 @@ export class OldFavoriteWorkspaceScanService {
 
   /** Explicitly resumes an existing durable scan lease; construction never starts or resumes work. */
   async resume(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     const active = this.activeScans.get(account)
     if (active) return active.snapshot
 
     let run!: { mode: OldFavoriteWorkspaceMode; snapshot: Promise<OldFavoriteWorkspaceSnapshot> }
-    const isCurrent = () => this.activeScans.get(account) === run
-    const snapshot = this.resumeExisting(account, isCurrent)
+    const isCurrent = () => !this.destructiveMaintenance && this.activeScans.get(account) === run
+    const snapshot = this.track(this.resumeExisting(account, isCurrent))
     run = { mode: 'incremental', snapshot }
     this.activeScans.set(account, run)
     void snapshot.catch(() => {
@@ -145,6 +175,7 @@ export class OldFavoriteWorkspaceScanService {
 
   private async resumeExisting(accountMid: string, isCurrent: () => boolean) {
     const snapshot = await this.options.coordinator.resumeScan(accountMid)
+    if (!isCurrent()) return snapshot
     const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
     const resumeState = await this.options.coordinator.getScanResumeState(accountMid) as PersistedScanResumeState
     if (resumeState.runId !== runId) throw new Error('Old favorite workspace scan lease changed while resuming.')
@@ -153,7 +184,7 @@ export class OldFavoriteWorkspaceScanService {
     const completedPages = new Map(resumeState.completedPages
       .filter((page) => typeof page.hasMore === 'boolean')
       .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
-    void this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids)).finally(() => {
+    void this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids))).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
@@ -257,8 +288,9 @@ export class OldFavoriteWorkspaceScanService {
       }
       if (!isCurrent()) return
       await this.options.coordinator.finishScan(accountMid, runId)
+      if (!isCurrent()) return
       if (workspaceId && typeof this.options.coordinator.getPendingTagEnrichmentAids === 'function') {
-        void this.runTagEnrichment(accountMid, binding.target, workspaceId, taggedAids)
+        void this.startTagEnrichment(accountMid, binding.target, workspaceId, taggedAids)
       }
     } catch {
       if (!isCurrent()) return
@@ -267,6 +299,7 @@ export class OldFavoriteWorkspaceScanService {
   }
 
   async resumeTagEnrichment(accountMid: string) {
+    this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     await this.options.coordinator.resumeTagEnrichment(account)
@@ -275,10 +308,11 @@ export class OldFavoriteWorkspaceScanService {
       return
     }
     const snapshot = await this.options.coordinator.getSnapshot(account)
-    if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
+    if (snapshot && 'workspaceId' in snapshot) void this.startTagEnrichment(account, binding.target, snapshot.workspaceId)
   }
 
   async retryFailedTagEnrichment(accountMid: string) {
+    this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     await this.options.coordinator.retryFailedTagEnrichment(account)
@@ -287,7 +321,11 @@ export class OldFavoriteWorkspaceScanService {
       return
     }
     const snapshot = await this.options.coordinator.getSnapshot(account)
-    if (snapshot && 'workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
+    if (snapshot && 'workspaceId' in snapshot) void this.startTagEnrichment(account, binding.target, snapshot.workspaceId)
+  }
+
+  private startTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string, skipTaggedAids?: ReadonlySet<number>) {
+    return this.track(this.runTagEnrichment(accountMid, target, workspaceId, skipTaggedAids))
   }
 
   private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string, skipTaggedAids?: ReadonlySet<number>) {
@@ -298,9 +336,11 @@ export class OldFavoriteWorkspaceScanService {
     }
     const run: { target: ScanTarget; workspaceId: string; successor?: { target: ScanTarget; workspaceId: string } } = { target, workspaceId }
     this.enrichmentRuns.set(accountMid, run)
+    const isCurrent = () => !this.destructiveMaintenance && this.enrichmentRuns.get(accountMid) === run
     try {
       while (true) {
         const aids = await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
+        if (!isCurrent()) return
         if (!aids.length) return
         const aid = aids.find((candidate) => !skipTaggedAids?.has(candidate))
         if (aid === undefined) return
@@ -308,9 +348,11 @@ export class OldFavoriteWorkspaceScanService {
         let recoverableFailure: RuntimeInventoryResult | undefined
         for (let attempt = 0; attempt < 3; attempt += 1) {
           await this.waitForTagRequest()
+          if (!isCurrent()) return
           const next = await this.requestCurrentTag(accountMid, workspaceId, {
             type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
           })
+          if (!isCurrent()) return
           if (!next) return
           result = next
           if (!isRecoverableTagReadFailure(result, accountMid)) break
@@ -318,6 +360,7 @@ export class OldFavoriteWorkspaceScanService {
           if (attempt < 2) await new Promise<void>((resolve) => setTimeout(resolve, this.options.tagRetryDelayMs ?? 750))
         }
         if (recoverableFailure && isRecoverableTagReadFailure(result, accountMid)) {
+          if (!isCurrent()) return
           if (this.options.coordinator.recordTagEnrichmentFailure) {
             await this.options.coordinator.recordTagEnrichmentFailure(accountMid, aid, tagReadFailureReason(result), workspaceId)
             continue
@@ -327,15 +370,17 @@ export class OldFavoriteWorkspaceScanService {
         }
         if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
           normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) {
+          if (!isCurrent()) return
           await this.options.coordinator.pauseTagEnrichment(accountMid)
           return
         }
+        if (!isCurrent()) return
         await this.options.coordinator.recordTagEnrichment(accountMid, aid, result.tags, workspaceId)
       }
     } finally {
       if (this.enrichmentRuns.get(accountMid) !== run) return
       this.enrichmentRuns.delete(accountMid)
-      if (run.successor) void this.runTagEnrichment(accountMid, run.successor.target, run.successor.workspaceId)
+      if (!this.destructiveMaintenance && run.successor) void this.startTagEnrichment(accountMid, run.successor.target, run.successor.workspaceId)
     }
   }
 }

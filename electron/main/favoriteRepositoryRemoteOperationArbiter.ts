@@ -126,7 +126,14 @@ export class FavoriteRepositoryRemoteOperationArbiter {
       const pending = accountQueue.queue.splice(0)
       for (const queued of pending) queued.reject(new FavoriteRepositoryRemoteOperationUnavailableError())
     }
-    return this.runExclusive(operation)
+    try {
+      return await this.runExclusive(operation)
+    } catch (error) {
+      // Cleanup did not finish, so this process remains usable and must not
+      // permanently reject every later remote request.
+      this.acceptingOperations = true
+      throw error
+    }
   }
 
   private drain(accountMid: string, accountQueue: AccountQueue) {

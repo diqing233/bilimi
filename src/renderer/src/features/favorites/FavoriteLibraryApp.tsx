@@ -210,8 +210,8 @@ export function FavoriteLibraryApp({
       limit,
       ...(cursor ? { cursor } : {}),
       ...(options.query?.trim() ? { query: options.query.trim() } : {}),
-      ...(options.filter ? { filter: options.filter } : {}),
-      ...(options.sort ? { sort: options.sort } : {})
+      ...(options.filter && options.filter !== 'all' ? { filter: options.filter } : {}),
+      ...(options.sort && options.sort !== 'updated-desc' ? { sort: options.sort } : {})
     })
     if (requestId === requestIdRef.current) {
       setPage(next)

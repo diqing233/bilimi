@@ -59,6 +59,7 @@ function targetFolderIds(value: string[]) {
 /** Local batch intent and one-shot Bilibili unfavorite orchestration. It never retries an ambiguous remote write. */
 export class FavoriteRepositoryBatchOperationService {
   private readonly remoteOperations = new Map<string, PendingRemoteUnfavorite>()
+  private readonly remoteExecutionTails = new Map<string, Promise<void>>()
 
   constructor(private readonly options: {
     repository: Repository
@@ -120,36 +121,57 @@ export class FavoriteRepositoryBatchOperationService {
       throw new Error('Favorite remote unfavorite confirmation is invalid.')
     }
     operation.confirmationToken = undefined
-    const current = await this.options.repository.getSnapshot(operation.accountMid)
-    if (current.revision !== operation.baselineRevision) throw new Error('Favorite remote unfavorite baseline is stale.')
     if (!this.options.remoteUnfavorite) throw new Error('Favorite remote unfavorite is unavailable.')
-    const result = await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
-      operation.accountMid, { priority: 'user-single' }, () => this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids)
-    )
-    const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
-    operation.status = remoteStatus
-    const timestamp = this.now()
-    const detail = result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite'
-    try {
-      await this.options.repository.commitWithAudit(operation.accountMid, {
-      id: `favorite-remote-unfavorite:${operation.operationId}`,
-      accountMid: operation.accountMid,
-      issuedAt: timestamp,
-      type: 'record-sync-result',
-      payload: {
+    return this.serializeRemoteExecution(operation.accountMid, async () => {
+      // The adapter owns page-operation serialization. This narrower guard
+      // keeps the preview baseline protected through result persistence.
+      const current = await this.options.repository.getSnapshot(operation.accountMid)
+      if (current.revision !== operation.baselineRevision) throw new Error('Favorite remote unfavorite baseline is stale.')
+      const result = await (async () => {
+        try {
+          return await this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          return {
+            status: this.isKnownRemoteRejection(error) ? 'failed' as const : 'result-unknown' as const,
+            completedOperationCount: 0,
+            totalOperationCount: operation.aids.length,
+            affectedAids: [...operation.aids],
+            reason
+          }
+        }
+      })()
+      const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
+      operation.status = remoteStatus
+      const timestamp = this.now()
+      const detail = result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite'
+      try {
+        await this.options.repository.commitWithAudit(operation.accountMid, {
         id: `favorite-remote-unfavorite:${operation.operationId}`,
-        commandId: operation.operationId,
-        status: remoteStatus,
-        affectedAids: operation.aids,
-        updatedAt: timestamp,
-        reason: result.reason,
-        operationKey: 'favorite-library-unfavorite'
+        accountMid: operation.accountMid,
+        issuedAt: timestamp,
+        type: 'record-sync-result',
+        payload: {
+          id: `favorite-remote-unfavorite:${operation.operationId}`,
+          commandId: operation.operationId,
+          status: remoteStatus,
+          affectedAids: operation.aids,
+          updatedAt: timestamp,
+          reason: result.reason,
+          operationKey: 'favorite-library-unfavorite'
+        }
+        }, this.events(operation.aids, detail, timestamp, result.reason))
+        return { ...result, auditStatus: 'recorded' as const }
+      } catch {
+        try {
+          await this.recordRemoteResult(operation, remoteStatus, result.reason, 'audit-fallback')
+        } catch {
+          // The result remains visible to this process, but no restart recovery
+          // is possible until persistence becomes available again.
+        }
+        return { ...result, auditStatus: 'failed' as const }
       }
-      }, this.events(operation.aids, detail, timestamp, result.reason))
-      return { ...result, auditStatus: 'recorded' }
-    } catch {
-      return { ...result, auditStatus: 'failed' }
-    }
+    })
   }
 
   async reconcileRemoteUnfavorite(accountMid: string, operationId: string) {
@@ -252,6 +274,26 @@ export class FavoriteRepositoryBatchOperationService {
       accountMid: operation.accountMid, issuedAt: this.now(), type: 'record-sync-result',
       payload: { id: `favorite-remote-unfavorite:${operation.operationId}`, commandId: operation.operationId, status, affectedAids: operation.aids, updatedAt: this.now(), reason, operationKey: 'favorite-library-unfavorite' }
     })
+  }
+
+  private async serializeRemoteExecution<T>(accountMid: string, action: () => Promise<T>) {
+    const previous = this.remoteExecutionTails.get(accountMid) ?? Promise.resolve()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const tail = previous.then(() => gate)
+    this.remoteExecutionTails.set(accountMid, tail)
+    await previous
+    try {
+      return await action()
+    } finally {
+      release()
+      if (this.remoteExecutionTails.get(accountMid) === tail) this.remoteExecutionTails.delete(accountMid)
+    }
+  }
+
+  private isKnownRemoteRejection(error: unknown) {
+    return typeof error === 'object' && error !== null &&
+      ((error as { remoteWriteRejected?: unknown }).remoteWriteRejected === true || (error as { code?: unknown }).code === 'REMOTE_REJECTED')
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

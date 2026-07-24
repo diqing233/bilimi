@@ -97,4 +97,11 @@ describe('FavoriteRepositoryRemoteOperationArbiter', () => {
     await Promise.all([active, clear])
     expect(events).toEqual(['active-start', 'active-end', 'clear'])
   })
+
+  it('reopens remote work when destructive maintenance fails before the application exits', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+
+    await expect(arbiter.runDestructiveMaintenance(async () => { throw new Error('local clear failed') })).rejects.toThrow('local clear failed')
+    await expect(arbiter.run('100', async () => 'available')).resolves.toBe('available')
+  })
 })

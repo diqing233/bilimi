@@ -2,6 +2,44 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 
 describe('OldFavoriteWorkspaceDeepSeekService', () => {
+  it('cancels and waits for an active DeepSeek batch before destructive maintenance returns', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    let resolveGenerate: ((result: { kind: 'favorite-archive-organize'; results: Array<{ aid: number; targetLedgerIds: string[]; keepOriginal: boolean; reason: string; lowConfidence: boolean }>; keywordSuggestions: never[] }) => void) | undefined
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const generate = vi.fn(() => new Promise<{
+      kind: 'favorite-archive-organize'; results: Array<{ aid: number; targetLedgerIds: string[]; keepOriginal: boolean; reason: string; lowConfidence: boolean }>; keywordSuggestions: never[]
+    }>((resolve) => { resolveGenerate = resolve }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const organizing = service.organizeCurrentSegment('100')
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    const quiesced = service.quiesceForDestructiveMaintenance()
+    let settled = false
+    void quiesced.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    resolveGenerate?.({
+      kind: 'favorite-archive-organize',
+      results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+      keywordSuggestions: []
+    })
+    await quiesced
+    await expect(organizing).resolves.toMatchObject({ canceled: true })
+    await expect(service.organizeCurrentSegment('100')).rejects.toThrow('destructive maintenance')
+  })
+
   it('rejects DeepSeek organization before an explicit organization round exists', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue(null),

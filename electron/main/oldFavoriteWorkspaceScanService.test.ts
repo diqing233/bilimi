@@ -3,6 +3,64 @@ import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRe
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('quiesces an active inventory request before destructive maintenance and rejects new scans', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    let resolveBinding: ((result: { status: 'ok'; observedAccountMid: string; target: typeof target }) => void) | undefined
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn(() => new Promise<{ status: 'ok'; observedAccountMid: string; target: typeof target }>((resolve) => {
+      resolveBinding = resolve
+    }))
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledOnce())
+    const quiesced = service.quiesceForDestructiveMaintenance()
+    let settled = false
+    void quiesced.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    resolveBinding?.({ status: 'ok', observedAccountMid: '100', target })
+    await quiesced
+
+    expect(coordinator.recordScanInventory).not.toHaveBeenCalled()
+    await expect(service.start('100', 'incremental')).rejects.toThrow('destructive maintenance')
+  })
+
+  it('quiesces an active tag read before destructive maintenance without recording its result', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    let resolveTags: ((result: { status: 'ok'; observedAccountMid: string; aid: number; tags: string[] }) => void) | undefined
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([1]),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1', tagEnrichment: { status: 'running' } }),
+      recordTagEnrichment: vi.fn()
+    }
+    const runtime = vi.fn((request: { type: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      if (request.type === 'old-favorite-workspace-inventory') return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 0 }] })
+      if (request.type === 'old-favorite-workspace-read-source-page') return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', items: [], hasMore: false })
+      return new Promise<{ status: 'ok'; observedAccountMid: string; aid: number; tags: string[] }>((resolve) => { resolveTags = resolve })
+    })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' })))
+    const quiesced = service.quiesceForDestructiveMaintenance()
+    resolveTags?.({ status: 'ok', observedAccountMid: '100', aid: 1, tags: ['Technology'] })
+    await quiesced
+
+    expect(coordinator.recordTagEnrichment).not.toHaveBeenCalled()
+  })
+
   it('resumes a persisted scan lease without rereading completed source pages', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const coordinator = {

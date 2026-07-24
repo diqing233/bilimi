@@ -1271,7 +1271,7 @@ export class FavoriteRepositoryService {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
       const states = index.pendingStatesByAid.get(aid) ?? new Set()
-      const matchesQuery = !query || [video.title, video.author ?? '', ...video.tags]
+      const matchesQuery = !query || [video.title, video.author ?? '', video.description ?? '', ...video.tags]
         .some((value) => value.toLocaleLowerCase().includes(query))
       if (!matchesQuery) return false
       if (filter === 'protected') return states.has('protected')

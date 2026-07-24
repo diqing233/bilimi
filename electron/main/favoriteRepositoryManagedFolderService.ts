@@ -36,6 +36,8 @@ export type ManagedFolderDeletionPreview = {
 
 type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'failed' | 'result-unknown' | 'succeeded' }
 
+class ManagedFolderRemotePreconditionError extends Error {}
+
 function account(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Managed folder account is invalid.')
   return BigInt(value.trim()).toString()
@@ -44,6 +46,7 @@ function account(value: string) {
 /** Implements a deliberately one-shot managed-folder remote deletion flow. */
 export class FavoriteRepositoryManagedFolderService {
   private readonly operations = new Map<string, PendingDeletion>()
+  private readonly remoteDeletionOwners = new Map<string, string>()
 
   constructor(private readonly options: { repository: Repository; remote?: RemoteFolderWriter; remoteObserver?: RemoteFolderObserver; remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>; now?: () => string }) {}
 
@@ -109,34 +112,40 @@ export class FavoriteRepositoryManagedFolderService {
       throw new Error('Managed folder deletion confirmation is invalid.')
     }
     operation.confirmationToken = undefined
-    const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
-    if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
-    if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === operation.remoteBinding.remoteFolderId &&
-      shard.logicalLedgerId !== this.logicalLedgerId(operation.logicalFolderId))) {
-      throw new Error('Managed folder remote binding belongs to another logical ledger.')
-    }
     if (!this.options.remote) throw new Error('Managed folder remote deletion is unavailable.')
     try {
       await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
-        operation.accountMid, { priority: 'user-single' }, () => this.options.remote!.removeRemoteFolder(operation.accountMid, operation.remoteBinding!.remoteFolderId)
+        operation.accountMid, { priority: 'user-single' }, async () => {
+          const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
+          if (snapshot.revision !== operation.currentRevision) throw new ManagedFolderRemotePreconditionError('Managed folder baseline is stale.')
+          if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === operation.remoteBinding!.remoteFolderId &&
+            shard.logicalLedgerId !== this.logicalLedgerId(operation.logicalFolderId))) {
+            throw new ManagedFolderRemotePreconditionError('Managed folder remote binding belongs to another logical ledger.')
+          }
+          const remoteKey = `${operation.accountMid}:${operation.remoteBinding!.remoteFolderId}`
+          const priorOperation = this.remoteDeletionOwners.get(remoteKey)
+          if (priorOperation && priorOperation !== operation.operationId) throw new Error('Managed folder remote deletion already requires reconciliation.')
+          this.remoteDeletionOwners.set(remoteKey, operation.operationId)
+          await this.options.remote!.removeRemoteFolder(operation.accountMid, operation.remoteBinding!.remoteFolderId)
+          await this.commitLocalProjection(operation, snapshot)
+        }
       )
     } catch (error) {
+      if (error instanceof ManagedFolderRemotePreconditionError) throw error
       const reason = error instanceof Error ? error.message : String(error)
       const knownFailure = this.isKnownRemoteRejection(error)
       operation.status = knownFailure ? 'failed' : 'result-unknown'
-      await this.recordResult(operation, operation.status, reason)
-      const auditStatus = await this.audit(operation, knownFailure ? 'managed-folder-delete-remote-failed' : 'managed-folder-delete-remote-result-unknown', reason)
-      return { status: operation.status, operationId: operation.operationId, auditStatus }
+      if (knownFailure && operation.remoteBinding) {
+        this.remoteDeletionOwners.delete(`${operation.accountMid}:${operation.remoteBinding.remoteFolderId}`)
+      }
+      const checkpointRecorded = await this.tryRecordResult(operation, operation.status, reason)
+      const auditRecorded = await this.audit(operation, knownFailure ? 'managed-folder-delete-remote-failed' : 'managed-folder-delete-remote-result-unknown', reason)
+      return { status: operation.status, operationId: operation.operationId, auditStatus: checkpointRecorded && auditRecorded === 'recorded' ? 'recorded' as const : 'failed' as const }
     }
     try {
-      await this.commitLocalProjection(operation, snapshot)
       operation.status = 'succeeded'
       return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
-    } catch (error) {
-      operation.status = 'result-unknown'
-      await this.recordResult(operation, 'result-unknown', `Remote folder deletion succeeded but local projection was not committed: ${error instanceof Error ? error.message : String(error)}`)
-      return { status: 'result-unknown' as const, operationId: operation.operationId, auditStatus: 'failed' as const }
-    }
+    } catch { throw new Error('Managed folder remote deletion did not settle.') }
   }
 
   async reconcile(accountMid: string, operationId: string) {
@@ -217,6 +226,15 @@ export class FavoriteRepositoryManagedFolderService {
         targetFolderIds: [operation.logicalFolderId]
       }
     })
+  }
+
+  private async tryRecordResult(operation: PendingDeletion, status: 'failed' | 'result-unknown' | 'succeeded', reason?: string) {
+    try {
+      await this.recordResult(operation, status, reason)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private isKnownRemoteRejection(error: unknown) {

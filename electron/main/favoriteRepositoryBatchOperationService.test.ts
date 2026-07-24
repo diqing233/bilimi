@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
 import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
+import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
 function snapshot(): AccountFavoriteRepositorySnapshot {
   return {
@@ -109,6 +110,128 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     }), expect.arrayContaining([expect.objectContaining({ aid: 1, detail: 'remote-unfavorite-result-unknown' })]))
   })
 
+  it('does not deadlock when the remote unfavorite adapter serializes itself through the real arbiter', async () => {
+    const current = snapshot()
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: repository(current),
+      remoteArbiter: arbiter,
+      remoteUnfavorite: {
+        unfavorite: (accountMid, selectedAids) => arbiter.enqueue(
+          accountMid,
+          { priority: 'user-single', videoKey: `unfavorite:${selectedAids[0]}` },
+          async () => ({ status: 'succeeded' as const, completedOperationCount: 1, totalOperationCount: 1, affectedAids: selectedAids })
+        )
+      }
+    })
+    const preview = await service.previewRemoteUnfavorite('100', [1], 7)
+
+    await expect(Promise.race([
+      service.executeRemoteUnfavorite('100', preview.executionToken, service.confirmRemoteUnfavorite(preview.executionToken)),
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('nested remote operation timed out')), 100))
+    ])).resolves.toMatchObject({ status: 'succeeded', auditStatus: 'recorded' })
+  })
+
+  it('rechecks the baseline when a queued batch unfavorite reaches its remote write', async () => {
+    let current = snapshot()
+    let releaseFirst!: () => void
+    const firstStarted = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const unfavorite = vi.fn(async () => {
+      if (unfavorite.mock.calls.length === 1) await firstStarted
+      return { status: 'succeeded' as const, completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1] }
+    })
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: {
+        getSnapshot: vi.fn(async () => current),
+        commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+          current = { ...current, revision: current.revision + 1 }
+          return { ...current, commandId: command.id, affectedAids: [1], affectedFolderIds: [] }
+        })
+      },
+      remoteUnfavorite: { unfavorite }
+    })
+    const first = await service.previewRemoteUnfavorite('100', [1], 7)
+    const second = await service.previewRemoteUnfavorite('100', [1], 7)
+    const firstRun = service.executeRemoteUnfavorite('100', first.executionToken, service.confirmRemoteUnfavorite(first.executionToken))
+    const secondRun = service.executeRemoteUnfavorite('100', second.executionToken, service.confirmRemoteUnfavorite(second.executionToken))
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(unfavorite).toHaveBeenCalledTimes(1)
+    releaseFirst()
+    await firstRun
+    await expect(secondRun).rejects.toThrow('stale')
+    expect(unfavorite).toHaveBeenCalledTimes(1)
+  })
+
+  it('records an explicit unknown result when the remote unfavorite adapter throws ambiguously', async () => {
+    const current = snapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn() },
+      remoteUnfavorite: { unfavorite: vi.fn(async () => { throw new Error('connection dropped') }) }
+    })
+    const preview = await service.previewRemoteUnfavorite('100', [1], 7)
+
+    await expect(service.executeRemoteUnfavorite('100', preview.executionToken, service.confirmRemoteUnfavorite(preview.executionToken)))
+      .resolves.toMatchObject({ status: 'result-unknown', completedOperationCount: 0, auditStatus: 'recorded' })
+    expect(commit).not.toHaveBeenCalled()
+  })
+
+  it('records a known remote rejection as failed when the remote unfavorite adapter throws', async () => {
+    const current = snapshot()
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() },
+      remoteUnfavorite: { unfavorite: vi.fn(async () => { throw Object.assign(new Error('rejected'), { code: 'REMOTE_REJECTED' }) }) }
+    })
+    const preview = await service.previewRemoteUnfavorite('100', [1], 7)
+
+    await expect(service.executeRemoteUnfavorite('100', preview.executionToken, service.confirmRemoteUnfavorite(preview.executionToken)))
+      .resolves.toMatchObject({ status: 'failed', completedOperationCount: 0, auditStatus: 'recorded' })
+  })
+
+  it('writes a minimal recovery checkpoint when the atomic audit fails so a new service can reconcile it', async () => {
+    let current = snapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+      if (command.type === 'record-sync-result') {
+        current = {
+          ...current,
+          syncRecords: [{
+            id: command.payload.id,
+            commandId: command.payload.commandId,
+            status: command.payload.status,
+            affectedAids: command.payload.affectedAids,
+            updatedAt: command.payload.updatedAt,
+            operationKey: command.payload.operationKey
+          }]
+        }
+      }
+      return { ...current, commandId: command.id, affectedAids: command.type === 'record-sync-result' ? command.payload.affectedAids : [], affectedFolderIds: [] }
+    })
+    const sharedRepository = {
+      getSnapshot: vi.fn(async () => current),
+      commit,
+      commitWithAudit: vi.fn(async () => { throw new Error('audit storage unavailable') })
+    }
+    const initial = new FavoriteRepositoryBatchOperationService({
+      repository: sharedRepository,
+      remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'result-unknown' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1], reason: 'timeout' })) }
+    })
+    const preview = await initial.previewRemoteUnfavorite('100', [1], 7)
+
+    await expect(initial.executeRemoteUnfavorite('100', preview.executionToken, initial.confirmRemoteUnfavorite(preview.executionToken)))
+      .resolves.toMatchObject({ status: 'result-unknown', auditStatus: 'failed' })
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'record-sync-result',
+      payload: expect.objectContaining({ id: `favorite-remote-unfavorite:${preview.operationId}`, status: 'result-unknown' })
+    }))
+
+    const observer = { areUnfavorited: vi.fn(async () => 'removed' as const) }
+    const restarted = new FavoriteRepositoryBatchOperationService({ repository: sharedRepository, remoteObserver: observer })
+    await expect(restarted.reconcileRemoteUnfavorite('100', preview.operationId)).resolves.toMatchObject({ status: 'completed' })
+    expect(observer.areUnfavorited).toHaveBeenCalledWith('100', [1])
+  })
+
   it('rejects a remote-unfavorite execution whose repository baseline changed after preview', async () => {
     const current = snapshot()
     const later = { ...current, revision: 8 }
@@ -136,9 +259,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
 
   it('keeps a result-unknown remote outcome while surfacing failed audit persistence', async () => {
     const current = snapshot()
-    const commit = vi.fn()
-      .mockResolvedValueOnce({ ...current, commandId: 'remote-result', affectedAids: [1], affectedFolderIds: [] })
-      .mockRejectedValueOnce(new Error('audit unavailable'))
+    const commit = vi.fn().mockRejectedValue(new Error('checkpoint unavailable'))
     const service = new FavoriteRepositoryBatchOperationService({
       repository: { getSnapshot: vi.fn(async () => current), commit },
       remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'result-unknown' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1] })) }
@@ -149,6 +270,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).resolves.toMatchObject({
       status: 'result-unknown', auditStatus: 'failed'
     })
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-sync-result' }))
   })
 
   it('recovers an unknown unfavorite from repository evidence and persistently reconciles it without another remote mutation', async () => {

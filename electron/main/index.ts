@@ -1342,24 +1342,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       pageBridgeManager: favoriteRepositoryPageBridgeManager!,
       remoteOperations: favoriteRepositoryRemoteOperations
     }),
+    remoteArbiter: favoriteRepositoryRemoteOperations,
     remoteObserver: {
       async areUnfavorited(accountMid, aids) {
-        const runId = `favorite-unfavorite-reconcile:${Date.now()}`
-        await favoriteRepositoryPageBridgeManager!.bind(accountMid, runId)
-        try {
-          const members = await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).readMembers({
-            accountMid, operationKey: `${runId}:default-members`, aid: aids[0]!, folderIds: ['1']
-          })
-          const remaining = new Set(members.members['1'] ?? [])
-          return aids.every((aid) => !remaining.has(aid)) ? 'removed' : 'present'
-        } finally {
-          favoriteRepositoryPageBridgeManager!.release(accountMid, runId)
-        }
+        // The page bridge cannot prove membership across every Bilibili folder,
+        // so a partial inventory must never resolve an ambiguous global write.
+        void accountMid
+        void aids
+        return 'unknown' as const
       }
     }
   })
   favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
     repository: favoriteRepositoryService,
+    remoteArbiter: favoriteRepositoryRemoteOperations,
     remote: {
       async removeRemoteFolder(accountMid, remoteFolderId) {
         const runId = `favorite-managed-folder-delete:${Date.now()}:${remoteFolderId}`
@@ -1523,6 +1519,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     stopActiveWork: async () => {
       // Do not clear state while a task can still publish durable local or remote results.
       await getVideoTranscriptionQueue().cancelAllAndWait()
+      await oldFavoriteWorkspaceScanService?.quiesceForDestructiveMaintenance()
+      await oldFavoriteWorkspaceDeepSeekService?.quiesceForDestructiveMaintenance()
       await favoriteRepositoryRemoteOperations.runDestructiveMaintenance(async () => {
         await favoriteRepositoryService?.flush()
       })
