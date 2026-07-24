@@ -728,12 +728,16 @@ describe('FavoriteLibraryApp', () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-22T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-22T00:00:00.000Z', videoCount: 1, folderCount: 0,
         folders: [], physicalShardCount: 0, syncRecordCount: 0,
         syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
       }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 1, items: []
+        version: 1, accountMid: '100', revision: 1, items: [{
+          video: { aid: 1, title: '嵌入式视频', tags: [], updatedAt: '2026-07-22T00:00:00.000Z' },
+          folderIds: [],
+          pendingStates: []
+        }]
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as typeof window.bilimiDesktop
@@ -745,6 +749,7 @@ describe('FavoriteLibraryApp', () => {
     expect(root.querySelector('.favorite-library__header')).not.toBeInTheDocument()
     expect(root.querySelector('.favorite-library__layout')).toHaveAttribute('data-embedded-layout', 'true')
     expect(await screen.findByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
+    expect(await screen.findByRole('listitem')).toHaveTextContent('嵌入式视频')
     expect(root.querySelector('.favorite-library__error')).not.toBeInTheDocument()
     expect(root.children[0]).toHaveClass('favorite-library__layout')
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library\[data-embedded='true'\]\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
@@ -752,7 +757,7 @@ describe('FavoriteLibraryApp', () => {
       ".favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 3; height: 100%; min-height: 0; }"
     )
     expect(favoriteLibraryStyles).toContain(
-      ".favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }"
+      ".favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; overflow: hidden; }"
     )
     expect(favoriteLibraryStyles).toContain(
       ".favorite-library[data-embedded='true'] .favorite-library__list { height: 100% !important; min-height: 0; }"

@@ -71,7 +71,7 @@
 .favorite-library__nav button { padding: 8px; }
 .favorite-library__nav button[aria-current="page"] { background: #e7f0ff; color: #1d4ed8; font-weight: 700; }
 .favorite-library__results { min-width: 0; padding: 12px; }
-.favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+.favorite-library[data-embedded='true'] .favorite-library__results { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .favorite-library__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 30px; margin-bottom: 8px; }
 .favorite-library__actions small { color: #64748b; margin-right: auto; }
 .favorite-library__select-page { display: inline-flex; align-items: center; gap: 5px; color: #64748b; font-size: 13px; }
