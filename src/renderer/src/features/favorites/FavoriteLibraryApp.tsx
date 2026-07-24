@@ -19,6 +19,7 @@ import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from '
 import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
 import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
+import { FavoriteLibraryFooter } from './FavoriteLibraryFooter'
 import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
@@ -896,15 +897,6 @@ export function FavoriteLibraryApp({
               </div>
             )}
           />
-          {page?.nextCursor ? (
-            <button
-              type="button"
-              className="favorite-library__next-page"
-              onClick={() => accountMid && void load(accountMid, scope, page.nextCursor)}
-            >
-              {text.nextPage}
-            </button>
-          ) : null}
         </section>
         {detail ? (
           <FavoriteLibraryDetail title={detail.title} collapsed={!detailOpen} onRestore={() => setDetailOpen(true)} onCollapse={() => setDetailOpen(false)}>
@@ -963,6 +955,12 @@ export function FavoriteLibraryApp({
           </FavoriteLibraryDetail>
         ) : null}
       </div>
+      <FavoriteLibraryFooter
+        hasNextPage={Boolean(page?.nextCursor)}
+        onNextPage={() => {
+          if (accountMid && page?.nextCursor) void load(accountMid, scope, page.nextCursor)
+        }}
+      />
     </main>
   )
 }
