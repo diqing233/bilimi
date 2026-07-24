@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createFavoriteRepositoryArchiveExport,
+  createFavoriteRepositoryArchiveExportChecksum,
   type FavoriteRepositoryArchiveExport
 } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
@@ -143,6 +144,34 @@ describe('FavoriteRepositoryService', () => {
     archive.checksum = '0'.repeat(64)
 
     await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('checksum')
+  })
+
+  it('overwrites imported repository data without importing remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Local only', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'local-remote-observation', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: [], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const source = await service.getSnapshot('200')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...source,
+      videos: { '2': { aid: 2, title: 'Imported only', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+    archive.accountMid = '100'
+    archive.checksum = createFavoriteRepositoryArchiveExportChecksum(archive)
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '2': expect.objectContaining({ title: 'Imported only' }) },
+      positions: { '100:1': expect.objectContaining({ remoteObservedPhysicalFolderIds: ['bilibili:900'] }) }
+    })
+    await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
   })
 
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
