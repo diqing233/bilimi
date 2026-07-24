@@ -276,6 +276,7 @@ describe('account favorite repository contracts', () => {
       recovery: {
         ...valid.recovery!,
         syncRecords: [{ id: 'sync-1', commandId: 'sync-1', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z', targetFolderIds: ['bilibili:900'] }],
+        organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilibili:900'], completedAt: '2026-07-24T00:00:00.000Z' }],
         workspace: {
           id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 0, continuationAids: [],
           workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' },

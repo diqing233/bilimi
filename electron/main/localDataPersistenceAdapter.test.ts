@@ -139,7 +139,7 @@ describe('local data persistence adapter', () => {
 
     expect(JSON.stringify(portable)).not.toContain('bilibili:900')
     expect(portable.workspaces).toEqual([expect.objectContaining({ id: 'workspace-1', updatedAt: '2026-07-24T01:00:00.000Z' })])
-    expect(portable.remoteOperations).toEqual([expect.objectContaining({ id: 'sync-1', targetFolderIds: ['bilimi-logical:music'] })])
+    expect(portable.remoteOperations).toEqual([expect.objectContaining({ id: 'sync-1', accountMid: '100', targetFolderIds: ['bilimi-logical:music'] })])
   })
 
   it('selects the newest canonical workspace rather than the last separately merged record', async () => {

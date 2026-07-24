@@ -810,8 +810,8 @@ function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
   if (!recovery.physicalShards.every((item) => isPortableRecoveryShard(item, folderIds))) return false
   if (recovery.workspace !== undefined && !isPortableRecoveryWorkspace(recovery.workspace, accountMid)) return false
   if (!recovery.syncRecords.every(isPortableRecoverySyncRecord) || !recovery.organizationRecords.every((record) =>
-    isOrganizationRecord(record) && normalizedAccountMid((record as FavoriteRepositoryOrganizationRecord).accountMid) === accountMid) ||
-    !recovery.organizationBatches.every((record) => isOrganizationChange(record) && normalizedAccountMid((record as FavoriteRepositoryOrganizationChange).accountMid) === accountMid) ||
+    isPortableRecoveryOrganizationRecord(record, accountMid)) ||
+    !recovery.organizationBatches.every((record) => isPortableRecoveryOrganizationChange(record, accountMid)) ||
     !recovery.tombstones.every((tombstone) => isPortableRecoveryTombstone(tombstone, accountMid))) return false
   return true
 }
@@ -863,6 +863,23 @@ function isPortableRecoverySyncRecord(value: unknown) {
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
     (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
     (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0))
+}
+
+function isPortableRecoveryOrganizationRecord(value: unknown, accountMid: string) {
+  if (!isOrganizationRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return normalizedAccountMid(String(record.accountMid)) === accountMid &&
+    record.targetFolderIds.every(isPortableLogicalFolderId) &&
+    Object.keys(record).every((key) => ['accountMid', 'aid', 'targetFolderIds', 'completedAt'].includes(key))
+}
+
+function isPortableRecoveryOrganizationChange(value: unknown, accountMid: string) {
+  if (!isOrganizationChange(value)) return false
+  const record = value as Record<string, unknown>
+  return normalizedAccountMid(String(record.accountMid)) === accountMid &&
+    ['beforeFolderIds', 'afterFolderIds', 'addedFolderIds', 'removedFolderIds'].every((key) =>
+      (record[key] as unknown[]).every(isPortableLogicalFolderId)) &&
+    Object.keys(record).every((key) => ['id', 'runId', 'workspaceId', 'accountMid', 'aid', 'beforeFolderIds', 'afterFolderIds', 'addedFolderIds', 'removedFolderIds', 'status', 'recordedAt'].includes(key))
 }
 
 function isPortableRecoveryTombstone(value: unknown, accountMid: string) {

@@ -65,7 +65,7 @@ function canonicalRecoveryRecords(snapshot: AccountFavoriteRepositorySnapshot, a
   const syncRecords = archive.recovery?.syncRecords ?? []
   return {
     workspaces: workspace ? [{ ...structuredClone(workspace), updatedAt: workspace.workspaceRef.updatedAt ?? snapshot.updatedAt }] : [],
-    remoteOperations: structuredClone(syncRecords)
+    remoteOperations: syncRecords.map((record) => ({ ...structuredClone(record), accountMid }))
   }
 }
 
