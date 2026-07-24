@@ -145,6 +145,25 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     await expect(service.reconcile('100', 'unpersisted-observation')).resolves.toEqual({ status: 'reconciliation-required', operationId: 'unpersisted-observation' })
   })
 
+  it('does not report an imported reconciliation-required deletion complete without a usable remote binding', async () => {
+    const current = managedSnapshot()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => ({
+          ...current,
+          physicalShards: [{ ...current.physicalShards[0], remoteFolderId: undefined }],
+          syncRecords: [{
+            id: 'managed-folder-delete:portable-required', commandId: 'portable-required', operationKey: 'managed-folder-delete',
+            status: 'reconciliation-required', affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+          }]
+        })),
+        commit: vi.fn(), commitWithAudit: vi.fn()
+      }
+    } as never)
+
+    await expect(service.reconcile('100', 'portable-required')).resolves.toEqual({ status: 'reconciliation-required', operationId: 'portable-required' })
+  })
+
   it('rejects a remote folder shared by another logical ledger during preview', async () => {
     const current = managedSnapshot()
     current.physicalShards.push({ logicalLedgerId: 'other', folderId: 'bilimi:other:001', shardNumber: 1, remoteFolderId: '99', remoteTitle: 'Other', bindingState: 'bound' })

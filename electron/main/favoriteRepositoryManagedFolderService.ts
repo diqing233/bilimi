@@ -175,7 +175,7 @@ export class FavoriteRepositoryManagedFolderService {
         }
       }
     }
-    return operation.status === 'result-unknown'
+    return operation.status === 'result-unknown' || operation.status === 'reconciliation-required'
       ? { status: 'reconciliation-required' as const, operationId }
       : operation.status === 'failed'
         ? { status: 'failed' as const, operationId }
