@@ -13,7 +13,7 @@ describe('Favorite Library workspace components', () => {
     expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument()
     rerender(<FavoriteLibraryHeader title="收藏库" remoteWarning maximized />)
-    expect(screen.getByRole('status')).toHaveTextContent('\\u8fdc\\u7a0b\\u72b6\\u6001\\u5f85\\u786e\\u8ba4')
+    expect(screen.getByRole('status')).toHaveTextContent('远程状态待确认')
     expect(screen.getByRole('button', { name: '还原' })).toBeInTheDocument()
   })
 
@@ -22,6 +22,22 @@ describe('Favorite Library workspace components', () => {
     render(<FavoriteLibraryHeader title="收藏库" remoteWarning onGoToPending={onGoToPending} />)
     fireEvent.click(screen.getByRole('button', { name: 'go-pending-scope' }))
     expect(onGoToPending).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the compact Xiaomi identity and complete window control affordances in the top bar', () => {
+    const onMinimize = vi.fn()
+    const onToggleMaximize = vi.fn()
+    const onClose = vi.fn()
+    render(<FavoriteLibraryHeader title="收藏库" account="小米（UID：100）" onMinimize={onMinimize} onToggleMaximize={onToggleMaximize} onClose={onClose} />)
+
+    expect(screen.getByLabelText('XiaoMi')).toBeInTheDocument()
+    expect(screen.getByText('小米（UID：100）')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '最小化' }))
+    fireEvent.click(screen.getByRole('button', { name: '最大化' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(onMinimize).toHaveBeenCalledOnce()
+    expect(onToggleMaximize).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('groups navigation, persists uid collapse changes, retains zero counts, and selects stable ids', () => {

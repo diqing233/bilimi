@@ -130,6 +130,8 @@ export function FavoriteLibraryApp({
   const [scopeId, setScopeId] = useState('all')
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(50)
   const [page, setPage] = useState<FavoriteRepositoryLibraryPage>()
+  const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([])
+  const cursorHistoryRef = useRef<Array<string | undefined>>([])
   const [selected, setSelected] = useState<FavoriteLibraryRow>()
   const [detailSnapshot, setDetailSnapshot] = useState<FavoriteRepositoryLibraryVideoDetail>()
   const [memoDraft, setMemoDraft] = useState('')
@@ -201,7 +203,8 @@ export function FavoriteLibraryApp({
     nextScope: LibraryScope,
     cursor?: string,
     limit = pageSize,
-    options: { query?: string; filter?: FavoriteLibraryFilter; sort?: FavoriteLibrarySort } = {}
+    options: { query?: string; filter?: FavoriteLibraryFilter; sort?: FavoriteLibrarySort } = {},
+    preserveSelection = false
   ) => {
     const requestId = ++requestIdRef.current
     const api = window.bilimiDesktop
@@ -215,7 +218,11 @@ export function FavoriteLibraryApp({
     })
     if (requestId === requestIdRef.current) {
       setPage(next)
-      setSelected(undefined)
+      if (preserveSelection) {
+        setSelected((current) => current && next.items.some((item) => item.video.aid === current.aid) ? current : undefined)
+      } else {
+        setSelected(undefined)
+      }
     }
   }, [pageSize])
 
@@ -251,7 +258,9 @@ export function FavoriteLibraryApp({
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
-      await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' }, undefined, pageSize, pageOptions)
+      setRemoteReconciliation(nextSummary.remoteReconciliations?.[0])
+      const sameAccount = mid === expectedAccountMid
+      await load(mid, sameAccount ? scopeRef.current : { kind: 'all' }, sameAccount ? cursorHistoryRef.current.at(-1) : undefined, pageSize, pageOptions, sameAccount)
     } catch {
       if (refreshId === requestIdRef.current) setError(text.cannotRead)
     }
@@ -719,14 +728,18 @@ export function FavoriteLibraryApp({
       {embedded ? null : <div className="favorite-library__header-spacer" aria-hidden="true" />}
       {!embedded ? (
         <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts.failed || summary?.syncCounts['result-unknown'])}
+          account={accountMid ? `${accountNickname ?? '当前账号'}（UID：${accountMid}）` : text.loadingAccount}
           onGoToPending={() => {
             setScopeId('pending')
+            cursorHistoryRef.current = []
+            setCursorHistory([])
             setSelectedAids([])
             setSelected(undefined)
             if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
           }}
           onMinimize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('minimize') }}
-          onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}>
+          onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}
+          onClose={() => { void window.close() }}>
           <div className="favorite-library__header-account"><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
           {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
         </FavoriteLibraryHeader>
@@ -800,6 +813,8 @@ export function FavoriteLibraryApp({
           }}
           onSelect={(id) => {
             setScopeId(id)
+            cursorHistoryRef.current = []
+            setCursorHistory([])
             setSelectedAids([])
             setSelected(undefined)
             setDetailSnapshot(undefined)
@@ -877,12 +892,18 @@ export function FavoriteLibraryApp({
         <section className="favorite-library__results" aria-label={text.results}>
           <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!eligibleSelectedAids.length} allowedActions={[...batchAllowedActions]} searchQuery={searchQuery} filter={rowFilter} sort={rowSort} onSearchChange={(query) => {
             setSearchQuery(query)
+            cursorHistoryRef.current = []
+            setCursorHistory([])
             if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, query })
           }} onFilterChange={(filter) => {
             setRowFilter(filter)
+            cursorHistoryRef.current = []
+            setCursorHistory([])
             if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, filter })
           }} onSortChange={(sort) => {
             setRowSort(sort)
+            cursorHistoryRef.current = []
+            setCursorHistory([])
             if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, sort })
           }} onBatchAction={(action) => {
             const actionAids = action === 'copy' || action === 'unfavorite-remote' ? selectedAids : eligibleSelectedAids
@@ -919,8 +940,8 @@ export function FavoriteLibraryApp({
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
-            })}>{(allSelectedSynced ? '\u91cd\u65b0' : '') + text.syncSelected + '\uff08' + selectedAids.length + '\uff09'}</button>
-            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => openSelectedPlacementPicker()} aria-expanded={placementPickerOpen && placementPickerBatch}>调整所选本地归属（{selectedAids.length}）</button>
+            })} aria-label="刷新当前选择">{(allSelectedSynced ? '\u91cd\u65b0' : '') + text.syncSelected}</button>
+            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => openSelectedPlacementPicker()} aria-expanded={placementPickerOpen && placementPickerBatch}>调整所选本地归属</button>
             {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid || !currentFolderId) throw new Error(text.unavailable)
@@ -930,11 +951,13 @@ export function FavoriteLibraryApp({
               const api = window.bilimiDesktop
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
-            })}>{text.transcription + '\uff08' + selectedAids.length + '\uff09'}</button>
+            })} aria-label="将所选加入转写队列">{text.transcription}</button>
             {placementPickerOpen && placementPickerBatch ? renderPlacementPicker() : null}
             <label className="favorite-library__page-size">每页<select aria-label="每页数量" value={pageSize} onChange={(event) => {
               const nextPageSize = Number(event.currentTarget.value) as 25 | 50 | 100
               setPageSize(nextPageSize)
+              cursorHistoryRef.current = []
+              setCursorHistory([])
               if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
             }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
           </FavoriteLibraryToolbar>
@@ -987,10 +1010,10 @@ export function FavoriteLibraryApp({
               const api = window.bilimiDesktop
               if (!accountMid || !selected || !api?.enqueueFavoriteLibraryTranscription) throw new Error(text.unavailable)
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: [selected.aid] })
-            })}>加入转写队列</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" disabled={!detailSnapshot.position.remoteObservedPhysicalFolderIds.length || ['failed', 'result-unknown', 'needs-review', 'syncing'].includes(detailSnapshot.position.state)} onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>危险操作</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}</> : null}{(() => {
+            })}>加入转写队列</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" disabled={!detailSnapshot.position.remoteObservedPhysicalFolderIds.length || ['failed', 'result-unknown', 'needs-review', 'syncing'].includes(detailSnapshot.position.state)} onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>危险操作</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}{(() => {
               const remoteUnfavoriteAvailable = Boolean(accountMid && selected && summary && window.bilimiDesktop?.previewFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.confirmFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.executeFavoriteLibraryRemoteUnfavoriteOperation)
               return <><button type="button" className="favorite-library__inline-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认取消B站收藏" aria-busy={remoteUnfavoriteExecuting}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button></div> : null}</>
-            })()}</> : null}</section>
+            })()}</> : null}</> : null}</section>
             <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次刷新: ${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
             <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid && folder.kind === 'bilibili' ? <button type="button" onClick={() => void runDetailAction(async () => {
                const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
@@ -1018,9 +1041,29 @@ export function FavoriteLibraryApp({
         ) : null}
       </div>
       <FavoriteLibraryFooter
+        hasPreviousPage={cursorHistory.length > 0}
         hasNextPage={Boolean(page?.nextCursor)}
+        onPreviousPage={() => {
+          if (!accountMid || !cursorHistory.length) return
+          const previousCursor = cursorHistory.at(-2)
+          void load(accountMid, scope, previousCursor, pageSize, pageOptions).then(() => {
+            setCursorHistory((history) => {
+              const next = history.slice(0, -1)
+              cursorHistoryRef.current = next
+              return next
+            })
+          })
+        }}
         onNextPage={() => {
-          if (accountMid && page?.nextCursor) void load(accountMid, scope, page.nextCursor, pageSize, pageOptions)
+          if (accountMid && page?.nextCursor) {
+            void load(accountMid, scope, page.nextCursor, pageSize, pageOptions).then(() => {
+              setCursorHistory((history) => {
+                const next = [...history, page.nextCursor]
+                cursorHistoryRef.current = next
+                return next
+              })
+            })
+          }
         }}
       />
     </main>

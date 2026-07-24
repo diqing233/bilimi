@@ -14,4 +14,13 @@ describe('FavoriteLibraryFooter', () => {
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     expect(onNextPage).toHaveBeenCalledOnce()
   })
+
+  it('offers previous-page navigation when cursor history exists', () => {
+    const onPreviousPage = vi.fn()
+    render(<FavoriteLibraryFooter hasPreviousPage hasNextPage={false} onPreviousPage={onPreviousPage} onNextPage={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }))
+    expect(onPreviousPage).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '下一页' })).not.toBeInTheDocument()
+  })
 })

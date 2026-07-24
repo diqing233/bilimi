@@ -280,7 +280,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频二' }))
-    fireEvent.click(screen.getByRole('button', { name: '调整所选本地归属（2）' }))
+    fireEvent.click(screen.getByRole('button', { name: '调整所选本地归属' }))
 
     expect(screen.getByText(/将调整 2 个所选视频/)).toBeInTheDocument()
     expect(screen.getByText('最终本地归属：未匹配分类')).toBeInTheDocument()
@@ -303,7 +303,7 @@ describe('FavoriteLibraryApp', () => {
       setFavoriteLibraryLocalPlacements, subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as typeof window.bilimiDesktop
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
     fireEvent.click(await screen.findByRole('button', { name: '调整本地归属' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '游戏' }))
     expect(screen.getByText('新增：游戏')).toBeInTheDocument()
@@ -337,6 +337,9 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: '位置状态说明' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转写状态说明' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '档案状态说明' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消B站收藏' })).not.toBeInTheDocument()
+    expect(screen.queryByText('仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '危险操作' }))
     expect(screen.getByRole('button', { name: '取消B站收藏' })).toBeDisabled()
     expect(screen.getByText('仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。')).toBeInTheDocument()
   })
@@ -351,7 +354,7 @@ describe('FavoriteLibraryApp', () => {
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click((await screen.findAllByText('视频一'))[0])
     fireEvent.click(await screen.findByRole('button', { name: '危险操作' }))
     fireEvent.click(await screen.findByRole('button', { name: '从收藏库删除' }))
     expect(screen.getByText('不会取消 B 站收藏，也不会删除已有转写和档案。')).toBeInTheDocument()
@@ -377,7 +380,7 @@ describe('FavoriteLibraryApp', () => {
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click((await screen.findAllByText('视频一'))[0])
     fireEvent.click(await screen.findByRole('button', { name: '危险操作' }))
     fireEvent.click(await screen.findByRole('button', { name: '取消B站收藏' }))
     await waitFor(() => expect(previewFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', [1], 4, expect.any(Object)))
@@ -454,7 +457,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1, 2], 5, expect.any(Object)))
     expect(deleteFavoriteLibrarySelection).toHaveBeenCalledTimes(1)
     expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.getByRole('button', { name: '调整所选本地归属（0）' })).toBeDisabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: '调整所选本地归属' })).toBeDisabled())
     expect(getFavoriteRepositoryLibraryPage.mock.calls.length).toBeGreaterThan(1)
   })
   it('uses the additive copy and current-work-folder-only move contracts for batch placement', async () => {
@@ -565,16 +568,16 @@ describe('FavoriteLibraryApp', () => {
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click((await screen.findAllByText('视频一'))[0])
     fireEvent.click(await screen.findByRole('button', { name: '复制至本地归属' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '游戏' }))
     fireEvent.click(screen.getByRole('button', { name: '保存本地归属' }))
     await waitFor(() => expect(copyFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], ['bilimi-logical:games'], 6, expect.any(Object)))
 
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click((await screen.findAllByText('视频一'))[0])
     fireEvent.click(screen.getByRole('button', { name: '同步B站位置' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
-    fireEvent.click(await screen.findByText('视频一'))
+    fireEvent.click((await screen.findAllByText('视频一'))[0])
     fireEvent.click(screen.getByRole('button', { name: '加入转写队列' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
   })
@@ -754,7 +757,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
 
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
-    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('收藏库操作失败。')
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
@@ -818,8 +821,8 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('checkbox', { name: '全选当前页' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页' }))
     expect(screen.getByText('已选 2 项')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刷新所选信息（2）' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '刷新所选信息（2）' }))
+    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1, 2] }))
   })
 
@@ -942,6 +945,51 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByText('First page')).not.toBeInTheDocument()
   })
 
+  it('returns through cursor history without retaining older page rows', async () => {
+    const getPage = vi.fn(async (_accountMid: string, _scope: { kind: string }, options: { cursor?: string }) => ({
+      version: 1 as const, accountMid: '100', revision: 2,
+      items: options.cursor
+        ? [{ video: { aid: 2, title: 'Second page history', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+        : [{ video: { aid: 1, title: 'First page history', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }],
+      ...(options.cursor ? {} : { nextCursor: '100' })
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 2, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: getPage,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    expect(await screen.findByText('First page history')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    expect(await screen.findByText('Second page history')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50 }))
+    expect(await screen.findByText('First page history')).toBeInTheDocument()
+    expect(screen.queryByText('Second page history')).not.toBeInTheDocument()
+  })
+
+  it('keeps a still-present selected detail and its collapsed state across an ordinary refresh', async () => {
+    let notifyRepositoryChange: (() => void) | undefined
+    const page = { version: 1 as const, accountMid: '100', revision: 2, items: [{ video: { aid: 1, title: 'Refresh keeps detail', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue(page),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ ...page, video: page.items[0].video, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn((_mid, _folder, callback) => { notifyRepositoryChange = callback; return () => undefined })
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('Refresh keeps detail'))
+    fireEvent.click(await screen.findByRole('button', { name: '收起详情' }))
+    expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', '视频详情已收起')
+    await act(async () => { notifyRepositoryChange?.() })
+    await waitFor(() => expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', '视频详情已收起'))
+    expect(screen.getByRole('button', { name: '恢复视频详情' })).toBeInTheDocument()
+  })
+
   it('sends only selected aids or the current local folder to narrow library actions', async () => {
     const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ runId: 'library-1', status: 'succeeded' })
     const enqueueFavoriteLibraryTranscription = vi.fn().mockResolvedValue({ status: 'queued' })
@@ -967,9 +1015,9 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     await screen.findByText('One')
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
-    fireEvent.click(screen.getByRole('button', { name: '加入转写队列（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '将所选加入转写队列' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
-    fireEvent.click(screen.getByRole('button', { name: '重新刷新所选信息（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前选择' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
   })
 
@@ -978,7 +1026,8 @@ describe('FavoriteLibraryApp', () => {
       version: 1 as const, accountMid: '100', revision: 2,
       items: scope.kind === 'folder'
         ? [{ video: { aid: 2, title: 'Folder video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }]
-        : [{ video: { aid: 1, title: 'All video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }]
+        : [{ video: { aid: 1, title: 'All video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }],
+      ...(scope.kind === 'all' ? { nextCursor: 'next-all-page' } : {})
     }))
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -997,14 +1046,19 @@ describe('FavoriteLibraryApp', () => {
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('checkbox', { name: /All video/ }))
-    expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeInTheDocument()
+    await screen.findByRole('checkbox', { name: /All video/ })
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, cursor: 'next-all-page' }))
+    expect(screen.getByRole('button', { name: '上一页' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: /All video/ }))
+    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeInTheDocument()
     fireEvent.click(screen.getByText('All video'))
     expect(await screen.findByRole('complementary')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
 
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /刷新所选信息/ })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '上一页' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新当前选择' })).toBeDisabled()
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 
