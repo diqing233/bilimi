@@ -83,6 +83,7 @@ function snapshotFromItems(
   }
 }
 
+
 export function createVideoTranscriptionQueue({
   loadItems,
   saveItems,
@@ -94,8 +95,9 @@ export function createVideoTranscriptionQueue({
 }: QueueDeps): VideoTranscriptionQueue {
   let items: QueueItem[] = loadItems()
   // A completed transcript with an unregistered archive is safe to resume without audio work.
-  const resumableRegistrationItems = items.filter(
-    (item) => item.status === 'completed' && item.archiveRegistrationStatus === 'failed' && item.draftNote
+  const resumableRegistrationItems = items.filter((item) =>
+    item.status === 'waiting-restart' ||
+    (item.status === 'completed' && item.archiveRegistrationStatus === 'failed' && item.draftNote)
   )
   if (items.length > 0 && resumableRegistrationItems.length !== items.length) {
     items = resumableRegistrationItems
@@ -291,7 +293,7 @@ export function createVideoTranscriptionQueue({
 
   function retry(id: string): VideoAudioTranscriptionQueueSnapshot {
     updateItem(id, (item) =>
-      item.status === 'failed' || item.status === 'canceled'
+      item.status === 'failed' || item.status === 'canceled' || item.status === 'waiting-restart'
         ? {
             ...item,
             status: 'pending',
@@ -350,4 +352,3 @@ export function createVideoTranscriptionQueue({
     retryArchiveRegistration
   }
 }
-

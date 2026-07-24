@@ -306,6 +306,31 @@ describe('video transcription queue', () => {
     expect(store.current()).toEqual([])
   })
 
+  it('requires an explicit retry before an imported waiting-restart job is resumed', async () => {
+    const request = createRequest()
+    const store = createStore([{
+      ...request,
+      id: 'bvid:BV1queue',
+      status: 'waiting-restart',
+      createdAt: '2026-07-24T00:00:00.000Z',
+      updatedAt: '2026-07-24T00:01:00.000Z'
+    }])
+    const transcribe = vi.fn().mockResolvedValue({ transcript: createTranscript('resumed') })
+    const queue = createVideoTranscriptionQueue({
+      loadItems: store.load,
+      saveItems: store.save,
+      transcribe,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-07-24T00:02:00.000Z'
+    })
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'waiting-restart' })
+    expect(transcribe).not.toHaveBeenCalled()
+
+    queue.retry('bvid:BV1queue')
+    await vi.waitFor(() => expect(transcribe).toHaveBeenCalledTimes(1))
+  })
+
   it('keeps a completed transcript with failed archive registration across restart for registration-only retry', () => {
     const draftNote = {
       id: 'account:42:aid:7:cid:70',

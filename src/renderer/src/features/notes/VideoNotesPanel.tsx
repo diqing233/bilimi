@@ -181,6 +181,8 @@ function createQueueItemStatusLabel(item: VideoAudioTranscriptionQueueItem): str
       return '等待转写'
     case 'running':
       return '正在转写'
+    case 'waiting-restart':
+      return '等待重新开始'
     case 'completed':
       return '排队已完成'
     case 'failed':
@@ -475,18 +477,19 @@ export function VideoNotesPanel({
       )
     }
 
-    if (item.status === 'failed' || item.status === 'canceled') {
+    if (item.status === 'failed' || item.status === 'canceled' || item.status === 'waiting-restart') {
+      const label = item.status === 'waiting-restart' ? '重新开始' : '重试'
       return (
         <button
           type="button"
           className="video-notes__queue-row-action"
-          aria-label={'重试 ' + item.title}
+          aria-label={label + ' ' + item.title}
           onClick={(event) => {
             event.stopPropagation()
             onRetryQueuedVideoAudioTranscription?.(item.id)
           }}
         >
-          重试
+          {label}
         </button>
       )
     }

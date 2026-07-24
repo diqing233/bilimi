@@ -208,6 +208,15 @@ describe('VideoNotesPanel transcription queue', () => {
           status: 'failed',
           createdAt: '2026-06-25T00:05:00.000Z',
           updatedAt: '2026-06-25T00:06:00.000Z'
+        },
+        {
+          id: 'bvid:BV5note',
+          url: 'https://www.bilibili.com/video/BV5note',
+          title: 'Imported video',
+          bvid: 'BV5note',
+          status: 'waiting-restart',
+          createdAt: '2026-07-24T00:00:00.000Z',
+          updatedAt: '2026-07-24T00:01:00.000Z'
         }
       ]
     }
@@ -227,6 +236,9 @@ describe('VideoNotesPanel transcription queue', () => {
 
     expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV4note')
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent('正在转写：Running video')
+
+    fireEvent.click(screen.getByRole('button', { name: '重新开始 Imported video' }))
+    expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV5note')
 
     fireEvent.click(screen.getByRole('menuitem', { name: /Completed video/ }))
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
