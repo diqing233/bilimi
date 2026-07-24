@@ -63,12 +63,15 @@ function ManagedFolderMenu({
   onAction?: (id: string, action: 'edit' | 'delete') => void
 }) {
   const [open, setOpen] = useState(false)
-  return <span className="favorite-library__folder-menu-wrap">
-    <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 菜单`} aria-expanded={open} onClick={() => {
-      setOpen((current) => !current)
-      onOpen?.(item.id)
-    }}>{String.fromCodePoint(0x22ee)}</button>
-    {open ? <span className="favorite-library__folder-menu-items">
+  const show = () => {
+    setOpen(true)
+    onOpen?.(item.id)
+  }
+  return <span className="favorite-library__folder-menu-wrap" onPointerEnter={show} onPointerLeave={() => setOpen(false)} onFocus={show} onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+  }}>
+    <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 菜单`} aria-expanded={open} onClick={show}>{String.fromCodePoint(0x22ee)}</button>
+    {open ? <span className="favorite-library__folder-menu-items" role="menu" aria-label={`${item.label} 操作`}>
       <button type="button" onClick={() => onAction?.(item.id, 'edit')}>编辑信息</button>
       <button type="button" onClick={() => onAction?.(item.id, 'delete')}>删除</button>
     </span> : null}
