@@ -225,6 +225,8 @@ export function createFavoriteRepositoryArchiveExport(
   input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
 ): FavoriteRepositoryArchiveExport & { checksum: string } {
   const accountMid = normalizedAccountMid(snapshot.accountMid)
+  const recoveryFolders = structuredClone(snapshot.folders)
+  const recoveryFolderIds = new Set(recoveryFolders.map((folder) => folder.id))
   const exported: FavoriteRepositoryArchiveExport = {
     version: 1,
     accountMid,
@@ -244,7 +246,11 @@ export function createFavoriteRepositoryArchiveExport(
       .map((event) => ({ ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined })),
     archives: (input.archives ?? []).map((archive) => ({ ...archive })),
     recovery: {
-      folders: structuredClone(snapshot.folders), memberships: structuredClone(snapshot.memberships),
+      folders: recoveryFolders,
+      // Older snapshots can contain a transient inbox membership before its
+      // folder projection exists. Do not emit an archive our strict reader
+      // would necessarily reject.
+      memberships: Object.fromEntries(Object.entries(snapshot.memberships).filter(([folderId]) => recoveryFolderIds.has(folderId)).map(([folderId, aids]) => [folderId, [...aids]])),
       physicalShards: structuredClone(snapshot.physicalShards), ...(snapshot.workspace ? { workspace: structuredClone(snapshot.workspace) } : {}),
       syncRecords: structuredClone(snapshot.syncRecords), organizationRecords: structuredClone(snapshot.organizationRecords),
       organizationBatches: structuredClone(snapshot.organizationBatches), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,

@@ -100,6 +100,51 @@ describe('FavoriteRepositoryService', () => {
     await expect(readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('imports validated recovery records while retaining local remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'remote-position', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 7, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      folders: [
+        ...base.folders,
+        { id: 'bilimi-logical:restored', title: 'Restored', kind: 'bilimi-logical', logicalLedgerId: 'restored', syncState: 'local-only' }
+      ],
+      memberships: { ...base.memberships, 'bilimi-logical:restored': [7] },
+      physicalShards: [{ logicalLedgerId: 'restored', folderId: 'bilimi-logical:restored', shardNumber: 1, remoteTitle: 'Restored', bindingState: 'pending-reconcile' }],
+      workspace: undefined,
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [7], updatedAt: '2026-07-24T00:00:00.000Z' }],
+      organizationRecords: [{ accountMid: '100', aid: 7, targetFolderIds: ['bilimi-logical:restored'], completedAt: '2026-07-24T00:00:00.000Z' }],
+      organizationBatches: [],
+      organizationMigrationInitialized: true,
+      tombstones: { '100:8': { accountMid: '100', aid: 8, deletedAt: '2026-07-24T00:00:00.000Z', allowRediscovery: false } }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilimi-logical:restored': [7] },
+      physicalShards: [expect.objectContaining({ logicalLedgerId: 'restored' })],
+      syncRecords: [expect.objectContaining({ id: 'sync-1' })],
+      organizationRecords: [expect.objectContaining({ aid: 7 })],
+      tombstones: { '100:8': expect.objectContaining({ aid: 8 }) },
+      positions: { '100:7': expect.objectContaining({ remoteObservedPhysicalFolderIds: ['bilibili:900'] }) }
+    })
+  })
+
+  it('validates the archive independently when a caller validator lies', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const archive = createFavoriteRepositoryArchiveExport(await service.getSnapshot('100'), { generatedAt: '2026-07-24T00:00:00.000Z' })
+    archive.checksum = '0'.repeat(64)
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('checksum')
+  })
+
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

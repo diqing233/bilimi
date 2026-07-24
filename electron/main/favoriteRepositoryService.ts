@@ -7,6 +7,7 @@ import {
   createFavoriteRepositoryPositionKey,
   deriveFavoriteRepositoryPositionState,
   mergeFavoriteRepositoryVideo,
+  validateFavoriteRepositoryArchiveExport,
   type AccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryArchiveExport,
   type FavoriteRepositoryCommand,
@@ -395,10 +396,20 @@ export class FavoriteRepositoryService {
    */
   async applyArchiveImport(
     accountMid: string,
-    input: { validate: () => FavoriteRepositoryArchiveExport & { checksum: string } | Promise<FavoriteRepositoryArchiveExport & { checksum: string }> }
+    input: {
+      validate: () => FavoriteRepositoryArchiveExport & { checksum: string } | Promise<FavoriteRepositoryArchiveExport & { checksum: string }>
+      mode?: 'merge' | 'overwrite'
+    }
   ): Promise<FavoriteRepositoryCommandResult> {
     const account = normalizeAccountMid(accountMid)
-    const archive = await input.validate()
+    const suppliedArchive = await input.validate()
+    // Preserve this actionable account error while still independently running
+    // full schema and checksum validation before any persistence work.
+    if ((suppliedArchive.events ?? []).some((event) => event.accountMid !== account)) {
+      throw new Error('Favorite repository archive event account mismatch.')
+    }
+    const archive = validateFavoriteRepositoryArchiveExport(suppliedArchive)
+    const mode = input.mode ?? 'merge'
     if (normalizeAccountMid(archive.accountMid) !== account) throw new Error('Favorite repository archive account mismatch.')
     // Validate every event before calculating any projection or creating a new
     // generation.  Import callers may provide a validator, but this boundary
@@ -431,15 +442,30 @@ export class FavoriteRepositoryService {
       const importedAids = new Set<number>([
         ...(archive.videos ?? []).map((video) => video.aid),
         ...(archive.positions ?? []).map((position) => position.aid),
-        ...(archive.protections ?? []).map((record) => record.aid)
+        ...(archive.protections ?? []).map((record) => record.aid),
+        ...(archive.recovery?.organizationRecords ?? []).map((record) => record.aid),
+        ...(archive.recovery?.organizationBatches ?? []).map((record) => record.aid),
+        ...(archive.recovery?.tombstones ?? []).map((record) => record.aid),
+        ...Object.values(archive.recovery?.memberships ?? {}).flat()
       ])
-      const videos = { ...repository.snapshot.videos }
+      const videos = mode === 'overwrite' ? {} : { ...repository.snapshot.videos }
       for (const video of archive.videos ?? []) {
         videos[String(video.aid)] = mergeFavoriteRepositoryVideo(videos[String(video.aid)], video)
       }
-      const positions = { ...repository.snapshot.positions }
-      const memberships = { ...repository.snapshot.memberships }
+      // Remote observations are device-local evidence, never portable import data.
+      const retainedRemotePositions = Object.fromEntries(Object.entries(repository.snapshot.positions).map(([key, position]) => [key, {
+        ...position, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [...position.remoteObservedPhysicalFolderIds],
+        remoteObservedLogicalFolderIds: [...position.remoteObservedLogicalFolderIds]
+      }]))
+      const positions = mode === 'overwrite' ? retainedRemotePositions : { ...repository.snapshot.positions }
+      const recovery = archive.recovery
+      const importedFolders = recovery?.folders ?? []
+      const foldersById = new Map((mode === 'overwrite' ? [] : repository.snapshot.folders).map((folder) => [folder.id, clone(folder)]))
+      for (const folder of importedFolders) foldersById.set(folder.id, clone(folder))
+      const memberships = mode === 'overwrite' ? {} : { ...repository.snapshot.memberships }
+      if (recovery) for (const [folderId, aids] of Object.entries(recovery.memberships)) memberships[folderId] = [...new Set(aids)].sort((left, right) => left - right)
       const affectedFolderIds = new Set<string>()
+      for (const folder of importedFolders) affectedFolderIds.add(folder.id)
       for (const imported of archive.positions ?? []) {
         const key = createFavoriteRepositoryPositionKey(account, imported.aid)
         const previous = positions[key]
@@ -478,7 +504,16 @@ export class FavoriteRepositoryService {
         memberships['local:inbox'] = [...inbox].sort((left, right) => left - right)
         affectedFolderIds.add('local:inbox')
       }
-      const protectionsByAid = new Map(repository.snapshot.organizationRecords.map((record) => [record.aid, record]))
+      // Recovery membership is the archive's authoritative local folder
+      // inventory. Apply it after position compatibility projection, which is
+      // intentionally limited to individual desired placement records.
+      if (recovery) {
+        for (const [folderId, aids] of Object.entries(recovery.memberships)) {
+          memberships[folderId] = [...new Set(aids)].sort((left, right) => left - right)
+          affectedFolderIds.add(folderId)
+        }
+      }
+      const protectionsByAid = new Map((mode === 'overwrite' ? [] : repository.snapshot.organizationRecords).map((record) => [record.aid, record]))
       for (const imported of archive.protections ?? []) {
         const previous = protectionsByAid.get(imported.aid)
         protectionsByAid.set(imported.aid, {
@@ -488,14 +523,43 @@ export class FavoriteRepositoryService {
           completedAt: previous && previous.completedAt > imported.completedAt ? previous.completedAt : imported.completedAt
         })
       }
+      for (const imported of recovery?.organizationRecords ?? []) {
+        const previous = protectionsByAid.get(imported.aid)
+        protectionsByAid.set(imported.aid, previous && previous.completedAt > imported.completedAt ? previous : clone(imported))
+      }
+      const syncRecordsById = new Map((mode === 'overwrite' ? [] : repository.snapshot.syncRecords).map((record) => [record.id, record]))
+      for (const record of recovery?.syncRecords ?? []) {
+        const previous = syncRecordsById.get(record.id)
+        if (!previous || record.updatedAt >= previous.updatedAt) syncRecordsById.set(record.id, clone(record))
+      }
+      const batchesById = new Map((mode === 'overwrite' ? [] : repository.snapshot.organizationBatches).map((record) => [record.id, record]))
+      for (const record of recovery?.organizationBatches ?? []) {
+        const previous = batchesById.get(record.id)
+        if (!previous || record.recordedAt >= previous.recordedAt) batchesById.set(record.id, clone(record))
+      }
+      const tombstones = mode === 'overwrite' ? {} : { ...repository.snapshot.tombstones }
+      for (const tombstone of recovery?.tombstones ?? []) {
+        const key = createFavoriteRepositoryPositionKey(account, tombstone.aid)
+        const previous = tombstones[key]
+        if (!previous || tombstone.deletedAt >= previous.deletedAt) tombstones[key] = clone(tombstone)
+      }
+      const physicalShardByKey = new Map((mode === 'overwrite' ? [] : repository.snapshot.physicalShards).map((shard) => [`${shard.logicalLedgerId}:${shard.shardNumber}`, shard]))
+      for (const shard of recovery?.physicalShards ?? []) physicalShardByKey.set(`${shard.logicalLedgerId}:${shard.shardNumber}`, clone(shard))
       const snapshot: AccountFavoriteRepositorySnapshot = {
         ...repository.snapshot,
         revision: repository.snapshot.revision + 1,
         updatedAt: this.now(),
         videos,
+        folders: [...foldersById.values()].sort((left, right) => left.id.localeCompare(right.id)),
         memberships,
+        physicalShards: [...physicalShardByKey.values()].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber),
         positions,
-        organizationRecords: [...protectionsByAid.values()].sort((left, right) => left.aid - right.aid)
+        organizationRecords: [...protectionsByAid.values()].sort((left, right) => left.aid - right.aid),
+        organizationBatches: [...batchesById.values()].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id)),
+        organizationMigrationInitialized: Boolean(repository.snapshot.organizationMigrationInitialized || recovery?.organizationMigrationInitialized),
+        syncRecords: [...syncRecordsById.values()].sort((left, right) => left.id.localeCompare(right.id)),
+        tombstones,
+        ...(recovery?.workspace ? { workspace: clone(recovery.workspace) } : mode === 'overwrite' ? { workspace: undefined } : {})
       }
       const result: FavoriteRepositoryCommandResult = {
         ...snapshot,

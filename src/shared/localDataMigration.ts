@@ -3,7 +3,11 @@ import {
   LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
   LOCAL_DATA_MIGRATION_SHARED_SETTINGS
 } from './localDataMigrationRegistry'
-import { validateFavoriteRepositoryArchiveExport } from './favoriteRepository'
+import {
+  createFavoriteRepositoryArchiveExportChecksum,
+  validateFavoriteRepositoryArchiveExport,
+  type FavoriteRepositoryArchiveExport
+} from './favoriteRepository'
 
 export const LOCAL_DATA_MIGRATION_SCHEMA_VERSION = 1
 const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
@@ -78,19 +82,39 @@ function isIsoTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
 }
 
+function accountArchiveIdentity(noteId: unknown, accountMid: string) {
+  if (typeof noteId !== 'string') return undefined
+  const match = noteId.match(/^account:(\d+):aid:(\d+):cid:(\d+)$/u)
+  if (!match || match[1] !== accountMid || !Number.isSafeInteger(Number(match[2])) || Number(match[2]) <= 0 || !Number.isSafeInteger(Number(match[3])) || Number(match[3]) <= 0) return undefined
+  return { aid: Number(match[2]), cid: Number(match[3]) }
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
 function isPortableArchive(value: unknown, accountMid: string) {
   if (!isRecord(value) || !isRecord(value.source)) return false
   const source = value.source
-  if (typeof value.id !== 'string' || !value.id.trim() || source.accountMid !== accountMid ||
-    !Number.isSafeInteger(source.aid) || Number(source.aid) <= 0 || !Number.isSafeInteger(source.cid) || Number(source.cid) <= 0 || typeof source.title !== 'string' ||
-    typeof source.url !== 'string' || !Array.isArray(source.tags) || source.tags.some((tag) => typeof tag !== 'string') ||
+  if (typeof value.id !== 'string' || !value.id.trim() || source.accountMid !== accountMid || typeof source.title !== 'string' || !source.title.trim() ||
+    typeof source.url !== 'string' || !source.url.trim() || !isStringList(source.tags) ||
     !Array.isArray(value.versions) || !value.versions.length || !isIsoTimestamp(value.createdAt) || !isIsoTimestamp(value.updatedAt)) return false
-  return value.versions.every((version) => isRecord(version) && typeof version.id === 'string' && !!version.id.trim() &&
-    isIsoTimestamp(version.createdAt) && typeof version.plainTranscript === 'string' && typeof version.summaryText === 'string' &&
-    isRecord(version.note) && isRecord(version.note.source) && version.note.source.accountMid === accountMid &&
-    version.note.source.aid === source.aid && version.note.source.cid === source.cid &&
-    typeof version.note.userMemo === 'string' && (version.note.starred === undefined || typeof version.note.starred === 'boolean') &&
-    isIsoTimestamp(version.note.createdAt) && isIsoTimestamp(version.note.updatedAt))
+  return value.versions.every((version) => {
+    if (!isRecord(version) || typeof version.id !== 'string' || !version.id.trim() || !isIsoTimestamp(version.createdAt) ||
+      typeof version.plainTranscript !== 'string' || typeof version.summaryText !== 'string' || !isRecord(version.note) || !isRecord(version.note.source)) return false
+    const note = version.note
+    const noteSource = note.source
+    const identity = accountArchiveIdentity(note.id, accountMid)
+    return Boolean(identity) && noteSource.accountMid === accountMid && typeof noteSource.title === 'string' && Boolean(noteSource.title.trim()) &&
+      typeof noteSource.url === 'string' && Boolean(noteSource.url.trim()) && isStringList(noteSource.tags) &&
+      ['auto', 'manual', 'audio'].includes(String(note.transcriptSource)) && Array.isArray(note.transcript) && note.transcript.every((segment) =>
+        isRecord(segment) && (segment.start === null || typeof segment.start === 'number') && (segment.end === null || typeof segment.end === 'number') && typeof segment.text === 'string') &&
+      Array.isArray(note.chapters) && note.chapters.every((chapter) => isRecord(chapter) && (chapter.start === null || typeof chapter.start === 'number') && typeof chapter.title === 'string' && typeof chapter.summary === 'string' && Array.isArray(chapter.segmentIndexes) && chapter.segmentIndexes.every((index) => Number.isSafeInteger(index) && Number(index) >= 0)) &&
+      isRecord(note.overview) && isStringList(note.overview.shortSummary) && isStringList(note.overview.keywords) &&
+      ['timeline', 'highlights'].every((key) => Array.isArray(note.overview[key]) && note.overview[key].every((item) => isRecord(item) && (item.start === null || typeof item.start === 'number') && typeof item.title === 'string' && typeof item.detail === 'string')) &&
+      Array.isArray(note.annotations) && note.annotations.every((annotation) => isRecord(annotation) && typeof annotation.id === 'string' && annotation.id.trim() && (annotation.start === null || typeof annotation.start === 'number') && typeof annotation.title === 'string' && typeof annotation.body === 'string' && isIsoTimestamp(annotation.createdAt) && isIsoTimestamp(annotation.updatedAt)) &&
+      typeof note.userMemo === 'string' && (note.starred === undefined || typeof note.starred === 'boolean') && isIsoTimestamp(note.createdAt) && isIsoTimestamp(note.updatedAt)
+  })
 }
 
 function isRecoveryRecord(value: unknown, accountMid: string, states: readonly string[]) {
@@ -223,13 +247,47 @@ function mergeNamedRecords(local: unknown, imported: unknown, identity: (value: 
   return [...result.values()]
 }
 
+function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
+  const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp = updatedAt) => {
+    const values = new Map<string, T>()
+    for (const record of [...(left ?? []), ...(right ?? [])]) {
+      const key = identity(record); const previous = values.get(key)
+      if (!previous || timestamp(record) > timestamp(previous) || (timestamp(record) === timestamp(previous) && stableJson(record) > stableJson(previous))) values.set(key, structuredClone(record))
+    }
+    return [...values.values()]
+  }
+  const currentRecovery = current.recovery
+  const incomingRecovery = incoming.recovery
+  const recovery = currentRecovery || incomingRecovery ? {
+    folders: mergeBy(currentRecovery?.folders, incomingRecovery?.folders, (item) => item.id),
+    memberships: Object.fromEntries([...new Set([...Object.keys(currentRecovery?.memberships ?? {}), ...Object.keys(incomingRecovery?.memberships ?? {})])].sort().map((folderId) => [folderId, [...new Set([...(currentRecovery?.memberships[folderId] ?? []), ...(incomingRecovery?.memberships[folderId] ?? [])])].sort((a, b) => a - b)])),
+    physicalShards: mergeBy(currentRecovery?.physicalShards, incomingRecovery?.physicalShards, (item) => `${item.logicalLedgerId}:${item.shardNumber}`),
+    ...(incomingRecovery?.workspace ?? currentRecovery?.workspace ? { workspace: incomingRecovery?.workspace ?? currentRecovery?.workspace } : {}),
+    syncRecords: mergeBy(currentRecovery?.syncRecords, incomingRecovery?.syncRecords, (item) => item.id),
+    organizationRecords: mergeBy(currentRecovery?.organizationRecords, incomingRecovery?.organizationRecords, (item) => String(item.aid), (record) => record.completedAt),
+    organizationBatches: mergeBy(currentRecovery?.organizationBatches, incomingRecovery?.organizationBatches, (item) => item.id, (record) => record.recordedAt),
+    organizationMigrationInitialized: Boolean(currentRecovery?.organizationMigrationInitialized || incomingRecovery?.organizationMigrationInitialized),
+    tombstones: mergeBy(currentRecovery?.tombstones, incomingRecovery?.tombstones, (item) => String(item.aid), (record) => record.deletedAt)
+  } : undefined
+  const merged: FavoriteRepositoryArchiveExport = {
+    ...current, ...incoming,
+    videos: mergeBy(current.videos, incoming.videos, (item) => String(item.aid)),
+    positions: mergeBy(current.positions, incoming.positions, (item) => String(item.aid)),
+    protections: mergeBy(current.protections, incoming.protections, (item) => String(item.aid), (record) => record.completedAt),
+    events: mergeBy(current.events, incoming.events, (item) => item.id, (record) => record.occurredAt),
+    archives: mergeBy(current.archives, incoming.archives, (item) => `${item.aid}:${item.archiveId}`, (record) => record.registeredAt),
+    ...(recovery ? { recovery } : {})
+  }
+  return { ...merged, checksum: createFavoriteRepositoryArchiveExportChecksum(merged) }
+}
+
 export function mergeMigrationAccounts(local: Record<string, PortableAccountData>, imported: Record<string, PortableAccountData>) {
   const result: Record<string, PortableAccountData> = structuredClone(local)
   for (const [uid, incoming] of Object.entries(imported)) {
     const current = result[uid]
     if (!current) { result[uid] = structuredClone(incoming); continue }
     const merged: PortableAccountData = { ...current, ...incoming }
-    merged.repository = { ...(isRecord(current.repository) ? current.repository : {}), ...(isRecord(incoming.repository) ? incoming.repository : {}), videos: mergeNamedRecords(isRecord(current.repository) ? current.repository.videos : [], isRecord(incoming.repository) ? incoming.repository.videos : [], (item) => `${item.aid}:${item.cid ?? ''}`) }
+    merged.repository = mergeRepositoryArchives(validateFavoriteRepositoryArchiveExport(current.repository), validateFavoriteRepositoryArchiveExport(incoming.repository))
     merged.archives = mergeNamedRecords(current.archives, incoming.archives, (item) => `${item.aid}:${item.cid ?? ''}:${item.version ?? ''}`)
     for (const key of ['workspaces', 'transcription', 'remoteOperations'] as const) merged[key] = mergeNamedRecords(current[key], incoming[key], (item) => String(item.id ?? `${item.aid}:${item.cid ?? ''}`))
     merged.settings = updatedAt(incoming.settings) > updatedAt(current.settings) ? structuredClone(incoming.settings) : structuredClone(current.settings)
