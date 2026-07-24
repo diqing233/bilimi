@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocalDataService, type LocalDataPersistence } from './localDataService'
 import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import { createMigrationArchiveV1 } from '../../src/shared/localDataMigration'
 
 const roots: string[] = []
-const portableAccount = (id: string, updatedAt = '2026-07-24T00:00:00.000Z') => ({
+const portableAccount = (id: string, updatedAt = '2026-07-24T00:00:00.000Z', accountMid = '100') => ({
   repository: createFavoriteRepositoryArchiveExport({
-    ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: updatedAt }),
+    ...createAccountFavoriteRepositorySnapshot({ accountMid, now: updatedAt }),
     videos: { '1': { aid: 1, title: id, tags: [], updatedAt } }
   }, { generatedAt: updatedAt }),
   settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt }, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: []
@@ -85,6 +86,42 @@ describe('LocalDataService', () => {
     expect(accounts).toEqual(beforeAccounts)
     expect(await persistence.readSharedSettings()).toEqual(beforeShared)
     expect(vi.mocked(persistence.writePortableState).mock.calls[1]?.[0].sharedSettings).toEqual(beforeShared)
+  })
+
+  it('removes a newly selected account and restores all durable projections after a partial import fails', async () => {
+    const { root, accounts, persistence, service } = await makeService()
+    const archive = join(root, 'new-account-portable.json')
+    await writeFile(archive, JSON.stringify(createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T01:00:00.000Z', accounts: { '300': portableAccount('new', '2026-07-24T01:00:00.000Z', '300') }
+    })))
+    const preview = await service.previewImport(archive)
+    const beforeAccounts = structuredClone(accounts)
+    const repositories = Object.fromEntries(Object.entries(accounts).map(([uid, value]) => [uid, structuredClone(value.repository)]))
+    const accountStore = Object.fromEntries(Object.entries(accounts).map(([uid, value]) => [uid, structuredClone(value.settings)]))
+    let calls = 0
+    persistence.writePortableState = vi.fn((next, options) => {
+      calls++
+      for (const uid of options.selectedUids) {
+        const replacement = next.accounts[uid]
+        if (replacement) {
+          accounts[uid] = structuredClone(replacement)
+          repositories[uid] = structuredClone(replacement.repository)
+          accountStore[uid] = structuredClone(replacement.settings)
+        } else {
+          delete accounts[uid]
+          delete repositories[uid]
+          delete accountStore[uid]
+        }
+      }
+      if (calls === 1) throw new Error('repository publish failed after new-account projections')
+    })
+
+    await expect(service.applyImport(preview, { mode: 'overwrite' })).rejects.toThrow('repository publish failed')
+    expect(calls).toBe(2)
+    expect(accounts).toEqual(beforeAccounts)
+    expect(repositories).toEqual(Object.fromEntries(Object.entries(beforeAccounts).map(([uid, value]) => [uid, value.repository])))
+    expect(accountStore).toEqual(Object.fromEntries(Object.entries(beforeAccounts).map(([uid, value]) => [uid, value.settings])))
+    expect(vi.mocked(persistence.writePortableState).mock.calls[1]?.[1]).toEqual({ mode: 'overwrite', selectedUids: ['100', '200', '300'] })
   })
 
   it('passes the selected UIDs and overwrite mode to the durable persistence boundary', async () => {

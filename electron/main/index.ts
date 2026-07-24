@@ -1390,10 +1390,17 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         try {
           for (const uid of selectedUids) {
             const archive = batch.repositoryArchives[uid]
-            if (!archive) throw new Error('Portable import account is missing.')
+            if (!archive) {
+              // A rollback can include a newly imported UID that did not exist
+              // in the pre-import snapshot. Its absent projection is an
+              // intentional account-scoped deletion, not malformed input.
+              await favoriteRepositoryService!.deleteAccountLocalData(uid)
+              continue
+            }
             await favoriteRepositoryService!.applyArchiveImport(uid, { validate: () => archive, mode: options.mode })
           }
           const accountPreferences = { ...previous.preferences.favoriteAccountPreferences }
+          for (const uid of selectedUids) if (!Object.hasOwn(batch.settingsByUid, uid)) delete accountPreferences[uid]
           for (const [uid, settings] of Object.entries(batch.settingsByUid).filter(([uid]) => selectedUids.has(uid))) {
             const current = loadFavoriteAccountPreferences(store, uid)
             const candidate = settings as Partial<typeof current>

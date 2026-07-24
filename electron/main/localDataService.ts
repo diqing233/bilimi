@@ -10,8 +10,10 @@ export type LocalDataPersistence = {
   readSharedSettings(): Record<string, unknown> | Promise<Record<string, unknown>>
   writeSharedSettings(settings: Record<string, unknown>): void | Promise<void>
   /**
-   * Publishes the complete portable state as one durable transaction. It must
-   * leave both accounts and shared settings unchanged when it rejects.
+   * Publishes selected account projections as one durable transaction. A UID
+   * listed in selectedUids but absent from state.accounts is removed from every
+   * account-scoped durable projection. It must leave both accounts and shared
+   * settings unchanged when it rejects.
    */
   writePortableState?(
     state: { accounts: Record<string, PortableAccountData>; sharedSettings: Record<string, unknown> },
@@ -101,6 +103,7 @@ export class LocalDataService {
     if (archive.checksum !== pending.archive.checksum) throw new Error('Migration source changed after preview.')
     const before = Object.fromEntries(await Promise.all((await this.options.persistence.listAccountUids()).map(async (uid) => [uid, await this.options.persistence.readAccount(uid)] as const)))
     const beforeSharedSettings = await this.options.persistence.readSharedSettings()
+    const rollbackSelectedUids = [...new Set([...Object.keys(before), ...archive.selectedUids])].sort()
     const staged = input.mode === 'merge' ? mergeMigrationAccounts(before, archive.accounts) : { ...before, ...archive.accounts }
     for (const uid of archive.selectedUids) staged[uid] = restorePortableAccountState(staged[uid])
     const rollbackPath = join(this.options.root, `.migration-rollback-${randomUUID()}.json`)
@@ -119,7 +122,7 @@ export class LocalDataService {
       // published. Replaying the complete pre-import state is the compensating
       // transaction; it deliberately never retries the requested import.
       if (this.options.persistence.writePortableState) {
-        try { await this.options.persistence.writePortableState({ accounts: before, sharedSettings: beforeSharedSettings }, { mode: 'overwrite', selectedUids: Object.keys(before) }) }
+        try { await this.options.persistence.writePortableState({ accounts: before, sharedSettings: beforeSharedSettings }, { mode: 'overwrite', selectedUids: rollbackSelectedUids }) }
         catch (rollbackError) { throw new Error(`Migration import failed and rollback could not be completed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`) }
       }
       throw error
