@@ -427,6 +427,30 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '对账取消收藏结果' }))
     await waitFor(() => expect(reconcileFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'batch-operation'))
   })
+  it('keeps every recovered remote reconciliation actionable and refreshes their status after a reconciliation', async () => {
+    const reconcileFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const reconcileFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const openFavoriteRepositoryAccount = vi.fn()
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 2, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 2 }, remoteReconciliations: [{ kind: 'unfavorite', operationId: 'recovered-unfavorite' }, { kind: 'managed-folder', operationId: 'recovered-folder' }] })
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:01:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, remoteReconciliations: [] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount,
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      reconcileFavoriteLibraryRemoteUnfavoriteOperation,
+      reconcileFavoriteLibraryManagedFolderDelete,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    expect(await screen.findByRole('button', { name: '对账取消收藏结果' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '对账文件夹删除结果' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '对账取消收藏结果' }))
+    await waitFor(() => expect(reconcileFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'recovered-unfavorite'))
+    await waitFor(() => expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('button', { name: '对账取消收藏结果' })).not.toBeInTheDocument()
+    expect(reconcileFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
+  })
   it('confirms one atomic batch local deletion before clearing the selected rows', async () => {
     const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const deleteFavoriteLibraryVideo = vi.fn()

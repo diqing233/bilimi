@@ -183,10 +183,10 @@ export function FavoriteLibraryApp({
     executionToken: string
     baselineRevision?: number
   }>()
-  const [remoteReconciliation, setRemoteReconciliation] = useState<{
+  const [remoteReconciliations, setRemoteReconciliations] = useState<Array<{
     kind: 'unfavorite' | 'managed-folder'
     operationId: string
-  }>()
+  }>>([])
   const requestIdRef = useRef(0)
   const selectedAidRef = useRef<number>()
 
@@ -219,11 +219,16 @@ export function FavoriteLibraryApp({
     if (requestId === requestIdRef.current) {
       setPage(next)
       if (preserveSelection) {
-        setSelected((current) => current && next.items.some((item) => item.video.aid === current.aid) ? current : undefined)
+        setSelected((current) => {
+          const matching = current && next.items.find((item) => item.video.aid === current.aid)
+          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates] } : undefined
+        })
       } else {
         setSelected(undefined)
       }
+      return true
     }
+    return false
   }, [pageSize])
 
   const refresh = useCallback(async (expectedAccountMid?: string) => {
@@ -258,7 +263,7 @@ export function FavoriteLibraryApp({
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
-      setRemoteReconciliation(nextSummary.remoteReconciliations?.[0])
+      setRemoteReconciliations(nextSummary.remoteReconciliations ?? [])
       const sameAccount = mid === expectedAccountMid
       await load(mid, sameAccount ? scopeRef.current : { kind: 'all' }, sameAccount ? cursorHistoryRef.current.at(-1) : undefined, pageSize, pageOptions, sameAccount)
     } catch {
@@ -275,6 +280,8 @@ export function FavoriteLibraryApp({
     setPage(undefined)
     setSelected(undefined)
     setSelectedAids([])
+    cursorHistoryRef.current = []
+    setCursorHistory([])
     void refresh(accountMid)
   }), [accountMid, refresh])
 
@@ -531,7 +538,7 @@ export function FavoriteLibraryApp({
       ) as { status?: string; operationId?: string; reason?: string }
       setRemoteUnfavoritePreview(undefined)
       if (result.status === 'result-unknown') {
-        setRemoteReconciliation({ kind: 'unfavorite', operationId: result.operationId ?? remoteUnfavoritePreview.executionToken })
+        setRemoteReconciliations((current) => [...current, { kind: 'unfavorite', operationId: result.operationId ?? remoteUnfavoritePreview.executionToken }])
       } else if (result.status === 'failed') {
         setError(`取消 B 站收藏失败${result.reason ? `：${result.reason}` : '，请稍后重试。'}`)
       }
@@ -550,12 +557,12 @@ export function FavoriteLibraryApp({
     ) as { status?: string; operationId?: string }
     setBatchRemoteUnfavoritePreview(undefined)
     if (result.status === 'result-unknown') {
-      setRemoteReconciliation({ kind: 'unfavorite', operationId: result.operationId ?? batchRemoteUnfavoritePreview.executionToken })
+      setRemoteReconciliations((current) => [...current, { kind: 'unfavorite', operationId: result.operationId ?? batchRemoteUnfavoritePreview.executionToken }])
       return
     }
     await refresh(accountMid)
   }
-  const reconcileRemoteOperation = async () => {
+  const reconcileRemoteOperation = async (remoteReconciliation: { kind: 'unfavorite' | 'managed-folder'; operationId: string }) => {
     const api = window.bilimiDesktop
     if (!accountMid || !remoteReconciliation) throw new Error(text.unavailable)
     if (remoteReconciliation.kind === 'unfavorite') {
@@ -563,6 +570,7 @@ export function FavoriteLibraryApp({
     } else {
       await api?.reconcileFavoriteLibraryManagedFolderDelete?.(accountMid, remoteReconciliation.operationId)
     }
+    await refresh(accountMid)
   }
   const exportFavoriteArchive = async () => {
     const api = window.bilimiDesktop
@@ -781,9 +789,9 @@ export function FavoriteLibraryApp({
         </div> : null}
       </section> : null}
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
-      {remoteReconciliation ? <div className="favorite-library__remote-reconciliation" role="status">
-        <p>远程结果待确认：请先对账，不能自动重试或再次执行。</p>
-        <button type="button" onClick={() => void runDetailAction(reconcileRemoteOperation)}>{remoteReconciliation.kind === 'unfavorite' ? '对账取消收藏结果' : '对账文件夹删除结果'}</button>
+      {remoteReconciliations.length ? <div className="favorite-library__remote-reconciliation" role="status">
+        <p>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</p>
+        {remoteReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>{remoteReconciliation.kind === 'unfavorite' ? '对账取消收藏结果' : '对账文件夹删除结果'}</button>)}
       </div> : null}
       {batchRemoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认批量取消B站收藏">
         <p>将取消 {batchRemoteUnfavoritePreview.aids.length} 个视频在 B 站的全部收藏关系。</p>
@@ -1046,7 +1054,8 @@ export function FavoriteLibraryApp({
         onPreviousPage={() => {
           if (!accountMid || !cursorHistory.length) return
           const previousCursor = cursorHistory.at(-2)
-          void load(accountMid, scope, previousCursor, pageSize, pageOptions).then(() => {
+          void load(accountMid, scope, previousCursor, pageSize, pageOptions).then((applied) => {
+            if (!applied) return
             setCursorHistory((history) => {
               const next = history.slice(0, -1)
               cursorHistoryRef.current = next
@@ -1056,7 +1065,8 @@ export function FavoriteLibraryApp({
         }}
         onNextPage={() => {
           if (accountMid && page?.nextCursor) {
-            void load(accountMid, scope, page.nextCursor, pageSize, pageOptions).then(() => {
+            void load(accountMid, scope, page.nextCursor, pageSize, pageOptions).then((applied) => {
+              if (!applied) return
               setCursorHistory((history) => {
                 const next = [...history, page.nextCursor]
                 cursorHistoryRef.current = next
