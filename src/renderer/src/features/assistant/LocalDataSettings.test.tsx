@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { LocalDataSettings } from './LocalDataSettings'
 
@@ -67,5 +67,18 @@ describe('LocalDataSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '预览清理缓存' }))
     expect(onPreviewCleanup).toHaveBeenCalledWith('cache', undefined)
     expect(await screen.findByText('清理预览已就绪：不会修改 B 站服务器数据。')).toBeInTheDocument()
+  })
+
+  it('requires a cleanup preview before applying the selected local cleanup', async () => {
+    const onPreviewCleanup = vi.fn().mockResolvedValue({ affectsBilibiliServerData: false })
+    const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onPreviewCleanup={onPreviewCleanup} onApplyCleanup={onApplyCleanup} />)
+
+    expect(screen.queryByRole('button', { name: '执行清理缓存' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '预览清理缓存' }))
+    expect(await screen.findByRole('button', { name: '执行清理缓存' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '执行清理缓存' }))
+
+    await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('cache', undefined))
   })
 })

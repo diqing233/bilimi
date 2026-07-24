@@ -173,6 +173,7 @@ export function FavoriteLibraryApp({
       unmatchedFallbackCount: number
       extraRemoteMemberCount: number
       remoteOnlyMemberCount: number
+      remoteBinding?: { remoteFolderId: string; shardCount: number }
     }
   }>()
   const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
@@ -194,13 +195,23 @@ export function FavoriteLibraryApp({
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
   const scopeRef = useRef(scope)
   scopeRef.current = scope
-  const load = useCallback(async (mid: string, nextScope: LibraryScope, cursor?: string, limit = pageSize) => {
+  const pageOptions = useMemo(() => ({ query: searchQuery, filter: rowFilter, sort: rowSort }), [rowFilter, rowSort, searchQuery])
+  const load = useCallback(async (
+    mid: string,
+    nextScope: LibraryScope,
+    cursor?: string,
+    limit = pageSize,
+    options: { query?: string; filter?: FavoriteLibraryFilter; sort?: FavoriteLibrarySort } = {}
+  ) => {
     const requestId = ++requestIdRef.current
     const api = window.bilimiDesktop
     if (!api?.getFavoriteRepositoryLibraryPage) throw new Error(text.unavailable)
     const next = await api.getFavoriteRepositoryLibraryPage(mid, nextScope, {
       limit,
-      ...(cursor ? { cursor } : {})
+      ...(cursor ? { cursor } : {}),
+      ...(options.query?.trim() ? { query: options.query.trim() } : {}),
+      ...(options.filter ? { filter: options.filter } : {}),
+      ...(options.sort ? { sort: options.sort } : {})
     })
     if (requestId === requestIdRef.current) {
       setPage(next)
@@ -240,11 +251,11 @@ export function FavoriteLibraryApp({
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
-      await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
+      await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' }, undefined, pageSize, pageOptions)
     } catch {
       if (refreshId === requestIdRef.current) setError(text.cannotRead)
     }
-  }, [load])
+  }, [load, pageOptions, pageSize])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -300,22 +311,7 @@ export function FavoriteLibraryApp({
   const logicalFolders = useMemo(() => folders
     .filter((folder) => folder.kind === 'bilimi-logical')
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)), [folders])
-  const rows = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase()
-    return (page ? pageRows(page) : []).filter((row) => {
-      const matchesQuery = !query || [row.title, row.author ?? '', ...(row.tags ?? [])].some((value) => value.toLocaleLowerCase().includes(query))
-      if (!matchesQuery) return false
-      if (rowFilter === 'protected') return row.pendingStates?.includes('protected')
-      if (rowFilter === 'pending') return Boolean(row.pendingStates?.some((state) => state !== 'protected'))
-      if (rowFilter === 'unsynced') return Boolean(row.pendingStates?.some((state) => state === 'unsynced' || state === 'failed' || state === 'result-unknown'))
-      return true
-    }).sort((left, right) => {
-      if (rowSort === 'title-asc') return left.title.localeCompare(right.title)
-      if (rowSort === 'title-desc') return right.title.localeCompare(left.title)
-      const difference = Date.parse(left.updatedAt) - Date.parse(right.updatedAt)
-      return rowSort === 'updated-asc' ? difference : -difference
-    })
-  }, [page, rowFilter, rowSort, searchQuery])
+  const rows = useMemo(() => page ? pageRows(page) : [], [page])
   const activeRow = selected && page?.items.find((item) => item.video.aid === selected.aid)
   const detail = selected && activeRow ? buildFavoriteLibraryDetail(
     detailSnapshot?.video.aid === selected.aid
@@ -677,6 +673,10 @@ export function FavoriteLibraryApp({
     if (sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder') return ['copy'] as const
     return ['copy', 'move', 'refresh', 'transcribe', 'sync', 'delete-local', 'unfavorite-remote'] as const
   }, [sourceEligibility.sourceScopeKind])
+  const detailAllowsOnlyCopy = sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder'
+  const detailSourceVideo = detailSnapshot && detailSnapshot.video.aid === selected?.aid ? detailSnapshot.video : selected
+  const detailSourceMethod = detailSourceVideo?.favoriteAt ? 'B站收藏' : detailSourceVideo?.scannedAt ? '扫描发现' : '本地收藏库'
+  const detailSourceAt = detailSourceVideo?.favoriteAt ?? detailSourceVideo?.scannedAt ?? detailSourceVideo?.updatedAt
   const eligibleSelectedAids = sourceEligibility.eligibleAids
   const currentLogicalFolderAids = currentLogicalFolderId
     ? [...new Set(rows.filter((row) => row.folderIds.includes(currentLogicalFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
@@ -723,7 +723,7 @@ export function FavoriteLibraryApp({
             setScopeId('pending')
             setSelectedAids([])
             setSelected(undefined)
-            if (accountMid) void load(accountMid, { kind: 'pending' })
+            if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
           }}
           onMinimize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('minimize') }}
           onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}>
@@ -803,7 +803,7 @@ export function FavoriteLibraryApp({
             setSelectedAids([])
             setSelected(undefined)
             setDetailSnapshot(undefined)
-            if (accountMid) void load(accountMid, scopeForNavigation(id))
+            if (accountMid) void load(accountMid, scopeForNavigation(id), undefined, pageSize, pageOptions)
           }}
           onManagedFolderAction={(id, action) => {
             if (action === 'edit') {
@@ -827,6 +827,7 @@ export function FavoriteLibraryApp({
                   unmatchedFallbackCount: number
                   extraRemoteMemberCount: number
                   remoteOnlyMemberCount: number
+                  remoteBinding: { remoteFolderId: string; shardCount: number }
                 }>
                 const currentRevision = value.currentRevision
                 if (!value.executionToken || !Number.isSafeInteger(currentRevision)) throw new Error(text.unavailable)
@@ -839,7 +840,8 @@ export function FavoriteLibraryApp({
                     localMemberCount: value.localMemberCount ?? 0,
                     unmatchedFallbackCount: value.unmatchedFallbackCount ?? 0,
                     extraRemoteMemberCount: value.extraRemoteMemberCount ?? 0,
-                    remoteOnlyMemberCount: value.remoteOnlyMemberCount ?? 0
+                    remoteOnlyMemberCount: value.remoteOnlyMemberCount ?? 0,
+                    remoteBinding: value.remoteBinding
                   }
                 })
               })
@@ -848,7 +850,7 @@ export function FavoriteLibraryApp({
         />
         <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? {
           title: managedFolderDialog.title,
-          canDeleteRemotely: true,
+          canDeleteRemotely: Boolean(managedFolderDialog.preview.remoteBinding),
           preview: managedFolderDialog.preview
         } : undefined} onManagedFolderChoice={(choice) => {
           if (managedFolderDialog) {
@@ -873,7 +875,16 @@ export function FavoriteLibraryApp({
         }} />
         {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
-          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!eligibleSelectedAids.length} allowedActions={[...batchAllowedActions]} searchQuery={searchQuery} filter={rowFilter} sort={rowSort} onSearchChange={setSearchQuery} onFilterChange={setRowFilter} onSortChange={setRowSort} onBatchAction={(action) => {
+          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!eligibleSelectedAids.length} allowedActions={[...batchAllowedActions]} searchQuery={searchQuery} filter={rowFilter} sort={rowSort} onSearchChange={(query) => {
+            setSearchQuery(query)
+            if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, query })
+          }} onFilterChange={(filter) => {
+            setRowFilter(filter)
+            if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, filter })
+          }} onSortChange={(sort) => {
+            setRowSort(sort)
+            if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, sort })
+          }} onBatchAction={(action) => {
             const actionAids = action === 'copy' || action === 'unfavorite-remote' ? selectedAids : eligibleSelectedAids
             setBatchEligibilityNotice(selectedAids.length === actionAids.length ? undefined : `可操作 ${actionAids.length} 项，跳过 ${selectedAids.length - actionAids.length} 项`)
             uiCallbacks?.onBatchAction?.(action, [...actionAids])
@@ -924,7 +935,7 @@ export function FavoriteLibraryApp({
             <label className="favorite-library__page-size">每页<select aria-label="每页数量" value={pageSize} onChange={(event) => {
               const nextPageSize = Number(event.currentTarget.value) as 25 | 50 | 100
               setPageSize(nextPageSize)
-              if (accountMid) void load(accountMid, scope, undefined, nextPageSize)
+              if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
             }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
           </FavoriteLibraryToolbar>
           <VirtualFavoriteLibraryList
@@ -968,7 +979,7 @@ export function FavoriteLibraryApp({
               return <section className="favorite-library__status-tags" aria-label="视频状态">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}{statusExplanation ? <p role="status">{statusExplanation}</p> : null}{metadataStale ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(refreshMetadata)}>刷新资料</button> : null}</section>
             })()}
             <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button></section>
-            <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}<button type="button" className="favorite-library__inline-action" onClick={() => openSelectedPlacementPicker('copy', selected ? [selected.aid] : [])}>复制至本地归属</button><button type="button" className="favorite-library__inline-action" disabled={!currentLogicalFolderId} onClick={() => openSelectedPlacementPicker('move', selected ? [selected.aid] : [])}>移动至本地归属</button><button type="button" className="favorite-library__inline-action" onClick={() => void runAction(async () => {
+            <section><h3>收藏位置</h3><p>本地：{detailSnapshot?.position?.localDesiredFolderIds.length ? detailSnapshot.position.localDesiredFolderIds.join('、') : '未匹配分类'}</p><p>B站：{detailSnapshot?.position?.remoteObservedLogicalFolderIds.length ? detailSnapshot.position.remoteObservedLogicalFolderIds.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p>{!detailAllowsOnlyCopy ? <><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}</> : null}<button type="button" className="favorite-library__inline-action" onClick={() => openSelectedPlacementPicker('copy', selected ? [selected.aid] : [])}>复制至本地归属</button>{!detailAllowsOnlyCopy ? <><button type="button" className="favorite-library__inline-action" disabled={!currentLogicalFolderId} onClick={() => openSelectedPlacementPicker('move', selected ? [selected.aid] : [])}>移动至本地归属</button><button type="button" className="favorite-library__inline-action" onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!accountMid || !selected || !api?.syncFavoriteLibrarySelection) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: [selected.aid] })
@@ -979,7 +990,7 @@ export function FavoriteLibraryApp({
             })}>加入转写队列</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(() => setLocalPlacement([]))}>移出所有本地仓库</button>{detailSnapshot?.position ? <button type="button" className="favorite-library__inline-action" disabled={!detailSnapshot.position.remoteObservedPhysicalFolderIds.length || ['failed', 'result-unknown', 'needs-review', 'syncing'].includes(detailSnapshot.position.state)} onClick={() => void runDetailAction(adoptRemotePlacement)}>采用B站位置</button> : null}<button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>危险操作</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}</> : null}{(() => {
               const remoteUnfavoriteAvailable = Boolean(accountMid && selected && summary && window.bilimiDesktop?.previewFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.confirmFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.executeFavoriteLibraryRemoteUnfavoriteOperation)
               return <><button type="button" className="favorite-library__inline-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认取消B站收藏" aria-busy={remoteUnfavoriteExecuting}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button></div> : null}</>
-            })()}</section>
+            })()}</> : null}</section>
             <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates.filter((state) => state !== 'protected'))}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次刷新: ${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
             <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid && folder.kind === 'bilibili' ? <button type="button" onClick={() => void runDetailAction(async () => {
                const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
@@ -991,7 +1002,7 @@ export function FavoriteLibraryApp({
               if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
               await api.openFavoriteLibrarySource(accountMid, shard.folderId)
             })}>{`打开第 ${shard.shardNumber} 分册`}</button> : null}</li>)}</ul></section> : null}
-            <section><h3>{text.scan}</h3><p>{text.videoId}: {detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号: {detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长: {Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区: {detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签: {detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}: {detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
+            <section><h3>{text.scan}</h3><p>{text.videoId}: {detail.aid}</p><p>来源方式：{detailSourceMethod}</p>{detailSourceAt ? <p>来源时间：{detailSourceAt}</p> : null}{detailSnapshot?.video.bvid ? <p>BV 号: {detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长: {Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区: {detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签: {detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}: {detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
             <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(openArchiveDetail)}>查看档案详情</button><button type="button" onClick={() => void runDetailAction(async () => {
               const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
               if (!api.toggleFavoriteLibraryArchiveStar) throw new Error(text.unavailable)
@@ -1009,7 +1020,7 @@ export function FavoriteLibraryApp({
       <FavoriteLibraryFooter
         hasNextPage={Boolean(page?.nextCursor)}
         onNextPage={() => {
-          if (accountMid && page?.nextCursor) void load(accountMid, scope, page.nextCursor)
+          if (accountMid && page?.nextCursor) void load(accountMid, scope, page.nextCursor, pageSize, pageOptions)
         }}
       />
     </main>

@@ -19,6 +19,16 @@ export class FavoriteRepositoryRemoteOperationSupersededError extends Error {
   }
 }
 
+/** Remote work is no longer accepted because destructive local maintenance is in progress. */
+export class FavoriteRepositoryRemoteOperationUnavailableError extends Error {
+  readonly code = 'REMOTE_OPERATION_UNAVAILABLE'
+
+  constructor() {
+    super('Remote operations are unavailable during destructive local maintenance.')
+    this.name = 'FavoriteRepositoryRemoteOperationUnavailableError'
+  }
+}
+
 type QueuedOperation<T> = FavoriteRepositoryRemoteOperationOptions & {
   sequence: number
   operation: () => Promise<T>
@@ -45,6 +55,7 @@ export class FavoriteRepositoryRemoteOperationArbiter {
   private maintenanceRequested = 0
   private exclusiveTail = Promise.resolve()
   private idleWaiters: Array<() => void> = []
+  private acceptingOperations = true
 
   /**
    * Preserves the original FIFO entry point for callers that do not need an
@@ -59,6 +70,7 @@ export class FavoriteRepositoryRemoteOperationArbiter {
     options: FavoriteRepositoryRemoteOperationOptions,
     operation: () => Promise<T>
   ): Promise<T> {
+    if (!this.acceptingOperations) return Promise.reject(new FavoriteRepositoryRemoteOperationUnavailableError())
     const accountQueue = this.queues.get(accountMid) ?? { active: false, queue: [] }
     this.queues.set(accountMid, accountQueue)
 
@@ -100,6 +112,21 @@ export class FavoriteRepositoryRemoteOperationArbiter {
         for (const [accountMid, accountQueue] of this.queues) this.drain(accountMid, accountQueue)
       }
     }
+  }
+
+  /**
+   * Stops accepting remote work, rejects operations that have not started, and
+   * waits for the active operation to settle before destructive local cleanup.
+   * Active work is deliberately not aborted: its remote outcome must be
+   * checkpointed or recorded as unknown by its own operation handler.
+   */
+  async runDestructiveMaintenance<T>(operation: () => Promise<T>): Promise<T> {
+    this.acceptingOperations = false
+    for (const accountQueue of this.queues.values()) {
+      const pending = accountQueue.queue.splice(0)
+      for (const queued of pending) queued.reject(new FavoriteRepositoryRemoteOperationUnavailableError())
+    }
+    return this.runExclusive(operation)
   }
 
   private drain(accountMid: string, accountQueue: AccountQueue) {

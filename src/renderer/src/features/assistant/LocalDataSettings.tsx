@@ -19,11 +19,12 @@ type Props = {
   onImport?: () => Promise<ImportPreview | void>
   onApplyImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void> | void
   onPreviewCleanup?: (level: CleanupLevel, uid?: string) => Promise<{ affectsBilibiliServerData: false }> | void
+  onApplyCleanup?: (level: CleanupLevel, uid?: string) => Promise<void> | void
 }
 
 const formatBytes = (bytes: number) => bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`
 
-export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, calculateUsage, onFullClear, onOpenPath, onExport, onImport, onApplyImport, onPreviewCleanup }: Props) {
+export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, calculateUsage, onFullClear, onOpenPath, onExport, onImport, onApplyImport, onPreviewCleanup, onApplyCleanup }: Props) {
   const [usage, setUsage] = useState<Usage | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState('')
@@ -34,6 +35,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const [migrationProgress, setMigrationProgress] = useState('')
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [cleanupPreview, setCleanupPreview] = useState('')
+  const [approvedCleanup, setApprovedCleanup] = useState<{ level: CleanupLevel; uid?: string } | null>(null)
   const recalculate = async () => { setBusy(true); try { setUsage(await calculateUsage()) } finally { setBusy(false) } }
   const toggleUid = (uid: string) => setSelectedUids((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid])
   const applyImport = async (mode: 'merge' | 'overwrite') => {
@@ -47,10 +49,21 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   }
   const previewCleanup = async (level: CleanupLevel, uid?: string) => {
     setCleanupPreview('正在生成清理预览')
+    setApprovedCleanup(null)
     try {
       await onPreviewCleanup?.(level, uid)
+      setApprovedCleanup({ level, ...(uid ? { uid } : {}) })
       setCleanupPreview('清理预览已就绪：不会修改 B 站服务器数据。')
     } catch { setCleanupPreview('清理预览失败') }
+  }
+  const applyCleanup = async () => {
+    if (!approvedCleanup) return
+    setCleanupPreview('正在清理')
+    try {
+      await onApplyCleanup?.(approvedCleanup.level, approvedCleanup.uid)
+      setApprovedCleanup(null)
+      setCleanupPreview('清理完成')
+    } catch { setCleanupPreview('清理失败') }
   }
   return <section aria-label="本地数据与迁移">
     <h2>本地数据与迁移</h2><p>用户数据位置：<code>{userDataPath}</code></p>
@@ -63,7 +76,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     <button type="button" onClick={async () => { setMigrationProgress('正在读取导入预览'); try { const preview = await onImport?.(); setImportPreview(preview ? { token: preview.token, accounts: preview.accounts ?? [] } : null); setMigrationProgress('导入预览已就绪') } catch { setMigrationProgress('导入预览失败') } }}>导入并预览</button>
     {migrationProgress && <p role="status">{migrationProgress}</p>}{importPreview && <><ul aria-label="导入预览">{importPreview.accounts.map((item) => <li key={item.uid}>{item.uid}：{item.action}</li>)}</ul><p>先校验并暂存；请选择导入方式。</p><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('merge')}>按UID合并并保留较新记录</button><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('overwrite')}>覆盖所选账户的本地数据</button></>}
     <fieldset><legend>安全清理预览</legend><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!currentAccountUid} onClick={() => void previewCleanup('current-account-temp', currentAccountUid)}>预览清理当前账户临时数据</button>{currentAccountUid ? <button type="button" onClick={() => void previewCleanup('current-account-data', currentAccountUid)}>预览删除当前账户本地数据</button> : null}</fieldset>
-    {cleanupPreview && <p role="status">{cleanupPreview}</p>}
+    {cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={applyCleanup}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : approvedCleanup.level === 'current-account-temp' ? '清理当前账户临时数据' : '删除当前账户本地数据'}</button>}
     <button type="button" onClick={() => setDangerOpen(true)}>清除全部用户数据</button>
     {dangerOpen && <details open><summary>危险操作</summary><p>不会改动 B 站服务器收藏；未知远程结果的对账记录也会丢失。</p><label>输入 全部清除 以确认<input aria-label="输入 全部清除 以确认" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button type="button" disabled={confirmation !== '全部清除'} onClick={() => void onFullClear()}>清除并退出</button></details>}
   </section>

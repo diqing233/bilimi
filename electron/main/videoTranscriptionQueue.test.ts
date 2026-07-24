@@ -403,6 +403,28 @@ describe('video transcription queue', () => {
     expect(queue.getSnapshot().sessionCompletedCount).toBe(0)
   })
 
+  it('cancels active and queued jobs before destructive maintenance completes', async () => {
+    let runningSignal: AbortSignal | undefined
+    const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi.fn((_request: VideoAudioTranscriptionRequest, _progress: (progress: never) => void, signal?: AbortSignal) => {
+      runningSignal = signal
+      return running.promise
+    })
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load, saveItems: vi.fn(), transcribe, saveArchiveVersion: vi.fn()
+    })
+    queue.enqueue(createRequest())
+    queue.enqueue(createRequest({ bvid: 'BV2maintenance', title: 'Queued', url: 'https://www.bilibili.com/video/BV2maintenance' }))
+    await flushMicrotasks()
+
+    const maintenance = queue.cancelAllAndWait()
+    expect(runningSignal?.aborted).toBe(true)
+    expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['canceled', 'canceled'])
+    running.reject(new Error('Process canceled.'))
+    await expect(maintenance).resolves.toMatchObject({ items: [{ status: 'canceled' }, { status: 'canceled' }] })
+    expect(transcribe).toHaveBeenCalledTimes(1)
+  })
+
   it('does not abort the running job when canceling a pending job', async () => {
     let runningSignal: AbortSignal | undefined
     const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()

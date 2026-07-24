@@ -28,6 +28,30 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('requests globally filtered and sorted pages instead of filtering only the visible page', async () => {
+    const getPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 100, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: getPage,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    await screen.findByRole('searchbox', { name: '搜索收藏库' })
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: 'later page' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '筛选状态' }), { target: { value: 'unsynced' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '排序方式' }), { target: { value: 'title-asc' } })
+
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, {
+      limit: 50, query: 'later page', filter: 'unsynced', sort: 'title-asc'
+    }))
+  })
+
   it('keeps managed-folder deletion in an overlay so the three-column workspace remains intact', () => {
     render(<FavoriteLibraryDialogs managedFolder={{ title: '音乐', canDeleteRemotely: true }} />)
 
@@ -57,6 +81,45 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: '从收藏库删除' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '危险操作' }))
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
+  })
+  it('keeps the embedded footer in the fourth library grid row below the three-column workspace', () => {
+    expect(favoriteLibraryStyles).toContain(".favorite-library[data-embedded='true'] { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;")
+    expect(favoriteLibraryStyles).toContain(".favorite-library[data-embedded='true'] .favorite-library__footer { grid-row: 4; }")
+  })
+  it('shows source method and exact source time in the selected video detail', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '来源视频', tags: [], favoriteAt: '2026-07-24T01:02:03.000Z', scannedAt: '2026-07-24T04:05:06.000Z', updatedAt: '2026-07-24T04:05:06.000Z' }, folderIds: [], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '来源视频', tags: [], favoriteAt: '2026-07-24T01:02:03.000Z', scannedAt: '2026-07-24T04:05:06.000Z', updatedAt: '2026-07-24T04:05:06.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('来源视频'))
+    const detail = await screen.findByRole('complementary')
+    expect(detail).toHaveTextContent('来源方式：B站收藏')
+    expect(detail).toHaveTextContent('来源时间：2026-07-24T01:02:03.000Z')
+  })
+  it('limits a B站 source-folder detail to copying into local placements', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilibili:default', title: '默认收藏', kind: 'bilibili', remoteFolderId: '1', syncState: 'synced' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: 'B站来源视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilibili:default'], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: 'B站来源视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilibili:default'], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '默认收藏' }))
+    fireEvent.click(await screen.findByText('B站来源视频'))
+    const detail = await screen.findByRole('complementary')
+    expect(detail).toHaveTextContent('复制至本地归属')
+    expect(detail).not.toHaveTextContent('移动至本地归属')
+    expect(detail).not.toHaveTextContent('同步B站位置')
+    expect(detail).not.toHaveTextContent('加入转写队列')
+    expect(detail).not.toHaveTextContent('从收藏库删除')
+    expect(detail).not.toHaveTextContent('取消B站收藏')
   })
   it('disables adopting a Bilibili position until a completed remote observation exists', async () => {
     const adoptFavoriteLibraryRemotePlacement = vi.fn()
@@ -464,6 +527,24 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑信息' }))
 
     expect(openFloatingAssistantWorkspace).not.toHaveBeenCalled()
+  })
+  it('does not offer remote managed-folder deletion without an unambiguous remote binding', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 0, folderCount: 1, folders: [
+        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }
+      ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [] }),
+      previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'delete-token', currentRevision: 6, localMemberCount: 0, unmatchedFallbackCount: 0, extraRemoteMemberCount: 0, remoteOnlyMemberCount: 0 }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐 菜单' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await screen.findByRole('dialog', { name: '删除 音乐' })
+    expect(screen.queryByRole('button', { name: '删除并同步到B站' })).not.toBeInTheDocument()
   })
   it('runs singleton copy, B站 sync, and transcription detail actions with the selected aid', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })

@@ -128,23 +128,28 @@ export class FavoriteRepositoryBatchOperationService {
     )
     const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
     operation.status = remoteStatus
-    await this.options.repository.commit(operation.accountMid, {
+    const timestamp = this.now()
+    const detail = result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite'
+    try {
+      await this.options.repository.commitWithAudit(operation.accountMid, {
       id: `favorite-remote-unfavorite:${operation.operationId}`,
       accountMid: operation.accountMid,
-      issuedAt: this.now(),
+      issuedAt: timestamp,
       type: 'record-sync-result',
       payload: {
         id: `favorite-remote-unfavorite:${operation.operationId}`,
         commandId: operation.operationId,
         status: remoteStatus,
         affectedAids: operation.aids,
-        updatedAt: this.now(),
+        updatedAt: timestamp,
         reason: result.reason,
         operationKey: 'favorite-library-unfavorite'
       }
-    })
-    const auditStatus = await this.audit(operation.accountMid, operation.aids, result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite', result.reason)
-    return { ...result, auditStatus }
+      }, this.events(operation.aids, detail, timestamp, result.reason))
+      return { ...result, auditStatus: 'recorded' }
+    } catch {
+      return { ...result, auditStatus: 'failed' }
+    }
   }
 
   async reconcileRemoteUnfavorite(accountMid: string, operationId: string) {

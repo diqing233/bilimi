@@ -73,7 +73,6 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(unfavorite).toHaveBeenCalledTimes(1)
     await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).rejects.toThrow('confirmation')
     await expect(service.reconcileRemoteUnfavorite('100', preview.operationId)).resolves.toMatchObject({ status: 'reconciliation-required' })
-    expect(commit.mock.calls.some((call) => call[1].type === 'record-sync-result' && call[1].payload.status === 'result-unknown')).toBe(true)
   })
 
   it('keeps a known remote unfavorite rejection failed and actionable', async () => {
@@ -88,7 +87,26 @@ describe('FavoriteRepositoryBatchOperationService', () => {
 
     await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'failed' })
     await expect(service.reconcileRemoteUnfavorite('100', preview.operationId)).resolves.toMatchObject({ status: 'failed' })
-    expect(commit.mock.calls.some((call) => call[1].type === 'record-sync-result' && call[1].payload.status === 'failed')).toBe(true)
+  })
+
+  it('atomically commits the remote-unfavorite checkpoint and immutable audit events', async () => {
+    const current = snapshot()
+    const commit = vi.fn()
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand, events: unknown[]) => ({
+      ...current, commandId: command.id, affectedAids: [1], affectedFolderIds: [], events
+    }))
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit },
+      remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'result-unknown' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1] })) }
+    })
+
+    const preview = await service.previewRemoteUnfavorite('100', [1], 7)
+    await service.executeRemoteUnfavorite('100', preview.executionToken, service.confirmRemoteUnfavorite(preview.executionToken))
+
+    expect(commit).not.toHaveBeenCalled()
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'record-sync-result', payload: expect.objectContaining({ status: 'result-unknown' })
+    }), expect.arrayContaining([expect.objectContaining({ aid: 1, detail: 'remote-unfavorite-result-unknown' })]))
   })
 
   it('rejects a remote-unfavorite execution whose repository baseline changed after preview', async () => {

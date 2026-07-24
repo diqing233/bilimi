@@ -31,6 +31,7 @@ type VideoTranscriptionQueue = {
   cancel: (id: string) => VideoAudioTranscriptionQueueSnapshot
   retry: (id: string) => VideoAudioTranscriptionQueueSnapshot
   retryArchiveRegistration: (id: string) => VideoAudioTranscriptionQueueSnapshot
+  cancelAllAndWait: () => Promise<VideoAudioTranscriptionQueueSnapshot>
 }
 
 function createQueueItemId(request: VideoAudioTranscriptionRequest): string {
@@ -106,6 +107,19 @@ export function createVideoTranscriptionQueue({
   let sessionCompletedCount = 0
   let processing = false
   let activeController: AbortController | undefined
+  let idleWaiters: Array<() => void> = []
+
+  function notifyIdle() {
+    if (processing) return
+    const waiters = idleWaiters
+    idleWaiters = []
+    for (const resolve of waiters) resolve()
+  }
+
+  function waitForIdle() {
+    if (!processing) return Promise.resolve()
+    return new Promise<void>((resolve) => idleWaiters.push(resolve))
+  }
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
     const snapshot = snapshotFromItems(items, sessionCompletedCount)
@@ -235,7 +249,8 @@ export function createVideoTranscriptionQueue({
       processing = false
       activeController = undefined
       publish()
-      void processNext()
+      if (items.some((item) => item.status === 'pending')) void processNext()
+      else notifyIdle()
     }
   }
 
@@ -337,6 +352,17 @@ export function createVideoTranscriptionQueue({
     return publish()
   }
 
+  async function cancelAllAndWait(): Promise<VideoAudioTranscriptionQueueSnapshot> {
+    const activeId = items.find((item) => item.status === 'running')?.id
+    items = items.map((item) => item.status === 'pending' || item.status === 'running'
+      ? { ...item, status: 'canceled', updatedAt: now() }
+      : item)
+    if (activeId) activeController?.abort()
+    publish()
+    await waitForIdle()
+    return snapshotFromItems(items, sessionCompletedCount)
+  }
+
   if (items.some((item) => item.status === 'pending')) {
     publish()
     queueMicrotask(() => {
@@ -349,6 +375,7 @@ export function createVideoTranscriptionQueue({
     enqueue,
     cancel,
     retry,
-    retryArchiveRegistration
+    retryArchiveRegistration,
+    cancelAllAndWait
   }
 }

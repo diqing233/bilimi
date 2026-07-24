@@ -214,16 +214,54 @@ describe('LocalDataService', () => {
     await expect(access(join(root, 'local-repository.json'))).rejects.toThrow()
   })
 
+  it('waits for active work to settle before removing durable state during a full clear', async () => {
+    const { accounts, persistence, service } = await makeService()
+    let allowShutdownToFinish: (() => void) | undefined
+    const stopActiveWork = vi.fn(() => new Promise<void>((resolve) => { allowShutdownToFinish = resolve }))
+    const writeAccounts = vi.spyOn(persistence, 'writeAccounts')
+    service.setDestructiveHooks({ stopActiveWork })
+
+    const cleanup = service.applyCleanup({ level: 'all-user-data', confirmation: '全部清除' })
+    await Promise.resolve()
+
+    expect(stopActiveWork).toHaveBeenCalledOnce()
+    expect(writeAccounts).not.toHaveBeenCalled()
+    expect(accounts['100']).toBeDefined()
+
+    allowShutdownToFinish?.()
+    await cleanup
+    expect(accounts).toEqual({})
+  })
+
   it('removes only the selected UID when account records have overlapping shapes', async () => {
     const { accounts, persistence, service } = await makeService()
     accounts['100'] = { repository: { videos: [{ aid: 7, cid: 70 }] } }
     accounts['200'] = { repository: { videos: [{ aid: 7, cid: 70 }] } }
-    const writeAccounts = vi.spyOn(persistence, 'writeAccounts')
+    const writePortableState = vi.spyOn(persistence, 'writePortableState')
 
     await service.applyCleanup({ level: 'current-account-data', uid: '100' })
 
     expect(accounts).toEqual({ '200': { repository: { videos: [{ aid: 7, cid: 70 }] } } })
-    expect(writeAccounts).toHaveBeenCalledWith({ '200': { repository: { videos: [{ aid: 7, cid: 70 }] } } })
+    expect(writePortableState).toHaveBeenCalledWith(
+      expect.objectContaining({ accounts: { '200': { repository: { videos: [{ aid: 7, cid: 70 }] } } } }),
+      { mode: 'overwrite', selectedUids: ['100'] }
+    )
+  })
+
+  it('removes retained signed-out account data through the portable persistence transaction', async () => {
+    const { accounts, persistence, service } = await makeService()
+    let retained = ['100', '200', '300']
+    persistence.listAccountUids = () => retained
+    const writePortableState = vi.fn(async (_state, options) => {
+      for (const uid of options.selectedUids) delete accounts[uid]
+      retained = retained.filter((uid) => !options.selectedUids.includes(uid))
+    })
+    persistence.writePortableState = writePortableState
+
+    await service.applyCleanup({ level: 'current-account-data', uid: '300' })
+
+    expect(writePortableState).toHaveBeenCalledWith(expect.objectContaining({ accounts: expect.not.objectContaining({ '300': expect.anything() }) }), { mode: 'overwrite', selectedUids: ['300'] })
+    expect(retained).toEqual(['100', '200'])
   })
 
   it('previews destructive cleanup, permits usage cancellation, and never presents server data as a target', async () => {

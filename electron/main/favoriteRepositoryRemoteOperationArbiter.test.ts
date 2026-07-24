@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
+import {
+  FavoriteRepositoryRemoteOperationArbiter,
+  FavoriteRepositoryRemoteOperationUnavailableError
+} from './favoriteRepositoryRemoteOperationArbiter'
 
 describe('FavoriteRepositoryRemoteOperationArbiter', () => {
   it('waits for submitted work before running exclusive session maintenance', async () => {
@@ -72,5 +75,26 @@ describe('FavoriteRepositoryRemoteOperationArbiter', () => {
     await latest
 
     expect(events).toEqual(['latest'])
+  })
+
+  it('closes remote work for destructive maintenance before the local clear starts', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const events: string[] = []
+    let releaseActive: (() => void) | undefined
+    const active = arbiter.run('100', async () => {
+      events.push('active-start')
+      await new Promise<void>((resolve) => { releaseActive = resolve })
+      events.push('active-end')
+    })
+    const pending = arbiter.run('100', async () => { events.push('must-not-run') })
+    const clear = arbiter.runDestructiveMaintenance(async () => { events.push('clear') })
+
+    await expect(pending).rejects.toBeInstanceOf(FavoriteRepositoryRemoteOperationUnavailableError)
+    await expect(arbiter.run('100', async () => { events.push('new-work') })).rejects.toBeInstanceOf(FavoriteRepositoryRemoteOperationUnavailableError)
+    expect(events).toEqual(['active-start'])
+
+    releaseActive?.()
+    await Promise.all([active, clear])
+    expect(events).toEqual(['active-start', 'active-end', 'clear'])
   })
 })

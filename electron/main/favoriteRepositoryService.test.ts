@@ -22,6 +22,31 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('filters and sorts the scoped library before cursor pagination', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, title, updatedAt] of [
+      [1, 'Zebra', '2026-07-24T00:00:00.000Z'],
+      [2, 'Alpha', '2026-07-23T00:00:00.000Z'],
+      [3, 'Needle match', '2026-07-22T00:00:00.000Z']
+    ] as const) {
+      await service.commit('100', {
+        id: `library-row-${aid}`, accountMid: '100', issuedAt: updatedAt, type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, query: 'needle', sort: 'title-asc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, sort: 'title-asc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 2, title: 'Alpha' } }], nextCursor: '1' })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, sort: 'title-asc', cursor: '1'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
+  })
+
   it('persists portable audit history, workspace recovery, and reconciliation records in the canonical archive', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

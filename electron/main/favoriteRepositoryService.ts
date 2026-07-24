@@ -106,9 +106,18 @@ type EventJournalEntry = {
   acceptedAt: string
 }
 
+export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
+export type FavoriteRepositoryLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
+
 type FolderPageOptions = {
   limit: number
   cursor?: string
+}
+
+export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
+  query?: string
+  filter?: FavoriteRepositoryLibraryFilter
+  sort?: FavoriteRepositoryLibrarySort
 }
 
 function clone<T>(value: T): T {
@@ -789,14 +798,14 @@ export class FavoriteRepositoryService {
   async getLibraryPage(
     accountMid: string,
     scope: FavoriteRepositoryLibraryPageScope,
-    options: FolderPageOptions
+    options: FavoriteRepositoryLibraryPageOptions
   ): Promise<FavoriteRepositoryPage<FavoriteRepositoryLibraryPageRow>> {
     const account = normalizeAccountMid(accountMid)
     const limit = pageLimit(options.limit)
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
     const index = this.libraryIndex(cached, snapshot)
-    const scopedAids = this.libraryAids(snapshot, scope, index)
+    const scopedAids = this.filteredAndSortedLibraryAids(snapshot, this.libraryAids(snapshot, scope, index), index, options)
     const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
     if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
     const selected = scopedAids.slice(start, start + limit)
@@ -1245,6 +1254,37 @@ export class FavoriteRepositoryService {
         .map(([aid]) => aid).sort((left, right) => left - right)
     }
     return index.allAids
+  }
+
+  private filteredAndSortedLibraryAids(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    aids: number[],
+    index: FavoriteRepositoryLibraryIndex,
+    options: FavoriteRepositoryLibraryPageOptions
+  ) {
+    const query = options.query?.trim().toLocaleLowerCase()
+    const filter = options.filter ?? 'all'
+    const sort = options.sort ?? 'updated-desc'
+    // Callers without a library sort retain the legacy bounded aid-read path.
+    if (!query && filter === 'all' && options.sort === undefined) return aids
+    return aids.filter((aid) => {
+      const video = snapshot.videos[String(aid)]
+      if (!video) return false
+      const states = index.pendingStatesByAid.get(aid) ?? new Set()
+      const matchesQuery = !query || [video.title, video.author ?? '', ...video.tags]
+        .some((value) => value.toLocaleLowerCase().includes(query))
+      if (!matchesQuery) return false
+      if (filter === 'protected') return states.has('protected')
+      if (filter === 'pending') return [...states].some((state) => state !== 'protected')
+      return filter !== 'unsynced' || states.has('unsynced') || states.has('failed') || states.has('result-unknown')
+    }).sort((leftAid, rightAid) => {
+      const left = snapshot.videos[String(leftAid)]!
+      const right = snapshot.videos[String(rightAid)]!
+      if (sort === 'title-asc') return left.title.localeCompare(right.title) || leftAid - rightAid
+      if (sort === 'title-desc') return right.title.localeCompare(left.title) || leftAid - rightAid
+      const difference = Date.parse(left.updatedAt) - Date.parse(right.updatedAt)
+      return (sort === 'updated-asc' ? difference : -difference) || leftAid - rightAid
+    })
   }
 
   private duplicateSyncResult(

@@ -1341,7 +1341,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     remoteUnfavorite: createFavoriteLibraryRemoteUnfavorite({
       pageBridgeManager: favoriteRepositoryPageBridgeManager!,
       remoteOperations: favoriteRepositoryRemoteOperations
-    })
+    }),
+    remoteObserver: {
+      async areUnfavorited(accountMid, aids) {
+        const runId = `favorite-unfavorite-reconcile:${Date.now()}`
+        await favoriteRepositoryPageBridgeManager!.bind(accountMid, runId)
+        try {
+          const members = await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).readMembers({
+            accountMid, operationKey: `${runId}:default-members`, aid: aids[0]!, folderIds: ['1']
+          })
+          const remaining = new Set(members.members['1'] ?? [])
+          return aids.every((aid) => !remaining.has(aid)) ? 'removed' : 'present'
+        } finally {
+          favoriteRepositoryPageBridgeManager!.release(accountMid, runId)
+        }
+      }
+    }
   })
   favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
     repository: favoriteRepositoryService,
@@ -1353,6 +1368,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).deleteFolder({
             accountMid, operationKey: `${runId}:delete`, folderId: remoteFolderId
           })
+        } finally {
+          favoriteRepositoryPageBridgeManager!.release(accountMid, runId)
+        }
+      }
+    },
+    remoteObserver: {
+      async remoteFolderExists(accountMid, remoteFolderId) {
+        const runId = `favorite-managed-folder-reconcile:${Date.now()}:${remoteFolderId}`
+        await favoriteRepositoryPageBridgeManager!.bind(accountMid, runId)
+        try {
+          const inventory = await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).readFolderInventory({
+            accountMid, operationKey: `${runId}:inventory`
+          })
+          return inventory.folders.some((folder) => folder.id === remoteFolderId) ? 'present' : 'absent'
         } finally {
           favoriteRepositoryPageBridgeManager!.release(accountMid, runId)
         }
@@ -1491,7 +1520,13 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     })
   })
   localDataService.setDestructiveHooks({
-    stopActiveWork: () => favoriteRepositoryService?.flush(),
+    stopActiveWork: async () => {
+      // Do not clear state while a task can still publish durable local or remote results.
+      await getVideoTranscriptionQueue().cancelAllAndWait()
+      await favoriteRepositoryRemoteOperations.runDestructiveMaintenance(async () => {
+        await favoriteRepositoryService?.flush()
+      })
+    },
     clearLoginSessions: () => session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({ storages: ['cookies'] }),
     exitApp: () => app.quit()
   })

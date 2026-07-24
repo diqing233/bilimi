@@ -39,6 +39,87 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     await expect(service.reconcile('100', preview.operationId)).resolves.toMatchObject({ status: 'reconciliation-required' })
   })
 
+  it('persists an unknown remote deletion and observes it after restart without another deletion', async () => {
+    const current = managedSnapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const removeRemoteFolder = vi.fn(async () => { throw new Error('connection dropped') })
+    const first = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn() }, remote: { removeRemoteFolder },
+      remoteObserver: { remoteFolderExists: vi.fn(async () => 'absent' as const) }
+    } as never)
+    const preview = await first.preview('100', 'bilimi-logical:work')
+    await first.executeRemote('100', preview.executionToken, first.confirm(preview.executionToken))
+    const recorded = commit.mock.calls.find((call) => call[1].type === 'record-sync-result')![1].payload
+    expect(recorded.targetFolderIds).toEqual(['bilimi-logical:work'])
+    const restarted = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => ({ ...current, syncRecords: [recorded] })), commit, commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })) },
+      remote: { removeRemoteFolder }, remoteObserver: { remoteFolderExists: vi.fn(async () => 'absent' as const) }
+    } as never)
+
+    await expect(restarted.reconcile('100', preview.operationId)).resolves.toMatchObject({ status: 'completed' })
+    expect(removeRemoteFolder).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a portable logical-only unknown deletion available for reconciliation after import', async () => {
+    const current = managedSnapshot()
+    const remoteFolderExists = vi.fn(async () => 'absent' as const)
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => ({
+          ...current,
+          // Portable state deliberately contains no device-bound remote folder IDs.
+          physicalShards: [{ ...current.physicalShards[0], remoteFolderId: undefined }],
+          syncRecords: [{
+            id: 'managed-folder-delete:portable-operation', commandId: 'portable-operation', operationKey: 'managed-folder-delete',
+            status: 'result-unknown', affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+          }]
+        })),
+        commit: vi.fn(), commitWithAudit: vi.fn()
+      },
+      remoteObserver: { remoteFolderExists }
+    } as never)
+
+    await expect(service.reconcile('100', 'portable-operation')).resolves.toEqual({ status: 'reconciliation-required', operationId: 'portable-operation' })
+    expect(remoteFolderExists).not.toHaveBeenCalled()
+  })
+
+  it('rejects a remote folder shared by another logical ledger during preview', async () => {
+    const current = managedSnapshot()
+    current.physicalShards.push({ logicalLedgerId: 'other', folderId: 'bilimi:other:001', shardNumber: 1, remoteFolderId: '99', remoteTitle: 'Other', bindingState: 'bound' })
+    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() } })
+
+    await expect(service.preview('100', 'bilimi-logical:work')).rejects.toThrow('another logical ledger')
+  })
+
+  it('rechecks remote-folder ownership immediately before execution', async () => {
+    const current = managedSnapshot()
+    const shared = { ...current, physicalShards: [...current.physicalShards, {
+      logicalLedgerId: 'other', folderId: 'bilimi:other:001', shardNumber: 1, remoteFolderId: '99', remoteTitle: 'Other', bindingState: 'bound' as const
+    }] }
+    const getSnapshot = vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(shared)
+    const removeRemoteFolder = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot, commit: vi.fn(), commitWithAudit: vi.fn() }, remote: { removeRemoteFolder }
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken))).rejects.toThrow('another logical ledger')
+    expect(removeRemoteFolder).not.toHaveBeenCalled()
+  })
+
+  it('records reconciliation-required when local commit fails after the remote deletion succeeds', async () => {
+    const current = managedSnapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn().mockRejectedValue(new Error('disk full')) },
+      remote: { removeRemoteFolder: vi.fn(async () => undefined) }
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken))).resolves.toMatchObject({ status: 'result-unknown', auditStatus: 'failed' })
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-sync-result', payload: expect.objectContaining({ status: 'result-unknown' }) }))
+  })
+
   it('deletes only the local managed-folder projection', async () => {
     const current = managedSnapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))

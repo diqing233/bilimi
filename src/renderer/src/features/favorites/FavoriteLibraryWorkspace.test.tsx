@@ -61,6 +61,8 @@ describe('Favorite Library workspace components', () => {
     expect(screen.getByRole('button', { name: '刷新所选信息' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '加入转写队列' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '从收藏库删除' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '危险操作' }))
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '取消B站收藏' })).toBeInTheDocument()
   })

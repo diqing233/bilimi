@@ -8,6 +8,7 @@ import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { createOldFavoriteWorkspace } from '../../src/shared/oldFavoriteWorkspace'
+import { createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 
 const roots: string[] = []
 
@@ -80,6 +81,23 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({
       status: 'scanning', mode: 'incremental'
     })
+  })
+
+  it('lets the user explicitly restart a restored portable draft without reporting a rebuild failure', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await repository.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      workspace: {
+        id: 'portable-draft', accountMid: '100', status: 'draft', resumable: true, baselineRevision: 0, continuationAids: [],
+        workspaceRef: { workspaceId: 'portable-draft', accountMid: '100', status: 'draft', baselineRevision: 0, currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+      }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+    await repository.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({ status: 'scanning' })
   })
 
   it('persists tag enrichment pause, resume, and current-tag adoption across coordinator restart', async () => {

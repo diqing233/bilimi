@@ -866,6 +866,7 @@ export function FloatingAssistantApp({
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
   const [localDataInfo, setLocalDataInfo] = useState<{ path: string; accounts: Array<{ uid: string; retained: boolean }> } | null>(null)
+  const [localDataUnavailable, setLocalDataUnavailable] = useState(false)
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
@@ -903,7 +904,9 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     if (activeView !== 'settings' || !window.bilimiDesktop?.getLocalDataInfo) return
-    void window.bilimiDesktop.getLocalDataInfo().then(setLocalDataInfo).catch(() => undefined)
+    void window.bilimiDesktop.getLocalDataInfo()
+      .then((info) => { setLocalDataInfo(info); setLocalDataUnavailable(false) })
+      .catch(() => setLocalDataUnavailable(true))
   }, [activeView])
 
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
@@ -3542,12 +3545,19 @@ export function FloatingAssistantApp({
                 }}
                 onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
                 onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false }}
+                onApplyCleanup={async (level, uid) => { await window.bilimiDesktop.applyLocalDataCleanup?.(level, uid) }}
                 onFullClear={async () => {
                   await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
                   await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')
                 }}
               />
-            </fieldset> : null}
+            </fieldset> : <fieldset
+              className="assistant-settings__group assistant-settings__group--local-data"
+              data-settings-section="local-data"
+            >
+              <legend>本地数据与迁移</legend>
+              <p role="status">{localDataUnavailable ? '本地数据服务暂不可用，请稍后重试。' : '正在读取本地数据服务…'}</p>
+            </fieldset>}
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"
               data-settings-section="close"

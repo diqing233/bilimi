@@ -43,6 +43,7 @@ import type {
   FavoriteLibraryUnfavoriteConfirmation,
   FavoriteLibraryUnfavoritePreview,
   FavoriteRepositoryLibraryPage,
+  FavoriteRepositoryLibraryPageOptions,
   FavoriteRepositoryLibraryVideoDetail,
   FavoriteRepositoryOrganizationChanges
 } from '../main/favoriteRepositoryIpc'
@@ -165,7 +166,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   getFavoriteRepositoryLibraryPage: (
     accountMid: string,
     scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
-    options: { limit: number; cursor?: string }
+    options: FavoriteRepositoryLibraryPageOptions
   ) => ipcRenderer.invoke('favorite-repository:get-library-page', accountMid, scope, options) as Promise<FavoriteRepositoryLibraryPage>,
   getFavoriteRepositoryLibraryVideoDetail: (accountMid: string, aid: number) =>
     ipcRenderer.invoke('favorite-repository:get-library-video-detail', accountMid, aid) as Promise<FavoriteRepositoryLibraryVideoDetail>,

@@ -149,6 +149,10 @@ export class LocalDataService {
     const uid = normalizeUid(input.uid)
     if (input.level === 'current-account-data') {
       const current = Object.fromEntries(await Promise.all((await this.options.persistence.listAccountUids()).map(normalizeUid).filter((account) => account !== uid).map(async (account) => [account, await this.options.persistence.readAccount(account)] as const)))
+      if (this.options.persistence.writePortableState) {
+        await this.options.persistence.writePortableState({ accounts: current, sharedSettings: await this.options.persistence.readSharedSettings() }, { mode: 'overwrite', selectedUids: [uid] })
+        return
+      }
       await this.options.persistence.writeAccounts(current)
       return
     }

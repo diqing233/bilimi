@@ -117,7 +117,7 @@ type BilimiDesktopApi = {
   getFavoriteRepositoryLibraryPage?: (
     accountMid: string,
     scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
-    options: { limit: number; cursor?: string }
+    options: import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPageOptions
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
   getFavoriteRepositoryLibraryVideoDetail?: (
     accountMid: string,

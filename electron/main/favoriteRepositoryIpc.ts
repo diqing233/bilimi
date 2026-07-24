@@ -9,7 +9,12 @@ import type {
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
-import type { FavoriteRepositoryLibraryDetail, FavoriteRepositoryService } from './favoriteRepositoryService'
+import type {
+  FavoriteRepositoryLibraryDetail,
+  FavoriteRepositoryLibraryFilter,
+  FavoriteRepositoryLibrarySort,
+  FavoriteRepositoryService
+} from './favoriteRepositoryService'
 import type { FavoriteLibraryCommandService, FavoriteLibraryCommandResult, FavoriteLibraryPlacementInput } from './favoriteLibraryCommands'
 import type {
   FavoriteRepositoryArchiveService,
@@ -28,6 +33,11 @@ type IpcMain = {
 }
 
 type FolderPageOptions = { limit: number; cursor?: string }
+export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
+  query?: string
+  filter?: FavoriteRepositoryLibraryFilter
+  sort?: FavoriteRepositoryLibrarySort
+}
 type Subscription = { id: string; accountMid: string; folderId?: string }
 type LibraryPageScope =
   | { kind: 'all' }
@@ -151,6 +161,25 @@ function pageOptions(value: unknown): FolderPageOptions {
   }
   const validatedLimit = limit as number
   return cursor ? { limit: validatedLimit, cursor } : { limit: validatedLimit }
+}
+
+function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
+  const base = pageOptions(value)
+  const candidate = value as { query?: unknown; filter?: unknown; sort?: unknown }
+  if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
+  if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  if (candidate.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(candidate.sort as string)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  const query = candidate.query?.trim()
+  return {
+    ...base,
+    ...(query ? { query } : {}),
+    ...(candidate.filter ? { filter: candidate.filter as FavoriteRepositoryLibraryFilter } : {}),
+    ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {})
+  }
 }
 
 function libraryPageScope(value: unknown): LibraryPageScope {
@@ -541,7 +570,7 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    return options.service.getLibraryPage(accountMid, libraryPageScope(requestedScope), pageOptions(requestedOptions))
+    return options.service.getLibraryPage(accountMid, libraryPageScope(requestedScope), libraryPageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:get-library-video-detail', async (
     event, requestedAccountMid: string, requestedAid: unknown

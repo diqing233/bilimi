@@ -376,7 +376,21 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.options.prepareForOrganization?.(accountMid)
       let workspace = await this.openUnsafe(accountMid)
       if (!workspace) workspace = await this.createScanningWorkspace(accountMid, mode)
-      if (isRecoveryRequired(workspace)) throw new Error('Old favorite workspace requires rebuild.')
+      if (isRecoveryRequired(workspace)) {
+        const restored = (await this.options.repository.getSnapshot(accountMid)).workspace
+        if (restored?.status !== 'draft' || restored.resumable !== true) {
+          throw new Error('Old favorite workspace requires rebuild.')
+        }
+        await this.options.repository.commit(restored.accountMid, {
+          id: `old-favorite-workspace:discard-portable-draft:${restored.id}`,
+          accountMid: restored.accountMid,
+          issuedAt: this.now(),
+          type: 'abandon-workspace',
+          payload: { workspaceId: restored.id }
+        })
+        this.forgetWorkspace(restored.accountMid)
+        workspace = await this.createScanningWorkspace(restored.accountMid, mode)
+      }
       const persistedWorkspace = (await this.options.repository.getSnapshot(workspace.accountMid)).workspace
       const abandonFrozenPlan = mode === 'full' && Boolean(persistedWorkspace?.frozenSyncPlan) &&
         persistedWorkspace?.status !== 'completed'
