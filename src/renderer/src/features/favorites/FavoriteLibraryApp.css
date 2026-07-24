@@ -22,7 +22,6 @@
 .favorite-library__layout[data-detail-collapsed='true'] .favorite-library__results { grid-column: 2 / -1; }
 .favorite-library__layout[data-detail-collapsed='true'] .favorite-library__detail-restore { position: absolute; z-index: 2; top: 10px; right: 10px; border: 0; background: transparent; }
 .favorite-library__workspace { border-block: 1px solid #dbe7f7; }
-.favorite-library__workspace::after { content: ''; grid-column: 1 / -1; min-height: 1px; background: #dbe7f7; }
 .favorite-library__footer { display: grid; grid-template-columns: var(--favorite-columns); min-height: 36px; border-bottom: 1px solid #dbe7f7; }
 .favorite-library__footer-region { border-right: 1px solid #dbe7f7; }
 .favorite-library__footer-region:last-child { border-right: 0; }

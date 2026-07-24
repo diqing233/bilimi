@@ -59,6 +59,12 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-overlay { position: fixed;')
     expect(favoriteLibraryStyles).toContain('grid-template-columns: var(--favorite-columns);')
   })
+
+  it('does not create an implicit workspace row just to draw a divider', () => {
+    expect(favoriteLibraryStyles).not.toContain('.favorite-library__workspace::after')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__workspace { border-block: 1px solid #dbe7f7; }')
+  })
+
   it('provides search, status filtering, and sorting controls from the toolbar', () => {
     const onSearchChange = vi.fn()
     const onFilterChange = vi.fn()
