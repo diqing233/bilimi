@@ -40,7 +40,7 @@ export function FavoriteLibraryNavigation({
             aria-label={`${collapsed ? '展开' : '收起'}${group.label}`}
             aria-expanded={!collapsed}
             onClick={() => onCollapseChange(uid, group.id, !collapsed)}
-          >{collapsed ? '\u25b8' : '\u25be'}</button>
+          ><Chevron /></button>
         </div>
         {!collapsed ? group.items.map((item) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}`} key={item.id}>
           <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} onClick={() => onSelect(item.id)}>
@@ -51,6 +51,10 @@ export function FavoriteLibraryNavigation({
       </section>
     })}
   </nav>
+}
+
+function Chevron() {
+  return <svg className="favorite-library__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
 function ManagedFolderMenu({

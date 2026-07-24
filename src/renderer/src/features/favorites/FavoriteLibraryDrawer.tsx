@@ -4,6 +4,7 @@ import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './Favorite
 
 const DEFAULT_HEIGHT = 360
 const MIN_HEIGHT = 220
+const COLLAPSE_SNAP_DISTANCE = 28
 const KEYBOARD_HEIGHT_STEP = 24
 const BROWSER_STACK_MIN_HEIGHT = 180
 const DRAWER_RESIZE_HANDLE_HEIGHT = 6
@@ -47,6 +48,7 @@ function isVisible(element: HTMLElement) {
 export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedChange }: FavoriteLibraryDrawerProps) {
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
   const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
+  const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const [drawerStatus, setDrawerStatus] = useState<FavoriteLibraryDrawerStatus>()
   const dragStartRef = useRef<{ clientY: number; height: number }>()
@@ -113,6 +115,7 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
         tabIndex={0}
         onPointerDown={(event) => {
           dragStartRef.current = { clientY: event.clientY, height }
+          setDragging(true)
           event.currentTarget.setPointerCapture?.(event.pointerId)
         }}
         onPointerMove={(event) => {
@@ -121,11 +124,19 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
           setHeight(clampHeight(start.height + start.clientY - event.clientY))
         }}
         onPointerUp={(event) => {
+          const shouldCollapse = height <= MIN_HEIGHT + COLLAPSE_SNAP_DISTANCE
           dragStartRef.current = undefined
+          setDragging(false)
           event.currentTarget.releasePointerCapture?.(event.pointerId)
+          if (shouldCollapse) onCollapsedChange(true)
         }}
         onPointerCancel={() => {
           dragStartRef.current = undefined
+          setDragging(false)
+        }}
+        onDoubleClick={() => {
+          setHeight(clampHeight(DEFAULT_HEIGHT))
+          setHeightBeforeMaximize(undefined)
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowUp') {
@@ -170,7 +181,7 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
         <span>远程操作待处理</span>
         <button type="button" onClick={drawerStatus.onGoToPending}>去待处理</button>
       </div> : null}
-      <div className="favorite-library-drawer__body" hidden={collapsed}>
+      <div className="favorite-library-drawer__body" data-dragging={dragging ? 'true' : undefined} hidden={collapsed}>
         <FavoriteLibraryApp embedded onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
       </div>
     </section>

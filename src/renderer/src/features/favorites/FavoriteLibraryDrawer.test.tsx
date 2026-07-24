@@ -194,4 +194,31 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.keyDown(handle, { key: 'End' })
     expect(drawer).toHaveStyle({ height: '672px' })
   })
+
+  it('uses a thin accessible resize target and restores the default height on double click', () => {
+    vi.stubGlobal('innerWidth', 1440)
+    vi.stubGlobal('innerHeight', 900)
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    const drawer = screen.getByTestId('favorite-library-drawer')
+    const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
+
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
+    expect(drawer).toHaveStyle({ height: '384px' })
+    fireEvent.doubleClick(handle)
+
+    expect(drawer).toHaveStyle({ height: '360px' })
+    expect(handle).toHaveClass('favorite-library-drawer__resize-handle')
+  })
+
+  it('snaps a drag at the lower boundary into the collapsed drawer state', () => {
+    const onCollapsedChange = vi.fn()
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={onCollapsedChange} />)
+    const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 900 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+
+    expect(onCollapsedChange).toHaveBeenCalledWith(true)
+  })
 })

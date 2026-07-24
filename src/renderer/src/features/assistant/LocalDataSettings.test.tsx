@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { LocalDataSettings } from './LocalDataSettings'
 
 describe('LocalDataSettings', () => {
+  it('groups local storage, migration, and destructive controls without exposing every account by default', () => {
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} />)
+
+    expect(screen.getByRole('heading', { name: '本地数据' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '数据迁移' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '危险操作' })).toBeInTheDocument()
+    expect(screen.getByText('本机保存 2 个账号的数据')).toBeInTheDocument()
+    expect(screen.queryByText('200')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看账号列表' }))
+    expect(screen.getByText('200')).toBeInTheDocument()
+  })
+
   it('shows categorized disk usage after asynchronous recalculation', async () => {
     const calculateUsage = vi.fn().mockResolvedValue({
       totalBytes: 15,

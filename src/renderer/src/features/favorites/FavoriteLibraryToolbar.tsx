@@ -31,14 +31,18 @@ export function FavoriteLibraryToolbar({
   const selectLabel = '\u5168\u9009\u5f53\u524d\u9875'
   const selectText = `\u5168\u9009\u5f53\u524d\u9875\uff08${pageCount}\uff09`
   return <div className="favorite-library__toolbar" data-testid="favorite-library-toolbar">
+    <div className="favorite-library__toolbar-primary">
     <label className="favorite-library__select-page"><input type="checkbox" aria-label={selectLabel} checked={allCurrentPageSelected} disabled={!pageCount} onChange={onTogglePage} />{selectText}</label>
     <input type="search" aria-label="搜索收藏库" placeholder="搜索标题、UP主或标签" value={searchQuery} onChange={(event) => onSearchChange?.(event.currentTarget.value)} />
     <select aria-label="筛选状态" value={filter} onChange={(event) => onFilterChange?.(event.currentTarget.value as FavoriteLibraryFilter)}><option value="all">全部状态</option><option value="pending">待处理</option><option value="protected">已保护</option><option value="unsynced">未同步</option></select>
     <select aria-label="排序方式" value={sort} onChange={(event) => onSortChange?.(event.currentTarget.value as FavoriteLibrarySort)}><option value="updated-desc">最近更新</option><option value="updated-asc">最早更新</option><option value="title-asc">标题 A-Z</option><option value="title-desc">标题 Z-A</option></select>
-    <small>{`\u5df2\u9009 ${selectedCount} \u9879`}</small>
     <BatchActions disabled={batchDisabled} allowedActions={allowedActions} onAction={onBatchAction} />
+    </div>
+    <div className="favorite-library__toolbar-secondary">
+    <small>{`\u5df2\u9009 ${selectedCount} \u9879`}</small><span />
     <label className="favorite-library__page-size">每页<select aria-label="每页数量" value={pageSize} onChange={(event) => onPageSizeChange?.(Number(event.currentTarget.value) as 25 | 50 | 100)}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
     {children}
+    </div>
   </div>
 }
 
