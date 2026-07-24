@@ -819,7 +819,8 @@ function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
 function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const folder = value as Record<string, unknown>
-  if (typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
+  const allowedKeys = new Set(['id', 'title', 'kind', 'logicalLedgerId', 'syncState'])
+  if (Object.keys(folder).some((key) => !allowedKeys.has(key)) || typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
     !['bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'pending-reconcile'].includes(String(folder.syncState))) return false
   if ((folder.logicalLedgerId !== undefined && (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim())) ||
     folder.remoteFolderId !== undefined) return false
@@ -830,7 +831,8 @@ function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
 function isPortableRecoveryShard(value: unknown, folderIds: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const shard = value as Record<string, unknown>
-  return typeof shard.logicalLedgerId === 'string' && !!shard.logicalLedgerId.trim() && typeof shard.folderId === 'string' && folderIds.has(shard.folderId) &&
+  const allowedKeys = new Set(['logicalLedgerId', 'folderId', 'shardNumber', 'remoteTitle', 'bindingState'])
+  return !Object.keys(shard).some((key) => !allowedKeys.has(key)) && typeof shard.logicalLedgerId === 'string' && !!shard.logicalLedgerId.trim() && typeof shard.folderId === 'string' && folderIds.has(shard.folderId) &&
     Number.isSafeInteger(shard.shardNumber) && Number(shard.shardNumber) > 0 && typeof shard.remoteTitle === 'string' && !!shard.remoteTitle.trim() &&
     shard.bindingState === 'pending-reconcile' && shard.remoteFolderId === undefined &&
     shard.knownRemoteFolderIds === undefined && shard.remoteMemberCount === undefined
@@ -839,7 +841,8 @@ function isPortableRecoveryShard(value: unknown, folderIds: Set<string>) {
 function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const workspace = value as Record<string, unknown>
-  return typeof workspace.id === 'string' && !!workspace.id.trim() && typeof workspace.accountMid === 'string' &&
+  const allowedKeys = new Set(['id', 'accountMid', 'status', 'baselineRevision', 'continuationAids', 'workspaceRef', 'completionMode', 'frozenSyncPlan'])
+  return !Object.keys(workspace).some((key) => !allowedKeys.has(key)) && typeof workspace.id === 'string' && !!workspace.id.trim() && typeof workspace.accountMid === 'string' &&
     normalizedAccountMid(workspace.accountMid) === accountMid && isWorkspaceStatus(workspace.status) &&
     Number.isSafeInteger(workspace.baselineRevision) && Number(workspace.baselineRevision) >= 0 && isValidAidList(workspace.continuationAids) &&
     isWorkspaceRef(workspace.workspaceRef, accountMid, workspace.id, workspace.status as FavoriteRepositoryWorkspace['status'], Number(workspace.baselineRevision)) &&
@@ -850,14 +853,18 @@ function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
 function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: string) {
   if (!isFrozenSyncPlan(value, accountMid, workspaceId)) return false
   const plan = value as FavoriteRepositoryFrozenSyncPlan
-  return plan.operations.every((operation) => operation.folderIds.every(isPortableLogicalFolderId) &&
+  const planKeys = new Set(['id', 'accountMid', 'workspaceId', 'baselineRevision', 'createdAt', 'operations'])
+  const operationKeys = new Set(['operationKey', 'aid', 'kind', 'folderIds', 'beforeFolderIds'])
+  return !Object.keys(plan).some((key) => !planKeys.has(key)) && plan.operations.every((operation) =>
+    !Object.keys(operation).some((key) => !operationKeys.has(key)) && operation.folderIds.every(isPortableLogicalFolderId) &&
     (operation.beforeFolderIds === undefined || operation.beforeFolderIds.every(isPortableLogicalFolderId)))
 }
 
 function isPortableRecoverySyncRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  return typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
+  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt'])
+  return !Object.keys(record).some((key) => !allowedKeys.has(key)) && typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
     isSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
     (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
@@ -885,7 +892,8 @@ function isPortableRecoveryOrganizationChange(value: unknown, accountMid: string
 function isPortableRecoveryTombstone(value: unknown, accountMid: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const tombstone = value as Record<string, unknown>
-  return typeof tombstone.accountMid === 'string' && normalizedAccountMid(tombstone.accountMid) === accountMid &&
+  const allowedKeys = new Set(['accountMid', 'aid', 'deletedAt', 'reason', 'allowRediscovery'])
+  return !Object.keys(tombstone).some((key) => !allowedKeys.has(key)) && typeof tombstone.accountMid === 'string' && normalizedAccountMid(tombstone.accountMid) === accountMid &&
     Number.isSafeInteger(tombstone.aid) && Number(tombstone.aid) > 0 && typeof tombstone.deletedAt === 'string' && !Number.isNaN(Date.parse(tombstone.deletedAt)) &&
     typeof tombstone.allowRediscovery === 'boolean' && (tombstone.reason === undefined || typeof tombstone.reason === 'string')
 }

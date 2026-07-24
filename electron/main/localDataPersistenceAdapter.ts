@@ -48,15 +48,37 @@ function recordsForAccount(records: Record<string, unknown>[], accountMid: strin
 
 function portableWorkspaceRecord(value: unknown, accountMid: string) {
   if (!isRecord(value) || value.accountMid !== accountMid || !isRecord(value.workspaceRef)) return undefined
-  const reference = value.workspaceRef
-  if (typeof value.id !== 'string' || typeof value.status !== 'string' || !Number.isSafeInteger(value.baselineRevision) ||
+  const { updatedAt: _legacyUpdatedAt, ...workspace } = value
+  const reference = workspace.workspaceRef as Record<string, unknown>
+  if (typeof workspace.id !== 'string' || typeof workspace.status !== 'string' || !Number.isSafeInteger(workspace.baselineRevision) ||
     typeof reference.updatedAt !== 'string' || !Number.isFinite(Date.parse(reference.updatedAt))) return undefined
-  return structuredClone(value)
+  return structuredClone(workspace)
 }
 
 function recoveryTimestamp(value: Record<string, unknown>) {
   const reference = isRecord(value.workspaceRef) ? value.workspaceRef : undefined
   return typeof reference?.updatedAt === 'string' ? reference.updatedAt : typeof value.updatedAt === 'string' ? value.updatedAt : ''
+}
+
+function compareWorkspaces(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const timestamp = recoveryTimestamp(left).localeCompare(recoveryTimestamp(right))
+  if (timestamp) return timestamp
+  const leftRef = isRecord(left.workspaceRef) ? left.workspaceRef : {}
+  const rightRef = isRecord(right.workspaceRef) ? right.workspaceRef : {}
+  for (const [leftValue, rightValue] of [
+    [left.baselineRevision, right.baselineRevision],
+    [leftRef.overlayRevision, rightRef.overlayRevision],
+    [leftRef.journalCursor, rightRef.journalCursor]
+  ] as const) {
+    const difference = Number(leftValue ?? -1) - Number(rightValue ?? -1)
+    if (difference) return difference
+  }
+  return JSON.stringify(left).localeCompare(JSON.stringify(right))
+}
+
+function portableSyncRecord(value: Record<string, unknown>) {
+  const { accountMid: _accountMid, ...record } = value
+  return record
 }
 
 function canonicalRecoveryRecords(snapshot: AccountFavoriteRepositorySnapshot, accountMid: string) {
@@ -91,14 +113,14 @@ function repositoryWithPortableRecovery(
     organizationBatches: [], organizationMigrationInitialized: false, tombstones: []
   }
   const workspace = workspaces.map((item) => portableWorkspaceRecord(item, uidValue)).filter((item): item is Record<string, unknown> => Boolean(item))
-    .sort((left, right) => recoveryTimestamp(right).localeCompare(recoveryTimestamp(left)) || Number(right.baselineRevision) - Number(left.baselineRevision))[0]
+    .sort((left, right) => compareWorkspaces(right, left))[0]
   const next: FavoriteRepositoryArchiveExport = {
     ...repository,
     events: structuredClone(auditEvents) as FavoriteRepositoryArchiveExport['events'],
     recovery: {
       ...recovery,
       ...(workspace ? { workspace: structuredClone(workspace) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['workspace'] } : {}),
-      syncRecords: structuredClone(remoteOperations) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['syncRecords']
+      syncRecords: remoteOperations.map(portableSyncRecord) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['syncRecords']
     }
   }
   const withChecksum = { ...next, checksum: createFavoriteRepositoryArchiveExportChecksum(next) }

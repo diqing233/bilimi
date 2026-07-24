@@ -215,6 +215,21 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('keeps a rediscoverable tombstone visible after archive import', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '8': { aid: 8, title: 'Can rediscover', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      tombstones: { '100:8': { accountMid: '100', aid: 8, deletedAt: '2026-07-24T01:00:00.000Z', allowRediscovery: true } }
+    }, { generatedAt: '2026-07-24T01:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({ videos: { '8': expect.objectContaining({ title: 'Can rediscover' }) } })
+  })
+
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

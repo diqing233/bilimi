@@ -204,6 +204,57 @@ describe('local data migration v1', () => {
     expect(recovery.memberships).toEqual({ 'bilimi-logical:music': [] })
   })
 
+  it('uses workspace revision after an equal durable timestamp and removes only hard-tombstoned rows', () => {
+    const local = account('2026-07-24T00:00:00.000Z')
+    const imported = account('2026-07-24T00:00:00.000Z')
+    const localRepository = local.repository as Record<string, unknown>
+    const importedRepository = imported.repository as Record<string, unknown>
+    const localRecovery = localRepository.recovery as Record<string, unknown>
+    const importedRecovery = importedRepository.recovery as Record<string, unknown>
+    const at = '2026-07-24T01:00:00.000Z'
+    localRecovery.workspace = {
+      id: 'older-workspace', accountMid: '100', status: 'scanning', baselineRevision: 1, continuationAids: [],
+      workspaceRef: { workspaceId: 'older-workspace', accountMid: '100', status: 'scanning', baselineRevision: 1, currentSegmentId: 'segment', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64), updatedAt: at }
+    }
+    importedRecovery.workspace = {
+      id: 'newer-workspace', accountMid: '100', status: 'scanning', baselineRevision: 2, continuationAids: [],
+      workspaceRef: { workspaceId: 'newer-workspace', accountMid: '100', status: 'scanning', baselineRevision: 2, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'b'.repeat(64), updatedAt: at }
+    }
+    importedRepository.videos = [{ aid: 2, title: 'hard deleted', tags: [], updatedAt: at }, { aid: 3, title: 'rediscoverable', tags: [], updatedAt: at }]
+    importedRepository.positions = [
+      { aid: 2, localDesiredFolderIds: [], positionState: 'local-only-change', updatedAt: at },
+      { aid: 3, localDesiredFolderIds: [], positionState: 'local-only-change', updatedAt: at }
+    ]
+    importedRecovery.tombstones = [
+      { accountMid: '100', aid: 2, deletedAt: at, allowRediscovery: false },
+      { accountMid: '100', aid: 3, deletedAt: at, allowRediscovery: true }
+    ]
+    localRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(localRepository as never)
+    importedRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(importedRepository as never)
+
+    const repository = mergeMigrationAccounts({ '100': local }, { '100': imported })['100'].repository as Record<string, unknown>
+    expect((repository.recovery as { workspace: { id: string } }).workspace.id).toBe('newer-workspace')
+    expect(repository.videos).toEqual(expect.arrayContaining([expect.objectContaining({ aid: 3 })]))
+    expect(repository.videos).not.toEqual(expect.arrayContaining([expect.objectContaining({ aid: 2 })]))
+    expect(repository.positions).toEqual(expect.arrayContaining([expect.objectContaining({ aid: 3 })]))
+    expect(repository.positions).not.toEqual(expect.arrayContaining([expect.objectContaining({ aid: 2 })]))
+  })
+
+  it('exports canonical logical organization history without allowing remote bindings elsewhere', () => {
+    const source = account()
+    const recovery = (source.repository as { recovery: Record<string, unknown> }).recovery
+    recovery.organizationBatches = [{
+      id: 'change-1', runId: 'run-1', workspaceId: 'work-1', accountMid: '100', aid: 1,
+      beforeFolderIds: ['bilimi-logical:music'], afterFolderIds: ['bilimi-logical:watch-later'],
+      addedFolderIds: ['bilimi-logical:watch-later'], removedFolderIds: ['bilimi-logical:music'],
+      status: 'succeeded', recordedAt: '2026-07-24T00:00:00.000Z'
+    }]
+    const repository = source.repository as Record<string, unknown>
+    repository.checksum = createFavoriteRepositoryArchiveExportChecksum(repository as never)
+
+    expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': source } })).not.toThrow()
+  })
+
   it('preserves distinct archive version IDs for one note identity', () => {
     const local = account('2026-07-24T00:00:00.000Z')
     const imported = account('2026-07-24T00:00:00.000Z')

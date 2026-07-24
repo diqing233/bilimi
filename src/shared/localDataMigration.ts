@@ -14,7 +14,8 @@ const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
 const MAX_MANIFEST_TOTAL_BYTES = 500 * 1024 * 1024
 const UID_PATTERN = /^[1-9]\d{0,19}$/u
 const SECRET_KEY = /(?:cookie|session|api.?key|secret|token|encrypt|proxy|lock)/iu
-const REMOTE_BINDING_KEY = /^(?:remoteFolderId|knownRemoteFolderIds|remoteMemberCount|remoteObservedPhysicalFolderIds|remoteObservedLogicalFolderIds|beforeFolderIds|afterFolderIds|addedFolderIds|removedFolderIds)$/u
+const REMOTE_BINDING_KEY = /^(?:remoteFolderId|knownRemoteFolderIds|remoteMemberCount|remoteObservedPhysicalFolderIds|remoteObservedLogicalFolderIds)$/u
+const LOGICAL_ORGANIZATION_HISTORY_KEY = /^(?:beforeFolderIds|afterFolderIds|addedFolderIds|removedFolderIds)$/u
 const APP_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u
 const ARCHIVE_KEYS = new Set(['schemaVersion', 'appVersion', 'generatedAt', 'selectedUids', 'accounts', 'sharedSettings', 'manifest', 'checksum'])
 const ACCOUNT_SOURCE_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES)
@@ -61,13 +62,16 @@ function assertArchiveMetadata(appVersion: unknown, generatedAt: unknown) {
   }
 }
 
-function assertPortable(value: unknown, path = ''): void {
-  if (Array.isArray(value)) return value.forEach((item, index) => assertPortable(item, `${path}[${index}]`))
+function assertPortable(value: unknown, path = '', allowsLogicalOrganizationHistory = false): void {
+  if (Array.isArray(value)) return value.forEach((item, index) => assertPortable(item, `${path}[${index}]`, allowsLogicalOrganizationHistory))
   if (!isRecord(value)) return
   for (const [key, nested] of Object.entries(value)) {
     if (SECRET_KEY.test(key)) throw new Error(`Migration contains excluded credential field: ${path}${key}`)
     if (REMOTE_BINDING_KEY.test(key)) throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
-    assertPortable(nested, `${path}${key}.`)
+    if (LOGICAL_ORGANIZATION_HISTORY_KEY.test(key) && !allowsLogicalOrganizationHistory && !/^repository\.recovery\.organizationBatches\.\[\d+\]\.?$/u.test(path)) {
+      throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
+    }
+    assertPortable(nested, `${path}${key}.`, allowsLogicalOrganizationHistory || path.startsWith('repository.recovery.organizationBatches.'))
   }
 }
 
@@ -312,6 +316,24 @@ function workspaceTimestamp(workspace: unknown) {
   return typeof reference?.updatedAt === 'string' ? reference.updatedAt : updatedAt(workspace)
 }
 
+function compareWorkspaces(left: unknown, right: unknown) {
+  const timestamp = workspaceTimestamp(left).localeCompare(workspaceTimestamp(right))
+  if (timestamp) return timestamp
+  const leftRecord = isRecord(left) ? left : {}
+  const rightRecord = isRecord(right) ? right : {}
+  const leftRef = isRecord(leftRecord.workspaceRef) ? leftRecord.workspaceRef : {}
+  const rightRef = isRecord(rightRecord.workspaceRef) ? rightRecord.workspaceRef : {}
+  for (const [leftValue, rightValue] of [
+    [leftRecord.baselineRevision, rightRecord.baselineRevision],
+    [leftRef.overlayRevision, rightRef.overlayRevision],
+    [leftRef.journalCursor, rightRef.journalCursor]
+  ] as const) {
+    const difference = Number(leftValue ?? -1) - Number(rightValue ?? -1)
+    if (difference) return difference
+  }
+  return stableJson(left).localeCompare(stableJson(right))
+}
+
 function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
   const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp = updatedAt) => {
     const values = new Map<string, T>()
@@ -324,15 +346,15 @@ function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { ch
   const currentRecovery = current.recovery
   const incomingRecovery = incoming.recovery
   const mergedTombstones = mergeBy(currentRecovery?.tombstones, incomingRecovery?.tombstones, (item) => String(item.aid), (record) => record.deletedAt)
-  const tombstonedAids = new Set(mergedTombstones.map((item) => Number(item.aid)))
+  const hardTombstonedAids = new Set(mergedTombstones.filter((item) => !item.allowRediscovery).map((item) => Number(item.aid)))
   const recovery = currentRecovery || incomingRecovery ? {
     folders: mergeBy(currentRecovery?.folders, incomingRecovery?.folders, (item) => item.id),
     // A present tombstone is the authoritative deletion state. Memberships
     // lack per-edge revisions, so unioning them would resurrect local data.
-    memberships: Object.fromEntries([...new Set([...Object.keys(currentRecovery?.memberships ?? {}), ...Object.keys(incomingRecovery?.memberships ?? {})])].sort().map((folderId) => [folderId, [...new Set([...(currentRecovery?.memberships[folderId] ?? []), ...(incomingRecovery?.memberships[folderId] ?? [])])].filter((aid) => !tombstonedAids.has(aid)).sort((a, b) => a - b)])),
+    memberships: Object.fromEntries([...new Set([...Object.keys(currentRecovery?.memberships ?? {}), ...Object.keys(incomingRecovery?.memberships ?? {})])].sort().map((folderId) => [folderId, [...new Set([...(currentRecovery?.memberships[folderId] ?? []), ...(incomingRecovery?.memberships[folderId] ?? [])])].filter((aid) => !hardTombstonedAids.has(aid)).sort((a, b) => a - b)])),
     physicalShards: mergeBy(currentRecovery?.physicalShards, incomingRecovery?.physicalShards, (item) => `${item.logicalLedgerId}:${item.shardNumber}`),
     ...(incomingRecovery?.workspace || currentRecovery?.workspace ? {
-      workspace: workspaceTimestamp(incomingRecovery?.workspace) > workspaceTimestamp(currentRecovery?.workspace)
+      workspace: compareWorkspaces(incomingRecovery?.workspace, currentRecovery?.workspace) > 0
         ? incomingRecovery?.workspace : currentRecovery?.workspace
     } : {}),
     syncRecords: mergeBy(currentRecovery?.syncRecords, incomingRecovery?.syncRecords, (item) => item.id),
@@ -343,8 +365,8 @@ function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { ch
   } : undefined
   const merged: FavoriteRepositoryArchiveExport = {
     ...current, ...incoming,
-    videos: mergeBy(current.videos, incoming.videos, (item) => String(item.aid)),
-    positions: mergeBy(current.positions, incoming.positions, (item) => String(item.aid)),
+    videos: mergeBy(current.videos, incoming.videos, (item) => String(item.aid)).filter((item) => !hardTombstonedAids.has(item.aid)),
+    positions: mergeBy(current.positions, incoming.positions, (item) => String(item.aid)).filter((item) => !hardTombstonedAids.has(item.aid)),
     protections: mergeBy(current.protections, incoming.protections, (item) => String(item.aid), (record) => record.completedAt),
     events: mergeBy(current.events, incoming.events, (item) => item.id, (record) => record.occurredAt),
     archives: mergeBy(current.archives, incoming.archives, (item) => `${item.aid}:${item.archiveId}`, (record) => record.registeredAt),

@@ -160,4 +160,23 @@ describe('local data persistence adapter', () => {
 
     expect(applyPortableState.mock.calls[0]?.[0].repositoryArchives['100'].recovery.workspace).toMatchObject({ id: 'newer', baselineRevision: 2 })
   })
+
+  it('uses workspace revision to break an equal canonical timestamp tie', async () => {
+    const applyPortableState = vi.fn()
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'], getRepository: vi.fn(), getAccountSettings: () => ({}), getArchives: () => [], getTranscriptionItems: () => [],
+      applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+    const repository = createFavoriteRepositoryArchiveExport(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }), { generatedAt: '2026-07-24T00:00:00.000Z' })
+    const workspace = (id: string, revision: number, overlayRevision: number) => ({
+      id, accountMid: '100', status: 'scanning', baselineRevision: revision, continuationAids: [],
+      workspaceRef: { workspaceId: id, accountMid: '100', status: 'scanning', baselineRevision: revision, currentSegmentId: 'segment', overlayRevision, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T02:00:00.000Z' }
+    })
+
+    await adapter.writePortableState?.({ accounts: {
+      '100': { repository, settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt: '2026-07-24T00:00:00.000Z' }, archives: [], transcription: [], auditEvents: [], remoteOperations: [], workspaces: [workspace('older', 1, 9), workspace('newer', 2, 0)] }
+    }, sharedSettings: {} }, { mode: 'merge', selectedUids: ['100'] })
+
+    expect(applyPortableState.mock.calls[0]?.[0].repositoryArchives['100'].recovery.workspace).toMatchObject({ id: 'newer', baselineRevision: 2 })
+  })
 })

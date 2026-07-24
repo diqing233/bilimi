@@ -551,6 +551,7 @@ export class FavoriteRepositoryService {
         if (!previous || tombstone.deletedAt >= previous.deletedAt) tombstones[key] = clone(tombstone)
       }
       for (const tombstone of Object.values(tombstones)) {
+        if (tombstone.allowRediscovery) continue
         const aid = tombstone.aid
         delete videos[String(aid)]
         delete positions[createFavoriteRepositoryPositionKey(account, aid)]
