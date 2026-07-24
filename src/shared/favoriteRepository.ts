@@ -528,6 +528,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'record-favorite-events'
+      payload: { events: Array<Omit<FavoriteRepositoryEvent, 'accountMid'>> }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'tombstone-favorite-video'
       payload: Omit<FavoriteRepositoryTombstone, 'accountMid'> & { allowRediscovery?: boolean }
     }
@@ -904,6 +912,11 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'record-favorite-event':
       if (!isRepositoryEvent(payload)) invalidCommand()
+      return
+    case 'record-favorite-events':
+      if (!Array.isArray(payload.events) || !payload.events.length || payload.events.length > 100 ||
+        !payload.events.every((event) => event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>)) ||
+        new Set(payload.events.map((event) => (event as FavoriteRepositoryEvent).id)).size !== payload.events.length) invalidCommand()
       return
     case 'tombstone-favorite-video':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.deletedAt !== 'string' ||
@@ -1356,6 +1369,9 @@ export function applyFavoriteRepositoryCommand(
     }
     case 'record-favorite-event':
       affectedAids = [command.payload.aid]
+      break
+    case 'record-favorite-events':
+      affectedAids = [...new Set(command.payload.events.map((event) => event.aid))].sort((left, right) => left - right)
       break
     case 'tombstone-favorite-video': {
       const aid = command.payload.aid

@@ -178,6 +178,28 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('recovers a batch event receipt after restart without duplicating any selected-row audit', async () => {
+    const root = await createRoot()
+    const command = {
+      id: 'batch-event-command-1', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-favorite-events' as const,
+      payload: { events: [
+        { id: 'batch-event-1', sequence: 1, aid: 1, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:00:00.000Z' },
+        { id: 'batch-event-2', sequence: 2, aid: 2, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:00:00.000Z' }
+      ] }
+    }
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await first.commit('100', command)
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:01:00.000Z' })
+    await restarted.commit('100', { ...command, issuedAt: '2026-07-24T00:01:00.000Z' })
+
+    for (const [aid, eventId] of [[1, 'batch-event-1'], [2, 'batch-event-2']] as const) {
+      const lines = (await readFile(join(root, 'accounts', '100', 'events', `${aid}.jsonl`), 'utf8')).trim().split('\n')
+      expect(lines).toHaveLength(1)
+      expect(JSON.parse(lines[0])).toMatchObject({ id: eventId, aid })
+    }
+  })
+
   it('keeps protected organization separate from a failed placement in the library detail', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

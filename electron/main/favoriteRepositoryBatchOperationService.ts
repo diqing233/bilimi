@@ -161,13 +161,14 @@ export class FavoriteRepositoryBatchOperationService {
 
   private async audit(accountMid: string, selected: number[], detail: string, reason?: string): Promise<'recorded' | 'failed'> {
     try {
-      for (const aid of selected) {
-        const occurredAt = this.now()
-        const event: Omit<FavoriteRepositoryEvent, 'accountMid'> = {
-          id: `favorite-batch-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move', occurredAt, detail: reason ? `${detail}: ${reason}` : detail
-        }
-        await this.options.repository.commit(accountMid, { id: event.id, accountMid, issuedAt: occurredAt, type: 'record-favorite-event', payload: event })
-      }
+      const occurredAt = this.now()
+      const events: Array<Omit<FavoriteRepositoryEvent, 'accountMid'>> = selected.map((aid) => ({
+        id: `favorite-batch-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move', occurredAt,
+        detail: reason ? `${detail}: ${reason}` : detail
+      }))
+      await this.options.repository.commit(accountMid, {
+        id: `favorite-batch-audit:${randomUUID()}`, accountMid, issuedAt: occurredAt, type: 'record-favorite-events', payload: { events }
+      })
       return 'recorded'
     } catch { return 'failed' }
   }

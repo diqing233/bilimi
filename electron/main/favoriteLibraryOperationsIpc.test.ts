@@ -26,6 +26,16 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     await expect(ipcMain.invoke('favorite-library-operations:copy', 7, '100', [1], ['C:\\escape'], 4)).rejects.toThrow('target')
   })
 
+  it('exposes one revision-checked batch local deletion without routing through repeated single-row deletes', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100') })
+
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [2, 1], 4)
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4)
+  })
+
   it('keeps remote unfavorite behind trusted account-bound preview, confirmation, execution, and reconciliation', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = {

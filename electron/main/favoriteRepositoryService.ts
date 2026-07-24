@@ -90,7 +90,7 @@ type BindingJournalEntry = {
 }
 
 type EventJournalEntry = {
-  command: Extract<FavoriteRepositoryCommand, { type: 'record-favorite-event' }>
+  command: Extract<FavoriteRepositoryCommand, { type: 'record-favorite-event' | 'record-favorite-events' }>
   acceptedAt: string
 }
 
@@ -615,9 +615,10 @@ export class FavoriteRepositoryService {
         this.emitChange(publishedResult)
         return clone(result)
       }
-      if (command.type === 'record-favorite-event') {
+      if (command.type === 'record-favorite-event' || command.type === 'record-favorite-events') {
         await this.appendEventJournal(account, { command: clone(command), acceptedAt })
-        await this.appendEventOnce(account, { ...command.payload, accountMid: account })
+        const events = command.type === 'record-favorite-event' ? [command.payload] : command.payload.events
+        for (const event of events) await this.appendEventOnce(account, { ...event, accountMid: account })
         this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
         this.emitChange(publishedResult)
         return clone(result)
@@ -1075,7 +1076,8 @@ export class FavoriteRepositoryService {
         snapshot: this.snapshotFromResult(result),
         commandResults: { ...repository.commandResults, [entry.command.id]: receiptFromResult(result, entry.command) }
       }
-      await this.appendEventOnce(accountMid, { ...entry.command.payload, accountMid })
+      const events = entry.command.type === 'record-favorite-event' ? [entry.command.payload] : entry.command.payload.events
+      for (const event of events) await this.appendEventOnce(accountMid, { ...event, accountMid })
     }
     const result = { repository, manifest: loaded?.manifest }
     this.cache.set(accountMid, result)
@@ -1252,7 +1254,7 @@ export class FavoriteRepositoryService {
       for (const line of (await readFile(this.eventJournalPath(accountMid), 'utf8')).split('\n').filter(Boolean)) {
         try {
           const entry = JSON.parse(line) as Partial<EventJournalEntry>
-          if (!entry.command || entry.command.type !== 'record-favorite-event' || typeof entry.acceptedAt !== 'string') break
+          if (!entry.command || (entry.command.type !== 'record-favorite-event' && entry.command.type !== 'record-favorite-events') || typeof entry.acceptedAt !== 'string') break
           entries.push(entry as EventJournalEntry)
         } catch {
           break

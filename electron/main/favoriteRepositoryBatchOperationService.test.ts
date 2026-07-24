@@ -20,6 +20,26 @@ function snapshot(): AccountFavoriteRepositorySnapshot {
 }
 
 describe('FavoriteRepositoryBatchOperationService', () => {
+  it('deletes selected local rows in one revision-checked commit while retaining remote recovery evidence', async () => {
+    const current = snapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1, 2], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit }, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await expect(service.deleteLocal('100', [2, 1], 7)).resolves.toMatchObject({ affectedAids: [1, 2], auditStatus: 'recorded' })
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'delete-favorites-from-library', expectedRevision: 7,
+      payload: { aids: [1, 2], deletedAt: '2026-07-24T01:00:00.000Z', reason: 'user-delete' }
+    }))
+    expect(commit).toHaveBeenCalledTimes(2)
+    expect(commit.mock.calls[1][1]).toMatchObject({
+      type: 'record-favorite-events',
+      payload: { events: [
+        { aid: 1, detail: 'batch-local-delete' },
+        { aid: 2, detail: 'batch-local-delete' }
+      ] }
+    })
+  })
+
   it('copies additively and moves only current Bilimi logical membership, with immutable audits', async () => {
     const current = snapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
@@ -31,10 +51,10 @@ describe('FavoriteRepositoryBatchOperationService', () => {
       { aid: 2, localDesiredFolderIds: ['bilimi-logical:source', 'bilimi-logical:target'] }
     ] } })
     await service.move('100', [1, 2], 'bilimi-logical:source', ['bilimi-logical:target'], 7)
-    expect(commit.mock.calls[3][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
+    expect(commit.mock.calls[2][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
       { aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] }, { aid: 2, localDesiredFolderIds: ['bilimi-logical:target'] }
     ] } })
-    expect(commit.mock.calls.filter((call) => call[1].type === 'record-favorite-event')).toHaveLength(4)
+    expect(commit.mock.calls.filter((call) => call[1].type === 'record-favorite-events')).toHaveLength(2)
   })
 
   it('previews all Bilibili-membership unfavorites, stops on unknown results, and requires explicit reconciliation', async () => {
