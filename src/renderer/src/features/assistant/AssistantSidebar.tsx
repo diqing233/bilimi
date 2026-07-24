@@ -20,6 +20,8 @@ type AssistantSidebarProps = {
 
 export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
 
+const SIDEBAR_CLOSE_DURATION_MS = 220
+
 type SidebarDragState = {
   startClientX: number
   startWidth: number
@@ -30,7 +32,9 @@ type SidebarDragState = {
 export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const dragState = useRef<SidebarDragState | null>(null)
   const latestSidebarWidthPx = useRef<number | null>(null)
+  const closeTimer = useRef<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
+  const [closing, setClosing] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
@@ -58,9 +62,20 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       message: pickPetLine(PET_COLLAPSE_FAREWELL_LINES)
     })
     setCollapsed(true)
+    setClosing(true)
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setClosing(false)
+    }, SIDEBAR_CLOSE_DURATION_MS)
   }
 
   function expandSidebar() {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+    setClosing(false)
     setCollapsed(false)
     window.bilimiDesktop?.setAssistantPetHint?.({
       tone: 'hint',
@@ -72,6 +87,10 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     return window.bilimiDesktop?.onOpenAssistant?.(() => {
       expandSidebar()
     })
+  }, [])
+
+  useEffect(() => () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
   }, [])
 
   useEffect(() => {
@@ -211,6 +230,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       className="assistant-sidebar"
       aria-label="bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
+      data-closing={closing || undefined}
       style={sidebarStyle}
     >
       <div

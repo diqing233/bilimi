@@ -1944,11 +1944,15 @@ body[data-floating-window="true"],
   background: var(--porcelain-ice);
   transition: transform 220ms ease-in, opacity 160ms ease-in, border-color 160ms ease;
 }
-.assistant-sidebar[data-collapsed="true"] {
+.assistant-sidebar[data-collapsed="true"]:not([data-closing="true"]) {
   width: 0;
   min-width: 0;
   border-left: none;
   grid-template-columns: 0;
+  transform: translateX(100%);
+  opacity: 0;
+}
+.assistant-sidebar[data-closing="true"] {
   transform: translateX(100%);
   opacity: 0;
 }

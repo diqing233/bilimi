@@ -1,5 +1,5 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AssistantSidebar,
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
@@ -121,6 +121,10 @@ describe('AssistantSidebar', () => {
     setWindowInnerWidth(1366)
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('opens by default with the 批阅 tab selected', async () => {
     installDesktopApi()
 
@@ -136,7 +140,7 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('uses the left boundary collapse control without rendering a rail column', async () => {
+  it('uses the left boundary collapse control without rendering a rail column', () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
@@ -153,12 +157,13 @@ describe('AssistantSidebar', () => {
     expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()
 
+    vi.useFakeTimers()
     fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
-    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
-      'data-collapsed',
-      'true'
-    )
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-closing', 'true')
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(220) })
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'true')
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
     expect(screen.getByRole('img', { name: '小咪展开侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
@@ -168,10 +173,27 @@ describe('AssistantSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 
-    expect(await screen.findByRole('tab', { name: '批阅' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: '批阅' })).toHaveAttribute(
       'aria-selected',
       'true'
     )
+  })
+
+  it('reverses a pending sidebar close without releasing its workspace width', async () => {
+    installDesktopApi()
+    render(<AssistantSidebar />)
+    await screen.findByRole('tab', { name: '批阅' })
+    vi.useFakeTimers()
+
+    fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+    expect(sidebar).toHaveAttribute('data-closing', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
+
+    expect(sidebar).toHaveAttribute('data-collapsed', 'false')
+    expect(sidebar).not.toHaveAttribute('data-closing')
+    act(() => { vi.advanceTimersByTime(220) })
+    expect(sidebar).toHaveAttribute('data-collapsed', 'false')
   })
 
   it('expands the sidebar when the floating pet asks to open the assistant', async () => {
