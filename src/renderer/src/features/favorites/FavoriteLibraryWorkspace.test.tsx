@@ -56,7 +56,7 @@ describe('Favorite Library workspace components', () => {
       ]}
     />)
     expect(screen.getByRole('button', { name: '全部收藏' })).toHaveTextContent('全部收藏 0')
-    fireEvent.click(screen.getByRole('button', { name: '工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起工作区' }))
     expect(onCollapseChange).toHaveBeenCalledWith('100', 'workspace', true)
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹' }))
     expect(onSelect).toHaveBeenCalledWith('folder:managed')

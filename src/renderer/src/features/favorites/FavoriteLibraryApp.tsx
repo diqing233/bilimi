@@ -376,8 +376,8 @@ export function FavoriteLibraryApp({
         { id: 'protected', label: '已保护', count: summary?.scopeCounts?.protected ?? 0 },
         { id: 'unsynced', label: '未同步', count: summary?.scopeCounts?.unsynced ?? 0 }
       ] },
-      { id: 'workspace', label: 'bilimi 工作夹', items: items.filter((item) => item.managed || item.protected) },
-      { id: 'bilibili', label: 'B站收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
+      { id: 'workspace', label: 'bilimi 工作夹', items: items.filter((item) => item.managed || item.protected).map((item) => item.protected ? { ...item, label: 'bilimi 暂存' } : item) },
+      { id: 'bilibili', label: '自建收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
     ]
   }, [navigation, summary?.videoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
