@@ -84,9 +84,19 @@ function isIsoTimestamp(value: unknown): value is string {
 
 function accountArchiveIdentity(noteId: unknown, accountMid: string) {
   if (typeof noteId !== 'string') return undefined
-  const match = noteId.match(/^account:(\d+):aid:(\d+):cid:(\d+)$/u)
-  if (!match || match[1] !== accountMid || !Number.isSafeInteger(Number(match[2])) || Number(match[2]) <= 0 || !Number.isSafeInteger(Number(match[3])) || Number(match[3]) <= 0) return undefined
-  return { aid: Number(match[2]), cid: Number(match[3]) }
+  const match = noteId.match(/^account:(\d+):aid:(\d+)(?::cid:(\d+))?$/u)
+  if (!match || match[1] !== accountMid || !Number.isSafeInteger(Number(match[2])) || Number(match[2]) <= 0 ||
+    (match[3] !== undefined && (!Number.isSafeInteger(Number(match[3])) || Number(match[3]) <= 0))) return undefined
+  return `account:${accountMid}:aid:${Number(match[2])}${match[3] === undefined ? '' : `:cid:${Number(match[3])}`}`
+}
+
+function portableArchiveVersionIdentity(noteId: unknown, accountMid: string, source: Record<string, unknown>) {
+  const accountIdentity = accountArchiveIdentity(noteId, accountMid)
+  if (accountIdentity) return accountIdentity
+  if (typeof noteId !== 'string' || source.accountMid !== accountMid) return undefined
+  if (/^bvid:[A-Za-z0-9]+$/u.test(noteId) && typeof source.bvid === 'string' && source.bvid.trim()) return noteId
+  if (/^url:https?:\/\/\S+$/u.test(noteId) && typeof source.url === 'string' && source.url.trim()) return noteId
+  return undefined
 }
 
 function isStringList(value: unknown): value is string[] {
@@ -104,7 +114,7 @@ function isPortableArchive(value: unknown, accountMid: string) {
       typeof version.plainTranscript !== 'string' || typeof version.summaryText !== 'string' || !isRecord(version.note) || !isRecord(version.note.source)) return false
     const note = version.note
     const noteSource = note.source
-    const identity = accountArchiveIdentity(note.id, accountMid)
+    const identity = portableArchiveVersionIdentity(note.id, accountMid, noteSource)
     return Boolean(identity) && noteSource.accountMid === accountMid && typeof noteSource.title === 'string' && Boolean(noteSource.title.trim()) &&
       typeof noteSource.url === 'string' && Boolean(noteSource.url.trim()) && isStringList(noteSource.tags) &&
       ['auto', 'manual', 'audio'].includes(String(note.transcriptSource)) && Array.isArray(note.transcript) && note.transcript.every((segment) =>
@@ -247,6 +257,28 @@ function mergeNamedRecords(local: unknown, imported: unknown, identity: (value: 
   return [...result.values()]
 }
 
+function mergeVideoNoteArchives(local: unknown, imported: unknown) {
+  const result = new Map<string, Record<string, unknown>>()
+  for (const entry of [...(Array.isArray(local) ? local : []), ...(Array.isArray(imported) ? imported : [])]) {
+    if (!isRecord(entry) || !isRecord(entry.source) || typeof entry.source.accountMid !== 'string' || !Array.isArray(entry.versions)) continue
+    const accountMid = entry.source.accountMid
+    const archiveId = typeof entry.id === 'string' ? entry.id : ''
+    if (!archiveId) continue
+    const previous = result.get(archiveId)
+    const versions = new Map<string, Record<string, unknown>>()
+    for (const candidate of [...(Array.isArray(previous?.versions) ? previous.versions : []), ...entry.versions]) {
+      if (!isRecord(candidate) || !isRecord(candidate.note) || !isRecord(candidate.note.source)) continue
+      const identity = portableArchiveVersionIdentity(candidate.note.id, accountMid, candidate.note.source)
+      if (!identity) continue
+      const older = versions.get(identity)
+      if (!older || updatedAt(candidate.note) >= updatedAt(older.note)) versions.set(identity, structuredClone(candidate))
+    }
+    const preferred = !previous || updatedAt(entry) >= updatedAt(previous) ? entry : previous
+    result.set(archiveId, { ...structuredClone(preferred), versions: [...versions.values()] })
+  }
+  return [...result.values()]
+}
+
 function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
   const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp = updatedAt) => {
     const values = new Map<string, T>()
@@ -288,7 +320,7 @@ export function mergeMigrationAccounts(local: Record<string, PortableAccountData
     if (!current) { result[uid] = structuredClone(incoming); continue }
     const merged: PortableAccountData = { ...current, ...incoming }
     merged.repository = mergeRepositoryArchives(validateFavoriteRepositoryArchiveExport(current.repository), validateFavoriteRepositoryArchiveExport(incoming.repository))
-    merged.archives = mergeNamedRecords(current.archives, incoming.archives, (item) => `${item.aid}:${item.cid ?? ''}:${item.version ?? ''}`)
+    merged.archives = mergeVideoNoteArchives(current.archives, incoming.archives)
     for (const key of ['workspaces', 'transcription', 'remoteOperations'] as const) merged[key] = mergeNamedRecords(current[key], incoming[key], (item) => String(item.id ?? `${item.aid}:${item.cid ?? ''}`))
     merged.settings = updatedAt(incoming.settings) > updatedAt(current.settings) ? structuredClone(incoming.settings) : structuredClone(current.settings)
     result[uid] = merged

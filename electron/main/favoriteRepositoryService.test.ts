@@ -168,8 +168,7 @@ describe('FavoriteRepositoryService', () => {
     await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
 
     await expect(service.getSnapshot('100')).resolves.toMatchObject({
-      videos: { '2': expect.objectContaining({ title: 'Imported only' }) },
-      positions: { '100:1': expect.objectContaining({ remoteObservedPhysicalFolderIds: ['bilibili:900'] }) }
+      videos: { '2': expect.objectContaining({ title: 'Imported only' }) }, positions: {}
     })
     await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
   })

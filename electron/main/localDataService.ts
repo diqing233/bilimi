@@ -13,7 +13,10 @@ export type LocalDataPersistence = {
    * Publishes the complete portable state as one durable transaction. It must
    * leave both accounts and shared settings unchanged when it rejects.
    */
-  writePortableState?(state: { accounts: Record<string, PortableAccountData>; sharedSettings: Record<string, unknown> }): void | Promise<void>
+  writePortableState?(
+    state: { accounts: Record<string, PortableAccountData>; sharedSettings: Record<string, unknown> },
+    options: { mode: 'merge' | 'overwrite'; selectedUids: string[] }
+  ): void | Promise<void>
 }
 export type LocalDataServiceOptions = { root: string; appVersion: string; persistence: LocalDataPersistence }
 export type LocalDataCleanupLevel = 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data'
@@ -109,14 +112,14 @@ export class LocalDataService {
       if (input.injectFailureAfterStage) throw new Error('injected import failure')
       if (!this.options.persistence.writePortableState) throw new Error('Local data persistence does not support atomic import.')
       const sharedSettings = archive.sharedSettings ? { ...beforeSharedSettings, ...archive.sharedSettings } : beforeSharedSettings
-      await this.options.persistence.writePortableState({ accounts: staged, sharedSettings })
+      await this.options.persistence.writePortableState({ accounts: staged, sharedSettings }, { mode: input.mode, selectedUids: archive.selectedUids })
       await rm(stagingPath, { force: true })
     } catch (error) {
       // Persistence implementations can fail after one durable backend has
       // published. Replaying the complete pre-import state is the compensating
       // transaction; it deliberately never retries the requested import.
       if (this.options.persistence.writePortableState) {
-        try { await this.options.persistence.writePortableState({ accounts: before, sharedSettings: beforeSharedSettings }) }
+        try { await this.options.persistence.writePortableState({ accounts: before, sharedSettings: beforeSharedSettings }, { mode: 'overwrite', selectedUids: Object.keys(before) }) }
         catch (rollbackError) { throw new Error(`Migration import failed and rollback could not be completed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`) }
       }
       throw error

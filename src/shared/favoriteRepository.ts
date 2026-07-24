@@ -225,7 +225,17 @@ export function createFavoriteRepositoryArchiveExport(
   input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
 ): FavoriteRepositoryArchiveExport & { checksum: string } {
   const accountMid = normalizedAccountMid(snapshot.accountMid)
-  const recoveryFolders = structuredClone(snapshot.folders)
+  // Remote IDs and observations belong to this installation only. Retain the
+  // logical plan and force the destination installation to reconcile it.
+  const recoveryFolders = snapshot.folders
+    .filter((folder) => folder.kind !== 'bilibili')
+    .map((folder) => ({
+      id: folder.id,
+      title: folder.title,
+      kind: folder.kind,
+      ...(folder.logicalLedgerId ? { logicalLedgerId: folder.logicalLedgerId } : {}),
+      syncState: folder.kind === 'bilimi-logical' ? 'pending-reconcile' as const : 'local-only' as const
+    }))
   const recoveryFolderIds = new Set(recoveryFolders.map((folder) => folder.id))
   const exported: FavoriteRepositoryArchiveExport = {
     version: 1,
@@ -251,7 +261,12 @@ export function createFavoriteRepositoryArchiveExport(
       // folder projection exists. Do not emit an archive our strict reader
       // would necessarily reject.
       memberships: Object.fromEntries(Object.entries(snapshot.memberships).filter(([folderId]) => recoveryFolderIds.has(folderId)).map(([folderId, aids]) => [folderId, [...aids]])),
-      physicalShards: structuredClone(snapshot.physicalShards), ...(snapshot.workspace ? { workspace: structuredClone(snapshot.workspace) } : {}),
+      physicalShards: snapshot.physicalShards
+        .filter((shard) => recoveryFolderIds.has(shard.folderId))
+        .map((shard) => ({
+          logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
+          remoteTitle: shard.remoteTitle, bindingState: 'pending-reconcile' as const
+        })), ...(snapshot.workspace ? { workspace: structuredClone(snapshot.workspace) } : {}),
       syncRecords: structuredClone(snapshot.syncRecords), organizationRecords: structuredClone(snapshot.organizationRecords),
       organizationBatches: structuredClone(snapshot.organizationBatches), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
       tombstones: Object.values(snapshot.tombstones).map((tombstone) => ({ ...tombstone }))
@@ -764,9 +779,9 @@ function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const folder = value as Record<string, unknown>
   if (typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
-    !['bilibili', 'bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'bound', 'pending-reconcile', 'failed'].includes(String(folder.syncState))) return false
+    !['bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'pending-reconcile'].includes(String(folder.syncState))) return false
   if ((folder.logicalLedgerId !== undefined && (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim())) ||
-    (folder.remoteFolderId !== undefined && (typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim()))) return false
+    folder.remoteFolderId !== undefined) return false
   ids.add(folder.id)
   return true
 }
@@ -776,10 +791,8 @@ function isPortableRecoveryShard(value: unknown, folderIds: Set<string>) {
   const shard = value as Record<string, unknown>
   return typeof shard.logicalLedgerId === 'string' && !!shard.logicalLedgerId.trim() && typeof shard.folderId === 'string' && folderIds.has(shard.folderId) &&
     Number.isSafeInteger(shard.shardNumber) && Number(shard.shardNumber) > 0 && typeof shard.remoteTitle === 'string' && !!shard.remoteTitle.trim() &&
-    ['bound', 'pending-reconcile'].includes(String(shard.bindingState)) &&
-    (shard.remoteFolderId === undefined || (typeof shard.remoteFolderId === 'string' && !!shard.remoteFolderId.trim())) &&
-    (shard.knownRemoteFolderIds === undefined || (Array.isArray(shard.knownRemoteFolderIds) && shard.knownRemoteFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
-    (shard.remoteMemberCount === undefined || (Number.isSafeInteger(shard.remoteMemberCount) && Number(shard.remoteMemberCount) >= 0))
+    shard.bindingState === 'pending-reconcile' && shard.remoteFolderId === undefined &&
+    shard.knownRemoteFolderIds === undefined && shard.remoteMemberCount === undefined
 }
 
 function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {

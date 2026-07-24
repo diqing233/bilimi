@@ -1335,10 +1335,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         const preferences = loadAssistantPreferences(getDesktopStore())
         return Object.keys(preferences.favoriteAccountPreferences)
       },
+      listRetainedAccountUids: async () => favoriteRepositoryService!.listRetainedAccountUids(),
       getRepository: (uid) => favoriteRepositoryService!.getSnapshot(uid),
       getAccountSettings: (uid) => loadFavoriteAccountPreferences(getDesktopStore(), uid),
       getArchives: () => loadVideoNoteArchives(getDesktopStore()),
       getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
+      getAuditEvents: (uid) => favoriteRepositoryService!.getPortableAuditEvents(uid),
+      getWorkspaces: (uid) => favoriteRepositoryService!.getPortableWorkspaceRecovery(uid),
+      getRemoteOperations: (uid) => favoriteRepositoryService!.getPortableRemoteRecoveries(uid),
       applyPortableBatch: async (batch) => {
         const retainedUids = new Set(Object.keys(batch.repositoryArchives))
         const existingUids = Object.keys(loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences)
@@ -1368,9 +1372,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           Object.entries(preferences.favoriteAccountPreferences).filter(([uid]) => retainedUids.has(uid))
         ))
       },
-      applyPortableState: async (batch, sharedSettings) => {
+      applyPortableState: async (batch, sharedSettings, options) => {
         // The store update is published only after all repository generations have validated.
-        const retainedUids = new Set(Object.keys(batch.repositoryArchives))
+        const selectedUids = new Set(options.selectedUids)
         const store = getDesktopStore()
         const previous = {
           archives: loadVideoNoteArchives(store),
@@ -1378,16 +1382,21 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           preferences: loadAssistantPreferences(store)
         }
         try {
-          const existingUids = Object.keys(previous.preferences.favoriteAccountPreferences)
-          for (const uid of existingUids.filter((uid) => !retainedUids.has(uid))) await favoriteRepositoryService!.deleteAccountLocalData(uid)
-          for (const [uid, archive] of Object.entries(batch.repositoryArchives)) await favoriteRepositoryService!.applyArchiveImport(uid, { validate: () => archive })
-          const accountPreferences = Object.fromEntries(Object.entries(batch.settingsByUid).map(([uid, settings]) => {
+          for (const uid of selectedUids) {
+            const archive = batch.repositoryArchives[uid]
+            if (!archive) throw new Error('Portable import account is missing.')
+            await favoriteRepositoryService!.applyArchiveImport(uid, { validate: () => archive, mode: options.mode })
+          }
+          const accountPreferences = { ...previous.preferences.favoriteAccountPreferences }
+          for (const [uid, settings] of Object.entries(batch.settingsByUid).filter(([uid]) => selectedUids.has(uid))) {
             const current = loadFavoriteAccountPreferences(store, uid)
             const candidate = settings as Partial<typeof current>
-            return [uid, { ...current, ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {}) }]
-          }))
-          store.set('videoNoteArchives', Object.values(batch.archivesByUid).flat())
-          saveVideoAudioTranscriptionQueue(store, Object.values(batch.transcriptionByUid).flat())
+            accountPreferences[uid] = { ...current, ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {}) }
+          }
+          const selectedArchiveValues = Object.entries(batch.archivesByUid).filter(([uid]) => selectedUids.has(uid)).flatMap(([, archives]) => archives)
+          store.set('videoNoteArchives', [...previous.archives.filter((archive) => !selectedUids.has(archive.source.accountMid ?? '')), ...selectedArchiveValues])
+          const selectedTranscription = Object.entries(batch.transcriptionByUid).filter(([uid]) => selectedUids.has(uid)).flatMap(([, items]) => items)
+          saveVideoAudioTranscriptionQueue(store, [...previous.transcription.filter((item) => !item.accountMid || !selectedUids.has(item.accountMid)), ...selectedTranscription])
           store.set('favoriteAccountPreferences', accountPreferences)
           if (sharedSettings.closeBehavior === 'minimize-to-tray' || sharedSettings.closeBehavior === 'exit-launcher') patchAssistantPreferences(store, { closeBehavior: sharedSettings.closeBehavior })
         } catch (error) {

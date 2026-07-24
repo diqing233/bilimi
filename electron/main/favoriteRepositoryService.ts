@@ -453,11 +453,18 @@ export class FavoriteRepositoryService {
         videos[String(video.aid)] = mergeFavoriteRepositoryVideo(videos[String(video.aid)], video)
       }
       // Remote observations are device-local evidence, never portable import data.
-      const retainedRemotePositions = Object.fromEntries(Object.entries(repository.snapshot.positions).map(([key, position]) => [key, {
-        ...position, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [...position.remoteObservedPhysicalFolderIds],
-        remoteObservedLogicalFolderIds: [...position.remoteObservedLogicalFolderIds]
-      }]))
-      const positions = mode === 'overwrite' ? retainedRemotePositions : { ...repository.snapshot.positions }
+      // An overwrite retains current-device observations only for positions
+      // explicitly carried by the archive. Do not manufacture empty local
+      // positions for unrelated stale entities.
+      const importedPositionAids = new Set((archive.positions ?? []).map((position) => position.aid))
+      const positions = mode === 'overwrite'
+        ? Object.fromEntries(Object.entries(repository.snapshot.positions)
+          .filter(([, position]) => importedPositionAids.has(position.aid))
+          .map(([key, position]) => [key, {
+            ...position, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [...position.remoteObservedPhysicalFolderIds],
+            remoteObservedLogicalFolderIds: [...position.remoteObservedLogicalFolderIds]
+          }]))
+        : { ...repository.snapshot.positions }
       const recovery = archive.recovery
       const importedFolders = recovery?.folders ?? []
       const foldersById = new Map((mode === 'overwrite' ? [] : repository.snapshot.folders).map((folder) => [folder.id, clone(folder)]))
@@ -587,6 +594,48 @@ export class FavoriteRepositoryService {
   async getOrganizationChanges(accountMid: string) {
     const account = normalizeAccountMid(accountMid)
     return this.queue(async () => clone((await this.load(account)).repository.snapshot.organizationBatches ?? []))
+  }
+
+  /** Inventory remains available after account preferences are removed. */
+  async listRetainedAccountUids() {
+    try {
+      const accounts = await readdir(join(this.options.root, 'accounts'), { withFileTypes: true })
+      return accounts.filter((entry) => entry.isDirectory() && /^\d+$/u.test(entry.name) && BigInt(entry.name) > 0n)
+        .map((entry) => BigInt(entry.name).toString()).sort()
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
+  async getPortableAuditEvents(accountMid: string): Promise<Record<string, unknown>[]> {
+    const account = normalizeAccountMid(accountMid)
+    return this.queue(async () => {
+      const repository = (await this.load(account)).repository
+      const aids = new Set([
+        ...Object.keys(repository.snapshot.videos).map(Number),
+        ...Object.values(repository.snapshot.tombstones).map((entry) => entry.aid)
+      ])
+      const persisted = (await Promise.all([...aids].map((aid) => this.readEvents(account, aid)))).flat()
+      return [...(repository.importedEvents ?? []), ...persisted]
+        .filter((event, index, events) => event.accountMid === account && events.findIndex((candidate) => candidate.id === event.id) === index)
+        .map((event) => clone(event) as Record<string, unknown>)
+    })
+  }
+
+  async getPortableWorkspaceRecovery(accountMid: string): Promise<Record<string, unknown>[]> {
+    const account = normalizeAccountMid(accountMid)
+    return this.queue(async () => {
+      const workspace = (await this.load(account)).repository.snapshot.workspace
+      return workspace ? [clone(workspace) as Record<string, unknown>] : []
+    })
+  }
+
+  async getPortableRemoteRecoveries(accountMid: string): Promise<Record<string, unknown>[]> {
+    const account = normalizeAccountMid(accountMid)
+    return this.queue(async () => (await this.load(account)).repository.snapshot.syncRecords
+      .filter((record) => ['pending', 'failed', 'result-unknown'].includes(record.status))
+      .map((record) => ({ ...clone(record), accountMid: account }) as Record<string, unknown>))
   }
 
   onChanged(listener: (result: FavoriteRepositoryCommandResult) => void) {

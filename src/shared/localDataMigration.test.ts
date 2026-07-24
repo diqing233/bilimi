@@ -127,7 +127,10 @@ describe('local data migration v1', () => {
     const imported = {
       '100': {
         ...account('2026-07-24T00:00:00.000Z'),
-        archives: [{ aid: 1, cid: 11, version: 2, updatedAt: '2026-07-26T00:00:00.000Z' }]
+        archives: [{ ...account('2026-07-24T00:00:00.000Z').archives[0], versions: [{
+          ...account('2026-07-24T00:00:00.000Z').archives[0].versions[0], id: 'version-2', createdAt: '2026-07-26T00:00:00.000Z',
+          note: { ...account('2026-07-24T00:00:00.000Z').archives[0].versions[0].note, id: 'account:100:aid:1:cid:12', updatedAt: '2026-07-26T00:00:00.000Z' }
+        }], updatedAt: '2026-07-26T00:00:00.000Z' }]
       },
       '200': account()
     }
@@ -142,7 +145,7 @@ describe('local data migration v1', () => {
       expect.objectContaining({ aid: 1, title: 'video' }),
       expect.objectContaining({ aid: 2, title: 'new' })
     ]))
-    expect(merged['100'].archives as unknown[]).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'archive-1' }), expect.objectContaining({ version: 2 })]))
+    expect((merged['100'].archives as Array<{ versions: unknown[] }>)[0]?.versions).toHaveLength(2)
     expect(merged['200']).toEqual(account())
   })
 

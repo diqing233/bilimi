@@ -240,6 +240,20 @@ describe('account favorite repository contracts', () => {
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
   })
 
+  it('sanitizes recovery bindings into local reconciliation intent', () => {
+    const exported = createFavoriteRepositoryArchiveExport({
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      folders: [
+        { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' as const },
+        { id: 'bilibili:900', title: 'Device mirror', kind: 'bilibili' as const, remoteFolderId: '900', syncState: 'bound' as const }
+      ],
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi-logical:music', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'bound' as const, remoteFolderId: '900', knownRemoteFolderIds: ['900'], remoteMemberCount: 12 }]
+    }, { generatedAt: '2026-07-23T01:00:00.000Z' })
+
+    expect(exported.recovery?.folders).toEqual([{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }])
+    expect(exported.recovery?.physicalShards).toEqual([{ logicalLedgerId: 'music', folderId: 'bilimi-logical:music', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'pending-reconcile' }])
+  })
+
   it('round-trips account-local repository recovery state while excluding remote observations', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
@@ -255,7 +269,12 @@ describe('account favorite repository contracts', () => {
     }
     const exported = createFavoriteRepositoryArchiveExport(snapshot, { generatedAt: '2026-07-23T01:00:00.000Z' })
 
-    expect(exported.recovery).toMatchObject({ folders: snapshot.folders, memberships: snapshot.memberships, physicalShards: snapshot.physicalShards, workspace: snapshot.workspace, syncRecords: snapshot.syncRecords, organizationRecords: snapshot.organizationRecords, organizationBatches: snapshot.organizationBatches, tombstones: [snapshot.tombstones['100:2']] })
+    expect(exported.recovery).toMatchObject({
+      folders: [{ id: 'bilimi-logical:music', syncState: 'pending-reconcile' }],
+      memberships: { 'bilimi-logical:music': [1] }, physicalShards: [], workspace: snapshot.workspace,
+      syncRecords: snapshot.syncRecords, organizationRecords: snapshot.organizationRecords,
+      organizationBatches: snapshot.organizationBatches, tombstones: [snapshot.tombstones['100:2']]
+    })
     expect(exported.positions).toEqual([expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] })])
     expect(JSON.stringify(exported)).not.toContain('remote-private')
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)

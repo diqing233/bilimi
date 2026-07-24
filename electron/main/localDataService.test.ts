@@ -3,10 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocalDataService, type LocalDataPersistence } from './localDataService'
+import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 
 const roots: string[] = []
 const portableAccount = (id: string, updatedAt = '2026-07-24T00:00:00.000Z') => ({
-  repository: { videos: [{ aid: 1, cid: 11, id, updatedAt }] },
+  repository: createFavoriteRepositoryArchiveExport({
+    ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: updatedAt }),
+    videos: { '1': { aid: 1, title: id, tags: [], updatedAt } }
+  }, { generatedAt: updatedAt }),
   settings: { updatedAt }, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: []
 })
 const makeService = async () => {
@@ -81,6 +85,18 @@ describe('LocalDataService', () => {
     expect(accounts).toEqual(beforeAccounts)
     expect(await persistence.readSharedSettings()).toEqual(beforeShared)
     expect(vi.mocked(persistence.writePortableState).mock.calls[1]?.[0].sharedSettings).toEqual(beforeShared)
+  })
+
+  it('passes the selected UIDs and overwrite mode to the durable persistence boundary', async () => {
+    const { root, persistence, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
+    const preview = await service.previewImport(archive)
+    const publish = vi.spyOn(persistence, 'writePortableState')
+
+    await service.applyImport(preview, { mode: 'overwrite' })
+
+    expect(publish).toHaveBeenCalledWith(expect.any(Object), { mode: 'overwrite', selectedUids: ['100'] })
   })
 
   it('validates account UIDs at the service boundary before export or account cleanup', async () => {

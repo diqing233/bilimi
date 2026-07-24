@@ -13,6 +13,7 @@ type PortableBatch = {
   workspacesByUid: Record<string, Record<string, unknown>[]>
   remoteOperationsByUid: Record<string, Record<string, unknown>[]>
 }
+type PortableApplyOptions = { mode: 'merge' | 'overwrite'; selectedUids: string[] }
 
 type Dependencies = {
   listAccountUids(): string[] | Promise<string[]>
@@ -22,11 +23,11 @@ type Dependencies = {
   getAccountSettings(uid: string): Record<string, unknown> | Promise<Record<string, unknown>>
   getArchives(): VideoNoteArchiveEntry[] | Promise<VideoNoteArchiveEntry[]>
   getTranscriptionItems(): VideoAudioTranscriptionQueueItem[] | Promise<VideoAudioTranscriptionQueueItem[]>
-  getAuditEvents?(): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
-  getWorkspaces?(): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
-  getRemoteOperations?(): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  getAuditEvents?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  getWorkspaces?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  getRemoteOperations?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
   applyPortableBatch(batch: PortableBatch): void | Promise<void>
-  applyPortableState(batch: PortableBatch, sharedSettings: Record<string, unknown>): void | Promise<void>
+  applyPortableState(batch: PortableBatch, sharedSettings: Record<string, unknown>, options?: PortableApplyOptions): void | Promise<void>
   readSharedSettings(): Record<string, unknown> | Promise<Record<string, unknown>>
   writeSharedSettings(settings: Record<string, unknown>): void | Promise<void>
 }
@@ -62,7 +63,7 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
       const accountMid = uid(rawUid)
       const [snapshot, settings, archives, transcription, auditEvents, workspaces, remoteOperations] = await Promise.all([
         dependencies.getRepository(accountMid), dependencies.getAccountSettings(accountMid), dependencies.getArchives(), dependencies.getTranscriptionItems(),
-        dependencies.getAuditEvents?.() ?? [], dependencies.getWorkspaces?.() ?? [], dependencies.getRemoteOperations?.() ?? []
+        dependencies.getAuditEvents?.(accountMid) ?? [], dependencies.getWorkspaces?.(accountMid) ?? [], dependencies.getRemoteOperations?.(accountMid) ?? []
       ])
       if (snapshot.accountMid !== accountMid) throw new Error('Repository account mismatch.')
       return {
@@ -96,7 +97,7 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
       }
       await dependencies.applyPortableBatch({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid })
     },
-    async writePortableState(state) {
+    async writePortableState(state, options) {
       const repositoryArchives: Record<string, RepositoryArchive> = {}
       const settingsByUid: Record<string, Record<string, unknown>> = {}
       const archivesByUid: Record<string, VideoNoteArchiveEntry[]> = {}
@@ -118,7 +119,9 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
         workspacesByUid[accountMid] = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
         remoteOperationsByUid[accountMid] = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
       }
-      await dependencies.applyPortableState({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid }, structuredClone(state.sharedSettings))
+      const batch = { repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid }
+      if (options) await dependencies.applyPortableState(batch, structuredClone(state.sharedSettings), options)
+      else await dependencies.applyPortableState(batch, structuredClone(state.sharedSettings))
     },
     readSharedSettings: dependencies.readSharedSettings,
     writeSharedSettings: dependencies.writeSharedSettings
