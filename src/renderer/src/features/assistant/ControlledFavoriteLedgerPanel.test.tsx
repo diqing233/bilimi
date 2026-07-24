@@ -474,7 +474,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('uses the favorite library brand mark instead of the backup portrait', async () => {
+  it('uses a distinct XiaoMi portrait for the library toolbar entry', async () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn(),
@@ -488,9 +488,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     const backupIcon = screen.getByRole('button', { name: '备册' }).querySelector('img')
     const libraryEntry = screen.getByRole('button', { name: '收藏库' })
+    const libraryIcon = libraryEntry.querySelector('img')
     expect(backupIcon).toBeInTheDocument()
-    expect(libraryEntry.querySelector('img')).not.toBeInTheDocument()
-    expect(libraryEntry.querySelector('[data-testid="favorite-library-entry-mark"]')).toHaveTextContent('米')
+    expect(libraryIcon).toBeInTheDocument()
+    expect(libraryIcon?.getAttribute('src')).not.toBe(backupIcon?.getAttribute('src'))
+    expect(libraryIcon).toHaveAttribute('alt', '小咪收藏库')
   })
 
   it('opens the organize guide without changing the independent library entry', async () => {

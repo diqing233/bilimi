@@ -2379,21 +2379,6 @@ body[data-floating-window="true"],
   user-select: none;
   -webkit-user-drag: none;
 }
-.assistant-action-button__mark {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 2px solid #6ba7e9;
-  border-radius: 8px;
-  background: #fff;
-  color: #2563a6;
-  font-family: Arial, sans-serif;
-  font-size: 23px;
-  font-weight: 800;
-  line-height: 1;
-  box-shadow: 0 3px 4px rgba(31, 99, 181, 0.18);
-}
 .assistant-action-button__icon strong {
   position: absolute;
   right: -2px;
