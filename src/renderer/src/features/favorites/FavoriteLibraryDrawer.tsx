@@ -13,12 +13,14 @@ const COMPACT_BROWSER_TAB_HEIGHT = 38
 const COMPACT_BROWSER_WIDTH = 1200
 const COMPACT_BROWSER_HEIGHT = 760
 const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
+const DRAWER_CLOSE_DURATION_MS = 180
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
   collapsed: boolean
   onClose: () => void
   onCollapsedChange: (collapsed: boolean) => void
+  onResizeActiveChange?: (active: boolean) => void
 }
 
 type FavoriteLibraryAccount = { mid: string; nickname?: string }
@@ -51,13 +53,24 @@ function isVisible(element: HTMLElement) {
   return element.isConnected && !element.closest('[hidden]') && style.display !== 'none' && style.visibility !== 'hidden'
 }
 
-export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedChange }: FavoriteLibraryDrawerProps) {
+export function FavoriteLibraryDrawer({
+  open,
+  collapsed,
+  onClose,
+  onCollapsedChange,
+  onResizeActiveChange
+}: FavoriteLibraryDrawerProps) {
   const [height, setHeight] = useState(savedHeight)
   const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
   const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const [drawerStatus, setDrawerStatus] = useState<FavoriteLibraryDrawerStatus>()
+  const [closing, setClosing] = useState(false)
+  const [visible, setVisible] = useState(open)
+  const [opening, setOpening] = useState(false)
   const dragStartRef = useRef<{ clientY: number; height: number }>()
+  const closeTimerRef = useRef<number | null>(null)
+  const openingFrameRef = useRef<number | null>(null)
   const hasBeenOpenedRef = useRef(open)
   const wasOpenRef = useRef(open)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -85,11 +98,44 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
     wasOpenRef.current = open
   }, [open])
 
+  useEffect(() => {
+    if (open) {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current)
+        closeTimerRef.current = null
+      }
+      if (!visible) {
+        setVisible(true)
+        setOpening(true)
+        openingFrameRef.current = window.requestAnimationFrame(() => {
+          openingFrameRef.current = null
+          setOpening(false)
+        })
+      }
+      setClosing(false)
+      return
+    }
+
+    if (!visible) return
+
+    setClosing(true)
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      setClosing(false)
+      setVisible(false)
+    }, DRAWER_CLOSE_DURATION_MS)
+  }, [open, visible])
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    if (openingFrameRef.current !== null) window.cancelAnimationFrame(openingFrameRef.current)
+  }, [])
+
   if (open) {
     hasBeenOpenedRef.current = true
   }
 
-  if (!hasBeenOpenedRef.current) {
+  if (!hasBeenOpenedRef.current || !visible) {
     return null
   }
 
@@ -109,10 +155,11 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
       className="favorite-library-drawer"
       data-testid="favorite-library-drawer"
       data-collapsed={collapsed ? 'true' : 'false'}
+      data-closing={closing || undefined}
+      data-opening={opening || undefined}
       style={collapsed ? undefined : { height: `${height}px` }}
       aria-label="收藏库"
       aria-hidden={!open || undefined}
-      hidden={!open}
     >
       <div
         className="favorite-library-drawer__resize-handle"
@@ -126,6 +173,7 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
         onPointerDown={(event) => {
           dragStartRef.current = { clientY: event.clientY, height }
           setDragging(true)
+          onResizeActiveChange?.(true)
           event.currentTarget.setPointerCapture?.(event.pointerId)
         }}
         onPointerMove={(event) => {
@@ -137,12 +185,14 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
           const shouldCollapse = height <= MIN_HEIGHT + COLLAPSE_SNAP_DISTANCE
           dragStartRef.current = undefined
           setDragging(false)
+          onResizeActiveChange?.(false)
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           if (shouldCollapse) onCollapsedChange(true)
         }}
         onPointerCancel={() => {
           dragStartRef.current = undefined
           setDragging(false)
+          onResizeActiveChange?.(false)
         }}
         onDoubleClick={() => {
           setHeight(clampHeight(DEFAULT_HEIGHT))

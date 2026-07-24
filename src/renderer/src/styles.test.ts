@@ -219,8 +219,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static;')
   })
 
-  it('removes the closed favorite library drawer from layout', () => {
-    expectStyleSnippet('.favorite-library-drawer[hidden] { display: none;')
+  it('slides the closed favorite library drawer out before releasing its layout', () => {
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
   })
 
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
@@ -235,7 +235,7 @@ describe('renderer porcelain theme styles', () => {
       'min-width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));'
     )
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
-    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
+    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"]:not([data-closing="true"]) {\n  width: 0;')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-handle {')
     expect(sidebarStyles).toContain('cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-shield {\n  position: fixed;')

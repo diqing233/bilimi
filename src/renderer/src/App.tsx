@@ -513,6 +513,7 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
   const [favoriteLibraryOpen, setFavoriteLibraryOpen] = useState(false)
   const [favoriteLibraryCollapsed, setFavoriteLibraryCollapsed] = useState(false)
+  const [favoriteLibraryResizing, setFavoriteLibraryResizing] = useState(false)
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
@@ -2142,6 +2143,7 @@ export default function App() {
                 }
                 window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
               }}
+              hostResizePaused={favoriteLibraryResizing}
               onReady={handleWebviewReady}
               onTargetState={handleFavoriteRepositoryTargetState}
               onTitleChange={updateTabTitle}
@@ -2153,6 +2155,7 @@ export default function App() {
           collapsed={favoriteLibraryCollapsed}
           onClose={() => setFavoriteLibraryOpen(false)}
           onCollapsedChange={setFavoriteLibraryCollapsed}
+          onResizeActiveChange={setFavoriteLibraryResizing}
         />
         </div>
       </div>

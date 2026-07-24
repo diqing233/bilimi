@@ -177,7 +177,7 @@ describe('App runtime integration', () => {
     expect(drawer).toHaveAttribute('data-collapsed', 'false')
 
     act(() => commandDrawer?.('toggle'))
-    expect(drawer).not.toBeVisible()
+    expect(drawer).toHaveAttribute('data-closing', 'true')
 
     act(() => commandDrawer?.('toggle'))
     expect(drawer).toBeVisible()

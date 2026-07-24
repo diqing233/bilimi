@@ -268,7 +268,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           {collapsed ? '展开' : '折叠'}
         </span>
       </button>
-      <div className="assistant-sidebar__workspace" hidden={collapsed}>
+      <div className="assistant-sidebar__workspace" hidden={collapsed && !closing}>
         <FloatingAssistantApp
           mode="sidebar"
           activeTab={activeTab}

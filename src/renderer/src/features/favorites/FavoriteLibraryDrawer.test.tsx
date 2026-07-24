@@ -63,6 +63,26 @@ describe('FavoriteLibraryDrawer', () => {
     expect(container.querySelector('[data-testid="favorite-library-drawer"]')).not.toBeInTheDocument()
   })
 
+  it('keeps the drawer content mounted until its closing motion has finished', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = render(
+        <FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />
+      )
+
+      rerender(<FavoriteLibraryDrawer open={false} collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+
+      expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-closing', 'true')
+      expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(180) })
+
+      expect(screen.queryByTestId('favorite-library-drawer')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps the embedded library mounted while its body is collapsed', () => {
     function DrawerHarness() {
       const [collapsed, setCollapsed] = useState(false)
@@ -235,5 +255,25 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.pointerUp(handle, { pointerId: 1 })
 
     expect(onCollapsedChange).toHaveBeenCalledWith(true)
+  })
+
+  it('notifies its host to pause size repaints while the drawer is resized', () => {
+    const onResizeActiveChange = vi.fn()
+    render(
+      <FavoriteLibraryDrawer
+        open
+        collapsed={false}
+        onClose={vi.fn()}
+        onCollapsedChange={vi.fn()}
+        onResizeActiveChange={onResizeActiveChange}
+      />
+    )
+    const handle = screen.getByRole('separator')
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+
+    expect(onResizeActiveChange).toHaveBeenNthCalledWith(1, true)
+    expect(onResizeActiveChange).toHaveBeenLastCalledWith(false)
   })
 })

@@ -162,6 +162,7 @@ describe('AssistantSidebar', () => {
 
     expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-closing', 'true')
     expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '批阅' })).toBeInTheDocument()
     act(() => { vi.advanceTimersByTime(220) })
     expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'true')
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
@@ -447,7 +448,9 @@ describe('AssistantSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
-    expect(screen.getByRole('tab', { name: '札记', hidden: true })).not.toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: '札记', hidden: true })).not.toBeVisible()
+    )
 
     fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 

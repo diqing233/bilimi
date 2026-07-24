@@ -15,6 +15,7 @@ type BiliWebviewProps = {
   onOpenInTab?: (url: string) => void
   onReady?: (tabId: string, webview: Electron.WebviewTag) => void
   onPageInteractionHint?: (message: string) => void
+  hostResizePaused?: boolean
   onHtmlFullscreenChange?: (tabId: string, fullscreen: boolean) => void
   onTitleChange?: (tabId: string, title: string) => void
   onTargetState?: (tabId: string, state: {
@@ -116,6 +117,7 @@ export function BiliWebview({
   onLocationChange,
   onOpenInTab,
   onHtmlFullscreenChange,
+  hostResizePaused = false,
   onPageInteractionHint,
   onReady,
   onTitleChange,
@@ -283,7 +285,7 @@ export function BiliWebview({
   useEffect(() => {
     const webview = ref.current
 
-    if (!webview || !active) {
+    if (!webview || !active || hostResizePaused) {
       return
     }
 
@@ -323,7 +325,7 @@ export function BiliWebview({
       window.clearTimeout(repaintTimeout)
       observer.disconnect()
     }
-  }, [active])
+  }, [active, hostResizePaused])
 
   async function retryWithoutProxy() {
     if (!window.bilimiDesktop?.retryBilibiliSessionDirect) {
