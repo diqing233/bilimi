@@ -19,7 +19,7 @@ type FavoriteLibraryDialogsProps = {
 export function FavoriteLibraryDialogs({ managedFolder, onManagedFolderChoice }: FavoriteLibraryDialogsProps) {
   const [remoteConfirmationOpen, setRemoteConfirmationOpen] = useState(false)
   if (!managedFolder) return null
-  return <section className="favorite-library__dialog" role="dialog" aria-label={`删除 ${managedFolder.title}`}>
+  return <section className="favorite-library__dialog favorite-library__dialog-overlay" role="dialog" aria-modal="true" aria-label={`删除 ${managedFolder.title}`}>
     <p>默认只从收藏库删除；不会修改 B 站收藏。</p>
     {managedFolder.preview ? <div className="favorite-library__managed-folder-preview" role="status">
       <p>当前基线版本 {managedFolder.preview.currentRevision}；执行时会再次核对，版本变化将拒绝执行。</p>
