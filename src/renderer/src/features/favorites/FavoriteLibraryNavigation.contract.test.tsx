@@ -54,7 +54,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.getByRole('button', { name: `${label} ${chinese(0x83dc, 0x5355)}` })).toHaveTextContent('\u22ee')
   })
 
-  it('reveals one managed-folder action menu on pointer hover and closes it on pointer leave', () => {
+  it('keeps the managed-folder action menu open while moving from its trigger into the popup', () => {
     const label = chinese(0x5de5, 0x4f5c, 0x5939)
     const edit = chinese(0x7f16, 0x8f91, 0x4fe1, 0x606f)
     const remove = chinese(0x5220, 0x9664)
@@ -75,7 +75,13 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.getByRole('button', { name: remove })).toBeInTheDocument()
     expect(screen.getByRole('menu', { name: `${label} ${chinese(0x64cd, 0x4f5c)}` })).toHaveClass('favorite-library__folder-menu-items')
     expect(favoriteLibraryStyles).toContain('.favorite-library__folder-menu-wrap { position: relative;')
-    expect(favoriteLibraryStyles).toContain('.favorite-library__folder-menu-items { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0;')
+    // The popup must touch the trigger hit area; a gap closes it before an action can be clicked.
+    expect(favoriteLibraryStyles).toContain('.favorite-library__folder-menu-items { position: absolute; z-index: 3; top: 100%; right: 0;')
+
+    const actions = screen.getByRole('menu', { name: `${label} ${chinese(0x64cd, 0x4f5c)}` })
+    fireEvent.pointerLeave(screen.getByRole('button', { name: `${label} ${chinese(0x83dc, 0x5355)}` }), { relatedTarget: actions })
+    fireEvent.click(screen.getByRole('button', { name: edit }))
+    expect(screen.getByRole('button', { name: edit })).toBeInTheDocument()
 
     fireEvent.pointerLeave(menuWrap)
     expect(screen.queryByRole('button', { name: edit })).not.toBeInTheDocument()

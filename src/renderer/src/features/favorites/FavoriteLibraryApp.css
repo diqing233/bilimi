@@ -53,7 +53,7 @@
 .favorite-library__navigation-row--managed:focus-within .favorite-library__navigation-count { display: none; }
 .favorite-library__navigation-row--managed:hover .favorite-library__folder-menu,
 .favorite-library__navigation-row--managed:focus-within .favorite-library__folder-menu { display: inline-flex; align-items: center; justify-content: center; }
-.favorite-library__folder-menu-items { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; display: grid; gap: 2px; min-width: 108px; padding: 5px; border: 1px solid #dbe7f7; border-radius: 6px; background: #fff; box-shadow: 0 5px 16px rgb(30 58 138 / .12); }
+.favorite-library__folder-menu-items { position: absolute; z-index: 3; top: 100%; right: 0; display: grid; gap: 2px; min-width: 108px; padding: 5px; border: 1px solid #dbe7f7; border-radius: 6px; background: #fff; box-shadow: 0 5px 16px rgb(30 58 138 / .12); }
 .favorite-library__folder-menu-items button { padding: 5px 7px; border: 0; border-radius: 4px; background: transparent; color: #334155; text-align: left; }
 .favorite-library__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 34px; margin-bottom: 8px; }
 .favorite-library__toolbar > small { color: #64748b; margin-right: auto; }
