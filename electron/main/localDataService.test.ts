@@ -11,7 +11,7 @@ const portableAccount = (id: string, updatedAt = '2026-07-24T00:00:00.000Z') => 
     ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: updatedAt }),
     videos: { '1': { aid: 1, title: id, tags: [], updatedAt } }
   }, { generatedAt: updatedAt }),
-  settings: { updatedAt }, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: []
+  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt }, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: []
 })
 const makeService = async () => {
   const root = await mkdtemp(join(tmpdir(), 'bilimi-local-data-test-'))
@@ -97,6 +97,19 @@ describe('LocalDataService', () => {
     await service.applyImport(preview, { mode: 'overwrite' })
 
     expect(publish).toHaveBeenCalledWith(expect.any(Object), { mode: 'overwrite', selectedUids: ['100'] })
+  })
+
+  it('stages an explicit false account setting for overwrite instead of retaining true', async () => {
+    const { root, accounts, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    ;(accounts['100'].settings as Record<string, unknown>).defaultFavoriteSystemEnabled = false
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
+    ;(accounts['100'].settings as Record<string, unknown>).defaultFavoriteSystemEnabled = true
+
+    const preview = await service.previewImport(archive)
+    await service.applyImport(preview, { mode: 'overwrite' })
+
+    expect((accounts['100'].settings as Record<string, unknown>).defaultFavoriteSystemEnabled).toBe(false)
   })
 
   it('validates account UIDs at the service boundary before export or account cleanup', async () => {

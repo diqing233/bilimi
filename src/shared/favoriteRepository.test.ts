@@ -254,6 +254,21 @@ describe('account favorite repository contracts', () => {
     expect(exported.recovery?.physicalShards).toEqual([{ logicalLedgerId: 'music', folderId: 'bilimi-logical:music', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'pending-reconcile' }])
   })
 
+  it('removes remote observations from every portable recovery record', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      workspace: { id: 'workspace-1', accountMid: '100', status: 'frozen' as const, baselineRevision: 0, continuationAids: [], workspaceRef: workspaceRef({ status: 'frozen' }), frozenSyncPlan: { id: 'plan-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 0, createdAt: '2026-07-23T00:00:00.000Z', operations: [{ operationKey: 'op-1', aid: 1, kind: 'append' as const, folderIds: ['bilimi-logical:music'], beforeFolderIds: ['physical-900'] }] } },
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown' as const, affectedAids: [1], targetFolderIds: ['physical-900', 'bilimi-logical:music'], updatedAt: '2026-07-23T00:00:00.000Z' }],
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['physical-900', 'bilimi-logical:music'], completedAt: '2026-07-23T00:00:00.000Z' }],
+      organizationBatches: [{ id: 'change-1', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1, beforeFolderIds: ['physical-900'], afterFolderIds: ['physical-901'], addedFolderIds: ['physical-901'], removedFolderIds: ['physical-900'], status: 'result-unknown' as const, recordedAt: '2026-07-23T00:00:00.000Z' }]
+    }
+    const exported = createFavoriteRepositoryArchiveExport(snapshot, { generatedAt: '2026-07-23T01:00:00.000Z' })
+
+    expect(JSON.stringify(exported)).not.toContain('physical-')
+    expect(exported.recovery?.workspace?.frozenSyncPlan?.operations[0]).not.toHaveProperty('beforeFolderIds')
+    expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
+  })
+
   it('round-trips account-local repository recovery state while excluding remote observations', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
@@ -272,8 +287,7 @@ describe('account favorite repository contracts', () => {
     expect(exported.recovery).toMatchObject({
       folders: [{ id: 'bilimi-logical:music', syncState: 'pending-reconcile' }],
       memberships: { 'bilimi-logical:music': [1] }, physicalShards: [], workspace: snapshot.workspace,
-      syncRecords: snapshot.syncRecords, organizationRecords: snapshot.organizationRecords,
-      organizationBatches: snapshot.organizationBatches, tombstones: [snapshot.tombstones['100:2']]
+      syncRecords: snapshot.syncRecords, tombstones: [snapshot.tombstones['100:2']]
     })
     expect(exported.positions).toEqual([expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] })])
     expect(JSON.stringify(exported)).not.toContain('remote-private')

@@ -72,8 +72,8 @@ describe('local data persistence adapter', () => {
       getRepository: vi.fn().mockResolvedValue(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })),
       getAccountSettings: () => ({ updatedAt: '2026-07-24T00:00:00.000Z' }), getArchives: () => [], getTranscriptionItems: () => [],
       getAuditEvents: () => [{ id: 'event-1', accountMid: '100', aid: 1, sequence: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }],
-      getWorkspaces: () => [{ id: 'draft-1', accountMid: '100', status: 'draft', updatedAt: '2026-07-24T00:00:00.000Z' }],
-      getRemoteOperations: () => [{ id: 'unknown-1', accountMid: '100', status: 'result-unknown', updatedAt: '2026-07-24T00:00:00.000Z' }],
+      getWorkspaces: () => [{ id: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [], workspaceRef: { workspaceId: 'draft-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }, updatedAt: '2026-07-24T00:00:00.000Z' }],
+      getRemoteOperations: () => [{ id: 'unknown-1', commandId: 'command-1', accountMid: '100', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }],
       applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
     })
 
@@ -86,5 +86,28 @@ describe('local data persistence adapter', () => {
       workspacesByUid: { '100': [expect.objectContaining({ id: 'draft-1' })] },
       remoteOperationsByUid: { '100': [expect.objectContaining({ id: 'unknown-1' })] }
     }), {})
+  })
+
+  it('projects validated top-level recovery records into the repository archive consumed by the main importer', async () => {
+    const applyPortableState = vi.fn()
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'], getRepository: vi.fn().mockResolvedValue(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })),
+      getAccountSettings: () => ({ defaultFavoriteSystemEnabled: false, favoriteLedgers: [] }), getArchives: () => [], getTranscriptionItems: () => [],
+      applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+    const portable = await adapter.readAccount('100')
+    portable.auditEvents = [{ id: 'event-1', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }]
+    portable.workspaces = [{
+      id: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+      workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }, updatedAt: '2026-07-24T00:00:00.000Z'
+    }]
+    portable.remoteOperations = [{ id: 'sync-1', commandId: 'command-1', accountMid: '100', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }]
+
+    await adapter.writePortableState?.({ accounts: { '100': portable }, sharedSettings: {} }, { mode: 'overwrite', selectedUids: ['100'] })
+    const repository = applyPortableState.mock.calls[0]?.[0].repositoryArchives['100']
+    expect(repository).toMatchObject({
+      events: [expect.objectContaining({ id: 'event-1' })],
+      recovery: { workspace: expect.objectContaining({ id: 'workspace-1' }), syncRecords: [expect.objectContaining({ id: 'sync-1' })] }
+    })
   })
 })

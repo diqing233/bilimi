@@ -1,4 +1,4 @@
-import { createFavoriteRepositoryArchiveExport, validateFavoriteRepositoryArchiveExport, type AccountFavoriteRepositorySnapshot, type FavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import { createFavoriteRepositoryArchiveExport, createFavoriteRepositoryArchiveExportChecksum, validateFavoriteRepositoryArchiveExport, type AccountFavoriteRepositorySnapshot, type FavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
 import type { LocalDataPersistence } from './localDataService'
 import type { PortableAccountData } from '../../src/shared/localDataMigration'
@@ -53,6 +53,34 @@ function repositoryArchive(uidValue: string, value: unknown): RepositoryArchive 
   return structuredClone(validated)
 }
 
+/** Fold separately inventoried, validated recovery sources into the canonical
+ * repository archive before the main importer atomically publishes it. */
+function repositoryWithPortableRecovery(
+  uidValue: string,
+  value: unknown,
+  auditEvents: Record<string, unknown>[],
+  workspaces: Record<string, unknown>[],
+  remoteOperations: Record<string, unknown>[]
+): RepositoryArchive {
+  const repository = repositoryArchive(uidValue, value)
+  const recovery = repository.recovery ?? {
+    folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [],
+    organizationBatches: [], organizationMigrationInitialized: false, tombstones: []
+  }
+  const workspace = workspaces.at(-1)
+  const next: FavoriteRepositoryArchiveExport = {
+    ...repository,
+    events: structuredClone(auditEvents) as FavoriteRepositoryArchiveExport['events'],
+    recovery: {
+      ...recovery,
+      ...(workspace ? { workspace: structuredClone(workspace) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['workspace'] } : {}),
+      syncRecords: structuredClone(remoteOperations) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['syncRecords']
+    }
+  }
+  const withChecksum = { ...next, checksum: createFavoriteRepositoryArchiveExportChecksum(next) }
+  return repositoryArchive(uidValue, withChecksum)
+}
+
 export function createLocalDataPersistenceAdapter(dependencies: Dependencies): LocalDataPersistence {
   return {
     async listAccountUids() {
@@ -83,7 +111,10 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
       const remoteOperationsByUid: Record<string, Record<string, unknown>[]> = {}
       for (const [rawUid, data] of Object.entries(accounts)) {
         const accountMid = uid(rawUid)
-        repositoryArchives[accountMid] = repositoryArchive(accountMid, data.repository)
+        const auditEvents = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
+        const workspaces = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
+        const remoteOperations = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        repositoryArchives[accountMid] = repositoryWithPortableRecovery(accountMid, data.repository, auditEvents, workspaces, remoteOperations)
         if (isRecord(data.settings)) settingsByUid[accountMid] = structuredClone(data.settings)
         const archives = Array.isArray(data.archives) ? data.archives : []
         if (archives.some((entry) => !isRecord(entry) || !isRecord(entry.source) || entry.source.accountMid !== accountMid)) throw new Error('Portable archive account mismatch.')
@@ -91,9 +122,9 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
         const transcription = Array.isArray(data.transcription) ? data.transcription : []
         if (transcription.some((entry) => !isRecord(entry) || entry.accountMid !== accountMid)) throw new Error('Portable transcription account mismatch.')
         transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
-        auditEventsByUid[accountMid] = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
-        workspacesByUid[accountMid] = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
-        remoteOperationsByUid[accountMid] = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        auditEventsByUid[accountMid] = auditEvents
+        workspacesByUid[accountMid] = workspaces
+        remoteOperationsByUid[accountMid] = remoteOperations
       }
       await dependencies.applyPortableBatch({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid })
     },
@@ -107,7 +138,10 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
       const remoteOperationsByUid: Record<string, Record<string, unknown>[]> = {}
       for (const [rawUid, data] of Object.entries(state.accounts)) {
         const accountMid = uid(rawUid)
-        repositoryArchives[accountMid] = repositoryArchive(accountMid, data.repository)
+        const auditEvents = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
+        const workspaces = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
+        const remoteOperations = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        repositoryArchives[accountMid] = repositoryWithPortableRecovery(accountMid, data.repository, auditEvents, workspaces, remoteOperations)
         if (isRecord(data.settings)) settingsByUid[accountMid] = structuredClone(data.settings)
         const archives = Array.isArray(data.archives) ? data.archives : []
         const transcription = Array.isArray(data.transcription) ? data.transcription : []
@@ -115,9 +149,9 @@ export function createLocalDataPersistenceAdapter(dependencies: Dependencies): L
         if (transcription.some((entry) => !isRecord(entry) || entry.accountMid !== accountMid)) throw new Error('Portable transcription account mismatch.')
         archivesByUid[accountMid] = structuredClone(archives) as VideoNoteArchiveEntry[]
         transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
-        auditEventsByUid[accountMid] = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
-        workspacesByUid[accountMid] = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
-        remoteOperationsByUid[accountMid] = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        auditEventsByUid[accountMid] = auditEvents
+        workspacesByUid[accountMid] = workspaces
+        remoteOperationsByUid[accountMid] = remoteOperations
       }
       const batch = { repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid }
       if (options) await dependencies.applyPortableState(batch, structuredClone(state.sharedSettings), options)

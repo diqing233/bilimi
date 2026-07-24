@@ -22,6 +22,28 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('persists portable audit history, workspace recovery, and reconciliation records in the canonical archive', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      workspace: {
+        id: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+      },
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }]
+    }, {
+      generatedAt: '2026-07-24T00:00:00.000Z',
+      events: [{ id: 'event-1', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }]
+    })
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    await expect(service.getPortableAuditEvents('100')).resolves.toEqual([expect.objectContaining({ id: 'event-1' })])
+    await expect(service.getPortableWorkspaceRecovery('100')).resolves.toEqual([expect.objectContaining({ id: 'workspace-1' })])
+    await expect(service.getPortableRemoteRecoveries('100')).resolves.toEqual([expect.objectContaining({ id: 'sync-1' })])
+  })
+
   it('deletes only the confirmed account local repository projection', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

@@ -14,10 +14,12 @@ const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
 const MAX_MANIFEST_TOTAL_BYTES = 500 * 1024 * 1024
 const UID_PATTERN = /^[1-9]\d{0,19}$/u
 const SECRET_KEY = /(?:cookie|session|api.?key|secret|token|encrypt|proxy|lock)/iu
+const REMOTE_BINDING_KEY = /^(?:remoteFolderId|knownRemoteFolderIds|remoteMemberCount|remoteObservedPhysicalFolderIds|remoteObservedLogicalFolderIds|beforeFolderIds|afterFolderIds|addedFolderIds|removedFolderIds)$/u
 const APP_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u
 const ARCHIVE_KEYS = new Set(['schemaVersion', 'appVersion', 'generatedAt', 'selectedUids', 'accounts', 'sharedSettings', 'manifest', 'checksum'])
 const ACCOUNT_SOURCE_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES)
 const SHARED_SETTING_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_SHARED_SETTINGS)
+const ACCOUNT_SETTING_KEYS = new Set(['defaultFavoriteSystemEnabled', 'favoriteLedgers', 'favoriteLibraryCollapsedGroups', 'updatedAt'])
 
 export type PortableAccountData = Record<string, unknown>
 export type MigrationManifestEntry = { path: string; byteLength: number; sha256: string }
@@ -64,6 +66,7 @@ function assertPortable(value: unknown, path = ''): void {
   if (!isRecord(value)) return
   for (const [key, nested] of Object.entries(value)) {
     if (SECRET_KEY.test(key)) throw new Error(`Migration contains excluded credential field: ${path}${key}`)
+    if (REMOTE_BINDING_KEY.test(key)) throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
     assertPortable(nested, `${path}${key}.`)
   }
 }
@@ -132,21 +135,40 @@ function isRecoveryRecord(value: unknown, accountMid: string, states: readonly s
     states.includes(String(value.status)) && isIsoTimestamp(value.updatedAt)
 }
 
+function assertPortableRecoveryIntent(records: unknown[]) {
+  for (const record of records) {
+    if (!isRecord(record) || record.targetFolderIds === undefined) continue
+    if (!Array.isArray(record.targetFolderIds) || record.targetFolderIds.some((folderId) =>
+      typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId.trim()))) {
+      throw new Error('Migration contains device-bound remote field: targetFolderIds')
+    }
+  }
+}
+
+function isPortableAccountSettings(value: Record<string, unknown>) {
+  if (Object.keys(value).some((key) => !ACCOUNT_SETTING_KEYS.has(key)) || typeof value.defaultFavoriteSystemEnabled !== 'boolean' ||
+    !Array.isArray(value.favoriteLedgers)) return false
+  if (value.favoriteLibraryCollapsedGroups !== undefined && (!isRecord(value.favoriteLibraryCollapsedGroups) ||
+    Object.entries(value.favoriteLibraryCollapsedGroups).some(([key, item]) => !/^[a-z-]+$/u.test(key) || typeof item !== 'boolean'))) return false
+  return value.updatedAt === undefined || isIsoTimestamp(value.updatedAt)
+}
+
 function assertAccountSources(value: Record<string, unknown>, accountMid: string) {
   assertRegisteredKeys(value, ACCOUNT_SOURCE_KEYS, 'account source')
   for (const key of LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES) {
     if (!(key in value)) throw new Error(`Migration account source is missing: ${key}`)
   }
-  if (!isRecord(value.settings)) throw new Error('Migration account source is invalid.')
+  if (!isRecord(value.settings) || !isPortableAccountSettings(value.settings)) throw new Error('Migration account source is invalid: settings')
   try {
     const repository = validateFavoriteRepositoryArchiveExport(value.repository)
     if (repository.accountMid !== accountMid) throw new Error('account mismatch')
   } catch { throw new Error('Migration account repository is invalid.') }
   if (!Array.isArray(value.archives) || value.archives.some((item) => !isPortableArchive(item, accountMid))) throw new Error('Migration account source is invalid: archives')
   if (!Array.isArray(value.transcription) || value.transcription.some((item) => !isRecoveryRecord(item, accountMid, ['pending', 'running', 'completed', 'failed', 'canceled', 'waiting-restart']))) throw new Error('Migration account source is invalid: transcription')
-  if (!Array.isArray(value.workspaces) || value.workspaces.some((item) => !isRecoveryRecord(item, accountMid, ['draft', 'running']))) throw new Error('Migration account source is invalid: workspaces')
+  if (!Array.isArray(value.workspaces) || value.workspaces.some((item) => !isRecoveryRecord(item, accountMid, ['draft', 'running', 'scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'completed']))) throw new Error('Migration account source is invalid: workspaces')
   if (!Array.isArray(value.remoteOperations) || value.remoteOperations.some((item) => !isRecoveryRecord(item, accountMid, ['pending', 'succeeded', 'failed', 'result-unknown', 'reconciliation-required']))) throw new Error('Migration account source is invalid: remoteOperations')
   if (!Array.isArray(value.auditEvents) || value.auditEvents.some((item) => !isRecord(item) || item.accountMid !== accountMid || typeof item.id !== 'string' || !item.id.trim() || !isIsoTimestamp(item.occurredAt))) throw new Error('Migration account source is invalid: auditEvents')
+  assertPortableRecoveryIntent(value.remoteOperations)
   assertPortable(value)
 }
 
@@ -270,13 +292,24 @@ function mergeVideoNoteArchives(local: unknown, imported: unknown) {
       if (!isRecord(candidate) || !isRecord(candidate.note) || !isRecord(candidate.note.source)) continue
       const identity = portableArchiveVersionIdentity(candidate.note.id, accountMid, candidate.note.source)
       if (!identity) continue
-      const older = versions.get(identity)
-      if (!older || updatedAt(candidate.note) >= updatedAt(older.note)) versions.set(identity, structuredClone(candidate))
+      // A note identity identifies the video/part, not an immutable archive
+      // version. Preserve distinct version IDs for that same note.
+      const versionId = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id : ''
+      if (!versionId) continue
+      const key = `${identity}:${versionId}`
+      const older = versions.get(key)
+      if (!older || updatedAt(candidate.note) >= updatedAt(older.note)) versions.set(key, structuredClone(candidate))
     }
     const preferred = !previous || updatedAt(entry) >= updatedAt(previous) ? entry : previous
     result.set(archiveId, { ...structuredClone(preferred), versions: [...versions.values()] })
   }
   return [...result.values()]
+}
+
+function workspaceTimestamp(workspace: unknown) {
+  if (!isRecord(workspace)) return ''
+  const reference = isRecord(workspace.workspaceRef) ? workspace.workspaceRef : undefined
+  return typeof reference?.updatedAt === 'string' ? reference.updatedAt : updatedAt(workspace)
 }
 
 function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
@@ -290,16 +323,23 @@ function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { ch
   }
   const currentRecovery = current.recovery
   const incomingRecovery = incoming.recovery
+  const mergedTombstones = mergeBy(currentRecovery?.tombstones, incomingRecovery?.tombstones, (item) => String(item.aid), (record) => record.deletedAt)
+  const tombstonedAids = new Set(mergedTombstones.map((item) => Number(item.aid)))
   const recovery = currentRecovery || incomingRecovery ? {
     folders: mergeBy(currentRecovery?.folders, incomingRecovery?.folders, (item) => item.id),
-    memberships: Object.fromEntries([...new Set([...Object.keys(currentRecovery?.memberships ?? {}), ...Object.keys(incomingRecovery?.memberships ?? {})])].sort().map((folderId) => [folderId, [...new Set([...(currentRecovery?.memberships[folderId] ?? []), ...(incomingRecovery?.memberships[folderId] ?? [])])].sort((a, b) => a - b)])),
+    // A present tombstone is the authoritative deletion state. Memberships
+    // lack per-edge revisions, so unioning them would resurrect local data.
+    memberships: Object.fromEntries([...new Set([...Object.keys(currentRecovery?.memberships ?? {}), ...Object.keys(incomingRecovery?.memberships ?? {})])].sort().map((folderId) => [folderId, [...new Set([...(currentRecovery?.memberships[folderId] ?? []), ...(incomingRecovery?.memberships[folderId] ?? [])])].filter((aid) => !tombstonedAids.has(aid)).sort((a, b) => a - b)])),
     physicalShards: mergeBy(currentRecovery?.physicalShards, incomingRecovery?.physicalShards, (item) => `${item.logicalLedgerId}:${item.shardNumber}`),
-    ...(incomingRecovery?.workspace ?? currentRecovery?.workspace ? { workspace: incomingRecovery?.workspace ?? currentRecovery?.workspace } : {}),
+    ...(incomingRecovery?.workspace || currentRecovery?.workspace ? {
+      workspace: workspaceTimestamp(incomingRecovery?.workspace) > workspaceTimestamp(currentRecovery?.workspace)
+        ? incomingRecovery?.workspace : currentRecovery?.workspace
+    } : {}),
     syncRecords: mergeBy(currentRecovery?.syncRecords, incomingRecovery?.syncRecords, (item) => item.id),
     organizationRecords: mergeBy(currentRecovery?.organizationRecords, incomingRecovery?.organizationRecords, (item) => String(item.aid), (record) => record.completedAt),
     organizationBatches: mergeBy(currentRecovery?.organizationBatches, incomingRecovery?.organizationBatches, (item) => item.id, (record) => record.recordedAt),
     organizationMigrationInitialized: Boolean(currentRecovery?.organizationMigrationInitialized || incomingRecovery?.organizationMigrationInitialized),
-    tombstones: mergeBy(currentRecovery?.tombstones, incomingRecovery?.tombstones, (item) => String(item.aid), (record) => record.deletedAt)
+    tombstones: mergedTombstones
   } : undefined
   const merged: FavoriteRepositoryArchiveExport = {
     ...current, ...incoming,

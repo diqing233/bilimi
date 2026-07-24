@@ -118,6 +118,43 @@ function normalizeFolderIds(folderIds: string[]) {
   return [...new Set(folderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()
 }
 
+function portableLogicalFolderIds(folderIds: readonly string[] | undefined) {
+  return (folderIds ?? []).filter((folderId) => /^bilimi-logical:\S+$/u.test(folderId.trim()))
+}
+
+function portableWorkspace(workspace: FavoriteRepositoryWorkspace) {
+  return {
+    ...workspace,
+    frozenSyncPlan: workspace.frozenSyncPlan ? {
+      ...workspace.frozenSyncPlan,
+      operations: workspace.frozenSyncPlan.operations.map(({ beforeFolderIds: _beforeFolderIds, ...operation }) => ({
+        ...operation, folderIds: portableLogicalFolderIds(operation.folderIds)
+      }))
+    } : undefined
+  }
+}
+
+function portableSyncRecord(record: FavoriteRepositorySyncRecord) {
+  return {
+    ...record,
+    ...(record.targetFolderIds ? { targetFolderIds: portableLogicalFolderIds(record.targetFolderIds) } : {})
+  }
+}
+
+function portableOrganizationRecord(record: FavoriteRepositoryOrganizationRecord) {
+  return { ...record, targetFolderIds: portableLogicalFolderIds(record.targetFolderIds) }
+}
+
+function portableOrganizationChange(record: FavoriteRepositoryOrganizationChange) {
+  return {
+    ...record,
+    beforeFolderIds: portableLogicalFolderIds(record.beforeFolderIds),
+    afterFolderIds: portableLogicalFolderIds(record.afterFolderIds),
+    addedFolderIds: portableLogicalFolderIds(record.addedFolderIds),
+    removedFolderIds: portableLogicalFolderIds(record.removedFolderIds)
+  }
+}
+
 export function deriveFavoriteRepositoryPositionState(input: Pick<FavoriteRepositoryPositionRecord,
   'localDesiredFolderIds' | 'remoteObservedPhysicalFolderIds' | 'remoteObservedLogicalFolderIds'> & Partial<Pick<FavoriteRepositoryPositionRecord, 'positionState'>>) {
   const requested = input.positionState
@@ -266,9 +303,9 @@ export function createFavoriteRepositoryArchiveExport(
         .map((shard) => ({
           logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
           remoteTitle: shard.remoteTitle, bindingState: 'pending-reconcile' as const
-        })), ...(snapshot.workspace ? { workspace: structuredClone(snapshot.workspace) } : {}),
-      syncRecords: structuredClone(snapshot.syncRecords), organizationRecords: structuredClone(snapshot.organizationRecords),
-      organizationBatches: structuredClone(snapshot.organizationBatches), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
+      })), ...(snapshot.workspace ? { workspace: portableWorkspace(snapshot.workspace) } : {}),
+      syncRecords: snapshot.syncRecords.map(portableSyncRecord), organizationRecords: snapshot.organizationRecords.map(portableOrganizationRecord),
+      organizationBatches: snapshot.organizationBatches.map(portableOrganizationChange), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
       tombstones: Object.values(snapshot.tombstones).map((tombstone) => ({ ...tombstone }))
     }
   }

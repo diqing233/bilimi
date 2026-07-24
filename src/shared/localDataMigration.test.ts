@@ -19,7 +19,7 @@ const account = (updatedAt = '2026-07-24T00:00:00.000Z') => ({
   }, { generatedAt: updatedAt }),
   archives: [{ id: 'archive-1', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, versions: [{ id: 'version-1', createdAt: updatedAt, plainTranscript: '', summaryText: '', note: { id: 'account:100:aid:1:cid:11', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: 'memo', starred: true, createdAt: updatedAt, updatedAt } }], createdAt: updatedAt, updatedAt }],
   auditEvents: [],
-  settings: { pageSize: 50, updatedAt },
+  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt },
   workspaces: [{ id: 'work-1', accountMid: '100', status: 'running', updatedAt }],
   transcription: [{ id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, status: 'running', createdAt: updatedAt, updatedAt }],
   remoteOperations: [{ id: 'remote-1', accountMid: '100', status: 'result-unknown', updatedAt }]
@@ -156,6 +156,10 @@ describe('local data migration v1', () => {
     const importedRepository = imported.repository as Record<string, unknown>
     const localRecovery = localRepository.recovery as Record<string, unknown>
     const importedRecovery = importedRepository.recovery as Record<string, unknown>
+    for (const recovery of [localRecovery, importedRecovery]) {
+      recovery.folders = [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }]
+      recovery.memberships = { 'bilimi-logical:music': [] }
+    }
     localRecovery.tombstones = [{ accountMid: '100', aid: 1, deletedAt: '2026-07-25T00:00:00.000Z', allowRediscovery: false }]
     importedRecovery.tombstones = [{ accountMid: '100', aid: 1, deletedAt: '2026-07-24T00:00:00.000Z', allowRediscovery: true }, { accountMid: '100', aid: 2, deletedAt: '2026-07-24T00:00:00.000Z', allowRediscovery: false }]
     localRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(localRepository as never)
@@ -168,6 +172,50 @@ describe('local data migration v1', () => {
       expect.objectContaining({ aid: 1, deletedAt: '2026-07-25T00:00:00.000Z' }),
       expect.objectContaining({ aid: 2 })
     ]))
+  })
+
+  it('keeps a newer local workspace and never resurrects memberships covered by tombstones', () => {
+    const local = account('2026-07-25T00:00:00.000Z')
+    const imported = account('2026-07-24T00:00:00.000Z')
+    const localRepository = local.repository as Record<string, unknown>
+    const importedRepository = imported.repository as Record<string, unknown>
+    const localRecovery = localRepository.recovery as Record<string, unknown>
+    const importedRecovery = importedRepository.recovery as Record<string, unknown>
+    for (const recovery of [localRecovery, importedRecovery]) {
+      recovery.folders = [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }]
+      recovery.memberships = { 'bilimi-logical:music': [] }
+    }
+    localRecovery.workspace = {
+      id: 'workspace-local', accountMid: '100', status: 'scanning', baselineRevision: 2, continuationAids: [],
+      workspaceRef: { workspaceId: 'workspace-local', accountMid: '100', status: 'scanning', baselineRevision: 2, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-25T00:00:00.000Z' }
+    }
+    importedRecovery.workspace = {
+      id: 'workspace-imported', accountMid: '100', status: 'scanning', baselineRevision: 1, continuationAids: [],
+      workspaceRef: { workspaceId: 'workspace-imported', accountMid: '100', status: 'scanning', baselineRevision: 1, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'b'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+    }
+    importedRecovery.memberships = { 'bilimi-logical:music': [1] }
+    importedRecovery.tombstones = [{ accountMid: '100', aid: 1, deletedAt: '2026-07-26T00:00:00.000Z', allowRediscovery: false }]
+    localRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(localRepository as never)
+    importedRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(importedRepository as never)
+
+    const merged = mergeMigrationAccounts({ '100': local }, { '100': imported })
+    const recovery = (merged['100'].repository as { recovery: Record<string, unknown> }).recovery
+    expect((recovery.workspace as { id: string }).id).toBe('workspace-local')
+    expect(recovery.memberships).toEqual({ 'bilimi-logical:music': [] })
+  })
+
+  it('preserves distinct archive version IDs for one note identity', () => {
+    const local = account('2026-07-24T00:00:00.000Z')
+    const imported = account('2026-07-24T00:00:00.000Z')
+    const version = imported.archives[0].versions[0]
+    imported.archives[0].versions = [{
+      ...version, id: 'version-2', createdAt: '2026-07-25T00:00:00.000Z',
+      note: { ...version.note, updatedAt: '2026-07-25T00:00:00.000Z' }
+    }]
+
+    const merged = mergeMigrationAccounts({ '100': local }, { '100': imported })
+    expect((merged['100'].archives as Array<{ versions: Array<{ id: string }> }>)[0].versions.map((entry) => entry.id).sort())
+      .toEqual(['version-1', 'version-2'])
   })
 
   it('restores interrupted work without retrying unknown remote operations', () => {
@@ -187,6 +235,17 @@ describe('local data migration v1', () => {
 
     for (const candidate of [unknownWorkspace, unknownTranscription, malformedArchive]) {
       expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': candidate } })).toThrow('invalid')
+    }
+  })
+
+  it('rejects portable source records that try to carry physical remote identifiers', () => {
+    const auditLeak = account() as Record<string, unknown>
+    auditLeak.auditEvents = [{ id: 'event-1', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z', remoteFolderId: 'physical-900' }]
+    const operationLeak = account() as Record<string, unknown>
+    operationLeak.remoteOperations = [{ id: 'sync-1', commandId: 'command-1', accountMid: '100', status: 'result-unknown', affectedAids: [1], targetFolderIds: ['physical-900'], updatedAt: '2026-07-24T00:00:00.000Z' }]
+
+    for (const candidate of [auditLeak, operationLeak]) {
+      expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': candidate } })).toThrow('device-bound')
     }
   })
 })

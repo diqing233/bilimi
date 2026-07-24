@@ -1355,9 +1355,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           if (settings) {
             const current = loadFavoriteAccountPreferences(getDesktopStore(), uid)
             const candidate = settings as Partial<typeof current>
+            if (typeof candidate.defaultFavoriteSystemEnabled !== 'boolean' || !Array.isArray(candidate.favoriteLedgers)) {
+              throw new Error('Portable account settings are invalid.')
+            }
             saveFavoriteAccountPreferences(getDesktopStore(), uid, {
-              ...current,
-              ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {})
+              defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
+              favoriteLedgers: candidate.favoriteLedgers,
+              ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
+                ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
             })
           }
         }
@@ -1391,7 +1396,18 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           for (const [uid, settings] of Object.entries(batch.settingsByUid).filter(([uid]) => selectedUids.has(uid))) {
             const current = loadFavoriteAccountPreferences(store, uid)
             const candidate = settings as Partial<typeof current>
-            accountPreferences[uid] = { ...current, ...(Array.isArray(candidate.favoriteLedgers) ? { favoriteLedgers: candidate.favoriteLedgers } : {}) }
+            if (typeof candidate.defaultFavoriteSystemEnabled !== 'boolean' || !Array.isArray(candidate.favoriteLedgers)) {
+              throw new Error('Portable account settings are invalid.')
+            }
+            // `staged` already chose merge-vs-overwrite by its durable record
+            // timestamp. Apply that selected account projection verbatim so an
+            // explicit false cannot be accidentally retained as local true.
+            accountPreferences[uid] = {
+              defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
+              favoriteLedgers: candidate.favoriteLedgers,
+              ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
+                ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
+            }
           }
           const selectedArchiveValues = Object.entries(batch.archivesByUid).filter(([uid]) => selectedUids.has(uid)).flatMap(([, archives]) => archives)
           store.set('videoNoteArchives', [...previous.archives.filter((archive) => !selectedUids.has(archive.source.accountMid ?? '')), ...selectedArchiveValues])
