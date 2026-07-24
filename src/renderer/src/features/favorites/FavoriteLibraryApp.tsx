@@ -974,6 +974,9 @@ export function FavoriteLibraryApp({
             })}>{text.syncFolder}</button> : null}
             {placementPickerOpen && placementPickerBatch ? renderPlacementPicker() : null}
           </FavoriteLibraryToolbar>
+          <div className="favorite-library__row-columns" aria-hidden="true">
+            <span /> <span>视频名称</span><span>来源</span><span>状态</span>
+          </div>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
             items={rows}
@@ -982,7 +985,9 @@ export function FavoriteLibraryApp({
               <div className="favorite-library__row-wrap">
                 <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onChange={() => toggleAid(row.aid)} />
                 <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
-                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships} - {formatFavoriteLibraryMirrorStatus((row.pendingStates ?? []).filter((state) => state !== 'protected'))} - {formatFavoriteLibraryOrganizationStatus(row.pendingStates ?? [])}</small>
+                  <span className="favorite-library__row-title"><strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor}{row.bvid ? ` · ${row.bvid}` : ` · AV${row.aid}`}</small></span>
+                  <span className="favorite-library__row-source">{row.folderIds.length} {text.memberships}</span>
+                  <span className="favorite-library__row-status">{formatFavoriteLibraryMirrorStatus((row.pendingStates ?? []).filter((state) => state !== 'protected'))} · {formatFavoriteLibraryOrganizationStatus(row.pendingStates ?? [])}</span>
                 </button>
               </div>
             )}

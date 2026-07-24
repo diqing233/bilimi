@@ -33,6 +33,7 @@ describe('FavoriteLibraryDrawer integration', () => {
     expect(await screen.findByText('远程操作待处理')).toBeInTheDocument()
     expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(3)
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
+    expect(screen.getByTestId('favorite-library-drawer').querySelector('.favorite-library__row-columns')).toHaveTextContent('视频名称')
 
     fireEvent.click(screen.getByRole('button', { name: '去待处理' }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50 }))
