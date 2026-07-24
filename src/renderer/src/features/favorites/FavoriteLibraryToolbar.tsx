@@ -46,6 +46,10 @@ export function FavoriteLibraryToolbar({
   </div>
 }
 
+function Chevron() {
+  return <svg className="favorite-library__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+
 function BatchActions({ disabled, allowedActions, onAction }: { disabled: boolean; allowedActions?: FavoriteLibraryBatchAction[]; onAction?: (action: FavoriteLibraryBatchAction) => void }) {
   const [open, setOpen] = useState(false)
   const [dangerOpen, setDangerOpen] = useState(false)
@@ -58,10 +62,10 @@ function BatchActions({ disabled, allowedActions, onAction }: { disabled: boolea
   const commonActions: Array<[FavoriteLibraryBatchAction, string]> = [['copy', '复制至'], ['move', '移动至'], ['refresh', '刷新所选信息'], ['transcribe', '加入转写队列'], ['sync', '同步到B站']]
   const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['unfavorite-remote', '取消B站收藏']]
   return <div className="favorite-library__batch-actions">
-    <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>批量操作</button>
+    <button type="button" className="favorite-library__disclosure-button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>批量操作<Chevron /></button>
     {open ? <div className="favorite-library__batch-action-menu">
       <div>{commonActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" disabled={disabled} onClick={() => run(action)}>{label}</button>)}</div>
-      {dangerActions.some(([action]) => allowed(action)) ? <div className="favorite-library__batch-action-danger"><button type="button" aria-expanded={dangerOpen} onClick={() => setDangerOpen((current) => !current)}>危险操作</button>{dangerOpen ? <div>{dangerActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" disabled={disabled} onClick={() => run(action)}>{label}</button>)}</div> : null}</div> : null}
+      {dangerActions.some(([action]) => allowed(action)) ? <div className="favorite-library__batch-action-danger"><button type="button" className="favorite-library__disclosure-button" aria-expanded={dangerOpen} onClick={() => setDangerOpen((current) => !current)}>危险操作<Chevron /></button>{dangerOpen ? <div>{dangerActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" disabled={disabled} onClick={() => run(action)}>{label}</button>)}</div> : null}</div> : null}
     </div> : null}
   </div>
 }

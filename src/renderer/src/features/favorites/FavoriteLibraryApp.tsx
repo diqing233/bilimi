@@ -114,6 +114,19 @@ export type FavoriteLibraryUiCallbacks = {
   onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
 }
 
+function formatDetailTimestamp(value?: string) {
+  if (!value) return '暂无记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (part: number) => String(part).padStart(2, '0')
+  // Repository times are stored as UTC; the desktop UI consistently presents them in China Standard Time.
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
+}
+
 export type FavoriteLibraryDrawerStatus = {
   hasRemoteAttention: boolean
   onGoToPending: () => void
@@ -1006,7 +1019,7 @@ export function FavoriteLibraryApp({
           {detail ? <>
             {eventsOpen ? <section className="favorite-library__detail-history" aria-label="完整处理记录">
               <h2>完整处理记录</h2>
-              <ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {event.occurredAt}</li>)}</ol>
+              <ol className="favorite-library__events">{events?.items.map((event) => <li key={event.id}>{event.kind} · {formatDetailTimestamp(event.occurredAt)}</li>)}</ol>
               {events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更早记录</button> : null}
               <button type="button" className="favorite-library__inline-action" onClick={() => setEventsOpen(false)}>返回视频详情</button>
             </section> : <>
@@ -1030,7 +1043,7 @@ export function FavoriteLibraryApp({
               ]
               return <section className="favorite-library__status-tags" aria-label="视频状态">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}{statusExplanation ? <p role="status">{statusExplanation}</p> : null}{metadataStale ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(refreshMetadata)}>刷新资料</button> : null}</section>
             })()}
-            <section><h3>来源与时间</h3><p>来源方式：{detailSourceMethod}</p><p>来源时间：{detailSourceAt ?? '暂无记录'}</p>{detail.folders.length ? <p>来源收藏夹：{detail.folders.map((folder) => folder.title).join('、')}</p> : null}{detailSnapshot?.sourceShards?.length ? <p>来源分册：{detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}</section>
+            <section><h3>来源与时间</h3><p>{detailSourceMethod} · {formatDetailTimestamp(detailSourceAt)}</p>{detail.folders.length ? <p>来自 {detail.folders.map((folder) => folder.title).join('、')}</p> : null}{detailSnapshot?.sourceShards?.length ? <p>归入 {detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}</section>
             <section><h3>收藏位置</h3><p>本地位置：{detailLocalPositions.length ? detailLocalPositions.join('、') : '未匹配分类'}</p><p>B站位置：{detailRemotePositions.length ? detailRemotePositions.join('、') : '尚未扫描或未映射'}</p><p>{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state)}</p></section>
             <section><h3>位置操作</h3><div className="favorite-library__detail-action-row">{!detailAllowsOnlyCopy ? <><button type="button" className="favorite-library__inline-action" onClick={openPlacementPicker} aria-expanded={placementPickerOpen && !placementPickerBatch}>调整本地归属</button>{placementPickerOpen && !placementPickerBatch ? renderPlacementPicker() : null}</> : null}<button type="button" className="favorite-library__inline-action" onClick={() => openSelectedPlacementPicker('copy', selected ? [selected.aid] : [])}>复制至本地归属</button>{!detailAllowsOnlyCopy ? <><button type="button" className="favorite-library__inline-action" disabled={!currentLogicalFolderId} onClick={() => openSelectedPlacementPicker('move', selected ? [selected.aid] : [])}>移动至本地归属</button><button type="button" className="favorite-library__inline-action" onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
@@ -1050,7 +1063,7 @@ export function FavoriteLibraryApp({
               if (!api.saveFavoriteLibraryArchiveMemo) throw new Error(text.unavailable)
               await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft, detailSnapshot?.video.cid)
             })}>{text.saveMemo}</button></> : null}</div></section>
-            <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${events.items[0].occurredAt}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button></section>
+            <section><h3>处理记录</h3><p>{events?.items[0] ? `${events.items[0].kind} · ${formatDetailTimestamp(events.items[0].occurredAt)}` : '尚未加载完整处理记录。'}</p><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button></section>
             <section className="favorite-library__detail-danger"><h3>危险操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="危险操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(true)}>从收藏库删除</button>{deleteConfirmationOpen ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认从收藏库删除"><p>不会取消 B 站收藏，也不会删除已有转写和档案。</p><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button><button type="button" className="favorite-library__inline-action" onClick={() => setDeleteConfirmationOpen(false)}>取消</button></div> : null}{(() => {
               const remoteUnfavoriteAvailable = Boolean(accountMid && selected && summary && window.bilimiDesktop?.previewFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.confirmFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.executeFavoriteLibraryRemoteUnfavoriteOperation)
               return <><button type="button" className="favorite-library__inline-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <div className="favorite-library__delete-confirmation" role="alertdialog" aria-label="确认取消B站收藏" aria-busy={remoteUnfavoriteExecuting}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button><button type="button" className="favorite-library__inline-action" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button></div> : null}</>

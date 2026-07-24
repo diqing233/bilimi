@@ -82,17 +82,21 @@ describe('FavoriteLibraryApp', () => {
   })
   it('keeps destructive batch actions collapsed until the danger section is expanded', () => {
     render(<FavoriteLibraryToolbar pageCount={1} selectedCount={1} allCurrentPageSelected={true} onTogglePage={() => undefined} />)
-    fireEvent.click(screen.getByRole('button', { name: '批量操作' }))
+    const batchTrigger = screen.getByRole('button', { name: '批量操作' })
+    expect(batchTrigger.querySelector('.favorite-library__chevron')).toBeInTheDocument()
+    fireEvent.click(batchTrigger)
 
     expect(screen.queryByRole('button', { name: '从收藏库删除' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '危险操作' }))
+    const dangerTrigger = screen.getByRole('button', { name: '危险操作' })
+    expect(dangerTrigger.querySelector('.favorite-library__chevron')).toBeInTheDocument()
+    fireEvent.click(dangerTrigger)
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
   })
   it('keeps the embedded footer in the fourth library grid row below the three-column workspace', () => {
     expect(favoriteLibraryStyles).toContain(".favorite-library[data-embedded='true'] { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;")
     expect(favoriteLibraryStyles).toContain(".favorite-library[data-embedded='true'] .favorite-library__footer { grid-row: 4; }")
   })
-  it('shows source method and exact source time in the selected video detail', async () => {
+  it('shows source method and a readable source time in the selected video detail', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -104,8 +108,8 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('来源视频'))
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('来源方式：B站收藏')
-    expect(detail).toHaveTextContent('来源时间：2026-07-24T01:02:03.000Z')
+    expect(detail).toHaveTextContent('来源与时间')
+    expect(detail).toHaveTextContent('B站收藏 · 2026-07-24 09:02')
   })
   it('limits a B站 source-folder detail to copying into local placements', async () => {
     window.bilimiDesktop = {
