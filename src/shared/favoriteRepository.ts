@@ -102,6 +102,12 @@ export type FavoriteRepositoryArchiveExport = {
   protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
   events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
+  /** Account-local recovery data. Position observations remain intentionally absent. */
+  recovery?: Pick<AccountFavoriteRepositorySnapshot,
+    'folders' | 'memberships' | 'physicalShards' | 'workspace' | 'syncRecords' |
+    'organizationRecords' | 'organizationBatches' | 'organizationMigrationInitialized'> & {
+      tombstones: FavoriteRepositoryTombstone[]
+    }
 }
 
 export function createFavoriteRepositoryPositionKey(accountMid: string, aid: number) {
@@ -197,6 +203,19 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
       ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined
     })).sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id)),
     archives: [...exported.archives].map((archive) => ({ ...archive })).sort((left, right) => left.aid - right.aid || left.archiveId.localeCompare(right.archiveId))
+    , ...(exported.recovery ? {
+      recovery: {
+        ...exported.recovery,
+        folders: [...exported.recovery.folders].sort((left, right) => left.id.localeCompare(right.id)),
+        memberships: Object.fromEntries(Object.entries(exported.recovery.memberships).sort(([left], [right]) => left.localeCompare(right)).map(([id, aids]) => [id, uniquePositiveAids(aids)])),
+        physicalShards: [...exported.recovery.physicalShards].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber),
+        ...(exported.recovery.workspace ? { workspace: exported.recovery.workspace } : {}),
+        syncRecords: [...exported.recovery.syncRecords].sort((left, right) => left.id.localeCompare(right.id)),
+        organizationRecords: [...exported.recovery.organizationRecords].sort((left, right) => left.aid - right.aid),
+        organizationBatches: [...exported.recovery.organizationBatches].sort((left, right) => left.id.localeCompare(right.id)),
+        tombstones: [...exported.recovery.tombstones].sort((left, right) => left.aid - right.aid)
+      }
+    } : {})
   }))
 }
 
@@ -223,7 +242,14 @@ export function createFavoriteRepositoryArchiveExport(
     protections: (snapshot.organizationRecords ?? []).map((record) => ({ aid: record.aid, completedAt: record.completedAt })),
     events: (input.events ?? []).filter((event) => normalizedAccountMid(event.accountMid) === accountMid)
       .map((event) => ({ ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined })),
-    archives: (input.archives ?? []).map((archive) => ({ ...archive }))
+    archives: (input.archives ?? []).map((archive) => ({ ...archive })),
+    recovery: {
+      folders: structuredClone(snapshot.folders), memberships: structuredClone(snapshot.memberships),
+      physicalShards: structuredClone(snapshot.physicalShards), ...(snapshot.workspace ? { workspace: structuredClone(snapshot.workspace) } : {}),
+      syncRecords: structuredClone(snapshot.syncRecords), organizationRecords: structuredClone(snapshot.organizationRecords),
+      organizationBatches: structuredClone(snapshot.organizationBatches), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
+      tombstones: Object.values(snapshot.tombstones).map((tombstone) => ({ ...tombstone }))
+    }
   }
   return { ...exported, checksum: createFavoriteRepositoryArchiveExportChecksum(exported) }
 }
@@ -232,7 +258,7 @@ export function createFavoriteRepositoryArchiveExport(
 export function validateFavoriteRepositoryArchiveExport(value: unknown): FavoriteRepositoryArchiveExport & { checksum: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Favorite repository archive is invalid.')
   const archive = value as Record<string, unknown>
-  const allowed = new Set(['version', 'accountMid', 'generatedAt', 'checksum', 'videos', 'positions', 'protections', 'events', 'archives'])
+  const allowed = new Set(['version', 'accountMid', 'generatedAt', 'checksum', 'videos', 'positions', 'protections', 'events', 'archives', 'recovery'])
   if (Object.keys(archive).some((key) => !allowed.has(key)) || archive.version !== 1 || typeof archive.accountMid !== 'string' ||
     typeof archive.generatedAt !== 'string' || typeof archive.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(archive.checksum) ||
     !Array.isArray(archive.archives) || !archive.archives.every((item) => item && typeof item === 'object' &&
@@ -256,6 +282,7 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
   if (archive.events !== undefined && (!Array.isArray(archive.events) || !archive.events.every((event) =>
     event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>) &&
       (event as Record<string, unknown>).accountMid === archive.accountMid))) throw new Error('Favorite repository archive is invalid.')
+  if (archive.recovery !== undefined && !isPortableRepositoryRecovery(archive.recovery, archive.accountMid)) throw new Error('Favorite repository archive is invalid.')
   const typed = archive as unknown as FavoriteRepositoryArchiveExport & { checksum: string }
   if (createFavoriteRepositoryArchiveExportChecksum(typed) !== typed.checksum.toLowerCase()) throw new Error('Favorite repository archive checksum is invalid.')
   return typed
@@ -656,6 +683,10 @@ function isWorkspaceRef(
   return true
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const plan = value as Partial<FavoriteRepositoryFrozenSyncPlan>
@@ -701,6 +732,78 @@ function isOrganizationChange(value: unknown) {
     folderIds.every((key) => Array.isArray(record[key]) && (record[key] as unknown[]).every((id) => typeof id === 'string' && !!id.trim())) &&
     ['succeeded', 'failed', 'result-unknown'].includes(String(record.status)) &&
     typeof record.recordedAt === 'string' && !Number.isNaN(Date.parse(record.recordedAt))
+}
+
+function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const recovery = value as Record<string, unknown>
+  const allowed = new Set(['folders', 'memberships', 'physicalShards', 'workspace', 'syncRecords', 'organizationRecords', 'organizationBatches', 'organizationMigrationInitialized', 'tombstones'])
+  if (Object.keys(recovery).some((key) => !allowed.has(key)) || !Array.isArray(recovery.folders) ||
+    !isRecord(recovery.memberships) || !Array.isArray(recovery.physicalShards) || !Array.isArray(recovery.syncRecords) ||
+    !Array.isArray(recovery.organizationRecords) || !Array.isArray(recovery.organizationBatches) ||
+    typeof recovery.organizationMigrationInitialized !== 'boolean' || !Array.isArray(recovery.tombstones)) return false
+  const folderIds = new Set<string>()
+  if (!recovery.folders.every((item) => isPortableRecoveryFolder(item, folderIds))) return false
+  if (!Object.entries(recovery.memberships).every(([folderId, aids]) => folderIds.has(folderId) && isValidAidList(aids))) return false
+  if (!recovery.physicalShards.every((item) => isPortableRecoveryShard(item, folderIds))) return false
+  if (recovery.workspace !== undefined && !isPortableRecoveryWorkspace(recovery.workspace, accountMid)) return false
+  if (!recovery.syncRecords.every(isPortableRecoverySyncRecord) || !recovery.organizationRecords.every((record) =>
+    isOrganizationRecord(record) && normalizedAccountMid((record as FavoriteRepositoryOrganizationRecord).accountMid) === accountMid) ||
+    !recovery.organizationBatches.every((record) => isOrganizationChange(record) && normalizedAccountMid((record as FavoriteRepositoryOrganizationChange).accountMid) === accountMid) ||
+    !recovery.tombstones.every((tombstone) => isPortableRecoveryTombstone(tombstone, accountMid))) return false
+  return true
+}
+
+function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const folder = value as Record<string, unknown>
+  if (typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
+    !['bilibili', 'bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'bound', 'pending-reconcile', 'failed'].includes(String(folder.syncState))) return false
+  if ((folder.logicalLedgerId !== undefined && (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim())) ||
+    (folder.remoteFolderId !== undefined && (typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim()))) return false
+  ids.add(folder.id)
+  return true
+}
+
+function isPortableRecoveryShard(value: unknown, folderIds: Set<string>) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const shard = value as Record<string, unknown>
+  return typeof shard.logicalLedgerId === 'string' && !!shard.logicalLedgerId.trim() && typeof shard.folderId === 'string' && folderIds.has(shard.folderId) &&
+    Number.isSafeInteger(shard.shardNumber) && Number(shard.shardNumber) > 0 && typeof shard.remoteTitle === 'string' && !!shard.remoteTitle.trim() &&
+    ['bound', 'pending-reconcile'].includes(String(shard.bindingState)) &&
+    (shard.remoteFolderId === undefined || (typeof shard.remoteFolderId === 'string' && !!shard.remoteFolderId.trim())) &&
+    (shard.knownRemoteFolderIds === undefined || (Array.isArray(shard.knownRemoteFolderIds) && shard.knownRemoteFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
+    (shard.remoteMemberCount === undefined || (Number.isSafeInteger(shard.remoteMemberCount) && Number(shard.remoteMemberCount) >= 0))
+}
+
+function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const workspace = value as Record<string, unknown>
+  return typeof workspace.id === 'string' && !!workspace.id.trim() && typeof workspace.accountMid === 'string' &&
+    normalizedAccountMid(workspace.accountMid) === accountMid && isWorkspaceStatus(workspace.status) &&
+    Number.isSafeInteger(workspace.baselineRevision) && Number(workspace.baselineRevision) >= 0 && isValidAidList(workspace.continuationAids) &&
+    isWorkspaceRef(workspace.workspaceRef, accountMid, workspace.id, workspace.status as FavoriteRepositoryWorkspace['status'], Number(workspace.baselineRevision)) &&
+    (workspace.completionMode === undefined || workspace.completionMode === 'bilibili' || workspace.completionMode === 'local') &&
+    (workspace.frozenSyncPlan === undefined || isFrozenSyncPlan(workspace.frozenSyncPlan, accountMid, workspace.id))
+}
+
+function isPortableRecoverySyncRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
+    isSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
+    (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
+    (record.operationKey === undefined || typeof record.operationKey === 'string') &&
+    (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
+    (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0))
+}
+
+function isPortableRecoveryTombstone(value: unknown, accountMid: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const tombstone = value as Record<string, unknown>
+  return typeof tombstone.accountMid === 'string' && normalizedAccountMid(tombstone.accountMid) === accountMid &&
+    Number.isSafeInteger(tombstone.aid) && Number(tombstone.aid) > 0 && typeof tombstone.deletedAt === 'string' && !Number.isNaN(Date.parse(tombstone.deletedAt)) &&
+    typeof tombstone.allowRediscovery === 'boolean' && (tombstone.reason === undefined || typeof tombstone.reason === 'string')
 }
 
 function normalizeFolderMembers(memberAidsByFolderId: Record<string, number[]>) {

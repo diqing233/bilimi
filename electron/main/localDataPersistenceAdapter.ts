@@ -1,4 +1,4 @@
-import { createFavoriteRepositoryArchiveExport, createFavoriteRepositoryArchiveExportChecksum, type AccountFavoriteRepositorySnapshot, type FavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import { createFavoriteRepositoryArchiveExport, validateFavoriteRepositoryArchiveExport, type AccountFavoriteRepositorySnapshot, type FavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
 import type { LocalDataPersistence } from './localDataService'
 import type { PortableAccountData } from '../../src/shared/localDataMigration'
@@ -46,12 +46,10 @@ function recordsForAccount(records: Record<string, unknown>[], accountMid: strin
 }
 
 function repositoryArchive(uidValue: string, value: unknown): RepositoryArchive {
-  if (!isRecord(value) || !Array.isArray(value.videos) || !Array.isArray(value.positions) || !Array.isArray(value.protections)) throw new Error('Portable repository section is invalid.')
-  const exported: FavoriteRepositoryArchiveExport = {
-    version: 1, accountMid: uidValue, generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : new Date(0).toISOString(),
-    videos: structuredClone(value.videos) as RepositoryArchive['videos'], positions: structuredClone(value.positions) as RepositoryArchive['positions'], protections: structuredClone(value.protections) as RepositoryArchive['protections'], events: [], archives: []
-  }
-  return { ...exported, checksum: createFavoriteRepositoryArchiveExportChecksum(exported) }
+  let validated: RepositoryArchive
+  try { validated = validateFavoriteRepositoryArchiveExport(value) } catch { throw new Error('Portable repository section is invalid.') }
+  if (validated.accountMid !== uidValue) throw new Error('Portable repository account mismatch.')
+  return structuredClone(validated)
 }
 
 export function createLocalDataPersistenceAdapter(dependencies: Dependencies): LocalDataPersistence {

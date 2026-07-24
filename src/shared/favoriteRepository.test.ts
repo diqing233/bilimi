@@ -240,6 +240,27 @@ describe('account favorite repository contracts', () => {
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
   })
 
+  it('round-trips account-local repository recovery state while excluding remote observations', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
+      folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const }, { id: 'bilimi:music:001', title: 'Music 1', kind: 'bilibili' as const, remoteFolderId: '42', syncState: 'bound' as const }],
+      memberships: { 'bilimi-logical:music': [1], 'bilimi:music:001': [1] },
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '42', remoteTitle: 'Music', bindingState: 'bound' as const }],
+      workspace: { id: 'workspace-1', accountMid: '100', status: 'scanning' as const, baselineRevision: 0, continuationAids: [], workspaceRef: workspaceRef() },
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown' as const, affectedAids: [1], updatedAt: '2026-07-23T00:00:00.000Z' }],
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['42'], completedAt: '2026-07-23T00:00:00.000Z' }],
+      organizationBatches: [{ id: 'change-1', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1, beforeFolderIds: [], afterFolderIds: ['42'], addedFolderIds: ['42'], removedFolderIds: [], status: 'result-unknown' as const, recordedAt: '2026-07-23T00:00:00.000Z' }],
+      tombstones: { '100:2': { accountMid: '100', aid: 2, deletedAt: '2026-07-23T00:00:00.000Z', allowRediscovery: false } },
+      positions: { '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['remote-private'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], positionState: 'aligned' as const, updatedAt: '2026-07-23T00:00:00.000Z', revision: 1 } }
+    }
+    const exported = createFavoriteRepositoryArchiveExport(snapshot, { generatedAt: '2026-07-23T01:00:00.000Z' })
+
+    expect(exported.recovery).toMatchObject({ folders: snapshot.folders, memberships: snapshot.memberships, physicalShards: snapshot.physicalShards, workspace: snapshot.workspace, syncRecords: snapshot.syncRecords, organizationRecords: snapshot.organizationRecords, organizationBatches: snapshot.organizationBatches, tombstones: [snapshot.tombstones['100:2']] })
+    expect(exported.positions).toEqual([expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] })])
+    expect(JSON.stringify(exported)).not.toContain('remote-private')
+    expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
+  })
+
   it('rejects a command for another account before changing the snapshot', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '100',

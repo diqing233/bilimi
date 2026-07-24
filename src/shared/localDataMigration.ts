@@ -3,6 +3,7 @@ import {
   LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
   LOCAL_DATA_MIGRATION_SHARED_SETTINGS
 } from './localDataMigrationRegistry'
+import { validateFavoriteRepositoryArchiveExport } from './favoriteRepository'
 
 export const LOCAL_DATA_MIGRATION_SCHEMA_VERSION = 1
 const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
@@ -69,15 +70,49 @@ function assertRegisteredKeys(value: Record<string, unknown>, allowedKeys: Set<s
   }
 }
 
-function assertAccountSources(value: Record<string, unknown>) {
+export type PortableWorkspaceRecoveryState = 'draft' | 'running'
+export type PortableTranscriptionRecoveryState = 'pending' | 'running' | 'completed' | 'failed' | 'canceled' | 'waiting-restart'
+export type PortableRemoteRecoveryState = 'pending' | 'succeeded' | 'failed' | 'result-unknown' | 'reconciliation-required'
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
+}
+
+function isPortableArchive(value: unknown, accountMid: string) {
+  if (!isRecord(value) || !isRecord(value.source)) return false
+  const source = value.source
+  if (typeof value.id !== 'string' || !value.id.trim() || source.accountMid !== accountMid ||
+    !Number.isSafeInteger(source.aid) || Number(source.aid) <= 0 || !Number.isSafeInteger(source.cid) || Number(source.cid) <= 0 || typeof source.title !== 'string' ||
+    typeof source.url !== 'string' || !Array.isArray(source.tags) || source.tags.some((tag) => typeof tag !== 'string') ||
+    !Array.isArray(value.versions) || !value.versions.length || !isIsoTimestamp(value.createdAt) || !isIsoTimestamp(value.updatedAt)) return false
+  return value.versions.every((version) => isRecord(version) && typeof version.id === 'string' && !!version.id.trim() &&
+    isIsoTimestamp(version.createdAt) && typeof version.plainTranscript === 'string' && typeof version.summaryText === 'string' &&
+    isRecord(version.note) && isRecord(version.note.source) && version.note.source.accountMid === accountMid &&
+    version.note.source.aid === source.aid && version.note.source.cid === source.cid &&
+    typeof version.note.userMemo === 'string' && (version.note.starred === undefined || typeof version.note.starred === 'boolean') &&
+    isIsoTimestamp(version.note.createdAt) && isIsoTimestamp(version.note.updatedAt))
+}
+
+function isRecoveryRecord(value: unknown, accountMid: string, states: readonly string[]) {
+  return isRecord(value) && typeof value.id === 'string' && !!value.id.trim() && value.accountMid === accountMid &&
+    states.includes(String(value.status)) && isIsoTimestamp(value.updatedAt)
+}
+
+function assertAccountSources(value: Record<string, unknown>, accountMid: string) {
   assertRegisteredKeys(value, ACCOUNT_SOURCE_KEYS, 'account source')
   for (const key of LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES) {
     if (!(key in value)) throw new Error(`Migration account source is missing: ${key}`)
   }
-  if (!isRecord(value.repository) || !isRecord(value.settings)) throw new Error('Migration account source is invalid.')
-  for (const key of ['archives', 'transcription', 'auditEvents', 'workspaces', 'remoteOperations'] as const) {
-    if (!Array.isArray(value[key]) || value[key].some((item) => !isRecord(item))) throw new Error(`Migration account source is invalid: ${key}`)
-  }
+  if (!isRecord(value.settings)) throw new Error('Migration account source is invalid.')
+  try {
+    const repository = validateFavoriteRepositoryArchiveExport(value.repository)
+    if (repository.accountMid !== accountMid) throw new Error('account mismatch')
+  } catch { throw new Error('Migration account repository is invalid.') }
+  if (!Array.isArray(value.archives) || value.archives.some((item) => !isPortableArchive(item, accountMid))) throw new Error('Migration account source is invalid: archives')
+  if (!Array.isArray(value.transcription) || value.transcription.some((item) => !isRecoveryRecord(item, accountMid, ['pending', 'running', 'completed', 'failed', 'canceled', 'waiting-restart']))) throw new Error('Migration account source is invalid: transcription')
+  if (!Array.isArray(value.workspaces) || value.workspaces.some((item) => !isRecoveryRecord(item, accountMid, ['draft', 'running']))) throw new Error('Migration account source is invalid: workspaces')
+  if (!Array.isArray(value.remoteOperations) || value.remoteOperations.some((item) => !isRecoveryRecord(item, accountMid, ['pending', 'succeeded', 'failed', 'result-unknown', 'reconciliation-required']))) throw new Error('Migration account source is invalid: remoteOperations')
+  if (!Array.isArray(value.auditEvents) || value.auditEvents.some((item) => !isRecord(item) || item.accountMid !== accountMid || typeof item.id !== 'string' || !item.id.trim() || !isIsoTimestamp(item.occurredAt))) throw new Error('Migration account source is invalid: auditEvents')
   assertPortable(value)
 }
 
@@ -104,7 +139,7 @@ export function createMigrationArchiveV1(input: Omit<MigrationArchiveV1, 'schema
   assertArchiveMetadata(input.appVersion, input.generatedAt)
   const accountEntries: Array<[string, PortableAccountData]> = Object.entries(input.accounts).map(([rawUid, value]): [string, PortableAccountData] => {
     assertUid(rawUid)
-    assertAccountSources(value)
+    assertAccountSources(value, BigInt(rawUid).toString())
     return [BigInt(rawUid).toString(), structuredClone(value)]
   }).sort(([left], [right]) => left.localeCompare(right, 'en'))
   if (new Set(accountEntries.map(([uid]) => uid)).size !== accountEntries.length) throw new Error('Migration UID sections are duplicated.')
@@ -146,7 +181,7 @@ export function parseMigrationArchiveV1(content: string): MigrationArchiveV1 {
     if (!isRecord(value)) throw new Error('Migration account section is invalid.')
     const normalizedUid = BigInt(uid).toString()
     if (normalizedUid !== uid || accounts[normalizedUid]) throw new Error('Migration UID sections are invalid.')
-    assertAccountSources(value)
+    assertAccountSources(value, normalizedUid)
     accounts[normalizedUid] = structuredClone(value)
   }
   const selectedUids = candidate.selectedUids.map((uid) => {

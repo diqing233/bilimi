@@ -37,7 +37,20 @@ describe('local data persistence adapter', () => {
       listAccountUids: () => ['100'], getRepository: vi.fn(), getAccountSettings: () => ({}), getArchives: () => [], getTranscriptionItems: () => [],
       applyPortableBatch: vi.fn(), applyPortableState: vi.fn(), readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
     })
-    await expect(adapter.writeAccounts({ '100': { repository: { videos: [], positions: [], protections: [] }, archives: [{ source: { accountMid: '200' } }] } })).rejects.toThrow('archive account')
+    await expect(adapter.writeAccounts({ '100': { repository: { videos: [], positions: [], protections: [] }, archives: [{ source: { accountMid: '200' } }] } })).rejects.toThrow('repository')
+  })
+
+  it('rejects a checksum-bearing but malformed repository instead of laundering it into a new checksum', async () => {
+    const applyPortableBatch = vi.fn()
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'], getRepository: vi.fn(), getAccountSettings: () => ({}), getArchives: () => [], getTranscriptionItems: () => [],
+      applyPortableBatch, applyPortableState: vi.fn(), readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+
+    await expect(adapter.writeAccounts({
+      '100': { repository: { version: 1, accountMid: '100', generatedAt: '2026-07-24T00:00:00.000Z', checksum: 'a'.repeat(64), videos: [{ aid: 'wrong' }], positions: [], protections: [], events: [], archives: [] }, settings: {}, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: [] }
+    })).rejects.toThrow('repository')
+    expect(applyPortableBatch).not.toHaveBeenCalled()
   })
 
   it('keeps repository exports checksum-valid so import validation cannot accept a fabricated generation', async () => {

@@ -5,6 +5,7 @@ import {
   parseMigrationArchiveV1,
   restorePortableAccountState
 } from './localDataMigration'
+import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport } from './favoriteRepository'
 import {
   LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
   LOCAL_DATA_MIGRATION_EXCLUDED_SOURCES,
@@ -12,13 +13,16 @@ import {
 } from './localDataMigrationRegistry'
 
 const account = (updatedAt = '2026-07-24T00:00:00.000Z') => ({
-  repository: { videos: [{ aid: 1, cid: 11, title: 'video', updatedAt }] },
-  archives: [{ aid: 1, cid: 11, version: 1, updatedAt }],
+  repository: createFavoriteRepositoryArchiveExport({
+    ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: updatedAt }),
+    videos: { '1': { aid: 1, cid: 11, title: 'video', tags: [], updatedAt } }
+  }, { generatedAt: updatedAt }),
+  archives: [{ id: 'archive-1', source: { accountMid: '100', aid: 1, cid: 11, title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, versions: [{ id: 'version-1', createdAt: updatedAt, plainTranscript: '', summaryText: '', note: { id: 'note-1', source: { accountMid: '100', aid: 1, cid: 11, title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: 'memo', starred: true, createdAt: updatedAt, updatedAt } }], createdAt: updatedAt, updatedAt }],
   auditEvents: [],
   settings: { pageSize: 50, updatedAt },
-  workspaces: [{ id: 'work-1', status: 'running', updatedAt }],
-  transcription: [{ aid: 1, cid: 11, status: 'running', updatedAt }],
-  remoteOperations: [{ id: 'remote-1', status: 'result-unknown', updatedAt }]
+  workspaces: [{ id: 'work-1', accountMid: '100', status: 'running', updatedAt }],
+  transcription: [{ id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, status: 'running', createdAt: updatedAt, updatedAt }],
+  remoteOperations: [{ id: 'remote-1', accountMid: '100', status: 'result-unknown', updatedAt }]
 })
 
 describe('local data migration v1', () => {
@@ -133,7 +137,7 @@ describe('local data migration v1', () => {
       expect.objectContaining({ aid: 1, title: 'video' }),
       expect.objectContaining({ aid: 2, deletedAt: '2026-07-26T00:00:00.000Z' })
     ]))
-    expect(merged['100'].archives as unknown[]).toEqual(expect.arrayContaining([expect.objectContaining({ version: 1 }), expect.objectContaining({ version: 2 })]))
+    expect(merged['100'].archives as unknown[]).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'archive-1' }), expect.objectContaining({ version: 2 })]))
     expect(merged['200']).toEqual(account())
   })
 
@@ -142,5 +146,18 @@ describe('local data migration v1', () => {
     expect((restored.workspaces as unknown[])[0]).toMatchObject({ status: 'draft', resumable: true })
     expect((restored.transcription as unknown[])[0]).toMatchObject({ status: 'waiting-restart' })
     expect((restored.remoteOperations as unknown[])[0]).toMatchObject({ status: 'reconciliation-required', autoRetry: false })
+  })
+
+  it('rejects unknown recovery states and malformed multipart archives before archive creation', () => {
+    const unknownWorkspace = account() as Record<string, unknown>
+    unknownWorkspace.workspaces = [{ id: 'work-1', accountMid: '100', status: 'mystery', updatedAt: '2026-07-24T00:00:00.000Z' }]
+    const unknownTranscription = account() as Record<string, unknown>
+    unknownTranscription.transcription = [{ id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, status: 'mystery', createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z' }]
+    const malformedArchive = account() as Record<string, unknown>
+    malformedArchive.archives = [{ id: 'archive-1', source: { accountMid: '100', aid: 1, title: 'missing part', url: 'https://example.test', tags: [] }, versions: [], createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z' }]
+
+    for (const candidate of [unknownWorkspace, unknownTranscription, malformedArchive]) {
+      expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': candidate } })).toThrow('invalid')
+    }
   })
 })
