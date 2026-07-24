@@ -60,6 +60,31 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('200')).resolves.toMatchObject({ accountMid: '200', videos: { '200': expect.any(Object) } })
   })
 
+  it('recovers every selected account before exposing a partially published portable import after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const accountMid of ['100', '200']) {
+      await service.commit(accountMid, {
+        id: `existing-${accountMid}`, accountMid, issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid: Number(accountMid), title: `Existing ${accountMid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const before100 = await service.getSnapshot('100')
+    const before200 = await service.getSnapshot('200')
+    const imported = createFavoriteRepositoryArchiveExport({
+      ...before100,
+      videos: { ...before100.videos, '1': { aid: 1, title: 'Imported only', tags: [], updatedAt: '2026-07-24T00:01:00.000Z' } }
+    }, { generatedAt: '2026-07-24T00:01:00.000Z' })
+
+    await service.beginPortableImportTransaction(['100', '200'])
+    await service.applyArchiveImport('100', { validate: () => imported, mode: 'overwrite' })
+
+    const restarted = new FavoriteRepositoryService({ root })
+    // A reader must trigger recovery before it can observe either selected UID.
+    await expect(restarted.getSnapshot('100')).resolves.toEqual(before100)
+    await expect(restarted.getSnapshot('200')).resolves.toEqual(before200)
+  })
+
   it('does not mutate the repository when archive import validation rejects', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

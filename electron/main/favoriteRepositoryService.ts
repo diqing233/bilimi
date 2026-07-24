@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   applyFavoriteRepositoryCommand,
@@ -83,6 +83,17 @@ type SyncCheckpointState = {
 type SyncCheckpointJournalEntry = {
   commandId: string
   record: FavoriteRepositorySyncRecord
+}
+
+type PortableImportTransaction = {
+  version: 1
+  phase: 'pending' | 'recovered'
+  accounts: Array<{ accountMid: string; existed: boolean }>
+  recoveryState?: unknown
+}
+
+export type PortableImportTransactionRecovery = {
+  recoveryState?: unknown
 }
 
 type BindingJournalEntry = {
@@ -334,6 +345,7 @@ export class FavoriteRepositoryService {
   private pendingWriteCount = 0
   private readonly syncCheckpointState = new Map<string, SyncCheckpointState>()
   private readonly changeListeners = new Set<(result: FavoriteRepositoryCommandResult) => void>()
+  private portableImportTransactionActive = false
 
   constructor(private readonly options: {
     root: string
@@ -871,6 +883,71 @@ export class FavoriteRepositoryService {
     this.syncCheckpointState.clear()
   }
 
+  /**
+   * Snapshots selected repository directories before a coordinated local-data
+   * import. A pending transaction is recovered before any repository is read
+   * after restart, so a process crash cannot expose only some selected UIDs.
+   */
+  async beginPortableImportTransaction(accountMids: readonly string[], recoveryState?: unknown) {
+    const accounts = [...new Set(accountMids.map(normalizeAccountMid))].sort()
+    return this.queue(async () => {
+      const existing = await this.recoverPortableImportTransactionInternal()
+      if (existing) throw new Error('Portable import recovery must be finalized before starting another import.')
+      const directory = this.portableImportTransactionDirectory()
+      await rm(directory, { recursive: true, force: true })
+      const backups = join(directory, 'backups')
+      const records: PortableImportTransaction['accounts'] = []
+      for (const accountMid of accounts) {
+        const source = this.accountDirectory(accountMid)
+        try {
+          await cp(source, join(backups, accountMid), { recursive: true, force: true, errorOnExist: false })
+          records.push({ accountMid, existed: true })
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          records.push({ accountMid, existed: false })
+        }
+      }
+      const transaction: PortableImportTransaction = { version: 1, phase: 'pending', accounts: records, ...(recoveryState === undefined ? {} : { recoveryState }) }
+      await this.atomicWrite(this.portableImportTransactionPath(), JSON.stringify(transaction))
+      this.portableImportTransactionActive = true
+    })
+  }
+
+  /** Commits a fully published coordinated portable import by removing its rollback snapshot. */
+  async commitPortableImportTransaction() {
+    return this.queue(async () => {
+      if (!this.portableImportTransactionActive) throw new Error('Portable import transaction is not active.')
+      await rm(this.portableImportTransactionDirectory(), { recursive: true, force: true })
+      this.portableImportTransactionActive = false
+    })
+  }
+
+  /** Restores the durable pre-import repository state after an in-process import failure. */
+  async abortPortableImportTransaction(): Promise<PortableImportTransactionRecovery | null> {
+    return this.queue(async () => {
+      this.portableImportTransactionActive = false
+      return this.recoverPortableImportTransactionInternal()
+    })
+  }
+
+  /**
+   * Performs any crash recovery before callers can observe repository state.
+   * The recovered journal stays durable until its non-repository recovery
+   * state (owned by the main-process store) has also been restored.
+   */
+  async recoverPortableImportTransaction(): Promise<PortableImportTransactionRecovery | null> {
+    return this.queue(async () => this.portableImportTransactionActive ? null : this.recoverPortableImportTransactionInternal())
+  }
+
+  async finalizePortableImportRecovery() {
+    return this.queue(async () => {
+      const transaction = await this.readPortableImportTransaction()
+      if (!transaction) return
+      if (transaction.phase !== 'recovered') throw new Error('Portable import transaction has not been recovered.')
+      await rm(this.portableImportTransactionDirectory(), { recursive: true, force: true })
+    })
+  }
+
   private now() {
     return this.options.now?.() ?? new Date().toISOString()
   }
@@ -1161,6 +1238,7 @@ export class FavoriteRepositoryService {
   }
 
   private async load(accountMid: string): Promise<CachedRepository> {
+    if (!this.portableImportTransactionActive) await this.recoverPortableImportTransactionInternal()
     const cached = this.cache.get(accountMid)
     if (cached) return cached
     const manifestPath = this.manifestPath(accountMid)
@@ -1275,6 +1353,48 @@ export class FavoriteRepositoryService {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
       throw error
     }
+  }
+
+  private portableImportTransactionDirectory() {
+    return join(this.options.root, '.portable-import-transaction')
+  }
+
+  private portableImportTransactionPath() {
+    return join(this.portableImportTransactionDirectory(), 'transaction.json')
+  }
+
+  private async readPortableImportTransaction(): Promise<PortableImportTransaction | null> {
+    try {
+      const value = JSON.parse(await readFile(this.portableImportTransactionPath(), 'utf8')) as Partial<PortableImportTransaction>
+      if (value.version !== 1 || (value.phase !== 'pending' && value.phase !== 'recovered') || !Array.isArray(value.accounts) ||
+        value.accounts.some((account) => !account || typeof account.accountMid !== 'string' || !/^\d+$/u.test(account.accountMid) || typeof account.existed !== 'boolean')) {
+        throw new Error('Portable import transaction is invalid.')
+      }
+      return value as PortableImportTransaction
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  private async recoverPortableImportTransactionInternal(): Promise<PortableImportTransactionRecovery | null> {
+    const transaction = await this.readPortableImportTransaction()
+    if (!transaction) return null
+    if (transaction.phase === 'pending') {
+      for (const account of transaction.accounts) {
+        const destination = this.accountDirectory(account.accountMid)
+        await rm(destination, { recursive: true, force: true })
+        if (account.existed) {
+          await cp(join(this.portableImportTransactionDirectory(), 'backups', account.accountMid), destination, {
+            recursive: true, force: true, errorOnExist: false
+          })
+        }
+        this.cache.delete(account.accountMid)
+        this.syncCheckpointState.delete(account.accountMid)
+      }
+      await this.atomicWrite(this.portableImportTransactionPath(), JSON.stringify({ ...transaction, phase: 'recovered' satisfies PortableImportTransaction['phase'] }))
+    }
+    return { ...(transaction.recoveryState === undefined ? {} : { recoveryState: clone(transaction.recoveryState) }) }
   }
 
   private async persist(accountMid: string, repository: PersistedRepository, previousGeneration?: string): Promise<CachedRepository> {

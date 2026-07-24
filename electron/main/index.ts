@@ -1295,6 +1295,23 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items
   })
+  const recoveredPortableImport = await favoriteRepositoryService.recoverPortableImportTransaction()
+  if (recoveredPortableImport) {
+    const recovery = recoveredPortableImport.recoveryState as Partial<{
+      archives: ReturnType<typeof loadVideoNoteArchives>
+      transcription: ReturnType<typeof getVideoTranscriptionQueue>['getSnapshot']['items']
+      preferences: ReturnType<typeof loadAssistantPreferences>
+    }> | undefined
+    if (!recovery || !Array.isArray(recovery.archives) || !Array.isArray(recovery.transcription) || !recovery.preferences) {
+      throw new Error('Portable import recovery state is invalid.')
+    }
+    const store = getDesktopStore()
+    store.set('videoNoteArchives', recovery.archives)
+    saveVideoAudioTranscriptionQueue(store, recovery.transcription)
+    store.set('favoriteAccountPreferences', recovery.preferences.favoriteAccountPreferences)
+    patchAssistantPreferences(store, portableSharedSettings(recovery.preferences))
+    await favoriteRepositoryService.finalizePortableImportRecovery()
+  }
   favoriteRepositoryPageBridgeManager = new FavoriteRepositoryRuntimePageBridgeManager(
     (request) => requestMainAssistantRuntime<FavoriteRepositoryPageOperationResult>(request)
   )
@@ -1402,7 +1419,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           transcription: getVideoTranscriptionQueue().getSnapshot().items,
           preferences: loadAssistantPreferences(store)
         }
+        let transactionStarted = false
         try {
+          await favoriteRepositoryService!.beginPortableImportTransaction([...selectedUids], previous)
+          transactionStarted = true
           for (const uid of selectedUids) {
             const archive = batch.repositoryArchives[uid]
             if (!archive) {
@@ -1439,7 +1459,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           saveVideoAudioTranscriptionQueue(store, [...previous.transcription.filter((item) => !item.accountMid || !selectedUids.has(item.accountMid)), ...selectedTranscription])
           store.set('favoriteAccountPreferences', accountPreferences)
           patchAssistantPreferences(store, portableSharedSettings(sharedSettings))
+          await favoriteRepositoryService!.commitPortableImportTransaction()
         } catch (error) {
+          if (transactionStarted) {
+            const recovered = await favoriteRepositoryService!.abortPortableImportTransaction()
+            const recovery = recovered?.recoveryState as typeof previous | undefined
+            if (recovery) {
+              store.set('videoNoteArchives', recovery.archives)
+              saveVideoAudioTranscriptionQueue(store, recovery.transcription)
+              store.set('favoriteAccountPreferences', recovery.preferences.favoriteAccountPreferences)
+              patchAssistantPreferences(store, portableSharedSettings(recovery.preferences))
+              await favoriteRepositoryService!.finalizePortableImportRecovery()
+            }
+          }
           store.set('videoNoteArchives', previous.archives)
           saveVideoAudioTranscriptionQueue(store, previous.transcription)
           store.set('favoriteAccountPreferences', previous.preferences.favoriteAccountPreferences)
