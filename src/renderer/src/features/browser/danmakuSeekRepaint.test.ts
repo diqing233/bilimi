@@ -72,4 +72,11 @@ describe('buildDanmakuSeekRepaintScript', () => {
     expect(script).not.toMatch(/0\s*,\s*250\s*,\s*800\s*,\s*1600\s*,\s*3200/)
     expect(script).not.toMatch(/fetch\s*\(|XMLHttpRequest|currentTime\s*=|\.play\s*\(|\.pause\s*\(|danmaku-switch/)
   })
+
+  it('nudges the video along with existing danmaku compositor surfaces', () => {
+    const script = buildDanmakuSeekRepaintScript()
+
+    expect(script).toContain('const saved = [video, ...targets]')
+    expect(script).toContain('if (!targets.length) return;')
+  })
 })

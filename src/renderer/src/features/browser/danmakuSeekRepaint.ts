@@ -19,7 +19,7 @@ export function buildDanmakuSeekRepaintScript(): string {
       ));
       if (!targets.length) return;
       window.dispatchEvent(new Event('resize'));
-      const saved = targets.map((target) => ({ target, transform: target.style.transform, willChange: target.style.willChange }));
+      const saved = [video, ...targets].map((target) => ({ target, transform: target.style.transform, willChange: target.style.willChange }));
       for (const entry of saved) {
         entry.target.style.willChange = 'transform';
         entry.target.style.transform = entry.transform ? entry.transform + ' translateZ(0)' : 'translateZ(0)';
