@@ -363,13 +363,20 @@ export function FavoriteLibraryApp({
   ) : undefined
   const navigation = summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : []
   const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
-    const items = navigation.map((item) => ({
-      id: item.id,
-      label: item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title,
-      count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
-      managed: item.kind === 'folder' && item.source === 'bilimi-logical',
-      protected: item.kind === 'folder' && /unmatched|inbox/i.test(item.folderId)
-    }))
+    const items = navigation.map((item) => {
+      const label = item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title
+      const protectedStaging = item.kind === 'folder' && (
+        /unmatched|inbox/i.test(item.folderId) ||
+        label.replace(/[·.\s]/gu, '').toLowerCase() === 'bilimi暂存'
+      )
+      return {
+        id: item.id,
+        label,
+        count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
+        managed: item.kind === 'folder' && item.source === 'bilimi-logical',
+        protected: protectedStaging
+      }
+    })
     return [
       { id: 'range', label: '收藏范围', items: [
         ...items.filter((item) => item.id === 'all' || item.id === 'pending'),
