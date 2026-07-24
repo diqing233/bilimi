@@ -158,18 +158,18 @@ export class FavoriteRepositoryManagedFolderService {
     const normalizedAccount = account(accountMid)
     const operation = this.operations.get(operationId) ?? await this.recoverOperation(normalizedAccount, operationId)
     if (!operation || operation.accountMid !== normalizedAccount) throw new Error('Managed folder deletion operation was not found.')
-    if (operation.status === 'result-unknown' && this.options.remoteObserver && operation.remoteBinding) {
+    if ((operation.status === 'result-unknown' || operation.status === 'reconciliation-required') && this.options.remoteObserver && operation.remoteBinding) {
       const observation = await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
         operation.accountMid, { priority: 'reconcile' }, () => this.options.remoteObserver!.remoteFolderExists(operation.accountMid, operation.remoteBinding!.remoteFolderId)
       )
       if (observation === 'present') {
-        operation.status = 'failed'
-        await this.recordResult(operation, 'failed', 'Remote folder remains present.')
+        if (await this.tryRecordResult(operation, 'failed', 'Remote folder remains present.')) {
+          operation.status = 'failed'
+        }
       } else if (observation === 'absent') {
         try {
           await this.commitLocalProjection(operation, await this.options.repository.getSnapshot(operation.accountMid))
-          operation.status = 'succeeded'
-          await this.recordResult(operation, 'succeeded')
+          if (await this.tryRecordResult(operation, 'succeeded')) operation.status = 'succeeded'
         } catch {
           // The remote fact is known, but the durable local projection remains unresolved.
         }

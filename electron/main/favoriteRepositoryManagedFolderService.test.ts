@@ -105,6 +105,46 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(remoteFolderExists).not.toHaveBeenCalled()
   })
 
+  it('observes an imported reconciliation-required deletion instead of reporting it complete', async () => {
+    const current = managedSnapshot()
+    const remoteFolderExists = vi.fn(async () => 'present' as const)
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => ({
+          ...current,
+          syncRecords: [{
+            id: 'managed-folder-delete:imported-operation', commandId: 'imported-operation', operationKey: 'managed-folder-delete',
+            status: 'reconciliation-required', affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+          }]
+        })),
+        commit: vi.fn(), commitWithAudit: vi.fn()
+      },
+      remoteObserver: { remoteFolderExists }
+    } as never)
+
+    await expect(service.reconcile('100', 'imported-operation')).resolves.toEqual({ status: 'failed', operationId: 'imported-operation' })
+    expect(remoteFolderExists).toHaveBeenCalledWith('100', '99')
+  })
+
+  it('keeps reconciliation required when a known observation cannot persist its checkpoint', async () => {
+    const current = managedSnapshot()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => ({
+          ...current,
+          syncRecords: [{
+            id: 'managed-folder-delete:unpersisted-observation', commandId: 'unpersisted-observation', operationKey: 'managed-folder-delete',
+            status: 'result-unknown', affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+          }]
+        })),
+        commit: vi.fn(async () => { throw new Error('disk full') }), commitWithAudit: vi.fn()
+      },
+      remoteObserver: { remoteFolderExists: vi.fn(async () => 'present' as const) }
+    } as never)
+
+    await expect(service.reconcile('100', 'unpersisted-observation')).resolves.toEqual({ status: 'reconciliation-required', operationId: 'unpersisted-observation' })
+  })
+
   it('rejects a remote folder shared by another logical ledger during preview', async () => {
     const current = managedSnapshot()
     current.physicalShards.push({ logicalLedgerId: 'other', folderId: 'bilimi:other:001', shardNumber: 1, remoteFolderId: '99', remoteTitle: 'Other', bindingState: 'bound' })
