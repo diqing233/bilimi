@@ -1,4 +1,4 @@
-import type { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
+import type { FavoriteOperationSourceScope, FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
 import type { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
 
 type IpcEvent = { sender: { id: number } }
@@ -38,6 +38,18 @@ function token(value: unknown) {
   return value
 }
 
+type RendererSource = { kind: 'folder'; folderId: string } | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+
+function rendererSource(value: unknown): RendererSource {
+  if (!value || typeof value !== 'object') throw new Error('Favorite operation source is invalid.')
+  const source = value as Record<string, unknown>
+  if (source.kind === 'folder' && typeof source.folderId === 'string' && source.folderId.trim()) return { kind: 'folder', folderId: source.folderId.trim() }
+  if (source.kind === 'virtual' && Array.isArray(source.eligibleAids) && Array.isArray(source.skippedAids)) {
+    return { kind: 'virtual', eligibleAids: aids(source.eligibleAids), skippedAids: source.skippedAids.length ? aids(source.skippedAids) : [] }
+  }
+  throw new Error('Favorite operation source is invalid.')
+}
+
 /** Registers only account-bound preview, confirmation, execution and reconciliation actions. */
 export function registerFavoriteLibraryOperationsIpc(options: {
   ipcMain: IpcMain
@@ -45,6 +57,8 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'deleteLocal' | 'confirm' | 'executeRemote' | 'reconcile'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  /** Resolves folder provenance from the current repository snapshot, never renderer labels. */
+  resolveSourceScope: (accountMid: string, source: RendererSource, requestedAids: number[]) => Promise<FavoriteOperationSourceScope>
 }) {
   const trusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) throw new Error('Favorite operation came from an untrusted renderer.')
@@ -54,17 +68,26 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     if (normalized !== account(await options.getCurrentAccountMid())) throw new Error('Favorite operation account changed.')
     return normalized
   }
-  options.ipcMain.handle('favorite-library-operations:copy', async (event, requestedAccount, requestedAids, requestedTargets, expectedRevision) => {
-    trusted(event); return options.batch.copy(await current(requestedAccount), aids(requestedAids), targets(requestedTargets), revision(expectedRevision))
+  const sourceScope = async (requestedAccount: unknown, requestedAids: unknown, requestedSource: unknown, action: 'copy' | 'move' | 'delete' | 'unfavorite') => {
+    const normalized = await current(requestedAccount)
+    const selected = aids(requestedAids)
+    const scope = await options.resolveSourceScope(normalized, rendererSource(requestedSource), selected)
+    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy') {
+      throw new Error('This action is not permitted from a Bilibili source folder.')
+    }
+    return { normalized, selected, scope }
+  }
+  options.ipcMain.handle('favorite-library-operations:copy', async (event, requestedAccount, requestedAids, requestedTargets, expectedRevision, requestedSource) => {
+    trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'copy'); return options.batch.copy(operation.normalized, operation.selected, targets(requestedTargets), revision(expectedRevision), operation.scope)
   })
-  options.ipcMain.handle('favorite-library-operations:move', async (event, requestedAccount, requestedAids, requestedSourceFolder, requestedTargets, expectedRevision) => {
-    trusted(event); return options.batch.move(await current(requestedAccount), aids(requestedAids), sourceFolder(requestedSourceFolder), targets(requestedTargets), revision(expectedRevision))
+  options.ipcMain.handle('favorite-library-operations:move', async (event, requestedAccount, requestedAids, requestedSourceFolder, requestedTargets, expectedRevision, requestedSource) => {
+    trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'move'); return options.batch.move(operation.normalized, operation.selected, sourceFolder(requestedSourceFolder), targets(requestedTargets), revision(expectedRevision), operation.scope)
   })
-  options.ipcMain.handle('favorite-library-operations:delete-local', async (event, requestedAccount, requestedAids, expectedRevision) => {
-    trusted(event); return options.batch.deleteLocal(await current(requestedAccount), aids(requestedAids), revision(expectedRevision))
+  options.ipcMain.handle('favorite-library-operations:delete-local', async (event, requestedAccount, requestedAids, expectedRevision, requestedSource) => {
+    trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'delete'); return options.batch.deleteLocal(operation.normalized, operation.selected, revision(expectedRevision), operation.scope)
   })
-  options.ipcMain.handle('favorite-library-operations:preview-unfavorite', async (event, requestedAccount, requestedAids, expectedRevision) => {
-    trusted(event); return options.batch.previewRemoteUnfavorite(await current(requestedAccount), aids(requestedAids), revision(expectedRevision))
+  options.ipcMain.handle('favorite-library-operations:preview-unfavorite', async (event, requestedAccount, requestedAids, expectedRevision, requestedSource) => {
+    trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'unfavorite'); return options.batch.previewRemoteUnfavorite(operation.normalized, operation.selected, revision(expectedRevision), operation.scope)
   })
   options.ipcMain.handle('favorite-library-operations:confirm-unfavorite', async (event, requestedAccount, executionToken) => {
     trusted(event); await current(requestedAccount); return { confirmationToken: options.batch.confirmRemoteUnfavorite(token(executionToken)) }

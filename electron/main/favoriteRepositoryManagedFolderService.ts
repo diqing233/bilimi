@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { FavoriteRepositoryCommand, FavoriteRepositoryEvent } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
+import { favoriteRepositoryRemoteOperationArbiter, type FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
-type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'>
+type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit' | 'commitWithAudit'>
 
 export type ManagedFolderDeletionResult = {
-  status: 'succeeded' | 'result-unknown'
+  status: 'succeeded' | 'failed' | 'result-unknown'
   operationId: string
   auditStatus: 'recorded' | 'failed'
 }
@@ -27,7 +28,7 @@ export type ManagedFolderDeletionPreview = {
   executionToken: string
 }
 
-type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'result-unknown' | 'succeeded' }
+type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'failed' | 'result-unknown' | 'succeeded' }
 
 function account(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Managed folder account is invalid.')
@@ -38,7 +39,7 @@ function account(value: string) {
 export class FavoriteRepositoryManagedFolderService {
   private readonly operations = new Map<string, PendingDeletion>()
 
-  constructor(private readonly options: { repository: Repository; remote?: RemoteFolderWriter; now?: () => string }) {}
+  constructor(private readonly options: { repository: Repository; remote?: RemoteFolderWriter; remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>; now?: () => string }) {}
 
   async preview(accountMid: string, logicalFolderId: string): Promise<ManagedFolderDeletionPreview> {
     const normalizedAccount = account(accountMid)
@@ -76,13 +77,12 @@ export class FavoriteRepositoryManagedFolderService {
     if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
     const auditAids = [...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])]
     const timestamp = this.now()
-    await this.options.repository.commit(operation.accountMid, {
+    await this.options.repository.commitWithAudit(operation.accountMid, {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
-    })
-    const auditStatus = await this.audit(operation, 'managed-folder-delete-local', undefined, auditAids)
+    }, this.events(auditAids, 'managed-folder-delete-local', timestamp))
     operation.status = 'succeeded'
-    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus }
+    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }
 
   confirm(executionToken: string) {
@@ -103,23 +103,26 @@ export class FavoriteRepositoryManagedFolderService {
     if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
     if (!this.options.remote) throw new Error('Managed folder remote deletion is unavailable.')
     try {
-      await this.options.remote.removeRemoteFolder(operation.accountMid, operation.remoteBinding.remoteFolderId)
+      await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
+        operation.accountMid, { priority: 'user-single' }, () => this.options.remote!.removeRemoteFolder(operation.accountMid, operation.remoteBinding!.remoteFolderId)
+      )
     } catch (error) {
-      operation.status = 'result-unknown'
-      const auditStatus = await this.audit(operation, 'managed-folder-delete-remote-result-unknown', error instanceof Error ? error.message : String(error))
-      return { status: 'result-unknown' as const, operationId: operation.operationId, auditStatus }
+      const reason = error instanceof Error ? error.message : String(error)
+      const knownFailure = error instanceof Error && (error as Error & { code?: string }).code === 'REMOTE_REJECTED'
+      operation.status = knownFailure ? 'failed' : 'result-unknown'
+      const auditStatus = await this.audit(operation, knownFailure ? 'managed-folder-delete-remote-failed' : 'managed-folder-delete-remote-result-unknown', reason)
+      return { status: operation.status, operationId: operation.operationId, auditStatus }
     }
-    await this.options.repository.commit(operation.accountMid, {
+    await this.options.repository.commitWithAudit(operation.accountMid, {
       id: `managed-folder:delete-local:${operation.operationId}`,
       accountMid: operation.accountMid,
       issuedAt: this.now(),
       expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder',
       payload: { logicalFolderId: operation.logicalFolderId }
-    })
+    }, this.events([...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])], 'managed-folder-delete-remote', this.now()))
     operation.status = 'succeeded'
-    const auditStatus = await this.audit(operation, 'managed-folder-delete-remote')
-    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus }
+    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }
 
   async reconcile(accountMid: string, operationId: string) {
@@ -127,6 +130,8 @@ export class FavoriteRepositoryManagedFolderService {
     if (!operation || operation.accountMid !== account(accountMid)) throw new Error('Managed folder deletion operation was not found.')
     return operation.status === 'result-unknown'
       ? { status: 'reconciliation-required' as const, operationId }
+      : operation.status === 'failed'
+        ? { status: 'failed' as const, operationId }
       : { status: 'completed' as const, operationId }
   }
 
@@ -151,6 +156,10 @@ export class FavoriteRepositoryManagedFolderService {
       }
       return 'recorded'
     } catch { return 'failed' }
+  }
+
+  private events(aids: number[], detail: string, occurredAt: string): Array<Omit<FavoriteRepositoryEvent, 'accountMid'>> {
+    return [...new Set(aids)].map((aid) => ({ id: `managed-folder-audit:${randomUUID()}:${aid}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move' as const, occurredAt, detail }))
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

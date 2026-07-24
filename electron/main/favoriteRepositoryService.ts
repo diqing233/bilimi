@@ -877,6 +877,52 @@ export class FavoriteRepositoryService {
     await this.writeTail
   }
 
+  /** Publishes a local mutation and its immutable timeline events in one generation. */
+  async commitWithAudit(
+    accountMid: string,
+    command: FavoriteRepositoryCommand,
+    events: Array<Omit<FavoriteRepositoryEvent, 'accountMid'>>
+  ): Promise<FavoriteRepositoryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    if (!events.length || events.length > 100) throw new Error('Favorite repository audit events are invalid.')
+    this.pendingWriteCount++
+    return this.queue(async () => {
+      if (normalizeAccountMid(command.accountMid) !== account) throw new Error('Favorite repository account mismatch.')
+      const cached = await this.load(account)
+      let repository = cached.repository
+      if (command.type !== 'record-sync-result' && command.type !== 'upsert-physical-shard-binding') {
+        repository = this.mergeSyncCheckpoints(repository, await this.loadSyncCheckpointState(account))
+      }
+      if (repository.commandResults[command.id]) return this.resultFromReceipt(repository.snapshot, repository.commandResults[command.id])
+      const acceptedAt = this.now()
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, command, acceptedAt)
+      const publishedResult = this.withCanonicalAffectedFolders(result, repository.snapshot)
+      const existingIds = new Set([
+        ...(repository.importedEvents ?? []).map((event) => event.id),
+        ...(await Promise.all([...new Set(events.map((event) => event.aid))].map(async (aid) => (await this.readEvents(account, aid)).map((event) => event.id)))).flat()
+      ])
+      const audited = events.map((event) => ({ ...event, accountMid: account }))
+      if (audited.some((event) => existingIds.has(event.id))) throw new Error('Favorite repository audit event id conflict.')
+      const next: PersistedRepository = {
+        ...repository,
+        snapshot: this.snapshotFromResult(result),
+        importedEvents: [...(repository.importedEvents ?? []), ...audited].sort((left, right) => left.aid - right.aid || left.sequence - right.sequence || left.id.localeCompare(right.id)),
+        commandResults: { ...repository.commandResults, [command.id]: receiptFromResult(result, command) }
+      }
+      const persisted = await this.persist(account, next, cached.manifest?.generation)
+      await Promise.all([
+        rm(this.syncJournalPath(account), { force: true }),
+        rm(this.syncCheckpointJournalPath(account), { force: true }),
+        rm(this.bindingJournalPath(account), { force: true }),
+        rm(this.eventJournalPath(account), { force: true })
+      ])
+      this.syncCheckpointState.delete(account)
+      this.cache.set(account, persisted)
+      this.emitChange(publishedResult)
+      return clone(result)
+    }).finally(() => { this.pendingWriteCount-- })
+  }
+
   /** Invalidates in-memory generations after an externally staged local-data publish. */
   clearCache() {
     this.cache.clear()

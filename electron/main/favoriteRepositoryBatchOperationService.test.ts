@@ -19,49 +19,53 @@ function snapshot(): AccountFavoriteRepositorySnapshot {
   }
 }
 
+function repository(current: AccountFavoriteRepositorySnapshot, commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))) {
+  return {
+    getSnapshot: vi.fn(async () => current),
+    commit,
+    commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+  }
+}
+
 describe('FavoriteRepositoryBatchOperationService', () => {
   it('deletes selected local rows in one revision-checked commit while retaining remote recovery evidence', async () => {
     const current = snapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1, 2], affectedFolderIds: [] }))
-    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit }, now: () => '2026-07-24T01:00:00.000Z' })
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1, 2], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit }, now: () => '2026-07-24T01:00:00.000Z' })
 
     await expect(service.deleteLocal('100', [2, 1], 7)).resolves.toMatchObject({ affectedAids: [1, 2], auditStatus: 'recorded' })
-    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'delete-favorites-from-library', expectedRevision: 7,
       payload: { aids: [1, 2], deletedAt: '2026-07-24T01:00:00.000Z', reason: 'user-delete' }
-    }))
-    expect(commit).toHaveBeenCalledTimes(2)
-    expect(commit.mock.calls[1][1]).toMatchObject({
-      type: 'record-favorite-events',
-      payload: { events: [
-        { aid: 1, detail: 'batch-local-delete' },
-        { aid: 2, detail: 'batch-local-delete' }
-      ] }
-    })
+    }), expect.any(Array))
+    expect(commit).not.toHaveBeenCalled()
+    expect(commitWithAudit.mock.calls[0][2]).toMatchObject([{ aid: 1, detail: 'batch-local-delete' }, { aid: 2, detail: 'batch-local-delete' }])
   })
 
   it('copies additively and moves only current Bilimi logical membership, with immutable audits', async () => {
     const current = snapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit }, now: () => '2026-07-24T01:00:00.000Z' })
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit }, now: () => '2026-07-24T01:00:00.000Z' })
 
     await service.copy('100', [1, 2], ['bilimi-logical:target'], 7)
-    expect(commit.mock.calls[0][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
+    expect(commitWithAudit.mock.calls[0][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
       { aid: 1, localDesiredFolderIds: ['bilimi-logical:source', 'bilimi-logical:target'] },
       { aid: 2, localDesiredFolderIds: ['bilimi-logical:source', 'bilimi-logical:target'] }
     ] } })
     await service.move('100', [1, 2], 'bilimi-logical:source', ['bilimi-logical:target'], 7)
-    expect(commit.mock.calls[2][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
+    expect(commitWithAudit.mock.calls[1][1]).toMatchObject({ type: 'set-favorite-placements', payload: { placements: [
       { aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] }, { aid: 2, localDesiredFolderIds: ['bilimi-logical:target'] }
     ] } })
-    expect(commit.mock.calls.filter((call) => call[1].type === 'record-favorite-events')).toHaveLength(2)
+    expect(commit).not.toHaveBeenCalled()
   })
 
   it('previews all Bilibili-membership unfavorites, stops on unknown results, and requires explicit reconciliation', async () => {
     const current = snapshot()
     const unfavorite = vi.fn(async () => ({ status: 'result-unknown' as const, completedOperationCount: 0, totalOperationCount: 2, affectedAids: [1, 2], reason: 'timeout' }))
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit }, remoteUnfavorite: { unfavorite }, now: () => '2026-07-24T01:00:00.000Z' })
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repository(current, commit), remoteUnfavorite: { unfavorite }, now: () => '2026-07-24T01:00:00.000Z' })
     const preview = await service.previewRemoteUnfavorite('100', [2, 1], 7)
     expect(preview).toMatchObject({ aids: [1, 2], removesAllBilibiliMembership: true, baselineRevision: 7 })
     const confirmation = service.confirmRemoteUnfavorite(preview.executionToken)
@@ -76,7 +80,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     const current = snapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
     const service = new FavoriteRepositoryBatchOperationService({
-      repository: { getSnapshot: vi.fn(async () => current), commit },
+      repository: repository(current, commit),
       remoteUnfavorite: { unfavorite: vi.fn(async () => ({ status: 'failed' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1], reason: 'rejected' })) }
     })
     const preview = await service.previewRemoteUnfavorite('100', [1], 7)
@@ -93,7 +97,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     const getSnapshot = vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(later)
     const unfavorite = vi.fn()
     const service = new FavoriteRepositoryBatchOperationService({
-      repository: { getSnapshot, commit: vi.fn() }, remoteUnfavorite: { unfavorite }
+      repository: { getSnapshot, commit: vi.fn(), commitWithAudit: vi.fn() }, remoteUnfavorite: { unfavorite }
     })
 
     const preview = await service.previewRemoteUnfavorite('100', [1], 7)
@@ -102,17 +106,14 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(unfavorite).not.toHaveBeenCalled()
   })
 
-  it('returns the committed batch result when its subsequent audit write fails', async () => {
+  it('rejects a local change when its atomic audit transaction fails', async () => {
     const current = snapshot()
     const committed = { ...current, commandId: 'placement', affectedAids: [1], affectedFolderIds: ['bilimi-logical:target'] }
     const commit = vi.fn()
-      .mockResolvedValueOnce(committed)
-      .mockRejectedValueOnce(new Error('audit unavailable'))
-    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit } })
+    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn().mockRejectedValue(new Error('atomic audit unavailable')) } })
 
-    await expect(service.copy('100', [1], ['bilimi-logical:target'], 7)).resolves.toMatchObject({
-      commandId: 'placement', auditStatus: 'failed'
-    })
+    await expect(service.copy('100', [1], ['bilimi-logical:target'], 7)).rejects.toThrow('atomic audit unavailable')
+    expect(committed.commandId).toBe('placement')
   })
 
   it('keeps a result-unknown remote outcome while surfacing failed audit persistence', async () => {
@@ -130,5 +131,36 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     await expect(service.executeRemoteUnfavorite('100', preview.executionToken, confirmation)).resolves.toMatchObject({
       status: 'result-unknown', auditStatus: 'failed'
     })
+  })
+
+  it('recovers an unknown unfavorite from repository evidence and persistently reconciles it without another remote mutation', async () => {
+    const current = {
+      ...snapshot(),
+      syncRecords: [{
+        id: 'favorite-remote-unfavorite:restart-operation', commandId: 'restart-operation', status: 'result-unknown' as const,
+        affectedAids: [1], updatedAt: '2026-07-24T01:00:00.000Z', operationKey: 'favorite-library-unfavorite'
+      }]
+    }
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1], affectedFolderIds: [] }))
+    const unfavorite = vi.fn()
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit }, remoteUnfavorite: { unfavorite },
+      remoteObserver: { areUnfavorited: vi.fn(async () => 'removed' as const) }
+    } as never)
+
+    await expect(service.reconcileRemoteUnfavorite('100', 'restart-operation')).resolves.toMatchObject({ status: 'completed' })
+    expect(unfavorite).not.toHaveBeenCalled()
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'record-sync-result', payload: expect.objectContaining({ status: 'succeeded', commandId: 'restart-operation' })
+    }))
+  })
+
+  it('rejects destructive actions from Bilibili source and virtual scopes without explicit eligibility evidence', async () => {
+    const current = snapshot()
+    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn() } })
+
+    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' } as never)).rejects.toThrow('not permitted')
+    await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1] } as never)).rejects.toThrow('skipped')
+    await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1], skippedAids: [] })).resolves.toMatchObject({ aids: [1] })
   })
 })

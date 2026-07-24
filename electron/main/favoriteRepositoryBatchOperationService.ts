@@ -2,8 +2,19 @@ import { randomUUID } from 'node:crypto'
 import type { FavoriteRepositoryCommand, FavoriteRepositoryCommandResult, FavoriteRepositoryEvent, FavoriteRepositoryPositionRecord } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteLibraryCommandResult, FavoriteLibraryRemoteUnfavorite } from './favoriteLibraryCommands'
+import { favoriteRepositoryRemoteOperationArbiter, type FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
-type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit'>
+type Repository = Pick<FavoriteRepositoryService, 'getSnapshot' | 'commit' | 'commitWithAudit'>
+
+export type FavoriteOperationSourceScope =
+  | { kind: 'bilimi-logical'; folderId?: string }
+  | { kind: 'bilibili-default' | 'bilibili-user'; folderId: string }
+  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+
+type RemoteUnfavoriteObserver = {
+  /** Observes the remote outcome; it must not issue a mutation. */
+  areUnfavorited(accountMid: string, aids: number[]): Promise<'removed' | 'present' | 'unknown'>
+}
 
 export type FavoriteRepositoryLocalOperationResult = FavoriteRepositoryCommandResult & {
   /** The state change was committed even if immutable audit persistence needs repair. */
@@ -52,33 +63,38 @@ export class FavoriteRepositoryBatchOperationService {
   constructor(private readonly options: {
     repository: Repository
     remoteUnfavorite?: FavoriteLibraryRemoteUnfavorite
+    remoteObserver?: RemoteUnfavoriteObserver
+    remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>
     now?: () => string
   }) {}
 
-  async copy(accountMid: string, requestedAids: number[], requestedTargets: string[], expectedRevision: number) {
+  async copy(accountMid: string, requestedAids: number[], requestedTargets: string[], expectedRevision: number, source?: FavoriteOperationSourceScope) {
+    this.requireScope(source, requestedAids, 'copy')
     return this.changePlacements(accountMid, requestedAids, requestedTargets, expectedRevision, 'copy')
   }
 
-  async move(accountMid: string, requestedAids: number[], sourceFolderId: string, requestedTargets: string[], expectedRevision: number) {
+  async move(accountMid: string, requestedAids: number[], sourceFolderId: string, requestedTargets: string[], expectedRevision: number, source?: FavoriteOperationSourceScope) {
+    this.requireScope(source, requestedAids, 'move')
     if (!/^bilimi-logical:\S+$/.test(sourceFolderId.trim())) throw new Error('Favorite move source must be a Bilimi work folder.')
     return this.changePlacements(accountMid, requestedAids, requestedTargets, expectedRevision, 'move', sourceFolderId.trim())
   }
 
-  async deleteLocal(accountMid: string, requestedAids: number[], expectedRevision: number): Promise<FavoriteRepositoryLocalOperationResult> {
+  async deleteLocal(accountMid: string, requestedAids: number[], expectedRevision: number, source?: FavoriteOperationSourceScope): Promise<FavoriteRepositoryLocalOperationResult> {
+    this.requireScope(source, requestedAids, 'delete')
     const normalizedAccount = account(accountMid)
     const selected = aids(requestedAids)
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
     const deletedAt = this.now()
-    const result = await this.options.repository.commit(normalizedAccount, {
+    const result = await this.options.repository.commitWithAudit(normalizedAccount, {
       id: `favorite-batch:delete-local:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: deletedAt, expectedRevision,
       type: 'delete-favorites-from-library', payload: { aids: selected, deletedAt, reason: 'user-delete' }
-    })
-    const auditStatus = await this.audit(normalizedAccount, selected, 'batch-local-delete')
-    return { ...result, auditStatus }
+    }, this.events(selected, 'batch-local-delete', deletedAt))
+    return { ...result, auditStatus: 'recorded' }
   }
 
-  async previewRemoteUnfavorite(accountMid: string, requestedAids: number[], expectedRevision: number): Promise<FavoriteRemoteUnfavoritePreview> {
+  async previewRemoteUnfavorite(accountMid: string, requestedAids: number[], expectedRevision: number, source?: FavoriteOperationSourceScope): Promise<FavoriteRemoteUnfavoritePreview> {
+    this.requireScope(source, requestedAids, 'unfavorite')
     const normalizedAccount = account(accountMid)
     const selected = aids(requestedAids)
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
@@ -107,7 +123,9 @@ export class FavoriteRepositoryBatchOperationService {
     const current = await this.options.repository.getSnapshot(operation.accountMid)
     if (current.revision !== operation.baselineRevision) throw new Error('Favorite remote unfavorite baseline is stale.')
     if (!this.options.remoteUnfavorite) throw new Error('Favorite remote unfavorite is unavailable.')
-    const result = await this.options.remoteUnfavorite.unfavorite(operation.accountMid, operation.aids)
+    const result = await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
+      operation.accountMid, { priority: 'user-single' }, () => this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids)
+    )
     const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
     operation.status = remoteStatus
     await this.options.repository.commit(operation.accountMid, {
@@ -125,18 +143,23 @@ export class FavoriteRepositoryBatchOperationService {
         operationKey: 'favorite-library-unfavorite'
       }
     })
-    const auditStatus = await this.audit(
-      operation.accountMid,
-      operation.aids,
-      result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite',
-      result.reason
-    )
+    const auditStatus = await this.audit(operation.accountMid, operation.aids, result.status === 'result-unknown' ? 'remote-unfavorite-result-unknown' : 'remote-unfavorite', result.reason)
     return { ...result, auditStatus }
   }
 
   async reconcileRemoteUnfavorite(accountMid: string, operationId: string) {
-    const operation = this.remoteOperations.get(operationId)
-    if (!operation || operation.accountMid !== account(accountMid)) throw new Error('Favorite remote unfavorite operation was not found.')
+    const normalizedAccount = account(accountMid)
+    const operation = this.remoteOperations.get(operationId) ?? await this.recoverRemoteOperation(normalizedAccount, operationId)
+    if (!operation || operation.accountMid !== normalizedAccount) throw new Error('Favorite remote unfavorite operation was not found.')
+    if (operation.status === 'result-unknown' && this.options.remoteObserver) {
+      const observation = await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
+        normalizedAccount, { priority: 'reconcile' }, () => this.options.remoteObserver!.areUnfavorited(normalizedAccount, operation.aids)
+      )
+      if (observation !== 'unknown') {
+        operation.status = observation === 'removed' ? 'succeeded' : 'failed'
+        await this.recordRemoteResult(operation, operation.status, observation === 'removed' ? undefined : 'Remote still reports the videos as favorited.', 'reconcile')
+      }
+    }
     return operation.status === 'result-unknown'
       ? { status: 'reconciliation-required' as const, operationId, aids: [...operation.aids] }
       : operation.status === 'failed'
@@ -161,12 +184,11 @@ export class FavoriteRepositoryBatchOperationService {
       const retained = action === 'move' ? existing.filter((folderId) => folderId !== sourceFolderId) : existing
       return this.placement(aid, [...retained, ...targets], prior, timestamp)
     })
-    const result = await this.options.repository.commit(normalizedAccount, {
+    const result = await this.options.repository.commitWithAudit(normalizedAccount, {
       id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision,
       type: 'set-favorite-placements', payload: { placements }
-    })
-    const auditStatus = await this.audit(normalizedAccount, selected, action === 'copy' ? 'batch-copy' : 'batch-move')
-    return { ...result, auditStatus }
+    }, this.events(selected, action === 'copy' ? 'batch-copy' : 'batch-move', timestamp))
+    return { ...result, auditStatus: 'recorded' }
   }
 
   private placement(aid: number, localDesiredFolderIds: string[], prior: FavoriteRepositoryPositionRecord | undefined, updatedAt: string) {
@@ -189,6 +211,42 @@ export class FavoriteRepositoryBatchOperationService {
       })
       return 'recorded'
     } catch { return 'failed' }
+  }
+
+  private events(selected: number[], detail: string, occurredAt: string, reason?: string): Array<Omit<FavoriteRepositoryEvent, 'accountMid'>> {
+    return selected.map((aid) => ({ id: `favorite-batch-audit:${randomUUID()}`, sequence: Date.parse(occurredAt), aid, kind: 'manual-move' as const, occurredAt, detail: reason ? `${detail}: ${reason}` : detail }))
+  }
+
+  private requireScope(source: FavoriteOperationSourceScope | undefined, requestedAids: number[], action: 'copy' | 'move' | 'delete' | 'unfavorite') {
+    if (!source || source.kind === 'bilimi-logical') return
+    if (source.kind === 'bilibili-default' || source.kind === 'bilibili-user') {
+      if (action !== 'copy') throw new Error('This action is not permitted from a Bilibili source folder.')
+      return
+    }
+    const selected = aids(requestedAids)
+    if (!Array.isArray(source.skippedAids)) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
+    const eligible = new Set(aids(source.eligibleAids))
+    if (selected.some((aid) => !eligible.has(aid))) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
+  }
+
+  private async recoverRemoteOperation(accountMid: string, operationId: string): Promise<PendingRemoteUnfavorite | undefined> {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    const record = snapshot.syncRecords.find((item) => item.id === `favorite-remote-unfavorite:${operationId}` && item.operationKey === 'favorite-library-unfavorite')
+    if (!record) return undefined
+    const operation: PendingRemoteUnfavorite = {
+      operationId, accountMid, aids: [...record.affectedAids], removesAllBilibiliMembership: true,
+      baselineRevision: snapshot.revision, executionToken: '', status: record.status === 'pending' ? 'result-unknown' : record.status
+    }
+    this.remoteOperations.set(operationId, operation)
+    return operation
+  }
+
+  private async recordRemoteResult(operation: PendingRemoteUnfavorite, status: 'succeeded' | 'failed' | 'result-unknown', reason?: string, suffix = 'result') {
+    await this.options.repository.commit(operation.accountMid, {
+      id: `favorite-remote-unfavorite:${suffix}:${operation.operationId}`,
+      accountMid: operation.accountMid, issuedAt: this.now(), type: 'record-sync-result',
+      payload: { id: `favorite-remote-unfavorite:${operation.operationId}`, commandId: operation.operationId, status, affectedAids: operation.aids, updatedAt: this.now(), reason, operationKey: 'favorite-library-unfavorite' }
+    })
   }
 
   private now() { return this.options.now?.() ?? new Date().toISOString() }

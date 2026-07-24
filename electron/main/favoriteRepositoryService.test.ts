@@ -60,6 +60,25 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('200')).resolves.toMatchObject({ accountMid: '200', videos: { '200': expect.any(Object) } })
   })
 
+  it('keeps earlier immutable events when an audited local mutation publishes its generation', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'earlier-event-command', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-favorite-event',
+      payload: { id: 'earlier-event', sequence: 1, aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const snapshot = await service.getSnapshot('100')
+
+    await service.commitWithAudit('100', {
+      id: 'audited-placement', accountMid: '100', issuedAt: '2026-07-24T00:01:00.000Z', expectedRevision: snapshot.revision,
+      type: 'set-favorite-placements', payload: { placements: [{ aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-24T00:01:00.000Z' }] }
+    }, [{ id: 'audited-event', sequence: 2, aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:01:00.000Z' }])
+
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ id: 'earlier-event' }), expect.objectContaining({ id: 'audited-event' })])
+    })
+  })
+
   it('recovers every selected account before exposing a partially published portable import after restart', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

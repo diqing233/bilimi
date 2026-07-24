@@ -41,6 +41,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
+import type { FavoriteLibraryOperationSource } from '../../shared/favoriteLibraryOperations'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
@@ -139,10 +140,10 @@ type BilimiDesktopApi = {
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
-  copyFavoriteLibrarySelection?: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
-  moveFavoriteLibrarySelection?: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
-  deleteFavoriteLibrarySelection?: (accountMid: string, aids: number[], expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
-  previewFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, aids: number[], expectedRevision: number) => Promise<unknown>
+  copyFavoriteLibrarySelection?: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  moveFavoriteLibrarySelection?: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  deleteFavoriteLibrarySelection?: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  previewFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<unknown>
   confirmFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, operationId: string) => Promise<unknown>

@@ -12,6 +12,11 @@ export type FavoriteOperationSource =
   | { kind: 'folder'; folderId: string }
   | { kind: 'virtual'; label: string }
 
+/** IPC-safe scope evidence for batch operations. Folder kind is resolved in main. */
+export type FavoriteLibraryOperationSource =
+  | { kind: 'folder'; folderId: string }
+  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+
 export type FavoriteOperationSourceScopeKind =
   | 'bilimi-work-folder'
   | 'unmatched'

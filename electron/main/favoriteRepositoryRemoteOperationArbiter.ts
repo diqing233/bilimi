@@ -147,3 +147,6 @@ export class FavoriteRepositoryRemoteOperationArbiter {
     for (const resolve of waiters) resolve()
   }
 }
+
+/** Shared process-wide gate for every Bilibili mutation and observation. */
+export const favoriteRepositoryRemoteOperationArbiter = new FavoriteRepositoryRemoteOperationArbiter()

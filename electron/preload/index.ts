@@ -53,6 +53,7 @@ import type {
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
 import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
+import type { FavoriteLibraryOperationSource } from '../../src/shared/favoriteLibraryOperations'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -187,14 +188,14 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
-  copyFavoriteLibrarySelection: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number) =>
-    ipcRenderer.invoke('favorite-library-operations:copy', accountMid, aids, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
-  moveFavoriteLibrarySelection: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number) =>
-    ipcRenderer.invoke('favorite-library-operations:move', accountMid, aids, sourceFolderId, targetFolderIds, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
-  deleteFavoriteLibrarySelection: (accountMid: string, aids: number[], expectedRevision: number) =>
-    ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, aids, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
-  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number) =>
-    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision) as Promise<unknown>,
+  copyFavoriteLibrarySelection: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:copy', accountMid, aids, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  moveFavoriteLibrarySelection: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:move', accountMid, aids, sourceFolderId, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  deleteFavoriteLibrarySelection: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, aids, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision, source) as Promise<unknown>,
   confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>
     ipcRenderer.invoke('favorite-library-operations:confirm-unfavorite', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
   executeFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string, confirmationToken: string) =>
