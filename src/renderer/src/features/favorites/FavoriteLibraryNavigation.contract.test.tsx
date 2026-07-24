@@ -1,8 +1,14 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryNavigation } from './FavoriteLibraryNavigation'
 
 const chinese = (...codePoints: number[]) => String.fromCodePoint(...codePoints)
+const favoriteLibraryStyles = readFileSync(
+  resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'),
+  'utf8'
+)
 
 describe('FavoriteLibraryNavigation contract', () => {
   it('uses right-aligned group controls, dashed group boundaries, and reserves folder menus for managed workspace rows', () => {
@@ -67,6 +73,9 @@ describe('FavoriteLibraryNavigation contract', () => {
     fireEvent.pointerEnter(menuWrap)
     expect(screen.getAllByRole('button', { name: edit })).toHaveLength(1)
     expect(screen.getByRole('button', { name: remove })).toBeInTheDocument()
+    expect(screen.getByRole('menu', { name: `${label} ${chinese(0x64cd, 0x4f5c)}` })).toHaveClass('favorite-library__folder-menu-items')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__folder-menu-wrap { position: relative;')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__folder-menu-items { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0;')
 
     fireEvent.pointerLeave(menuWrap)
     expect(screen.queryByRole('button', { name: edit })).not.toBeInTheDocument()
