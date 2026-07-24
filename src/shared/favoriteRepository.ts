@@ -807,7 +807,8 @@ function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
   const folderIds = new Set<string>()
   if (!recovery.folders.every((item) => isPortableRecoveryFolder(item, folderIds))) return false
   if (!Object.entries(recovery.memberships).every(([folderId, aids]) => folderIds.has(folderId) && isValidAidList(aids))) return false
-  if (!recovery.physicalShards.every((item) => isPortableRecoveryShard(item, folderIds))) return false
+  const shardKeys = new Set<string>()
+  if (!recovery.physicalShards.every((item) => isPortableRecoveryShard(item, folderIds, shardKeys))) return false
   if (recovery.workspace !== undefined && !isPortableRecoveryWorkspace(recovery.workspace, accountMid)) return false
   if (!recovery.syncRecords.every(isPortableRecoverySyncRecord) || !recovery.organizationRecords.every((record) =>
     isPortableRecoveryOrganizationRecord(record, accountMid)) ||
@@ -822,20 +823,27 @@ function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
   const allowedKeys = new Set(['id', 'title', 'kind', 'logicalLedgerId', 'syncState'])
   if (Object.keys(folder).some((key) => !allowedKeys.has(key)) || typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
     !['bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'pending-reconcile'].includes(String(folder.syncState))) return false
-  if ((folder.logicalLedgerId !== undefined && (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim())) ||
-    folder.remoteFolderId !== undefined) return false
+  if (folder.kind === 'bilimi-logical') {
+    if (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim() ||
+      folder.id !== `bilimi-logical:${folder.logicalLedgerId}` || folder.syncState !== 'pending-reconcile') return false
+  } else if (folder.logicalLedgerId !== undefined || !folder.id.startsWith('local:') || folder.syncState !== 'local-only') return false
+  if (folder.remoteFolderId !== undefined) return false
   ids.add(folder.id)
   return true
 }
 
-function isPortableRecoveryShard(value: unknown, folderIds: Set<string>) {
+function isPortableRecoveryShard(value: unknown, folderIds: Set<string>, shardKeys: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const shard = value as Record<string, unknown>
   const allowedKeys = new Set(['logicalLedgerId', 'folderId', 'shardNumber', 'remoteTitle', 'bindingState'])
-  return !Object.keys(shard).some((key) => !allowedKeys.has(key)) && typeof shard.logicalLedgerId === 'string' && !!shard.logicalLedgerId.trim() && typeof shard.folderId === 'string' && folderIds.has(shard.folderId) &&
-    Number.isSafeInteger(shard.shardNumber) && Number(shard.shardNumber) > 0 && typeof shard.remoteTitle === 'string' && !!shard.remoteTitle.trim() &&
-    shard.bindingState === 'pending-reconcile' && shard.remoteFolderId === undefined &&
-    shard.knownRemoteFolderIds === undefined && shard.remoteMemberCount === undefined
+  if (Object.keys(shard).some((key) => !allowedKeys.has(key)) || typeof shard.logicalLedgerId !== 'string' || !shard.logicalLedgerId.trim() ||
+    typeof shard.folderId !== 'string' || shard.folderId !== `bilimi-logical:${shard.logicalLedgerId}` || !folderIds.has(shard.folderId) ||
+    !Number.isSafeInteger(shard.shardNumber) || Number(shard.shardNumber) <= 0 || typeof shard.remoteTitle !== 'string' || !shard.remoteTitle.trim() ||
+    shard.bindingState !== 'pending-reconcile' || shard.remoteFolderId !== undefined || shard.knownRemoteFolderIds !== undefined || shard.remoteMemberCount !== undefined) return false
+  const key = `${shard.logicalLedgerId}:${shard.shardNumber}`
+  if (shardKeys.has(key)) return false
+  shardKeys.add(key)
+  return true
 }
 
 function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
@@ -1306,6 +1314,11 @@ export function applyFavoriteRepositoryCommand(
       break
     case 'record-bilibili-mirror': {
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
+      // A source scan is observation only.  It must not recreate a video the
+      // user has explicitly hard-deleted from this local library.
+      for (const [folderId, aids] of membersByFolderId) {
+        membersByFolderId.set(folderId, aids.filter((aid) => tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]?.allowRediscovery !== false))
+      }
       const mirrorFolders = command.payload.folders.map((folder) => ({
         id: folder.id.trim(), title: folder.title.trim(), remoteFolderId: folder.remoteFolderId!.trim()
       })).sort((left, right) => left.id.localeCompare(right.id))
@@ -1326,6 +1339,7 @@ export function applyFavoriteRepositoryCommand(
         else videos[aid] = video
       }
       for (const video of command.payload.videos) {
+        if (tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, video.aid)]?.allowRediscovery === false) continue
         const existing = videos[String(video.aid)]
         videos[String(video.aid)] = mergeFavoriteRepositoryVideo(existing, video)
       }

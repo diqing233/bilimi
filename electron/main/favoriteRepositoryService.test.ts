@@ -195,6 +195,24 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
   })
 
+  it('overwrite replaces old portable audit history instead of retaining it', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const oldArchive = createFavoriteRepositoryArchiveExport(base, {
+      generatedAt: '2026-07-24T00:00:00.000Z',
+      events: [{ id: 'old-event', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }]
+    })
+    await service.applyArchiveImport('100', { validate: () => oldArchive, mode: 'overwrite' })
+    const replacement = createFavoriteRepositoryArchiveExport(await service.getSnapshot('100'), {
+      generatedAt: '2026-07-24T00:01:00.000Z',
+      events: [{ id: 'new-event', sequence: 1, accountMid: '100', aid: 2, kind: 'manual-move', occurredAt: '2026-07-24T00:01:00.000Z' }]
+    })
+
+    await service.applyArchiveImport('100', { validate: () => replacement, mode: 'overwrite' })
+    await expect(service.getPortableAuditEvents('100')).resolves.toEqual([expect.objectContaining({ id: 'new-event' })])
+  })
+
   it('applies imported tombstones as authoritative local deletions instead of leaving library rows visible', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

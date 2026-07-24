@@ -592,6 +592,8 @@ export type VideoAudioTranscriptionResult = {
 export type VideoAudioTranscriptionQueueStatus =
   | 'pending'
   | 'running'
+  /** Imported work that was active on another device; only an explicit retry may resume it. */
+  | 'waiting-restart'
   | 'completed'
   | 'failed'
   | 'canceled'

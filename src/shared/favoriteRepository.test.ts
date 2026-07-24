@@ -182,6 +182,26 @@ describe('account favorite repository contracts', () => {
     expect(restored.organizationRecords).toEqual(snapshot.organizationRecords)
   })
 
+  it('does not let a hard tombstone be recreated by a later Bilibili mirror scan', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-1', accountMid: '100', issuedAt: '2026-07-24T00:00:01.000Z', type: 'tombstone-favorite-video',
+      payload: { aid: 1, deletedAt: '2026-07-24T00:00:01.000Z', allowRediscovery: false }
+    }, '2026-07-24T00:00:01.000Z')
+
+    const scanned = applyFavoriteRepositoryCommand(deleted, {
+      id: 'mirror-after-delete', accountMid: '100', issuedAt: '2026-07-24T00:00:02.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'scan-1',
+        folders: [{ id: 'bilibili:1', title: 'Bilibili', remoteFolderId: '1' }], memberAidsByFolderId: { 'bilibili:1': [1] },
+        videos: [{ aid: 1, title: 'must stay deleted', tags: [], updatedAt: '2026-07-24T00:00:02.000Z' }]
+      }
+    }, '2026-07-24T00:00:02.000Z')
+
+    expect(scanned.videos['1']).toBeUndefined()
+    expect(scanned.memberships['bilibili:1']).toEqual([])
+  })
+
   it('creates and validates a credential-free portable archive with a stable checksum', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),

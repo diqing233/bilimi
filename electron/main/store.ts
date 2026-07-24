@@ -48,6 +48,10 @@ import type {
 } from '../../src/shared/types'
 
 export type AssistantPreferences = {
+  /** Portable presentation preferences; credentials and runtime state stay excluded. */
+  theme: 'light' | 'dark' | 'system'
+  language: string
+  windowBounds: { x: number; y: number; width: number; height: number } | null
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
   favoriteAccountPreferences: Record<string, FavoriteAccountPreferences>
@@ -122,6 +126,14 @@ function normalizeFavoriteAccountMid(accountMid: string) {
   return BigInt(trimmed).toString()
 }
 
+function normalizePortableWindowBounds(value: unknown): { x: number; y: number; width: number; height: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const bounds = value as Record<string, unknown>
+  if (!['x', 'y', 'width', 'height'].every((key) => typeof bounds[key] === 'number' && Number.isFinite(bounds[key]))) return null
+  if (Number(bounds.width) < 100 || Number(bounds.height) < 100) return null
+  return { x: Number(bounds.x), y: Number(bounds.y), width: Number(bounds.width), height: Number(bounds.height) }
+}
+
 function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPreferences | undefined {
   if (!value || typeof value !== 'object') return undefined
   const candidate = value as Partial<FavoriteAccountPreferences>
@@ -155,6 +167,9 @@ function normalizeFavoriteAccountPreferenceMap(value: unknown) {
 }
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
+  theme: 'system',
+  language: 'zh-CN',
+  windowBounds: null,
   favoritesFolderName: 'bilimi 内库',
   favoriteLedgers: createDefaultFavoriteLedgers(),
   favoriteAccountPreferences: {},
@@ -400,6 +415,9 @@ export function loadAssistantPreferences(
   }
 
   return {
+    theme: store.get('theme') === 'light' || store.get('theme') === 'dark' ? store.get('theme') : 'system',
+    language: typeof store.get('language') === 'string' && store.get('language').trim() ? store.get('language').trim() : 'zh-CN',
+    windowBounds: normalizePortableWindowBounds(store.get('windowBounds')),
     favoritesFolderName: store.get('favoritesFolderName'),
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences')),
@@ -499,6 +517,9 @@ export function saveAssistantPreferences(
   preferences: AssistantPreferences = DEFAULT_ASSISTANT_PREFERENCES
 ): AssistantPreferences {
   store.set({
+    theme: preferences.theme === 'light' || preferences.theme === 'dark' ? preferences.theme : 'system',
+    language: typeof preferences.language === 'string' && preferences.language.trim() ? preferences.language.trim() : 'zh-CN',
+    windowBounds: normalizePortableWindowBounds(preferences.windowBounds),
     favoritesFolderName: preferences.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
     favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(preferences.favoriteAccountPreferences),
@@ -836,14 +857,15 @@ export function loadVideoAudioTranscriptionQueue(
     return []
   }
 
+  const waitingForUserRestart = items.filter((item) => item.status === 'waiting-restart')
   items.forEach((item) => {
-    if (item.draftNote && !item.archiveNoteId) {
+    if (item.status !== 'waiting-restart' && item.draftNote && !item.archiveNoteId) {
       saveVideoNoteArchiveVersion(store, item.draftNote, item.completedAt ?? item.updatedAt, '')
     }
   })
-  store.set('videoAudioTranscriptionQueue', [])
+  store.set('videoAudioTranscriptionQueue', waitingForUserRestart)
 
-  return []
+  return waitingForUserRestart
 }
 
 export function saveVideoAudioTranscriptionQueue(

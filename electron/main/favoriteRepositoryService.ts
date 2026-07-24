@@ -421,7 +421,9 @@ export class FavoriteRepositoryService {
     this.pendingWriteCount++
     return this.queue(async () => {
       const cached = await this.load(account)
-      const repository = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account))
+      const repository = mode === 'overwrite'
+        ? cached.repository
+        : this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account))
       const existing = repository.commandResults[commandId]
       if (existing) return this.resultFromReceipt(repository.snapshot, existing)
 
@@ -429,13 +431,13 @@ export class FavoriteRepositoryService {
       // receipt. A failure while publishing that generation leaves no visible
       // snapshot/receipt/event state; unlike post-persist append, it cannot
       // produce a restored repository with a missing user history.
-      const existingEventIds = new Set([
+      const existingEventIds = new Set(mode === 'overwrite' ? [] : [
         ...(repository.importedEvents ?? []).map((event) => event.id),
         ...(await Promise.all([...new Set((archive.events ?? []).map((event) => event.aid))]
           .map(async (aid) => (await this.readEvents(account, aid)).map((event) => event.id)))).flat()
       ])
       const importedEvents = [
-        ...(repository.importedEvents ?? []),
+        ...(mode === 'overwrite' ? [] : repository.importedEvents ?? []),
         ...(archive.events ?? []).filter((event) => !existingEventIds.has(event.id)).map(clone)
       ].sort((left, right) => left.aid - right.aid || left.sequence - right.sequence || left.id.localeCompare(right.id))
 
@@ -593,6 +595,18 @@ export class FavoriteRepositoryService {
       // Snapshot, receipt, and staged archive event projection share one atomic
       // generation publication; no event append happens after the receipt.
       const persisted = await this.persist(account, next, cached.manifest?.generation)
+      if (mode === 'overwrite') {
+        // The archive generation is now durable.  Legacy append-only audit and
+        // checkpoint journals are a prior local projection and must not leak
+        // through a true replacement import.
+        await Promise.all([
+          rm(join(this.accountDirectory(account), 'events'), { recursive: true, force: true }),
+          rm(this.eventJournalPath(account), { force: true }),
+          rm(this.syncJournalPath(account), { force: true }),
+          rm(this.syncCheckpointJournalPath(account), { force: true })
+        ])
+        this.syncCheckpointState.delete(account)
+      }
       this.cache.set(account, persisted)
       this.emitChange(result)
       return clone(result)

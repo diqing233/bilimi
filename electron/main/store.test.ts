@@ -1104,4 +1104,17 @@ describe('video audio transcription queue store helpers', () => {
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
     expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
   })
+
+  it('keeps imported waiting-restart transcription visible across restart without turning it into pending work', () => {
+    const waitingItem: VideoAudioTranscriptionQueueItem = {
+      id: 'account:100:aid:1:cid:11', accountMid: '100', aid: 1, cid: 11,
+      url: 'https://www.bilibili.com/video/av1?p=1', title: 'Interrupted import', status: 'waiting-restart',
+      createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:01:00.000Z'
+    }
+    const store = createFakeStore()
+    saveVideoAudioTranscriptionQueue(store, [waitingItem])
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([waitingItem])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([waitingItem])
+  })
 })

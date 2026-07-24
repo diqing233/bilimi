@@ -146,6 +146,21 @@ import type {
   FloatingAssistantWorkspaceRequest,
   OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+
+function portableSharedSettings(value: Record<string, unknown>): Partial<AssistantPreferences> {
+  const next: Partial<AssistantPreferences> = {}
+  if (value.theme === 'light' || value.theme === 'dark' || value.theme === 'system') next.theme = value.theme
+  if (typeof value.language === 'string' && value.language.trim()) next.language = value.language.trim()
+  if (value.closeBehavior === 'minimize-to-tray' || value.closeBehavior === 'exit-launcher') next.closeBehavior = value.closeBehavior
+  if (typeof value.favoritesFolderName === 'string' && value.favoritesFolderName.trim()) next.favoritesFolderName = value.favoritesFolderName.trim()
+  if (value.windowBounds && typeof value.windowBounds === 'object' && !Array.isArray(value.windowBounds)) {
+    const bounds = value.windowBounds as Record<string, unknown>
+    if (['x', 'y', 'width', 'height'].every((key) => typeof bounds[key] === 'number' && Number.isFinite(bounds[key])) && Number(bounds.width) >= 100 && Number(bounds.height) >= 100) {
+      next.windowBounds = { x: Number(bounds.x), y: Number(bounds.y), width: Number(bounds.width), height: Number(bounds.height) }
+    }
+  }
+  return next
+}
 import type {
   AssistantPetHint,
   AssistantPetState
@@ -1423,7 +1438,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           const selectedTranscription = Object.entries(batch.transcriptionByUid).filter(([uid]) => selectedUids.has(uid)).flatMap(([, items]) => items)
           saveVideoAudioTranscriptionQueue(store, [...previous.transcription.filter((item) => !item.accountMid || !selectedUids.has(item.accountMid)), ...selectedTranscription])
           store.set('favoriteAccountPreferences', accountPreferences)
-          if (sharedSettings.closeBehavior === 'minimize-to-tray' || sharedSettings.closeBehavior === 'exit-launcher') patchAssistantPreferences(store, { closeBehavior: sharedSettings.closeBehavior })
+          patchAssistantPreferences(store, portableSharedSettings(sharedSettings))
         } catch (error) {
           store.set('videoNoteArchives', previous.archives)
           saveVideoAudioTranscriptionQueue(store, previous.transcription)
@@ -1431,11 +1446,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           throw error
         }
       },
-      readSharedSettings: () => ({ closeBehavior: loadAssistantPreferences(getDesktopStore()).closeBehavior }),
-      writeSharedSettings: (settings) => {
-        if (settings.closeBehavior === 'minimize-to-tray' || settings.closeBehavior === 'exit-launcher') {
-          patchAssistantPreferences(getDesktopStore(), { closeBehavior: settings.closeBehavior })
+      readSharedSettings: () => {
+        const preferences = loadAssistantPreferences(getDesktopStore())
+        return {
+          theme: preferences.theme, language: preferences.language, windowBounds: preferences.windowBounds,
+          closeBehavior: preferences.closeBehavior, favoritesFolderName: preferences.favoritesFolderName
         }
+      },
+      writeSharedSettings: (settings) => {
+        patchAssistantPreferences(getDesktopStore(), portableSharedSettings(settings))
       }
     })
   })

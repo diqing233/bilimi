@@ -59,6 +59,16 @@ describe('local data migration v1', () => {
     })).toThrow('unregistered')
   })
 
+  it('accepts only typed portable shared presentation settings', () => {
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': account() },
+      sharedSettings: { theme: 'dark', language: 'en-US', windowBounds: { x: 1, y: 2, width: 1200, height: 800 }, closeBehavior: 'exit-launcher', favoritesFolderName: 'Library' }
+    })).not.toThrow()
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': account() }, sharedSettings: { theme: { unsafe: true } }
+    })).toThrow('shared')
+  })
+
   it('requires every registered account source with its v1 data shape', () => {
     const incomplete = account() as Record<string, unknown>
     delete incomplete.auditEvents
@@ -253,6 +263,23 @@ describe('local data migration v1', () => {
     repository.checksum = createFavoriteRepositoryArchiveExportChecksum(repository as never)
 
     expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': source } })).not.toThrow()
+  })
+
+  it('rejects recovery folders and shards that do not form one canonical logical ledger', () => {
+    const malformed = account()
+    const repository = malformed.repository as Record<string, unknown>
+    const recovery = repository.recovery as Record<string, unknown>
+    recovery.folders = [
+      { id: 'bilibili-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'wrong', syncState: 'pending-reconcile' },
+      { id: 'bilimi:music:001', title: 'shard', kind: 'local', syncState: 'local-only' }
+    ]
+    recovery.memberships = { 'bilibili-logical:music': [], 'bilimi:music:001': [] }
+    recovery.physicalShards = [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music', bindingState: 'pending-reconcile' }]
+    repository.checksum = createFavoriteRepositoryArchiveExportChecksum(repository as never)
+
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': malformed }
+    })).toThrow('repository')
   })
 
   it('preserves distinct archive version IDs for one note identity', () => {

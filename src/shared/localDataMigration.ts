@@ -178,6 +178,15 @@ function assertAccountSources(value: Record<string, unknown>, accountMid: string
 
 function assertSharedSettings(value: Record<string, unknown>) {
   assertRegisteredKeys(value, SHARED_SETTING_KEYS, 'shared setting')
+  if (value.theme !== undefined && !['light', 'dark', 'system'].includes(String(value.theme))) throw new Error('Migration shared settings are invalid.')
+  if (value.language !== undefined && (typeof value.language !== 'string' || !value.language.trim() || value.language.length > 64)) throw new Error('Migration shared settings are invalid.')
+  if (value.windowBounds !== undefined) {
+    if (!isRecord(value.windowBounds) || Object.keys(value.windowBounds).some((key) => !['x', 'y', 'width', 'height'].includes(key)) ||
+      !['x', 'y', 'width', 'height'].every((key) => typeof value.windowBounds![key] === 'number' && Number.isFinite(value.windowBounds![key])) ||
+      Number(value.windowBounds.width) < 100 || Number(value.windowBounds.height) < 100) throw new Error('Migration shared settings are invalid.')
+  }
+  if (value.closeBehavior !== undefined && !['minimize-to-tray', 'exit-launcher'].includes(String(value.closeBehavior))) throw new Error('Migration shared settings are invalid.')
+  if (value.favoritesFolderName !== undefined && (typeof value.favoritesFolderName !== 'string' || !value.favoritesFolderName.trim() || value.favoritesFolderName.length > 120)) throw new Error('Migration shared settings are invalid.')
   assertPortable(value)
 }
 
