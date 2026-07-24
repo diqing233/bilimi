@@ -37,6 +37,8 @@ export type FloatingAssistantWorkspaceRequest = {
   anchor?: { screenX: number; screenY: number }
   openNoteArchive?: boolean
   organizeOldFavorites?: boolean
+  /** Stable local ledger identity requested by the Favorite Library. */
+  ledgerId?: string
 }
 
 export type AssistantRuntimeRequest =

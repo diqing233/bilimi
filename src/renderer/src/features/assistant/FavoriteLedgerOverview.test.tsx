@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
 describe('FavoriteLedgerOverview', () => {
+  it('opens the requested ledger editor by its stable ID', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi路音乐', keywords: [], enabled: true, priority: 10, isDefault: false },
+      { id: 'music-duplicate', displayName: 'bilimi路音乐', keywords: [], enabled: true, priority: 20, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music-duplicate" />)
+
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveAttribute('data-ledger-id', 'music-duplicate')
+  })
+
   it('uses one bulk toggle that selects and clears the currently operable ledgers', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[

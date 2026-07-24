@@ -4,7 +4,7 @@ import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { defaultFavoriteSystemToggleAvailable, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS } from './FloatingAssistantApp'
 
 const defaultLedger: FavoriteLedger = {
-  id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true,
+  id: 'knowledge', displayName: 'bilimi\u00b7\u77e5\u8bc6', keywords: [], enabled: true,
   priority: 10, isDefault: true
 }
 
@@ -18,10 +18,11 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
-  it('places the Bilibili connection setting immediately before the closing setting', () => {
-    expect(SETTINGS_JUMP_OPTIONS.slice(-2)).toEqual([
-      { value: 'bilibili-connection', label: 'B 站连接方式' },
-      { value: 'close', label: '关闭设置' }
+  it('places local data between the Bilibili connection setting and closing setting', () => {
+    expect(SETTINGS_JUMP_OPTIONS.slice(-3).map((option) => option.value)).toEqual([
+      'bilibili-connection',
+      'local-data',
+      'close'
     ])
   })
 
@@ -36,10 +37,10 @@ describe('resolveFavoriteOrganizationLamp', () => {
       defaultFavoriteSystemEnabled: false,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '整理空闲', tone: 'idle' })
+    })).toMatchObject({ label: '\u6574\u7406\u7a7a\u95f2', tone: 'idle' })
   })
 
-  it('给同名远程收藏夹冲突显示备册异常', () => {
+  it('\u7ed9\u540c\u540d\u8fdc\u7a0b\u6536\u85cf\u5939\u51b2\u7a81\u663e\u793a\u5907\u518c\u5f02\u5e38', () => {
     expect(resolveFavoriteOrganizationLamp({
       snapshot: null,
       defaultFavoriteSystemEnabled: true,
@@ -49,9 +50,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
         ledgers: [defaultLedger],
         missingLedgerIds: ['knowledge'],
         backupConflictLedgerIds: ['knowledge'],
-        message: '发现同名收藏夹'
+        message: '\u53d1\u73b0\u540c\u540d\u6536\u85cf\u5939'
       }
-    })).toMatchObject({ label: '备册异常', tone: 'error' })
+    })).toMatchObject({ label: '\u5907\u518c\u5f02\u5e38', tone: 'error' })
   })
 
   it('uses the backup status only when no real organization round is active', () => {
@@ -60,22 +61,22 @@ describe('resolveFavoriteOrganizationLamp', () => {
       defaultFavoriteSystemEnabled: true,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '未备册', tone: 'error' })
+    })).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
 
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace('scanning'),
       defaultFavoriteSystemEnabled: true,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '整理扫描中', tone: 'running' })
+    })).toMatchObject({ label: '\u6574\u7406\u626b\u63cf\u4e2d', tone: 'running' })
   })
 
   it.each([
-    ['previewing', '等待确认'],
-    ['frozen', '等待执行'],
-    ['executing', '整理执行中'],
-    ['reconciling', '等待对账'],
-    ['completed', '整理完成']
+    ['previewing', '\u7b49\u5f85\u786e\u8ba4'],
+    ['frozen', '\u7b49\u5f85\u6267\u884c'],
+    ['executing', '\u6574\u7406\u6267\u884c\u4e2d'],
+    ['reconciling', '\u7b49\u5f85\u5bf9\u8d26'],
+    ['completed', '\u6574\u7406\u5b8c\u6210']
   ] as const)('prioritizes the %s workspace state over backup status', (status, label) => {
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace(status),

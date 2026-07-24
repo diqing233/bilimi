@@ -892,6 +892,7 @@ export function FloatingAssistantApp({
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
+  const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -2184,6 +2185,9 @@ export function FloatingAssistantApp({
         return
       }
 
+      // Clear stale editor targeting when the next workspace request has no ledger target.
+      setRequestedLedgerId(payload.ledgerId)
+
       if (payload.openNoteArchive) {
         void loadVideoNoteArchives()
         setActiveTab(payload.tab, { view: 'noteArchive' })
@@ -2688,6 +2692,7 @@ export function FloatingAssistantApp({
               preferences.deepseekApiKeyStored &&
               preferences.deepseekArchiveOrganizationEnabled
             }
+            openLedgerId={requestedLedgerId}
             />
           </div>
         ) : null}
