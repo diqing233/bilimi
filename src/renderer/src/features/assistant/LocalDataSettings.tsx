@@ -1,7 +1,11 @@
 import { useState } from 'react'
 
 type Account = { uid: string; nickname?: string; retained: boolean }
-type Usage = { totalBytes: number; calculatedAt: string }
+type Usage = {
+  totalBytes: number
+  calculatedAt: string
+  categories?: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
+}
 type ImportPreview = { token?: string; accounts: Array<{ uid: string; action: string }> }
 type CleanupLevel = 'cache' | 'current-account-temp' | 'current-account-data'
 type Props = {
@@ -52,7 +56,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     <h2>本地数据与迁移</h2><p>用户数据位置：<code>{userDataPath}</code></p>
     <button type="button" onClick={onOpenPath}>打开文件位置</button>
     <button type="button" onClick={recalculate} disabled={busy}>{busy ? '正在计算' : '重新计算'}</button>
-    {usage && <p>磁盘使用：{formatBytes(usage.totalBytes)}；上次计算：{usage.calculatedAt}</p>}
+    {usage && <><p>磁盘使用：{formatBytes(usage.totalBytes)}；上次计算：{usage.calculatedAt}</p>{usage.categories ? <ul aria-label="磁盘使用分类"><li>账号持久数据：{formatBytes(usage.categories.accountPersistent.bytes)}</li><li>设备共享设置：{formatBytes(usage.categories.deviceShared.bytes)}</li><li>缓存：{formatBytes(usage.categories.cache.bytes)}</li><li>临时音频：{formatBytes(usage.categories.temporaryAudio.bytes)}</li><li>日志：{formatBytes(usage.categories.logs.bytes)}</li></ul> : null}</>}
     <h3>保留本地数据的账户</h3><ul>{accounts.map((account) => <li key={account.uid}><strong>{account.uid}</strong>{account.nickname ? `（${account.nickname}，仅显示）` : ''}</li>)}</ul>
     <fieldset><legend>导出范围</legend><label><input type="radio" name="migration-scope" checked={exportScope === 'current'} onChange={() => setExportScope('current')} />当前账户</label><label><input type="radio" name="migration-scope" checked={exportScope === 'selected'} onChange={() => setExportScope('selected')} />所选账户</label><label><input type="radio" name="migration-scope" checked={exportScope === 'all'} onChange={() => setExportScope('all')} />全部账户</label>{exportScope === 'selected' ? <div aria-label="选择导出账户">{accounts.map((account) => <label key={account.uid}><input type="checkbox" aria-label={`导出账户 ${account.uid}`} checked={selectedUids.includes(account.uid)} onChange={() => toggleUid(account.uid)} />{account.uid}</label>)}</div> : null}<label><input type="checkbox" checked={includeSharedSettings} onChange={(event) => setIncludeSharedSettings(event.target.checked)} />包含非敏感共享设置</label></fieldset>
     <button type="button" disabled={exportScope === 'selected' && !selectedUids.length} onClick={async () => { setMigrationProgress('正在导出'); try { if (exportScope === 'selected') await onExport?.(exportScope, includeSharedSettings, selectedUids); else await onExport?.(exportScope, includeSharedSettings); setMigrationProgress('导出完成') } catch { setMigrationProgress('导出失败') } }}>导出数据</button>

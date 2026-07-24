@@ -3,6 +3,22 @@ import { describe, expect, it, vi } from 'vitest'
 import { LocalDataSettings } from './LocalDataSettings'
 
 describe('LocalDataSettings', () => {
+  it('shows categorized disk usage after asynchronous recalculation', async () => {
+    const calculateUsage = vi.fn().mockResolvedValue({
+      totalBytes: 15,
+      calculatedAt: '2026-07-24T00:00:00.000Z',
+      categories: { accountPersistent: { bytes: 1 }, deviceShared: { bytes: 2 }, cache: { bytes: 3 }, temporaryAudio: { bytes: 4 }, logs: { bytes: 5 } }
+    })
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={calculateUsage} onFullClear={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重新计算' }))
+    expect(await screen.findByText(/账号持久数据：1 B/)).toBeInTheDocument()
+    expect(screen.getByText(/设备共享设置：2 B/)).toBeInTheDocument()
+    expect(screen.getByText(/缓存：3 B/)).toBeInTheDocument()
+    expect(screen.getByText(/临时音频：4 B/)).toBeInTheDocument()
+    expect(screen.getByText(/日志：5 B/)).toBeInTheDocument()
+  })
+
   it('shows account groups, async recalculation feedback, migration actions, and typed full-clear confirmation', async () => {
     const calculateUsage = vi.fn().mockResolvedValue({ totalBytes: 1024, calculatedAt: '2026-07-24T00:00:00.000Z' })
     const onFullClear = vi.fn()

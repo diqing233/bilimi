@@ -173,7 +173,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
   getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>,
-  calculateLocalDataUsage: () => ipcRenderer.invoke('local-data:calculate-usage') as Promise<{ totalBytes: number; calculatedAt: string }>,
+  calculateLocalDataUsage: () => ipcRenderer.invoke('local-data:calculate-usage') as Promise<{
+    totalBytes: number; calculatedAt: string
+    categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
+  }>,
   openLocalDataPath: () => ipcRenderer.invoke('local-data:open-path') as Promise<void>,
   exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) =>
     ipcRenderer.invoke('local-data:export', input) as Promise<unknown>,

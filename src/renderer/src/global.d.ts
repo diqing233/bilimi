@@ -129,7 +129,10 @@ type BilimiDesktopApi = {
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>
   getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
   getLocalDataInfo?: () => Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>
-  calculateLocalDataUsage?: () => Promise<{ totalBytes: number; calculatedAt: string }>
+  calculateLocalDataUsage?: () => Promise<{
+    totalBytes: number; calculatedAt: string
+    categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
+  }>
   openLocalDataPath?: () => Promise<void>
   exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) => Promise<unknown>
   previewLocalDataImport?: () => Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>

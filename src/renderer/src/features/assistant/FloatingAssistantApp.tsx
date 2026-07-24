@@ -3480,7 +3480,11 @@ export function FloatingAssistantApp({
                 userDataPath={localDataInfo.path}
                 accounts={localDataInfo.accounts}
                 currentAccountUid={resolvedSnapshot.accountMid}
-                calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? { totalBytes: 0, calculatedAt: new Date().toISOString() }}
+                calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? {
+                  totalBytes: 0,
+                  calculatedAt: new Date().toISOString(),
+                  categories: { accountPersistent: { bytes: 0 }, deviceShared: { bytes: 0 }, cache: { bytes: 0 }, temporaryAudio: { bytes: 0 }, logs: { bytes: 0 } }
+                }}
                 onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
                 onExport={async (scope, includeSharedSettings, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings, ...(uids?.length ? { uids } : {}) }) }}
                 onImport={async () => {
