@@ -602,7 +602,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '同步B站位置' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
     fireEvent.click((await screen.findAllByText('视频一'))[0])
-    fireEvent.click(screen.getByRole('button', { name: '加入转写队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '单独转写音频' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
   })
   it('disables the singleton move action outside a bilimi logical folder scope', async () => {
@@ -880,6 +880,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('已同步')
     expect(detail).toHaveTextContent('转写完成')
     expect(detail).toHaveTextContent('已入档')
+    expect(screen.getByRole('button', { name: '查看档案详情' })).toBeEnabled()
     expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledWith('100', 1)
     fireEvent.click(screen.getByRole('button', { name: '取消星标' }))
     await waitFor(() => expect(toggleFavoriteLibraryArchiveStar).toHaveBeenCalledWith('100', 1, 70))
@@ -970,6 +971,22 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, cursor: '100' }))
     expect(await screen.findByText('Second page')).toBeInTheDocument()
     expect(screen.queryByText('First page')).not.toBeInTheDocument()
+  })
+
+  it('keeps archive detail unavailable until transcription completes', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '等待转写', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '等待转写', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: '已同步' }, transcription: { status: '正在转写' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('等待转写'))
+
+    expect(await screen.findByRole('button', { name: '查看档案详情' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '单独转写音频' })).toBeInTheDocument()
   })
 
   it('returns through cursor history without retaining older page rows', async () => {
