@@ -392,6 +392,8 @@ export function registerFavoriteRepositoryIpc(options: {
   /** The embedded main-window favorite library drawer may read page snapshots but never mutate the repository. */
   isTrustedReader?: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  /** Performs safe main-process reconciliation before the drawer reads a summary. */
+  onAccountOpen?: (accountMid: string) => Promise<void>
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
@@ -544,6 +546,7 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
+    await options.onAccountOpen?.(accountMid)
     return options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {

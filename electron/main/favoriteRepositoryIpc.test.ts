@@ -14,6 +14,24 @@ class FakeIpcMain {
 }
 
 describe('registerFavoriteRepositoryIpc', () => {
+  it('reconciles saved work-folder bindings before returning an opened library account', async () => {
+    const ipcMain = new FakeIpcMain()
+    const onAccountOpen = vi.fn().mockResolvedValue(undefined)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary } as never,
+      isTrustedSender: (senderId) => senderId === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      onAccountOpen
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 1 })
+    expect(onAccountOpen).toHaveBeenCalledWith('100')
+    expect(getLibrarySummary).toHaveBeenCalledWith('100')
+    expect(onAccountOpen.mock.invocationCallOrder[0]).toBeLessThan(getLibrarySummary.mock.invocationCallOrder[0])
+  })
+
   it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
     const ipcMain = new FakeIpcMain()
     const setLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })

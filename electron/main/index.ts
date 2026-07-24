@@ -1699,6 +1699,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getArchiveSummary: (accountMid, aid) => createFavoriteLibraryArchiveSummary(accountMid, aid, loadVideoNoteArchives(getDesktopStore())),
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
+    onAccountOpen: async (accountMid) => {
+      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+        .find((candidate) => candidate.id === 'inbox' && candidate.bilibiliFolderId?.trim())
+      if (!ledger?.bilibiliFolderId) return
+      const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
+      const existing = snapshot.physicalShards.find((shard) => shard.logicalLedgerId === ledger.id && shard.shardNumber === 1)
+      if (existing || !snapshot.folders.some((folder) => folder.remoteFolderId === ledger.bilibiliFolderId)) return
+      await favoriteRepositoryBindingService!.adoptExistingPhysicalShard(accountMid, {
+        logicalLedgerId: ledger.id,
+        logicalTitle: ledger.displayName,
+        expectedRemoteTitle: ledger.displayName,
+        remoteFolderId: ledger.bilibiliFolderId,
+        shardNumber: 1,
+        memberAids: snapshot.memberships[`bilibili:${ledger.bilibiliFolderId}`] ?? []
+      })
+    },
     commandService: favoriteLibraryCommandService,
     archiveService: favoriteRepositoryArchiveService,
     archiveRestoreWriter: favoriteRepositorySyncService.createArchiveRestoreWriter()
