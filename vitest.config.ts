@@ -11,6 +11,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Large repository fixtures contend for Windows temp-directory I/O when
+    // files run together, causing false timeout and cleanup failures.
+    fileParallelism: false,
     exclude: [...configDefaults.exclude, '.worktrees/**'],
     globals: true,
     setupFiles: ['./src/test/setup.ts']
