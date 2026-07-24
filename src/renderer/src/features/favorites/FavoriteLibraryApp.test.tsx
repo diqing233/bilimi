@@ -969,7 +969,8 @@ describe('FavoriteLibraryApp', () => {
         folders: [
           { id: 'remote', title: 'B \u7ad9\u539f\u6536\u85cf', kind: 'bilibili', syncState: 'bound' },
           { id: 'local', title: text.localFolder, kind: 'local', syncState: 'local-only' },
-          { id: 'legacy-staging', title: 'bilimi 暂存', kind: 'bilibili', syncState: 'bound' }
+          { id: 'legacy-staging', title: 'bilimi 暂存', kind: 'bilimi-logical', logicalLedgerId: 'staging', syncState: 'bound' },
+          { id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }
         ], physicalShardCount: 0, syncRecordCount: 1,
         syncCounts: { pending: 0, succeeded: 0, failed: 1, 'result-unknown': 0 }
       }),
@@ -983,7 +984,9 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: text.all })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: `${text.pending} 1` })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'bilimi 暂存' }).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'workspace')
-    expect(screen.queryByRole('button', { name: 'bilimi 暂存 菜单' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'bilimi 暂存 菜单' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '未匹配分类' }).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'workspace')
+    expect(screen.queryByRole('button', { name: '未匹配分类 菜单' })).not.toBeInTheDocument()
     const list = await screen.findByRole('list', { name: text.videoList })
     expect(list).toHaveAttribute('data-virtualized', 'true')
     fireEvent.click(screen.getByText('All video'))
