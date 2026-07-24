@@ -122,6 +122,12 @@ export class FavoriteRepositoryManagedFolderService {
             shard.logicalLedgerId !== this.logicalLedgerId(operation.logicalFolderId))) {
             throw new ManagedFolderRemotePreconditionError('Managed folder remote binding belongs to another logical ledger.')
           }
+          if (snapshot.syncRecords.some((record) => record.operationKey === 'managed-folder-delete' &&
+            record.id !== `managed-folder-delete:${operation.operationId}` &&
+            ['result-unknown', 'reconciliation-required'].includes(record.status) &&
+            record.targetFolderIds?.includes(operation.logicalFolderId))) {
+            throw new Error('Managed folder remote deletion already requires reconciliation.')
+          }
           const remoteKey = `${operation.accountMid}:${operation.remoteBinding!.remoteFolderId}`
           const priorOperation = this.remoteDeletionOwners.get(remoteKey)
           if (priorOperation && priorOperation !== operation.operationId) throw new Error('Managed folder remote deletion already requires reconciliation.')

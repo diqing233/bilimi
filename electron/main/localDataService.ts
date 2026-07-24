@@ -22,7 +22,7 @@ export type LocalDataPersistence = {
 }
 export type LocalDataServiceOptions = { root: string; appVersion: string; persistence: LocalDataPersistence }
 export type LocalDataCleanupLevel = 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data'
-type Hooks = { stopActiveWork?: () => void | Promise<void>; clearLoginSessions?: () => void | Promise<void>; exitApp?: () => void | Promise<void> }
+type Hooks = { stopActiveWork?: () => void | Promise<void>; cleanupFailed?: () => void | Promise<void>; clearLoginSessions?: () => void | Promise<void>; exitApp?: () => void | Promise<void> }
 export type LocalDataImportPreview = {
   token: string
   accounts: Array<{ uid: string; action: 'merge' | 'add' }>
@@ -107,10 +107,10 @@ export class LocalDataService {
     const staged = input.mode === 'merge' ? mergeMigrationAccounts(before, archive.accounts) : { ...before, ...archive.accounts }
     for (const uid of archive.selectedUids) staged[uid] = restorePortableAccountState(staged[uid])
     const rollbackPath = join(this.options.root, `.migration-rollback-${randomUUID()}.json`)
+    const stagingPath = join(this.options.root, `.migration-stage-${randomUUID()}.json`)
     await mkdir(this.options.root, { recursive: true })
     await this.atomicWrite(rollbackPath, JSON.stringify(before))
     try {
-      const stagingPath = join(this.options.root, `.migration-stage-${randomUUID()}.json`)
       await this.atomicWrite(stagingPath, JSON.stringify(staged))
       if (input.injectFailureAfterStage) throw new Error('injected import failure')
       if (!this.options.persistence.writePortableState) throw new Error('Local data persistence does not support atomic import.')
@@ -126,23 +126,30 @@ export class LocalDataService {
         catch (rollbackError) { throw new Error(`Migration import failed and rollback could not be completed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`) }
       }
       throw error
-    } finally { await rm(rollbackPath, { force: true }) }
+    } finally {
+      await Promise.all([rm(stagingPath, { force: true }), rm(rollbackPath, { force: true })])
+    }
   }
 
   async applyCleanup(input: { level: LocalDataCleanupLevel; uid?: string; confirmation?: string }) {
     if (input.level === 'all-user-data') {
       if (input.confirmation !== '全部清除') throw new Error('Full clear confirmation is required.')
-      await this.hooks.stopActiveWork?.()
-      await this.options.persistence.writeAccounts({})
-      await this.options.persistence.writeSharedSettings({})
-      await this.hooks.clearLoginSessions?.()
-      // The profile root is local-only. Remove residual repository, draft,
-      // cache, log, and temporary files after coordinated structured cleanup.
-      const entries = await readdir(this.options.root, { withFileTypes: true }).catch(() => [])
-      await Promise.all(entries.filter((entry) => !entry.isSymbolicLink()).map((entry) =>
-        rm(join(this.options.root, entry.name), { recursive: entry.isDirectory(), force: true })
-      ))
-      await this.hooks.exitApp?.()
+      try {
+        await this.hooks.stopActiveWork?.()
+        await this.options.persistence.writeAccounts({})
+        await this.options.persistence.writeSharedSettings({})
+        await this.hooks.clearLoginSessions?.()
+        // The profile root is local-only. Remove residual repository, draft,
+        // cache, log, and temporary files after coordinated structured cleanup.
+        const entries = await readdir(this.options.root, { withFileTypes: true }).catch(() => [])
+        await Promise.all(entries.filter((entry) => !entry.isSymbolicLink()).map((entry) =>
+          rm(join(this.options.root, entry.name), { recursive: entry.isDirectory(), force: true })
+        ))
+        await this.hooks.exitApp?.()
+      } catch (error) {
+        await this.hooks.cleanupFailed?.()
+        throw error
+      }
       return
     }
     if (!input.uid) throw new Error('An account UID is required.')

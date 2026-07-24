@@ -104,4 +104,12 @@ describe('FavoriteRepositoryRemoteOperationArbiter', () => {
     await expect(arbiter.runDestructiveMaintenance(async () => { throw new Error('local clear failed') })).rejects.toThrow('local clear failed')
     await expect(arbiter.run('100', async () => 'available')).resolves.toBe('available')
   })
+
+  it('reopens remote work after a successful maintenance barrier when later cleanup fails', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+
+    await arbiter.runDestructiveMaintenance(async () => undefined)
+    arbiter.resumeAfterFailedMaintenance()
+    await expect(arbiter.run('100', async () => 'available')).resolves.toBe('available')
+  })
 })

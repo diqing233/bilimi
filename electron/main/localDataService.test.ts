@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -184,6 +184,17 @@ describe('LocalDataService', () => {
     expect((accounts['100'].repository as { videos: unknown[] }).videos).toHaveLength(1)
   })
 
+  it('removes the staged import file when staging fails before publication', async () => {
+    const { root, service } = await makeService()
+    const archive = join(root, 'portable.json')
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
+    const preview = await service.previewImport(archive)
+
+    await expect(service.applyImport(preview, { mode: 'merge', injectFailureAfterStage: true })).rejects.toThrow('injected')
+
+    expect((await readdir(root)).filter((name) => name.startsWith('.migration-stage-'))).toEqual([])
+  })
+
   it('rejects an archive produced by a newer unsupported app version before any preview mutation', async () => {
     const { root, service } = await makeService()
     const archive = join(root, 'future-portable.json')
@@ -231,6 +242,16 @@ describe('LocalDataService', () => {
     allowShutdownToFinish?.()
     await cleanup
     expect(accounts).toEqual({})
+  })
+
+  it('notifies active-work hooks when cleanup fails after they have settled', async () => {
+    const { service, persistence } = await makeService()
+    const cleanupFailed = vi.fn()
+    persistence.writeAccounts = vi.fn(() => { throw new Error('durable cleanup failed') })
+    service.setDestructiveHooks({ cleanupFailed })
+
+    await expect(service.applyCleanup({ level: 'all-user-data', confirmation: '全部清除' })).rejects.toThrow('durable cleanup failed')
+    expect(cleanupFailed).toHaveBeenCalledOnce()
   })
 
   it('removes only the selected UID when account records have overlapping shapes', async () => {

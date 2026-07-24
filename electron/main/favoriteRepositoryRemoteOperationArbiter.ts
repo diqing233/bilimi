@@ -136,6 +136,11 @@ export class FavoriteRepositoryRemoteOperationArbiter {
     }
   }
 
+  /** Reopens the barrier when later local cleanup fails in this running process. */
+  resumeAfterFailedMaintenance() {
+    this.acceptingOperations = true
+  }
+
   private drain(accountMid: string, accountQueue: AccountQueue) {
     if (accountQueue.active || this.maintenanceRequested) return
     const next = this.takeNext(accountQueue)

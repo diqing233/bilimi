@@ -1525,6 +1525,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         await favoriteRepositoryService?.flush()
       })
     },
+    cleanupFailed: () => favoriteRepositoryRemoteOperations.resumeAfterFailedMaintenance(),
     clearLoginSessions: () => session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({ storages: ['cookies'] }),
     exitApp: () => app.quit()
   })

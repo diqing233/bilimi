@@ -60,6 +60,28 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(removeRemoteFolder).toHaveBeenCalledTimes(1)
   })
 
+  it('blocks a newly confirmed remote delete after restart until an unknown managed deletion is reconciled', async () => {
+    const current = {
+      ...managedSnapshot(),
+      syncRecords: [{
+        id: 'managed-folder-delete:prior-unknown', commandId: 'prior-unknown', operationKey: 'managed-folder-delete',
+        status: 'result-unknown' as const, affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+      }]
+    }
+    const removeRemoteFolder = vi.fn(async () => undefined)
+    const restarted = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+      }, remote: { removeRemoteFolder }
+    })
+    const preview = await restarted.preview('100', 'bilimi-logical:work')
+
+    await expect(restarted.executeRemote('100', preview.executionToken, restarted.confirm(preview.executionToken)))
+      .resolves.toMatchObject({ status: 'result-unknown' })
+    expect(removeRemoteFolder).not.toHaveBeenCalled()
+  })
+
   it('keeps a portable logical-only unknown deletion available for reconciliation after import', async () => {
     const current = managedSnapshot()
     const remoteFolderExists = vi.fn(async () => 'absent' as const)
