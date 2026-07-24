@@ -57,7 +57,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveClass('favorite-library__dialog-overlay')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-overlay { position: fixed;')
-    expect(favoriteLibraryStyles).toContain('.favorite-library__layout { display: grid; grid-template-columns: var(--favorite-columns);')
+    expect(favoriteLibraryStyles).toContain('grid-template-columns: var(--favorite-columns);')
   })
   it('provides search, status filtering, and sorting controls from the toolbar', () => {
     const onSearchChange = vi.fn()
@@ -905,11 +905,27 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('来源与时间')
     expect(detail).toHaveTextContent('音频与档案')
     expect(detail).toHaveTextContent('BV1xx')
-    expect(detail).toHaveTextContent('分P CID：70')
+    expect(detail).toHaveTextContent('分P：70')
     expect(detail).not.toHaveTextContent('本地镜像')
     expect(detail).not.toHaveTextContent('视频来源')
     expect(detail).not.toHaveTextContent('来源分册')
     expect(detail).not.toHaveTextContent('扫描信息')
+  })
+
+  it('keeps a missing part as an explicit detail state without repeating the AV id', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '未分P详情', author: 'UP 主', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '未分P详情', author: 'UP 主', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('未分P详情'))
+
+    expect(await screen.findByRole('complementary')).toHaveTextContent('分P：暂无信息')
+    expect(screen.getByRole('complementary')).not.toHaveTextContent('AV1 · AV1')
   })
 
   it('renders pending reasons in Chinese instead of repository enum values', async () => {
@@ -963,6 +979,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByText(text.hideDetail))
     expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', '视频详情已收起')
     expect(screen.getByRole('button', { name: '恢复视频详情' })).toBeInTheDocument()
+    expect(list.closest('.favorite-library__layout')).toHaveAttribute('data-detail-collapsed', 'true')
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50 }))
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
