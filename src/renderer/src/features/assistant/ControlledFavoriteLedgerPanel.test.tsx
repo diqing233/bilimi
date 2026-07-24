@@ -143,7 +143,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    expect(screen.getByRole('heading', { name: '收藏夹' }).closest('.favorite-ledger-panel__ledger-list')).not.toBeNull()
+    expect(screen.getByRole('region', { name: '收藏夹' })).toBeInTheDocument()
     expect(screen.queryByText(/管理本地收藏夹规则，并在整理完成后保存。/)).not.toBeInTheDocument()
   })
 
@@ -189,7 +189,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
     const help = within(guide).getByRole('button', { name: '展开整理旧藏说明' })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
-    expect(help.querySelector('.favorite-ledger-panel__help-arrows')).not.toBeNull()
+    expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
     expect(within(guide).getByRole('button', { name: '收起整理旧藏说明' })).toHaveAttribute('aria-expanded', 'true')
   })
@@ -198,10 +198,27 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    const help = screen.getByRole('button', { name: '展开收藏夹说明' })
+    const help = screen.getByRole('button', { name: /收藏夹说明/ })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
-    expect(help.querySelector('.favorite-ledger-panel__help-arrows')).not.toBeNull()
-    expect(help).toHaveTextContent('')
+    expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
+    expect(help).toHaveTextContent('收藏夹说明')
+  })
+
+  it('remembers each explanation row after it is expanded', async () => {
+    window.localStorage.clear()
+    const ledgers = [{ id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true }]
+    const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹说明' }))
+    expect(screen.getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    first.unmount()
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    expect(screen.getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+
+    window.localStorage.clear()
   })
 
   it('keeps full reorganization in the legacy resume dialog instead of the guide header', async () => {

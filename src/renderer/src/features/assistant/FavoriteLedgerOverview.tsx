@@ -63,7 +63,7 @@ function ledgerEditorSnapshot(ledger: FavoriteLedger) {
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
 export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, defaultFavoriteSystemEnabled = true, openLedgerId, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
   const externalLedgerSignature = JSON.stringify(ledgers)
-  const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
+  const [ledgerHintExpanded, setLedgerHintExpanded] = useState(() => window.localStorage.getItem('bilimi:ledger-hint-open') === 'true')
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
     Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)]))
@@ -89,6 +89,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     setActiveLedgerId(openLedgerId)
     setNewLedger(false)
   }, [ledgers, openLedgerId])
+  useEffect(() => { window.localStorage.setItem('bilimi:ledger-hint-open', String(ledgerHintExpanded)) }, [ledgerHintExpanded])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     !savedLedgerSnapshots[ledger.id] || JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedLedgerSnapshots[ledger.id])
@@ -187,14 +188,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
-        <div className="favorite-ledger-panel__category-header"><span className="favorite-ledger-panel__section-title"><h3 title={LEDGER_SYNC_HINT}>收藏夹</h3>
-          <button type="button" className="favorite-ledger-panel__help-toggle" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹说明`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}>
-            <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
-              <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
-              <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
-            </span>
-          </button>
-        </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" data-testid="favorite-ledger-cancel-all" onClick={toggleAll}>{allOperableLedgersEnabled ? '取消全选' : '全选'}</button><button type="button" onClick={() => void requestSync()}>同步</button></div></div>
+        <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹说明`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹说明</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" data-testid="favorite-ledger-cancel-all" onClick={toggleAll}>{allOperableLedgersEnabled ? '取消全选' : '全选'}</button><button type="button" onClick={() => void requestSync()}>同步</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
@@ -246,4 +240,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     </div>
     {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { setDraftLedgers(createDefaultFavoriteLedgers()); setActiveLedgerId(null); setNewLedger(false); setResetConfirmOpen(false) }}><p>仅恢复默认收藏夹名称和分类规则，不会删除已有收藏夹。</p></OldFavoriteModal> : null}
   </section>
+}
+
+function Chevron() {
+  return <svg className="favorite-ledger-panel__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }

@@ -3824,28 +3824,27 @@ body[data-floating-window="true"],
   box-shadow: none;
   transform: none;
 }
-.favorite-ledger-panel__help-arrows {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
+.favorite-ledger-panel__chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  transition: transform 180ms ease-out;
 }
-.favorite-ledger-panel__help-arrow {
-  width: 0;
-  height: 0;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
-}
-.favorite-ledger-panel__help-arrow--up {
-  border-bottom: 4px solid currentColor;
-}
-.favorite-ledger-panel__help-arrow--down {
-  border-top: 4px solid currentColor;
+.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron {
+  transform: rotate(180deg);
 }
 .favorite-ledger-panel__sync-hint {
   color: var(--porcelain-muted);
   font-size: 12px;
   line-height: 1.45;
 }
+.favorite-ledger-panel__sync-hint,
+.favorite-ledger-panel__guide-hint {
+  overflow: hidden;
+  transition: max-height 180ms ease-out, opacity 150ms ease-out, transform 180ms ease-out;
+}
+.favorite-ledger-panel__sync-hint p { margin: 0; }
+.favorite-ledger-panel__sync-hint p + p { margin-top: 4px; }
 .favorite-ledger-panel__category-actions {
   display: flex;
   flex-wrap: wrap;
