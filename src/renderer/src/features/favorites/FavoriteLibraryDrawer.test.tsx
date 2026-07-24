@@ -46,6 +46,8 @@ describe('FavoriteLibraryDrawer', () => {
     const drawer = screen.getByTestId('favorite-library-drawer')
 
     expect(screen.getByText('小咪收藏库')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '小咪收藏库' })).toBeInTheDocument()
+    expect(screen.queryByText('米')).not.toBeInTheDocument()
     expect(screen.queryByText('收藏库')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '拉到最高' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '拉到最高' }))

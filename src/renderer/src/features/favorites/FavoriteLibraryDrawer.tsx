@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './FavoriteLibraryApp'
 
 const DEFAULT_HEIGHT = 360
@@ -144,7 +145,7 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
       />
       <header className="favorite-library-drawer__header">
         <div className="favorite-library-drawer__title">
-          <span className="favorite-library-drawer__brand-mark" aria-hidden="true">米</span>
+          <img className="favorite-library-drawer__brand-mark" src={workingPetUrl} alt="小咪收藏库" />
           <strong>小咪收藏库</strong>
           {account ? <span>{account.nickname ?? `UID：${account.mid}`}</span> : null}
         </div>

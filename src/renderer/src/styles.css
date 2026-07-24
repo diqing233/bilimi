@@ -501,16 +501,10 @@ body[data-floating-window="true"],
   overflow: hidden;
 }
 .favorite-library-drawer__brand-mark {
-  display: grid;
   width: 19px;
   height: 19px;
-  place-items: center;
-  border: 1px solid rgba(31, 99, 181, 0.38);
-  border-radius: 5px;
-  background: #fff;
-  color: #1f63b5;
-  font-size: 12px;
-  font-weight: 800;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(31, 99, 181, 0.2));
 }
 .favorite-library-drawer__title strong { white-space: nowrap; }
 .favorite-library-drawer__title span {
