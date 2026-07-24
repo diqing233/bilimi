@@ -350,6 +350,32 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
   return typed
 }
 
+/** Converts interrupted portable work into archive-only recovery records. */
+export function restoreFavoriteRepositoryArchiveRecovery(value: unknown): FavoriteRepositoryArchiveExport & { checksum: string } {
+  const restored = structuredClone(validateFavoriteRepositoryArchiveExport(value))
+  const workspace = restored.recovery?.workspace
+  if (workspace && workspace.status !== 'completed' && workspace.status !== 'draft') {
+    const { frozenSyncPlan: _frozenSyncPlan, ...draft } = workspace
+    restored.recovery = {
+      ...restored.recovery!,
+      workspace: {
+        ...draft,
+        status: 'draft',
+        resumable: true,
+        continuationAids: [],
+        workspaceRef: { ...workspace.workspaceRef, status: 'draft' }
+      }
+    }
+  }
+  if (restored.recovery) {
+    restored.recovery.syncRecords = restored.recovery.syncRecords.map((record) => record.status === 'result-unknown'
+      ? { ...record, status: 'reconciliation-required', autoRetry: false }
+      : record)
+  }
+  const next: FavoriteRepositoryArchiveExport = restored
+  return { ...next, checksum: createFavoriteRepositoryArchiveExportChecksum(next) }
+}
+
 /** Local, account-scoped metadata mirror. It never describes a Bilibili write. */
 export type FavoriteLibraryMirrorRecord = {
   aid: number
@@ -402,7 +428,7 @@ export type FavoriteRepositoryFrozenSyncPlan = {
 export type FavoriteRepositoryWorkspaceRef = {
   workspaceId: string
   accountMid: string
-  status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
+  status: 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
   baselineRevision: number
   currentSegmentId: string
   overlayRevision: number
@@ -420,10 +446,12 @@ export type FavoriteRepositoryWorkspaceRef = {
 export type FavoriteRepositoryWorkspace = {
   id: string
   accountMid: string
-  status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
+  /** `draft` exists only in a restored portable archive; runtime commands cannot set it. */
+  status: 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
   baselineRevision: number
   continuationAids: number[]
   workspaceRef: FavoriteRepositoryWorkspaceRef
+  resumable?: boolean
   completionMode?: 'bilibili' | 'local'
   frozenSyncPlan?: FavoriteRepositoryFrozenSyncPlan
 }
@@ -431,7 +459,7 @@ export type FavoriteRepositoryWorkspace = {
 export type FavoriteRepositorySyncRecord = {
   id: string
   commandId: string
-  status: 'pending' | 'succeeded' | 'failed' | 'result-unknown'
+  status: 'pending' | 'succeeded' | 'failed' | 'result-unknown' | 'reconciliation-required'
   affectedAids: number[]
   updatedAt: string
   reason?: string
@@ -439,6 +467,8 @@ export type FavoriteRepositorySyncRecord = {
   operationKey?: string
   targetFolderIds?: string[]
   attempt?: number
+  /** Archive restoration marker. Runtime commands cannot set this status. */
+  autoRetry?: false
 }
 
 /** A successful organization protects this aid in future incremental scans. */
@@ -713,8 +743,12 @@ function isValidAidList(value: unknown): value is number[] {
   return Array.isArray(value) && value.every((aid) => Number.isSafeInteger(aid) && aid > 0)
 }
 
-function isWorkspaceStatus(value: unknown): value is FavoriteRepositoryWorkspace['status'] {
+function isRuntimeWorkspaceStatus(value: unknown): value is Exclude<FavoriteRepositoryWorkspace['status'], 'draft'> {
   return ['scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(String(value))
+}
+
+function isPortableWorkspaceStatus(value: unknown): value is FavoriteRepositoryWorkspace['status'] {
+  return value === 'draft' || isRuntimeWorkspaceStatus(value)
 }
 
 function isWorkspaceRef(
@@ -771,8 +805,12 @@ function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: strin
   })
 }
 
-function isSyncStatus(value: unknown): value is FavoriteRepositorySyncRecord['status'] {
+function isRuntimeSyncStatus(value: unknown): value is Exclude<FavoriteRepositorySyncRecord['status'], 'reconciliation-required'> {
   return ['pending', 'succeeded', 'failed', 'result-unknown'].includes(String(value))
+}
+
+function isPortableSyncStatus(value: unknown): value is FavoriteRepositorySyncRecord['status'] {
+  return value === 'reconciliation-required' || isRuntimeSyncStatus(value)
 }
 
 function isOrganizationRecord(value: unknown) {
@@ -849,11 +887,13 @@ function isPortableRecoveryShard(value: unknown, folderIds: Set<string>, shardKe
 function isPortableRecoveryWorkspace(value: unknown, accountMid: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const workspace = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'accountMid', 'status', 'baselineRevision', 'continuationAids', 'workspaceRef', 'completionMode', 'frozenSyncPlan'])
+  const allowedKeys = new Set(['id', 'accountMid', 'status', 'baselineRevision', 'continuationAids', 'workspaceRef', 'resumable', 'completionMode', 'frozenSyncPlan'])
   return !Object.keys(workspace).some((key) => !allowedKeys.has(key)) && typeof workspace.id === 'string' && !!workspace.id.trim() && typeof workspace.accountMid === 'string' &&
-    normalizedAccountMid(workspace.accountMid) === accountMid && isWorkspaceStatus(workspace.status) &&
+    normalizedAccountMid(workspace.accountMid) === accountMid && isPortableWorkspaceStatus(workspace.status) &&
     Number.isSafeInteger(workspace.baselineRevision) && Number(workspace.baselineRevision) >= 0 && isValidAidList(workspace.continuationAids) &&
     isWorkspaceRef(workspace.workspaceRef, accountMid, workspace.id, workspace.status as FavoriteRepositoryWorkspace['status'], Number(workspace.baselineRevision)) &&
+    (workspace.status !== 'draft' || workspace.resumable === true && workspace.continuationAids.length === 0 && workspace.frozenSyncPlan === undefined) &&
+    (workspace.resumable === undefined || typeof workspace.resumable === 'boolean') &&
     (workspace.completionMode === undefined || workspace.completionMode === 'bilibili' || workspace.completionMode === 'local') &&
     (workspace.frozenSyncPlan === undefined || isPortableFrozenSyncPlan(workspace.frozenSyncPlan, accountMid, workspace.id))
 }
@@ -871,9 +911,10 @@ function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceI
 function isPortableRecoverySyncRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt'])
+  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt', 'autoRetry'])
   return !Object.keys(record).some((key) => !allowedKeys.has(key)) && typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
-    isSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
+    isPortableSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
+    (record.status !== 'reconciliation-required' || record.autoRetry === false) && (record.autoRetry === undefined || record.autoRetry === false) &&
     (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
     (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
@@ -1046,7 +1087,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
           'baselineCompletedAids', 'videos', 'memberships'
         ]
         if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.accountMid !== 'string' ||
-          !isWorkspaceStatus(payload.status) || !Number.isSafeInteger(payload.baselineRevision) ||
+          !isRuntimeWorkspaceStatus(payload.status) || !Number.isSafeInteger(payload.baselineRevision) ||
           Number(payload.baselineRevision) < 0 || !isValidAidList(payload.continuationAids) || payload.continuationAids.length > 0 ||
           forbiddenWorkspaceState.some((key) => key in payload) ||
           !isWorkspaceRef(
@@ -1087,7 +1128,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
-        !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
+        !payload.commandId.trim() || !isRuntimeSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
         typeof payload.updatedAt !== 'string' || (payload.reason !== undefined && typeof payload.reason !== 'string') ||
         (payload.runId !== undefined && (typeof payload.runId !== 'string' || !payload.runId.trim())) ||
         (payload.operationKey !== undefined && (typeof payload.operationKey !== 'string' || !payload.operationKey.trim())) ||

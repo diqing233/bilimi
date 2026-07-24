@@ -5,7 +5,7 @@ import {
   parseMigrationArchiveV1,
   restorePortableAccountState
 } from './localDataMigration'
-import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport, createFavoriteRepositoryArchiveExportChecksum } from './favoriteRepository'
+import { createAccountFavoriteRepositorySnapshot, createFavoriteRepositoryArchiveExport, createFavoriteRepositoryArchiveExportChecksum, validateFavoriteRepositoryArchiveExport } from './favoriteRepository'
 import {
   LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
   LOCAL_DATA_MIGRATION_EXCLUDED_SOURCES,
@@ -296,11 +296,37 @@ describe('local data migration v1', () => {
       .toEqual(['version-1', 'version-2'])
   })
 
-  it('restores interrupted work without retrying unknown remote operations', () => {
-    const restored = restorePortableAccountState(account())
-    expect((restored.workspaces as unknown[])[0]).toMatchObject({ status: 'draft', resumable: true })
+  it('restores all active organization states as valid resumable drafts without retrying unknown remote operations', () => {
+    const source = account() as Record<string, unknown>
+    const updatedAt = '2026-07-24T00:00:00.000Z'
+    source.workspaces = ['running', 'scanning', 'previewing', 'frozen', 'executing', 'reconciling'].map((status, index) => ({
+      id: `work-${index}`, accountMid: '100', status, updatedAt
+    }))
+    const repository = source.repository as Record<string, unknown>
+    const recovery = repository.recovery as Record<string, unknown>
+    recovery.workspace = {
+      id: 'work-4', accountMid: '100', status: 'executing', baselineRevision: 2, continuationAids: [1],
+      workspaceRef: { workspaceId: 'work-4', accountMid: '100', status: 'executing', baselineRevision: 2, currentSegmentId: 'segment', overlayRevision: 3, journalCursor: 4, checksum: 'a'.repeat(64), currentStep: 'executing', updatedAt },
+      frozenSyncPlan: { id: 'plan-1', accountMid: '100', workspaceId: 'work-4', baselineRevision: 2, createdAt: updatedAt, operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['bilimi-logical:music'] }] }
+    }
+    recovery.syncRecords = [{ id: 'remote-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [1], updatedAt }]
+    repository.checksum = createFavoriteRepositoryArchiveExportChecksum(repository as never)
+
+    const restored = restorePortableAccountState(source)
+
+    expect(restored.workspaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'draft', resumable: true })
+    ]))
+    expect((restored.workspaces as unknown[])).toHaveLength(6)
+    expect((restored.workspaces as Array<Record<string, unknown>>).every((workspace) => workspace.status === 'draft' && workspace.resumable === true)).toBe(true)
     expect((restored.transcription as unknown[])[0]).toMatchObject({ status: 'waiting-restart' })
     expect((restored.remoteOperations as unknown[])[0]).toMatchObject({ status: 'reconciliation-required', autoRetry: false })
+    const restoredRepository = validateFavoriteRepositoryArchiveExport(restored.repository)
+    expect(restoredRepository.recovery).toMatchObject({
+      workspace: { status: 'draft', resumable: true, continuationAids: [], workspaceRef: { status: 'draft', currentStep: 'executing' } },
+      syncRecords: [{ status: 'reconciliation-required', autoRetry: false }]
+    })
+    expect(restoredRepository.recovery?.workspace).not.toHaveProperty('frozenSyncPlan')
   })
 
   it('rejects unknown recovery states and malformed multipart archives before archive creation', () => {

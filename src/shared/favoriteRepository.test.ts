@@ -4,6 +4,7 @@ import {
   createAccountFavoriteRepositorySnapshot,
   createFavoriteRepositoryArchiveExportChecksum,
   createFavoriteRepositoryArchiveExport,
+  restoreFavoriteRepositoryArchiveRecovery,
   isFavoriteRepositoryScanVisible,
   validateFavoriteRepositoryArchiveExport,
   deriveFavoriteRepositoryPositionState,
@@ -29,6 +30,34 @@ function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): 
 }
 
 describe('account favorite repository contracts', () => {
+  it('restores a portable active workspace as an archive-only resumable draft', () => {
+    const now = '2026-07-24T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      workspace: {
+        id: 'workspace-1', accountMid: '100', status: 'executing' as const, baselineRevision: 7,
+        continuationAids: [1], frozenSyncPlan: {
+          id: 'plan-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 7, createdAt: now,
+          operations: [{ operationKey: 'operation-1', aid: 1, kind: 'append' as const, folderIds: ['bilimi-logical:music'] }]
+        },
+        workspaceRef: workspaceRef({ status: 'executing', baselineRevision: 7, currentSegmentId: 'segment-1', currentStep: 'executing' })
+      },
+      syncRecords: [{ id: 'operation-1', commandId: 'command-1', status: 'result-unknown' as const, affectedAids: [1], updatedAt: now }]
+    }
+
+    const restored = restoreFavoriteRepositoryArchiveRecovery(createFavoriteRepositoryArchiveExport(snapshot, { generatedAt: now }))
+
+    expect(validateFavoriteRepositoryArchiveExport(restored).recovery).toMatchObject({
+      workspace: { status: 'draft', resumable: true, continuationAids: [], workspaceRef: { status: 'draft', currentStep: 'executing' } },
+      syncRecords: [{ status: 'reconciliation-required', autoRetry: false }]
+    })
+    expect(restored.recovery?.workspace).not.toHaveProperty('frozenSyncPlan')
+    expect(() => applyFavoriteRepositoryCommand(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }), {
+      id: 'draft-command', accountMid: '100', issuedAt: now, type: 'set-workspace',
+      payload: { id: 'workspace-1', accountMid: '100', status: 'draft', baselineRevision: 0, continuationAids: [], workspaceRef: workspaceRef() }
+    } as never, now)).toThrow('Favorite repository command is invalid.')
+  })
+
   it('keeps local desired and remote observed positions separate while deriving their state', () => {
     expect(deriveFavoriteRepositoryPositionState({
       localDesiredFolderIds: ['bilimi-logical:music'],

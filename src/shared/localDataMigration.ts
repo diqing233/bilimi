@@ -5,6 +5,7 @@ import {
 } from './localDataMigrationRegistry'
 import {
   createFavoriteRepositoryArchiveExportChecksum,
+  restoreFavoriteRepositoryArchiveRecovery,
   validateFavoriteRepositoryArchiveExport,
   type FavoriteRepositoryArchiveExport
 } from './favoriteRepository'
@@ -401,8 +402,9 @@ export function mergeMigrationAccounts(local: Record<string, PortableAccountData
 
 export function restorePortableAccountState(account: PortableAccountData): PortableAccountData {
   const restored = structuredClone(account)
-  for (const workspace of Array.isArray(restored.workspaces) ? restored.workspaces : []) if (isRecord(workspace) && workspace.status === 'running') Object.assign(workspace, { status: 'draft', resumable: true })
+  for (const workspace of Array.isArray(restored.workspaces) ? restored.workspaces : []) if (isRecord(workspace) && ['running', 'scanning', 'previewing', 'frozen', 'executing', 'reconciling'].includes(String(workspace.status))) Object.assign(workspace, { status: 'draft', resumable: true, continuationAids: [] })
   for (const task of Array.isArray(restored.transcription) ? restored.transcription : []) if (isRecord(task) && task.status === 'running') task.status = 'waiting-restart'
   for (const operation of Array.isArray(restored.remoteOperations) ? restored.remoteOperations : []) if (isRecord(operation) && operation.status === 'result-unknown') Object.assign(operation, { status: 'reconciliation-required', autoRetry: false })
+  restored.repository = restoreFavoriteRepositoryArchiveRecovery(restored.repository)
   return restored
 }
