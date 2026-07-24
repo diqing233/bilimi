@@ -5,10 +5,16 @@ import {
   parseMigrationArchiveV1,
   restorePortableAccountState
 } from './localDataMigration'
+import {
+  LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
+  LOCAL_DATA_MIGRATION_EXCLUDED_SOURCES,
+  LOCAL_DATA_MIGRATION_SHARED_SETTINGS
+} from './localDataMigrationRegistry'
 
 const account = (updatedAt = '2026-07-24T00:00:00.000Z') => ({
   repository: { videos: [{ aid: 1, cid: 11, title: 'video', updatedAt }] },
   archives: [{ aid: 1, cid: 11, version: 1, updatedAt }],
+  auditEvents: [],
   settings: { pageSize: 50, updatedAt },
   workspaces: [{ id: 'work-1', status: 'running', updatedAt }],
   transcription: [{ aid: 1, cid: 11, status: 'running', updatedAt }],
@@ -25,6 +31,56 @@ describe('local data migration v1', () => {
     expect(archive.selectedUids).toEqual(['100'])
     expect(archive.manifest).toHaveLength(2)
     expect(parseMigrationArchiveV1(JSON.stringify(archive))).toEqual(archive)
+  })
+
+  it('uses an explicit persistent-source registry and rejects unregistered sources for every UID', () => {
+    expect(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES).toEqual([
+      'repository', 'settings', 'archives', 'transcription', 'auditEvents', 'workspaces', 'remoteOperations'
+    ])
+    expect(LOCAL_DATA_MIGRATION_SHARED_SETTINGS).toEqual([
+      'theme', 'language', 'windowBounds', 'closeBehavior', 'favoritesFolderName'
+    ])
+    expect(LOCAL_DATA_MIGRATION_EXCLUDED_SOURCES).toContain('cookies/login sessions')
+
+    for (const uid of ['100', '200']) {
+      expect(() => createMigrationArchiveV1({
+        appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z',
+        accounts: { [uid]: { ...account(), browserCache: { path: 'Cache' } } }
+      })).toThrow('unregistered')
+    }
+
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': account() },
+      sharedSettings: { theme: 'light', deepseekApiKey: 'must-never-export' }
+    })).toThrow('unregistered')
+  })
+
+  it('requires every registered account source with its v1 data shape', () => {
+    const incomplete = account() as Record<string, unknown>
+    delete incomplete.auditEvents
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': incomplete }
+    })).toThrow('source')
+
+    const malformed = account() as Record<string, unknown>
+    malformed.archives = {}
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': malformed }
+    })).toThrow('source')
+  })
+
+  it('applies the source registry before checksum validation during import', () => {
+    const archive = createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': account() } })
+    const injected = structuredClone(archive)
+    injected.accounts['100'].browserCache = { path: 'Cache' }
+
+    expect(() => parseMigrationArchiveV1(JSON.stringify(injected))).toThrow('unregistered')
+  })
+
+  it('requires canonical archive metadata before producing an archive', () => {
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1', generatedAt: '2026-07-24', accounts: { '100': account() }
+    })).toThrow('metadata')
   })
 
   it('rejects non-ISO metadata and archive manifests whose aggregate claim is oversized', () => {

@@ -5,10 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocalDataService, type LocalDataPersistence } from './localDataService'
 
 const roots: string[] = []
+const portableAccount = (id: string, updatedAt = '2026-07-24T00:00:00.000Z') => ({
+  repository: { videos: [{ aid: 1, cid: 11, id, updatedAt }] },
+  settings: { updatedAt }, archives: [], transcription: [], auditEvents: [], workspaces: [], remoteOperations: []
+})
 const makeService = async () => {
   const root = await mkdtemp(join(tmpdir(), 'bilimi-local-data-test-'))
   roots.push(root)
-  const accounts: Record<string, Record<string, unknown>> = { '100': { records: [{ id: 'a', updatedAt: '2026-07-24T00:00:00.000Z' }] }, '200': { records: [{ id: 'b' }] } }
+  const accounts: Record<string, Record<string, unknown>> = { '100': portableAccount('a'), '200': portableAccount('b') }
   let sharedSettings: Record<string, unknown> = { theme: 'light', deepseekApiKey: 'must-never-export', cookies: 'session', encryptionKey: 'machine-only', proxyState: 'runtime-only' }
   const persistence: LocalDataPersistence = {
     listAccountUids: () => Object.keys(accounts), readAccount: (uid) => structuredClone(accounts[uid] ?? {}),
@@ -111,7 +115,7 @@ describe('LocalDataService', () => {
     const preview = await service.previewImport(archive)
     expect(preview.accounts).toEqual([{ uid: '100', action: 'merge' }])
     await expect(service.applyImport(preview, { mode: 'merge', injectFailureAfterStage: true })).rejects.toThrow('injected')
-    expect(accounts['100'].records).toHaveLength(1)
+    expect((accounts['100'].repository as { videos: unknown[] }).videos).toHaveLength(1)
   })
 
   it('rejects an archive produced by a newer unsupported app version before any preview mutation', async () => {
@@ -142,6 +146,18 @@ describe('LocalDataService', () => {
     expect(clearLoginSessions).toHaveBeenCalledOnce()
     expect(exitApp).toHaveBeenCalledOnce()
     await expect(access(join(root, 'local-repository.json'))).rejects.toThrow()
+  })
+
+  it('removes only the selected UID when account records have overlapping shapes', async () => {
+    const { accounts, persistence, service } = await makeService()
+    accounts['100'] = { repository: { videos: [{ aid: 7, cid: 70 }] } }
+    accounts['200'] = { repository: { videos: [{ aid: 7, cid: 70 }] } }
+    const writeAccounts = vi.spyOn(persistence, 'writeAccounts')
+
+    await service.applyCleanup({ level: 'current-account-data', uid: '100' })
+
+    expect(accounts).toEqual({ '200': { repository: { videos: [{ aid: 7, cid: 70 }] } } })
+    expect(writeAccounts).toHaveBeenCalledWith({ '200': { repository: { videos: [{ aid: 7, cid: 70 }] } } })
   })
 
   it('previews destructive cleanup, permits usage cancellation, and never presents server data as a target', async () => {

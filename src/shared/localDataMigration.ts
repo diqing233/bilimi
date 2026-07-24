@@ -1,10 +1,18 @@
 import { createHash } from 'node:crypto'
+import {
+  LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES,
+  LOCAL_DATA_MIGRATION_SHARED_SETTINGS
+} from './localDataMigrationRegistry'
 
 export const LOCAL_DATA_MIGRATION_SCHEMA_VERSION = 1
 const MAX_MANIFEST_ENTRY_BYTES = 50 * 1024 * 1024
 const MAX_MANIFEST_TOTAL_BYTES = 500 * 1024 * 1024
 const UID_PATTERN = /^[1-9]\d{0,19}$/u
 const SECRET_KEY = /(?:cookie|session|api.?key|secret|token|encrypt|proxy|lock)/iu
+const APP_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u
+const ARCHIVE_KEYS = new Set(['schemaVersion', 'appVersion', 'generatedAt', 'selectedUids', 'accounts', 'sharedSettings', 'manifest', 'checksum'])
+const ACCOUNT_SOURCE_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES)
+const SHARED_SETTING_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_SHARED_SETTINGS)
 
 export type PortableAccountData = Record<string, unknown>
 export type MigrationManifestEntry = { path: string; byteLength: number; sha256: string }
@@ -40,6 +48,12 @@ function assertUid(uid: string) {
   if (!UID_PATTERN.test(uid) || BigInt(uid) === 0n) throw new Error('Migration UID is invalid.')
 }
 
+function assertArchiveMetadata(appVersion: unknown, generatedAt: unknown) {
+  if (typeof appVersion !== 'string' || !APP_VERSION_PATTERN.test(appVersion) || typeof generatedAt !== 'string' || !Number.isFinite(Date.parse(generatedAt)) || new Date(generatedAt).toISOString() !== generatedAt) {
+    throw new Error('Migration archive metadata is invalid.')
+  }
+}
+
 function assertPortable(value: unknown, path = ''): void {
   if (Array.isArray(value)) return value.forEach((item, index) => assertPortable(item, `${path}[${index}]`))
   if (!isRecord(value)) return
@@ -47,6 +61,33 @@ function assertPortable(value: unknown, path = ''): void {
     if (SECRET_KEY.test(key)) throw new Error(`Migration contains excluded credential field: ${path}${key}`)
     assertPortable(nested, `${path}${key}.`)
   }
+}
+
+function assertRegisteredKeys(value: Record<string, unknown>, allowedKeys: Set<string>, section: string) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) throw new Error(`Migration contains unregistered ${section}: ${key}`)
+  }
+}
+
+function assertAccountSources(value: Record<string, unknown>) {
+  assertRegisteredKeys(value, ACCOUNT_SOURCE_KEYS, 'account source')
+  for (const key of LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES) {
+    if (!(key in value)) throw new Error(`Migration account source is missing: ${key}`)
+  }
+  if (!isRecord(value.repository) || !isRecord(value.settings)) throw new Error('Migration account source is invalid.')
+  for (const key of ['archives', 'transcription', 'auditEvents', 'workspaces', 'remoteOperations'] as const) {
+    if (!Array.isArray(value[key]) || value[key].some((item) => !isRecord(item))) throw new Error(`Migration account source is invalid: ${key}`)
+  }
+  assertPortable(value)
+}
+
+function assertSharedSettings(value: Record<string, unknown>) {
+  assertRegisteredKeys(value, SHARED_SETTING_KEYS, 'shared setting')
+  assertPortable(value)
+}
+
+function assertArchiveKeys(value: Record<string, unknown>) {
+  assertRegisteredKeys(value, ARCHIVE_KEYS, 'archive section')
 }
 
 function assertSafePath(path: string) {
@@ -60,14 +101,16 @@ function archiveWithoutChecksum(archive: Omit<MigrationArchiveV1, 'checksum'>) {
 }
 
 export function createMigrationArchiveV1(input: Omit<MigrationArchiveV1, 'schemaVersion' | 'selectedUids' | 'manifest' | 'checksum'>): MigrationArchiveV1 {
+  assertArchiveMetadata(input.appVersion, input.generatedAt)
   const accountEntries: Array<[string, PortableAccountData]> = Object.entries(input.accounts).map(([rawUid, value]): [string, PortableAccountData] => {
     assertUid(rawUid)
-    assertPortable(value)
+    assertAccountSources(value)
     return [BigInt(rawUid).toString(), structuredClone(value)]
   }).sort(([left], [right]) => left.localeCompare(right, 'en'))
+  if (new Set(accountEntries.map(([uid]) => uid)).size !== accountEntries.length) throw new Error('Migration UID sections are duplicated.')
   const accounts: Record<string, PortableAccountData> = Object.fromEntries(accountEntries)
   const sharedSettings = input.sharedSettings ? structuredClone(input.sharedSettings) : undefined
-  if (sharedSettings) assertPortable(sharedSettings)
+  if (sharedSettings) assertSharedSettings(sharedSettings)
   const manifest = Object.entries(accounts).map(([uid, value]) => {
     const content = stableJson(value)
     return { path: `accounts/${uid}.json`, byteLength: Buffer.byteLength(content), sha256: sha256(content) }
@@ -89,16 +132,22 @@ export function parseMigrationArchiveV1(content: string): MigrationArchiveV1 {
   let candidate: unknown
   try { candidate = JSON.parse(content) } catch { throw new Error('Migration archive is not valid JSON.') }
   if (!isRecord(candidate)) throw new Error('Migration archive is invalid.')
+  assertArchiveKeys(candidate)
   if (candidate.schemaVersion !== LOCAL_DATA_MIGRATION_SCHEMA_VERSION) throw new Error('Migration schema is unsupported.')
-  if (typeof candidate.appVersion !== 'string' || !/^\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z.-]+)?$/u.test(candidate.appVersion) || typeof candidate.generatedAt !== 'string' || !Number.isFinite(Date.parse(candidate.generatedAt)) || !isRecord(candidate.accounts) || !Array.isArray(candidate.selectedUids) || !Array.isArray(candidate.manifest) || typeof candidate.checksum !== 'string') {
+  try { assertArchiveMetadata(candidate.appVersion, candidate.generatedAt) } catch { throw new Error('Migration archive is incomplete.') }
+  if (!isRecord(candidate.accounts) || !Array.isArray(candidate.selectedUids) || !Array.isArray(candidate.manifest) || typeof candidate.checksum !== 'string' || !/^[a-f0-9]{64}$/u.test(candidate.checksum)) {
     throw new Error('Migration archive is incomplete.')
   }
+  const appVersion = candidate.appVersion as string
+  const generatedAt = candidate.generatedAt as string
   const accounts: Record<string, PortableAccountData> = {}
   for (const [uid, value] of Object.entries(candidate.accounts)) {
     assertUid(uid)
     if (!isRecord(value)) throw new Error('Migration account section is invalid.')
-    assertPortable(value)
-    accounts[uid] = structuredClone(value)
+    const normalizedUid = BigInt(uid).toString()
+    if (normalizedUid !== uid || accounts[normalizedUid]) throw new Error('Migration UID sections are invalid.')
+    assertAccountSources(value)
+    accounts[normalizedUid] = structuredClone(value)
   }
   const selectedUids = candidate.selectedUids.map((uid) => {
     if (typeof uid !== 'string') throw new Error('Migration selected UID is invalid.')
@@ -115,10 +164,11 @@ export function parseMigrationArchiveV1(content: string): MigrationArchiveV1 {
   if (manifest.reduce((total, entry) => total + entry.byteLength, 0) > MAX_MANIFEST_TOTAL_BYTES) throw new Error('Migration manifest total is too large.')
   const sharedSettings = candidate.sharedSettings === undefined ? undefined : candidate.sharedSettings
   if (sharedSettings !== undefined && !isRecord(sharedSettings)) throw new Error('Migration shared settings are invalid.')
-  if (sharedSettings) assertPortable(sharedSettings)
-  const archiveWithoutChecksumValue = { schemaVersion: 1 as const, appVersion: candidate.appVersion, generatedAt: candidate.generatedAt, selectedUids, accounts, ...(sharedSettings ? { sharedSettings: structuredClone(sharedSettings) } : {}), manifest }
+  if (sharedSettings) assertSharedSettings(sharedSettings)
+  const archiveWithoutChecksumValue = { schemaVersion: 1 as const, appVersion, generatedAt, selectedUids, accounts, ...(sharedSettings ? { sharedSettings: structuredClone(sharedSettings) } : {}), manifest }
   if (sha256(archiveWithoutChecksum(archiveWithoutChecksumValue)) !== candidate.checksum) throw new Error('Migration archive checksum is invalid.')
-  const expected = createMigrationArchiveV1({ appVersion: candidate.appVersion, generatedAt: candidate.generatedAt, accounts, ...(sharedSettings ? { sharedSettings } : {}) })
+  const expected = createMigrationArchiveV1({ appVersion, generatedAt, accounts, ...(sharedSettings ? { sharedSettings } : {}) })
+  if (stableJson(expected.selectedUids) !== stableJson(selectedUids)) throw new Error('Migration UID sections are not canonical.')
   if (stableJson(expected.manifest) !== stableJson(manifest)) throw new Error('Migration manifest integrity is invalid.')
   return { ...archiveWithoutChecksumValue, checksum: candidate.checksum }
 }
