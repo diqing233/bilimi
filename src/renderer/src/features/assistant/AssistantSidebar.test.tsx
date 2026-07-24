@@ -68,7 +68,8 @@ function installDesktopApi({
         ]
       }),
       onVideoAudioTranscriptionQueueChanged: vi.fn(() => vi.fn()),
-      loadVideoNoteArchives: vi.fn().mockResolvedValue([])
+      loadVideoNoteArchives: vi.fn().mockResolvedValue([]),
+      getLocalDataInfo: vi.fn().mockResolvedValue({ path: 'C:\\test\\bilimi', accounts: [] })
     }
   })
 
@@ -248,10 +249,10 @@ describe('AssistantSidebar', () => {
     const settingsSections = Array.from(
       document.querySelectorAll<HTMLElement>('[data-settings-section]')
     ).map((section) => section.dataset.settingsSection)
-    expect(settingsSections.slice(-2)).toEqual(['bilibili-connection', 'close'])
+    expect(settingsSections.slice(-3)).toEqual(['bilibili-connection', 'local-data', 'close'])
     expect(
-      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-2).map((option) => option.value)
-    ).toEqual(['bilibili-connection', 'close'])
+      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-3).map((option) => option.value)
+    ).toEqual(['bilibili-connection', 'local-data', 'close'])
   })
 
   it('shows only automatic system proxy and direct Bilibili connection choices', async () => {

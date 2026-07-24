@@ -551,8 +551,8 @@ export const SETTINGS_JUMP_OPTIONS = [
   { value: 'archive', label: '收藏整理' },
   { value: 'review-actions', label: '批阅动作' },
   { value: 'favorites', label: '收藏夹体系' },
-  { value: 'local-data', label: '本地数据与迁移' },
   { value: 'bilibili-connection', label: 'B 站连接方式' },
+  { value: 'local-data', label: '本地数据与迁移' },
   { value: 'close', label: '关闭设置' }
 ] as const
 const SETTINGS_SCROLL_SYNC_OFFSET = 32
@@ -3472,33 +3472,6 @@ export function FloatingAssistantApp({
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
             </fieldset>
-            {localDataInfo ? <fieldset
-              className="assistant-settings__group assistant-settings__group--local-data"
-              data-settings-section="local-data"
-            >
-              <LocalDataSettings
-                userDataPath={localDataInfo.path}
-                accounts={localDataInfo.accounts}
-                currentAccountUid={resolvedSnapshot.accountMid}
-                calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? {
-                  totalBytes: 0,
-                  calculatedAt: new Date().toISOString(),
-                  categories: { accountPersistent: { bytes: 0 }, deviceShared: { bytes: 0 }, cache: { bytes: 0 }, temporaryAudio: { bytes: 0 }, logs: { bytes: 0 } }
-                }}
-                onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
-                onExport={async (scope, includeSharedSettings, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings, ...(uids?.length ? { uids } : {}) }) }}
-                onImport={async () => {
-                  const preview = await window.bilimiDesktop.previewLocalDataImport?.()
-                  return preview ? { token: preview.token, accounts: preview.accounts ?? [] } : undefined
-                }}
-                onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
-                onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false }}
-                onFullClear={async () => {
-                  await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
-                  await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')
-                }}
-              />
-            </fieldset> : null}
             <fieldset
               className="assistant-settings__group assistant-settings__group--favorites"
               data-settings-section="favorites"
@@ -3543,6 +3516,33 @@ export function FloatingAssistantApp({
               ))}
               {settingsLearningMessage.startsWith('B 站连接方式') ? <p role="status">{settingsLearningMessage}</p> : null}
             </fieldset>
+            {localDataInfo ? <fieldset
+              className="assistant-settings__group assistant-settings__group--local-data"
+              data-settings-section="local-data"
+            >
+              <LocalDataSettings
+                userDataPath={localDataInfo.path}
+                accounts={localDataInfo.accounts}
+                currentAccountUid={resolvedSnapshot.accountMid}
+                calculateUsage={async () => window.bilimiDesktop.calculateLocalDataUsage?.() ?? {
+                  totalBytes: 0,
+                  calculatedAt: new Date().toISOString(),
+                  categories: { accountPersistent: { bytes: 0 }, deviceShared: { bytes: 0 }, cache: { bytes: 0 }, temporaryAudio: { bytes: 0 }, logs: { bytes: 0 } }
+                }}
+                onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
+                onExport={async (scope, includeSharedSettings, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings, ...(uids?.length ? { uids } : {}) }) }}
+                onImport={async () => {
+                  const preview = await window.bilimiDesktop.previewLocalDataImport?.()
+                  return preview ? { token: preview.token, accounts: preview.accounts ?? [] } : undefined
+                }}
+                onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
+                onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false }}
+                onFullClear={async () => {
+                  await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
+                  await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')
+                }}
+              />
+            </fieldset> : null}
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"
               data-settings-section="close"
