@@ -160,6 +160,7 @@ export function FavoriteLibraryApp({
   const [placementSyncRequested, setPlacementSyncRequested] = useState(false)
   const [placementSaving, setPlacementSaving] = useState(false)
   const [statusExplanation, setStatusExplanation] = useState<string>()
+  const [moreInformationOpen, setMoreInformationOpen] = useState(false)
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
   const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{ aids: number[]; executionToken: string }>()
@@ -342,6 +343,7 @@ export function FavoriteLibraryApp({
 
   useEffect(() => {
     setStatusExplanation(undefined)
+    setMoreInformationOpen(false)
     setPlacementPickerOpen(false)
     setDeleteConfirmationOpen(false)
     setRemoteUnfavoritePreview(undefined)
@@ -1015,16 +1017,16 @@ export function FavoriteLibraryApp({
             })}>{text.openVideo}</button> : null}<button type="button" className="favorite-library__inline-action" onClick={() => setDetailOpen(false)}>收起详情</button></span></div>
             <p>{detail.author ?? text.unknownAuthor} · {detailSnapshot?.video.bvid ?? `AV${detail.aid}`} · {detailSnapshot?.video.cid ? `分P：${detailSnapshot.video.cid}` : '分P：暂无信息'}</p>
             {detail.tags.length ? <p className="favorite-library__tags">标签: {detail.tags.join('、')}</p> : null}
+            {(detailSnapshot?.video.description || detailSnapshot?.video.tags?.length) ? <section className="favorite-library__more-information">
+              <button type="button" className="favorite-library__inline-action" aria-expanded={moreInformationOpen} onClick={() => setMoreInformationOpen((open) => !open)}>更多信息</button>
+              {moreInformationOpen ? <div>{detailSnapshot?.video.description ? <p className="favorite-library__description">{detailSnapshot.video.description}</p> : null}</div> : null}
+            </section> : null}
             {(() => {
               const metadataStale = detail.title === 'Video + ID' || !detail.author
               const chips = [
-                { label: '资料状态说明', value: formatFavoriteLibraryMetadataStatus(detailSnapshot?.mirror.status, metadataStale), explanation: '资料状态只反映标题、UP 主、封面、标签和简介的新鲜度，不代表收藏位置是否已同步。' },
                 { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detail.pendingStates), explanation: '整理状态说明该视频是否已经完成本轮整理；它与保护及远程位置状态相互独立。' },
                 { label: '保护状态说明', value: detailSnapshot?.protected ? '已保护' : '未保护', explanation: '保护只决定下一次增量整理是否跳过该视频，不会隐藏位置差异或同步错误。' },
-                { label: '同步状态说明', value: formatFavoriteLibraryMirrorStatus(detail.pendingStates), explanation: '同步状态说明远程操作与对账是否仍需处理，不会自动重试结果待确认的操作。' },
-                { label: '位置状态说明', value: formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state), explanation: '位置状态比较本地最终意图与最近一次扫描到的 B 站位置；不会把资料刷新结果当作位置同步。' },
-                { label: '转写状态说明', value: detailSnapshot?.transcription.status ?? '未转写', explanation: '转写状态按当前账号、视频和分 P 独立记录，移动收藏位置不会重复转写。' },
-                { label: '档案状态说明', value: detailSnapshot?.archive.status ?? '未入档', explanation: '档案状态反映转写结果是否已经登记为档案；登记失败可以单独重新登记，无需重新转写。' }
+                { label: '同步状态说明', value: formatFavoriteLibraryMirrorStatus(detail.pendingStates), explanation: '同步状态说明远程操作与对账是否仍需处理，不会自动重试结果待确认的操作。' }
               ]
               return <section className="favorite-library__status-tags" aria-label="视频状态">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}{statusExplanation ? <p role="status">{statusExplanation}</p> : null}{metadataStale ? <button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(refreshMetadata)}>刷新资料</button> : null}</section>
             })()}
