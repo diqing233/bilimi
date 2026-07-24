@@ -40,7 +40,7 @@ export function FavoriteLibraryNavigation({
         >{group.label}</button>
         {!collapsed ? group.items.map((item) => <div className="favorite-library__navigation-row" key={item.id}>
           <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} onClick={() => onSelect(item.id)}>
-            {`${item.label} ${item.count}`}
+            <span>{item.label}</span>{' '}<span className="favorite-library__navigation-count">{item.count}</span>
           </button>
           {item.managed && !item.protected ? <ManagedFolderMenu item={item} onOpen={onManagedFolderMenu} onAction={onManagedFolderAction} /> : null}
         </div>) : null}
@@ -63,7 +63,7 @@ function ManagedFolderMenu({
     <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 菜单`} aria-expanded={open} onClick={() => {
       setOpen((current) => !current)
       onOpen?.(item.id)
-    }}>...</button>
+    }}>{String.fromCodePoint(0x22ee)}</button>
     {open ? <span className="favorite-library__folder-menu-items">
       <button type="button" onClick={() => onAction?.(item.id, 'edit')}>编辑信息</button>
       <button type="button" onClick={() => onAction?.(item.id, 'delete')}>删除</button>

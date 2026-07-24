@@ -1055,6 +1055,12 @@ export function FavoriteLibraryApp({
       <FavoriteLibraryFooter
         hasPreviousPage={cursorHistory.length > 0}
         hasNextPage={Boolean(page?.nextCursor)}
+        pageNumber={cursorHistory.length + 1}
+        pageSize={pageSize}
+        visibleCount={rows.length}
+        totalCount={summary?.scopeCounts?.[scopeId as keyof typeof summary.scopeCounts] ?? (scopeId === 'all' ? summary?.videoCount : undefined)}
+        scopeLabel={scopeId === 'all' ? text.all : navigationGroups.flatMap((group) => group.items).find((item) => item.id === scopeId)?.label ?? text.results}
+        detailLabel={detail ? `\u5df2\u9009\uff1a${detail.title}` : '\u9009\u62e9\u89c6\u9891\u67e5\u770b\u8be6\u60c5'}
         onPreviousPage={() => {
           if (!accountMid || !cursorHistory.length) return
           const previousCursor = cursorHistory.at(-2)
