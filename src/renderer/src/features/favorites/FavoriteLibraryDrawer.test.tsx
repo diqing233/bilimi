@@ -30,6 +30,7 @@ vi.mock('./FavoriteLibraryApp', () => ({
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  window.localStorage.clear()
 })
 
 describe('FavoriteLibraryDrawer', () => {
@@ -126,6 +127,20 @@ describe('FavoriteLibraryDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开收藏库' }))
 
     expect(screen.getByLabelText('收藏库筛选')).toHaveValue('pending')
+  })
+
+  it('restores the user-resized height after the drawer remounts', () => {
+    vi.stubGlobal('innerWidth', 1440)
+    vi.stubGlobal('innerHeight', 900)
+    const first = render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
+
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
+    expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '384px' })
+    first.unmount()
+
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    expect(screen.getByTestId('favorite-library-drawer')).toHaveStyle({ height: '384px' })
   })
 
   it('clamps a resized height to the available browser workspace', () => {

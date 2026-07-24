@@ -12,6 +12,7 @@ const BROWSER_TAB_HEIGHT = 42
 const COMPACT_BROWSER_TAB_HEIGHT = 38
 const COMPACT_BROWSER_WIDTH = 1200
 const COMPACT_BROWSER_HEIGHT = 760
+const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
@@ -40,13 +41,18 @@ function clampHeight(height: number) {
   return Math.min(Math.max(height, MIN_HEIGHT), maximum)
 }
 
+function savedHeight() {
+  const stored = Number(window.localStorage.getItem(DRAWER_HEIGHT_STORAGE_KEY))
+  return clampHeight(Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_HEIGHT)
+}
+
 function isVisible(element: HTMLElement) {
   const style = window.getComputedStyle(element)
   return element.isConnected && !element.closest('[hidden]') && style.display !== 'none' && style.visibility !== 'hidden'
 }
 
 export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedChange }: FavoriteLibraryDrawerProps) {
-  const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
+  const [height, setHeight] = useState(savedHeight)
   const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
   const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
@@ -61,6 +67,10 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
     window.addEventListener('resize', reconcileHeight)
     return () => window.removeEventListener('resize', reconcileHeight)
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(DRAWER_HEIGHT_STORAGE_KEY, String(height))
+  }, [height])
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
