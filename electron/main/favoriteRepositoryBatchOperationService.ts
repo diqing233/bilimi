@@ -178,7 +178,7 @@ export class FavoriteRepositoryBatchOperationService {
     const normalizedAccount = account(accountMid)
     const operation = this.remoteOperations.get(operationId) ?? await this.recoverRemoteOperation(normalizedAccount, operationId)
     if (!operation || operation.accountMid !== normalizedAccount) throw new Error('Favorite remote unfavorite operation was not found.')
-    if (operation.status === 'result-unknown' && this.options.remoteObserver) {
+    if ((operation.status === 'result-unknown' || operation.status === 'reconciliation-required') && this.options.remoteObserver) {
       const observation = await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
         normalizedAccount, { priority: 'reconcile' }, () => this.options.remoteObserver!.areUnfavorited(normalizedAccount, operation.aids)
       )
@@ -187,7 +187,7 @@ export class FavoriteRepositoryBatchOperationService {
         await this.recordRemoteResult(operation, operation.status, observation === 'removed' ? undefined : 'Remote still reports the videos as favorited.', 'reconcile')
       }
     }
-    return operation.status === 'result-unknown'
+    return operation.status === 'result-unknown' || operation.status === 'reconciliation-required'
       ? { status: 'reconciliation-required' as const, operationId, aids: [...operation.aids] }
       : operation.status === 'failed'
         ? { status: 'failed' as const, operationId, aids: [...operation.aids] }

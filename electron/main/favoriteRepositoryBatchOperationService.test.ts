@@ -295,6 +295,24 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     }))
   })
 
+  it('observes an imported reconciliation-required unfavorite before completing it', async () => {
+    const current = {
+      ...snapshot(),
+      syncRecords: [{
+        id: 'favorite-remote-unfavorite:imported-operation', commandId: 'imported-operation', status: 'reconciliation-required' as const,
+        affectedAids: [1], updatedAt: '2026-07-24T01:00:00.000Z', operationKey: 'favorite-library-unfavorite'
+      }]
+    }
+    const observer = { areUnfavorited: vi.fn(async () => 'present' as const) }
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit }, remoteObserver: observer
+    } as never)
+
+    await expect(service.reconcileRemoteUnfavorite('100', 'imported-operation')).resolves.toMatchObject({ status: 'failed' })
+    expect(observer.areUnfavorited).toHaveBeenCalledWith('100', [1])
+  })
+
   it('rejects destructive actions from Bilibili source and virtual scopes without explicit eligibility evidence', async () => {
     const current = snapshot()
     const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn() } })
