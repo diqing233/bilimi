@@ -94,6 +94,8 @@ export type AssistantPreferences = {
 }
 
 export type DesktopStoreState = AssistantPreferences & {
+  /** Device-local opt-outs for automatic work-folder adoption by Bilibili UID. */
+  favoriteLibraryDismissedRemoteFolderIdsByAccount: Record<string, string[]>
   deepseekApiKey: string
   deepseekApiKeyEncrypted: string
   videoNotes: VideoNote[]
@@ -124,6 +126,23 @@ function normalizeFavoriteAccountMid(accountMid: string) {
   const trimmed = accountMid.trim()
   if (!/^\d+$/u.test(trimmed) || BigInt(trimmed) === 0n) throw new Error('Favorite account is invalid.')
   return BigInt(trimmed).toString()
+}
+
+function normalizedDismissedRemoteFolderIdsByAccount(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {} as Record<string, string[]>
+  const normalized: Record<string, string[]> = {}
+  for (const [accountMid, folderIds] of Object.entries(value)) {
+    try {
+      const account = normalizeFavoriteAccountMid(accountMid)
+      if (!Array.isArray(folderIds)) continue
+      const ids = [...new Set(folderIds.filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim()).filter(Boolean))].sort()
+      if (ids.length) normalized[account] = ids
+    } catch {
+      // Ignore malformed device-local account projections.
+    }
+  }
+  return normalized
 }
 
 function normalizePortableWindowBounds(value: unknown): { x: number; y: number; width: number; height: number } | null {
@@ -214,6 +233,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
   closeChoiceMigrationVersion: 0,
+  favoriteLibraryDismissedRemoteFolderIdsByAccount: {},
   deepseekApiKey: '',
   deepseekApiKeyEncrypted: '',
   videoNotes: [],
@@ -596,6 +616,26 @@ export function patchAssistantPreferences(
     ...loadAssistantPreferences(store),
     ...patch
   })
+}
+
+export function isFavoriteLibraryRemoteFolderDismissed(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) return false
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLibraryDismissedRemoteFolderIdsByAccount'))[account]?.includes(folderId) ?? false
+}
+
+export function dismissFavoriteLibraryRemoteFolder(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) throw new Error('Favorite library remote folder is invalid.')
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLibraryDismissedRemoteFolderIdsByAccount'))
+  const next = [...new Set([...(current[account] ?? []), folderId])].sort()
+  store.set('favoriteLibraryDismissedRemoteFolderIdsByAccount', { ...current, [account]: next })
 }
 
 /** Reads a durable account setting instead of accepting a renderer-owned projection. */

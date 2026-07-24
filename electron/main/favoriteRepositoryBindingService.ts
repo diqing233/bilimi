@@ -215,6 +215,10 @@ export class FavoriteRepositoryBindingService {
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId && shard.remoteFolderId !== normalized.remoteFolderId)
       if (targetConflict) throw new Error('Favorite repository logical shard conflicts with another remote id.')
+      const exactExisting = snapshot.physicalShards.find((shard) =>
+        shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
+        shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
+      if (exactExisting) return this.getBindings(account)
       await this.options.repository.commit(account, {
         id: `favorite-adoption:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}`,
         accountMid: account,
@@ -224,7 +228,9 @@ export class FavoriteRepositoryBindingService {
           logicalLedgerId: normalized.logicalLedgerId,
           logicalTitle: normalized.logicalTitle,
           shardNumber: input.shardNumber,
-          memberAids: normalized.memberAids,
+          // Inventory does not prove individual membership. Do not turn a
+          // stale mirror into a physical-shard source of truth.
+          memberAids: [],
           remoteTitle: remote.title,
           bindingState: 'bound',
           remoteFolderId: normalized.remoteFolderId,

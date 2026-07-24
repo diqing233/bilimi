@@ -365,7 +365,7 @@ export function FavoriteLibraryApp({
   const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
     const items = navigation.map((item) => {
       const label = item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title
-      const unmatchedClassification = item.kind === 'folder' && /unmatched|inbox/i.test(item.folderId)
+      const unmatchedClassification = item.kind === 'folder' && item.folderId === 'local:inbox'
       return {
         id: item.id,
         label,

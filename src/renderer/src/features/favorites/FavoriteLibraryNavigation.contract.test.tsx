@@ -21,7 +21,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     const { container } = render(<FavoriteLibraryNavigation
       groups={[
         { id: 'range', label: range, items: [{ id: 'all', label: chinese(0x5168, 0x90e8), count: 4 }] },
-        { id: 'workspace', label: workspace, items: [{ id: 'folder:managed', label: workspace, count: 2, managed: true }, { id: 'folder:staging', label: staging, count: 0, protected: true }] },
+        { id: 'workspace', label: workspace, items: [{ id: 'folder:managed', label: workspace, count: 2, managed: true }, { id: 'folder:staging', label: staging, count: 0, managed: true }] },
         { id: 'bilibili', label: custom, items: [{ id: 'folder:remote', label: custom, count: 3 }] }
       ]}
       collapsedGroups={{}}
@@ -33,9 +33,9 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.getByText(range)).toHaveClass('favorite-library__navigation-group-label')
     expect(screen.getByRole('button', { name: `${chinese(0x6536, 0x8d77)}${range}` })).toHaveClass('favorite-library__navigation-group-toggle')
     expect(container.querySelectorAll('.favorite-library__navigation-group--separated')).toHaveLength(2)
-    expect(screen.getByText(staging).closest('.favorite-library__navigation-row')).not.toHaveClass('favorite-library__navigation-row--managed')
+    expect(screen.getByText(staging).closest('.favorite-library__navigation-row')).toHaveClass('favorite-library__navigation-row--managed')
     expect(screen.getByRole('button', { name: `${workspace} ${menu}` })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: `${staging} ${menu}` })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `${staging} ${menu}` })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: `${custom} ${menu}` })).not.toBeInTheDocument()
   })
 

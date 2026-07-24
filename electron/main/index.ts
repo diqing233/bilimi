@@ -38,6 +38,8 @@ import {
   saveAssistantPreferences,
   patchAssistantPreferences,
   saveFavoriteAccountPreferences,
+  dismissFavoriteLibraryRemoteFolder,
+  isFavoriteLibraryRemoteFolderDismissed,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
@@ -1356,6 +1358,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
     repository: favoriteRepositoryService,
     remoteArbiter: favoriteRepositoryRemoteOperations,
+    dismissRemoteFolder: (accountMid, remoteFolderId) =>
+      dismissFavoriteLibraryRemoteFolder(getDesktopStore(), accountMid, remoteFolderId),
     remote: {
       async removeRemoteFolder(accountMid, remoteFolderId) {
         const runId = `favorite-managed-folder-delete:${Date.now()}:${remoteFolderId}`
@@ -1705,11 +1709,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       if (!ledger?.bilibiliFolderId) return
       const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
       const existing = snapshot.physicalShards.find((shard) => shard.logicalLedgerId === ledger.id && shard.shardNumber === 1)
-      if (existing || !snapshot.folders.some((folder) => folder.remoteFolderId === ledger.bilibiliFolderId)) return
+      if (existing?.bindingState === 'bound' && existing.remoteFolderId === ledger.bilibiliFolderId) return
+      if (isFavoriteLibraryRemoteFolderDismissed(getDesktopStore(), accountMid, ledger.bilibiliFolderId)) return
+      const mirror = snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === ledger.bilibiliFolderId)
+      if (!mirror) return
       await favoriteRepositoryBindingService!.adoptExistingPhysicalShard(accountMid, {
         logicalLedgerId: ledger.id,
-        logicalTitle: ledger.displayName,
-        expectedRemoteTitle: ledger.displayName,
+        logicalTitle: mirror.title,
+        expectedRemoteTitle: mirror.title,
         remoteFolderId: ledger.bilibiliFolderId,
         shardNumber: 1,
         memberAids: snapshot.memberships[`bilibili:${ledger.bilibiliFolderId}`] ?? []

@@ -48,7 +48,15 @@ export class FavoriteRepositoryManagedFolderService {
   private readonly operations = new Map<string, PendingDeletion>()
   private readonly remoteDeletionOwners = new Map<string, string>()
 
-  constructor(private readonly options: { repository: Repository; remote?: RemoteFolderWriter; remoteObserver?: RemoteFolderObserver; remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>; now?: () => string }) {}
+  constructor(private readonly options: {
+    repository: Repository
+    remote?: RemoteFolderWriter
+    remoteObserver?: RemoteFolderObserver
+    remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>
+    /** Records a local-only opt-out after a local deletion has committed. */
+    dismissRemoteFolder?: (accountMid: string, remoteFolderId: string) => void
+    now?: () => string
+  }) {}
 
   async preview(accountMid: string, logicalFolderId: string): Promise<ManagedFolderDeletionPreview> {
     const normalizedAccount = account(accountMid)
@@ -94,6 +102,7 @@ export class FavoriteRepositoryManagedFolderService {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
     }, this.events(auditAids, 'managed-folder-delete-local', timestamp))
+    if (operation.remoteBinding) this.options.dismissRemoteFolder?.(operation.accountMid, operation.remoteBinding.remoteFolderId)
     operation.status = 'succeeded'
     return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }

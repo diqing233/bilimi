@@ -20,6 +20,8 @@ import {
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
   clearPendingFavoriteQueue,
+  dismissFavoriteLibraryRemoteFolder,
+  isFavoriteLibraryRemoteFolderDismissed,
   upsertPendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
@@ -77,6 +79,7 @@ function createFakeStore(
     favoritesFolderName: initial.favoritesFolderName ?? DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
     favoriteAccountPreferences: initial.favoriteAccountPreferences ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteAccountPreferences,
+    favoriteLibraryDismissedRemoteFolderIdsByAccount: initial.favoriteLibraryDismissedRemoteFolderIdsByAccount ?? {},
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
@@ -187,6 +190,20 @@ function createFakeStore(
 }
 
 describe('assistant preference store helpers', () => {
+  it('keeps dismissed remote work folders local to their normalized account', () => {
+    const store = createFakeStore({
+      favoriteLibraryDismissedRemoteFolderIdsByAccount: { '00100': [' 4070414411 ', '', 7 as never], '200': ['other'] }
+    })
+
+    expect(isFavoriteLibraryRemoteFolderDismissed(store, '100', '4070414411')).toBe(true)
+    expect(isFavoriteLibraryRemoteFolderDismissed(store, '200', '4070414411')).toBe(false)
+    dismissFavoriteLibraryRemoteFolder(store, '100', ' 4070414411 ')
+    dismissFavoriteLibraryRemoteFolder(store, '100', 'new-folder')
+    expect(store.snapshot.favoriteLibraryDismissedRemoteFolderIdsByAccount).toEqual({
+      '100': ['4070414411', 'new-folder'], '200': ['other']
+    })
+  })
+
   it('patches review preferences without overwriting a newer DeepSeek endpoint', () => {
     const store = createFakeStore({
       deepseekModel: 'deepseek-v4-flash',

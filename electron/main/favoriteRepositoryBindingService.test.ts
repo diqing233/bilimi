@@ -444,6 +444,36 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(createFolder).not.toHaveBeenCalled()
     expect(append).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
+    // Folder inventory proves only its aggregate count. Stale mirror rows
+    // cannot become physical-shard facts during an ID-only adoption.
+    expect((await repository.getSnapshot('100')).memberships['bilimi:inbox:001']).toEqual([])
+  })
+
+  it('treats a repeated exact adoption as idempotent when the inventory changes', async () => {
+    const repository = await createRepository()
+    let memberCount = 7
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockImplementation(async () => ({
+            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount }]
+          })),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const input = {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', expectedRemoteTitle: 'Staging',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
+    }
+
+    await service.adoptExistingPhysicalShard('100', input)
+    memberCount = 8
+    await expect(service.adoptExistingPhysicalShard('100', input)).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: '4070414411' })]
+    })
   })
 
   it.each([

@@ -546,7 +546,9 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    await options.onAccountOpen?.(accountMid)
+    // Reconciliation enriches the local projection but must not block reading
+    // an already usable library when the page runtime is unavailable.
+    await options.onAccountOpen?.(accountMid).catch(() => undefined)
     return options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {

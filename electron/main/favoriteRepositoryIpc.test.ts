@@ -32,6 +32,21 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(onAccountOpen.mock.invocationCallOrder[0]).toBeLessThan(getLibrarySummary.mock.invocationCallOrder[0])
   })
 
+  it('keeps the local library readable when optional account-open reconciliation is unavailable', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary } as never,
+      isTrustedSender: (senderId) => senderId === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      onAccountOpen: vi.fn().mockRejectedValue(new Error('runtime unavailable'))
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 1 })
+    expect(getLibrarySummary).toHaveBeenCalledWith('100')
+  })
+
   it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
     const ipcMain = new FakeIpcMain()
     const setLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })

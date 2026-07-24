@@ -262,6 +262,23 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commit).not.toHaveBeenCalled()
   })
 
+  it('dismisses an adopted remote folder only after its local deletion commits', async () => {
+    const current = managedSnapshot()
+    const dismissRemoteFolder = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+      },
+      dismissRemoteFolder
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await service.deleteLocal('100', preview.executionToken)
+
+    expect(dismissRemoteFolder).toHaveBeenCalledWith('100', '99')
+  })
+
   it('does not relabel a successful remote deletion as result-unknown when only audit persistence fails', async () => {
     const current = managedSnapshot()
     const commit = vi.fn()
