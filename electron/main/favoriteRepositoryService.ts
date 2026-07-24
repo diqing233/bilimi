@@ -302,6 +302,10 @@ export type FavoriteRepositoryLibrarySummary = {
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
   pendingAidCount: number
+  remoteReconciliations: Array<{
+    kind: 'unfavorite' | 'managed-folder'
+    operationId: string
+  }>
   workspace?: {
     id: string
     status: NonNullable<AccountFavoriteRepositorySnapshot['workspace']>['status']
@@ -377,7 +381,11 @@ export class FavoriteRepositoryService {
     const syncCounts: FavoriteRepositoryLibrarySummary['syncCounts'] = {
       pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
     }
-    for (const record of snapshot.syncRecords) syncCounts[record.status]++
+    for (const record of snapshot.syncRecords) {
+      // A recovered portable operation has no trustworthy remote result, so retain
+      // the established UI bucket while requiring an explicit reconciliation.
+      syncCounts[record.status === 'reconciliation-required' ? 'result-unknown' : record.status]++
+    }
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
@@ -400,6 +408,7 @@ export class FavoriteRepositoryService {
       syncRecordCount: snapshot.syncRecords.length,
       syncCounts,
       pendingAidCount,
+      remoteReconciliations: this.remoteReconciliations(snapshot),
       ...(snapshot.workspace ? {
         workspace: {
           id: snapshot.workspace.id,
@@ -679,7 +688,7 @@ export class FavoriteRepositoryService {
   async getPortableRemoteRecoveries(accountMid: string): Promise<Record<string, unknown>[]> {
     const account = normalizeAccountMid(accountMid)
     return this.queue(async () => (await this.load(account)).repository.snapshot.syncRecords
-      .filter((record) => ['pending', 'failed', 'result-unknown'].includes(record.status))
+      .filter((record) => ['pending', 'failed', 'result-unknown', 'reconciliation-required'].includes(record.status))
       .map((record) => ({ ...clone(record), accountMid: account }) as Record<string, unknown>))
   }
 
@@ -1204,7 +1213,9 @@ export class FavoriteRepositoryService {
     for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
     for (const record of snapshot.syncRecords) {
       const state = record.status === 'pending' ? 'unsynced'
-        : record.status === 'failed' || record.status === 'result-unknown' ? record.status : undefined
+        : record.status === 'failed' || record.status === 'result-unknown' || record.status === 'reconciliation-required'
+          ? record.status === 'reconciliation-required' ? 'result-unknown' : record.status
+          : undefined
       if (state) for (const aid of record.affectedAids) {
         addState(aid, state)
       }
@@ -1228,6 +1239,19 @@ export class FavoriteRepositoryService {
         ['unsynced', 'continuation', 'failed', 'result-unknown'].some((state) => states.has(state as FavoriteRepositoryLibraryPageRow['pendingStates'][number])))
       .map(([aid]) => aid)
       .sort((left, right) => left - right)
+  }
+
+  private remoteReconciliations(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibrarySummary['remoteReconciliations'] {
+    return snapshot.syncRecords.flatMap((record) => {
+      if (record.status !== 'reconciliation-required') return []
+      if (record.operationKey === 'favorite-library-unfavorite' && record.id.startsWith('favorite-remote-unfavorite:')) {
+        return [{ kind: 'unfavorite' as const, operationId: record.id.slice('favorite-remote-unfavorite:'.length) }]
+      }
+      if (record.operationKey === 'managed-folder-delete' && record.id.startsWith('managed-folder-delete:')) {
+        return [{ kind: 'managed-folder' as const, operationId: record.id.slice('managed-folder-delete:'.length) }]
+      }
+      return []
+    })
   }
 
   private mirrorSummary(record: AccountFavoriteRepositorySnapshot['libraryMirrors'][string] | undefined): FavoriteRepositoryLibraryDetail['mirror'] {

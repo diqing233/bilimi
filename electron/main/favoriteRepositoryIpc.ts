@@ -80,6 +80,10 @@ export type FavoriteRepositorySnapshotSummary = {
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
   pendingAidCount: number
+  remoteReconciliations: Array<{
+    kind: 'unfavorite' | 'managed-folder'
+    operationId: string
+  }>
   workspace?: {
     id: string
     status: NonNullable<AccountFavoriteRepositorySnapshot['workspace']>['status']

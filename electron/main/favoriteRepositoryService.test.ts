@@ -83,6 +83,44 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getPortableRemoteRecoveries('100')).resolves.toEqual([expect.objectContaining({ id: 'sync-1' })])
   })
 
+  it('keeps imported reconciliation-required remote operations pending and actionable after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '1': { aid: 1, title: 'Imported recovery', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      syncRecords: [{
+        id: 'favorite-remote-unfavorite:imported-operation', commandId: 'imported-operation',
+        operationKey: 'favorite-library-unfavorite', status: 'reconciliation-required', autoRetry: false,
+        affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z'
+      }, {
+        id: 'managed-folder-delete:imported-folder-delete', commandId: 'imported-folder-delete',
+        operationKey: 'managed-folder-delete', status: 'reconciliation-required', autoRetry: false,
+        affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+      }]
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    const restarted = new FavoriteRepositoryService({ root })
+
+    await expect(restarted.getLibrarySummary('100')).resolves.toMatchObject({
+      pendingAidCount: 1,
+      syncCounts: { 'result-unknown': 2 },
+      remoteReconciliations: [
+        { kind: 'unfavorite', operationId: 'imported-operation' },
+        { kind: 'managed-folder', operationId: 'imported-folder-delete' }
+      ]
+    })
+    await expect(restarted.getLibraryPage('100', { kind: 'pending' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 }, pendingStates: ['result-unknown'] }] })
+    await expect(restarted.getPortableRemoteRecoveries('100'))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'favorite-remote-unfavorite:imported-operation', status: 'reconciliation-required' }),
+        expect.objectContaining({ id: 'managed-folder-delete:imported-folder-delete', status: 'reconciliation-required' })
+      ]))
+  })
+
   it('deletes only the confirmed account local repository projection', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
