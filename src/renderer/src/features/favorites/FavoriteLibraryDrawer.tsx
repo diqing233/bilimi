@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FavoriteLibraryApp } from './FavoriteLibraryApp'
+import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './FavoriteLibraryApp'
 
 const DEFAULT_HEIGHT = 360
 const MIN_HEIGHT = 220
@@ -47,6 +47,7 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
   const [height, setHeight] = useState(() => clampHeight(DEFAULT_HEIGHT))
   const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
+  const [drawerStatus, setDrawerStatus] = useState<FavoriteLibraryDrawerStatus>()
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const hasBeenOpenedRef = useRef(open)
   const wasOpenRef = useRef(open)
@@ -164,8 +165,12 @@ export function FavoriteLibraryDrawer({ open, collapsed, onClose, onCollapsedCha
           </button>
         </div>
       </header>
+      {drawerStatus?.hasRemoteAttention ? <div className="favorite-library-drawer__remote-warning" role="status">
+        <span>远程操作待处理</span>
+        <button type="button" onClick={drawerStatus.onGoToPending}>去待处理</button>
+      </div> : null}
       <div className="favorite-library-drawer__body" hidden={collapsed}>
-        <FavoriteLibraryApp embedded onAccountChange={setAccount} />
+        <FavoriteLibraryApp embedded onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
       </div>
     </section>
   )

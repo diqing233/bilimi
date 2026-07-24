@@ -57,7 +57,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveClass('favorite-library__dialog-overlay')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-overlay { position: fixed;')
-    expect(favoriteLibraryStyles).toContain('.favorite-library__layout { display: grid; grid-template-columns: 190px minmax(320px, 1fr) minmax(220px, 300px);')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__layout { display: grid; grid-template-columns: var(--favorite-columns);')
   })
   it('provides search, status filtering, and sorting controls from the toolbar', () => {
     const onSearchChange = vi.fn()
@@ -754,7 +754,7 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain(
       ".favorite-library[data-embedded='true'] { container-type: inline-size; }"
     )
-    expect(favoriteLibraryStyles).toMatch(
+    expect(favoriteLibraryStyles).not.toMatch(
       /@container\s+\(max-width: 760px\)\s*\{\s*\.favorite-library\[data-embedded='true'\]\s+\.favorite-library__layout\[data-embedded-layout='true'\]\s*\{/
     )
     expect(favoriteLibraryStyles).toContain(

@@ -114,14 +114,21 @@ export type FavoriteLibraryUiCallbacks = {
   onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
 }
 
+export type FavoriteLibraryDrawerStatus = {
+  hasRemoteAttention: boolean
+  onGoToPending: () => void
+}
+
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
 export function FavoriteLibraryApp({
   embedded = false,
   onAccountChange,
+  onDrawerStatusChange,
   uiCallbacks
 }: {
   embedded?: boolean
   onAccountChange?: (account: FavoriteLibraryAccount | undefined) => void
+  onDrawerStatusChange?: (status: FavoriteLibraryDrawerStatus) => void
   uiCallbacks?: FavoriteLibraryUiCallbacks
 }) {
   const [accountMid, setAccountMid] = useState<string>()
@@ -230,6 +237,24 @@ export function FavoriteLibraryApp({
     }
     return false
   }, [pageSize])
+
+  const goToPending = useCallback(() => {
+    setScopeId('pending')
+    cursorHistoryRef.current = []
+    setCursorHistory([])
+    setSelectedAids([])
+    setSelected(undefined)
+    setDetailSnapshot(undefined)
+    if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
+  }, [accountMid, load, pageOptions, pageSize])
+
+  useEffect(() => {
+    if (!embedded) return
+    onDrawerStatusChange?.({
+      hasRemoteAttention: Boolean(summary?.syncCounts.failed || summary?.syncCounts['result-unknown'] || remoteReconciliations.length),
+      onGoToPending: goToPending
+    })
+  }, [embedded, goToPending, onDrawerStatusChange, remoteReconciliations.length, summary?.syncCounts.failed, summary?.syncCounts['result-unknown']])
 
   const refresh = useCallback(async (expectedAccountMid?: string) => {
     const refreshId = ++requestIdRef.current
@@ -737,14 +762,7 @@ export function FavoriteLibraryApp({
       {!embedded ? (
         <FavoriteLibraryHeader title={text.library} remoteWarning={Boolean(summary?.syncCounts.failed || summary?.syncCounts['result-unknown'])}
           account={accountMid ? `${accountNickname ?? '当前账号'}（UID：${accountMid}）` : text.loadingAccount}
-          onGoToPending={() => {
-            setScopeId('pending')
-            cursorHistoryRef.current = []
-            setCursorHistory([])
-            setSelectedAids([])
-            setSelected(undefined)
-            if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
-          }}
+          onGoToPending={goToPending}
           onMinimize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('minimize') }}
           onToggleMaximize={() => { void window.bilimiDesktop.controlFavoriteLibraryWindow?.('toggle-maximize') }}
           onClose={() => { void window.close() }}>
@@ -789,7 +807,7 @@ export function FavoriteLibraryApp({
         </div> : null}
       </section> : null}
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
-      {remoteReconciliations.length ? <div className="favorite-library__remote-reconciliation" role="status">
+      {!embedded && remoteReconciliations.length ? <div className="favorite-library__remote-reconciliation" role="status">
         <p>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</p>
         {remoteReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>{remoteReconciliation.kind === 'unfavorite' ? '对账取消收藏结果' : '对账文件夹删除结果'}</button>)}
       </div> : null}
