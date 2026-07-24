@@ -164,6 +164,26 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     await expect(service.reconcile('100', 'portable-required')).resolves.toEqual({ status: 'reconciliation-required', operationId: 'portable-required' })
   })
 
+  it('releases the in-memory remote owner after a reconciled known failure so a new preview can retry', async () => {
+    const current = managedSnapshot()
+    const removeRemoteFolder = vi.fn(async () => { throw new Error('connection dropped') })
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current),
+        commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })),
+        commitWithAudit: vi.fn()
+      },
+      remote: { removeRemoteFolder }, remoteObserver: { remoteFolderExists: vi.fn(async () => 'present' as const) }
+    })
+    const first = await service.preview('100', 'bilimi-logical:work')
+    await service.executeRemote('100', first.executionToken, service.confirm(first.executionToken))
+    await expect(service.reconcile('100', first.operationId)).resolves.toMatchObject({ status: 'failed' })
+    const retry = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', retry.executionToken, service.confirm(retry.executionToken))).resolves.toMatchObject({ status: 'result-unknown' })
+    expect(removeRemoteFolder).toHaveBeenCalledTimes(2)
+  })
+
   it('rejects a remote folder shared by another logical ledger during preview', async () => {
     const current = managedSnapshot()
     current.physicalShards.push({ logicalLedgerId: 'other', folderId: 'bilimi:other:001', shardNumber: 1, remoteFolderId: '99', remoteTitle: 'Other', bindingState: 'bound' })

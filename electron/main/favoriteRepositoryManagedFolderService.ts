@@ -165,6 +165,7 @@ export class FavoriteRepositoryManagedFolderService {
       if (observation === 'present') {
         if (await this.tryRecordResult(operation, 'failed', 'Remote folder remains present.')) {
           operation.status = 'failed'
+          if (operation.remoteBinding) this.remoteDeletionOwners.delete(`${operation.accountMid}:${operation.remoteBinding.remoteFolderId}`)
         }
       } else if (observation === 'absent') {
         try {
