@@ -86,7 +86,7 @@ describe('FavoriteRepositorySyncService', () => {
     const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-music': [1] } })
     const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
     const service = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append, remove: vi.fn(), readMembers }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+      repository, pageBridge: { append, remove: vi.fn(), readMembers, readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
     })
 
     const writer = service.createArchiveRestoreWriter()
@@ -164,7 +164,7 @@ describe('FavoriteRepositorySyncService', () => {
     const readMembers = vi.fn()
     const append = vi.fn()
     const writer = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append, remove: vi.fn(), readMembers }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+      repository, pageBridge: { append, remove: vi.fn(), readMembers, readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
     }).createArchiveRestoreWriter()
 
     await expect(writer.readBaseline({ accountMid: '100', restoreId: 'restore-duplicate', aid: 1 })).rejects.toThrow('multiple logical ledgers')
@@ -256,7 +256,7 @@ describe('FavoriteRepositorySyncService', () => {
     const sleep = vi.fn().mockResolvedValue(undefined)
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       sleep,
       random: () => 0
     })
@@ -284,7 +284,7 @@ describe('FavoriteRepositorySyncService', () => {
     const sleep = vi.fn(async (milliseconds: number) => { events.push(`sleep:${milliseconds}`) })
     const append = vi.fn(async () => { events.push('append'); return { observedAccountMid: '100' } })
     const service = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, sleep, random: () => 0
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }, sleep, random: () => 0
     })
 
     await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
@@ -321,7 +321,7 @@ describe('FavoriteRepositorySyncService', () => {
     const pageBridge = {
       append,
       remove: vi.fn(),
-      readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } })
+      readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } }), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
     }
     const service = new FavoriteRepositorySyncService({ repository, pageBridge, now: () => '2026-07-19T00:00:00.000Z' })
 
@@ -353,7 +353,7 @@ describe('FavoriteRepositorySyncService', () => {
     const release = vi.fn()
     const pageBridge = {
       append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }),
-      remove: vi.fn(), readMembers: vi.fn()
+      remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
     }
     const service = new FavoriteRepositorySyncService({
       repository,
@@ -375,7 +375,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 
@@ -412,7 +412,7 @@ describe('FavoriteRepositorySyncService', () => {
       id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: { ...workspace(), frozenSyncPlan: frozenPlan }
     })
     const service = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      repository, pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 
@@ -446,7 +446,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append: vi.fn().mockRejectedValueOnce(new Error('timeout')), remove: vi.fn(), readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [1] } }) },
+      pageBridge: { append: vi.fn().mockRejectedValueOnce(new Error('timeout')), remove: vi.fn(), readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [1] } }), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 
@@ -467,7 +467,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 
@@ -503,7 +503,7 @@ describe('FavoriteRepositorySyncService', () => {
     const bind = vi.fn().mockResolvedValue(undefined)
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridgeManager: { bind, release: vi.fn(), pageBridge: vi.fn(() => ({ append: vi.fn(), remove: vi.fn(), readMembers: vi.fn() })) },
+      pageBridgeManager: { bind, release: vi.fn(), pageBridge: vi.fn(() => ({ append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() })) },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 
@@ -546,7 +546,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridgeManager: {
         bind,
         release: vi.fn(),
-        pageBridge: vi.fn(() => ({ append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn() }))
+        pageBridge: vi.fn(() => ({ append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }))
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -570,7 +570,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append: vi.fn().mockRejectedValue(new FavoriteRepositoryRemoteRejectedError('Bilibili rejected the request')),
         remove: vi.fn(),
-        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } })
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } }), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -591,7 +591,8 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append,
         remove: vi.fn(),
-        readMembers: vi.fn()
+        readMembers: vi.fn(),
+        readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -614,7 +615,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append,
         remove: vi.fn(),
-        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: {} })
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: {} }), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -635,7 +636,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append: vi.fn().mockRejectedValueOnce(new Error('network connection interrupted')),
         remove: vi.fn(),
-        readMembers: vi.fn().mockRejectedValue(new Error('bound target lost'))
+        readMembers: vi.fn().mockRejectedValue(new Error('bound target lost')), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -654,7 +655,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append: vi.fn().mockRejectedValueOnce(new Error('network connection interrupted')),
         remove: vi.fn(),
-        readMembers: vi.fn(() => new Promise(() => undefined))
+        readMembers: vi.fn(() => new Promise<never>(() => undefined)), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z',
       reconciliationReadTimeoutMs: 5
@@ -674,9 +675,10 @@ describe('FavoriteRepositorySyncService', () => {
     const service = new FavoriteRepositorySyncService({
       repository,
       pageBridge: {
-        append: vi.fn(() => new Promise(() => undefined)),
+        append: vi.fn(() => new Promise<never>(() => undefined)),
         remove: vi.fn(),
-        readMembers: vi.fn()
+        readMembers: vi.fn(),
+        readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z',
       remoteWriteTimeoutMs: 5
@@ -700,7 +702,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     const append = vi.fn()
     const service = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
     })
 
     await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'result-unknown' })
@@ -722,7 +724,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     const append = vi.fn()
     const service = new FavoriteRepositorySyncService({
-      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
+      repository, pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }, now: () => '2026-07-19T00:00:00.000Z'
     })
 
     await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'ready-to-resume' })
@@ -740,7 +742,7 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append: vi.fn().mockRejectedValueOnce(new Error('network interrupted')),
         remove: vi.fn(),
-        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '200', members: { 'remote-a': [] } })
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '200', members: { 'remote-a': [] } }), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -759,7 +761,8 @@ describe('FavoriteRepositorySyncService', () => {
       pageBridge: {
         append: vi.fn().mockRejectedValue(new Error('unexpected bridge response')),
         remove: vi.fn(),
-        readMembers: vi.fn()
+        readMembers: vi.fn(),
+        readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
       },
       now: () => '2026-07-19T00:00:00.000Z'
     })
@@ -782,7 +785,7 @@ describe('FavoriteRepositorySyncService', () => {
     const append = vi.fn(() => new Promise<{ observedAccountMid: string }>((resolve) => { resolveAppend = resolve }))
     const service = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
       now: () => '2026-07-19T00:00:00.000Z'
     })
 

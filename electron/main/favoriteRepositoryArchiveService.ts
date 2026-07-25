@@ -290,6 +290,11 @@ export class FavoriteRepositoryArchiveService {
           items.push({ aid: operation.aid, status: 'result-unknown', reason })
           break
         }
+        if ('capacityRequiredLogicalFolderIds' in resolved) {
+          await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, (previous?.attempt ?? 0) + 1, 'failed', [], 'managed archive target capacity is exhausted')
+          items.push({ aid: operation.aid, status: 'failed', reason: 'managed archive target capacity is exhausted' })
+          continue
+        }
       }
       if ('reason' in resolved) {
         await this.writeRestoreCheckpoint(accountMid, restoreId, operation.aid, (previous?.attempt ?? 0) + 1, 'failed', [], resolved.reason)

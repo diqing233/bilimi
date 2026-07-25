@@ -1,4 +1,4 @@
-﻿import { readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -24,7 +24,7 @@ const favoriteLibraryStyles = readFileSync(
 
 afterEach(() => {
   cleanup()
-  window.bilimiDesktop = undefined
+  Reflect.deleteProperty(window, 'bilimiDesktop')
 })
 
 describe('FavoriteLibraryApp', () => {
@@ -39,7 +39,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     await screen.findByRole('searchbox', { name: '搜索收藏库' })
@@ -62,7 +62,7 @@ describe('FavoriteLibraryApp', () => {
         items: [{ video: { aid: 1, title: '命中视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     expect(await screen.findByRole('heading', { name: '全部收藏 3 个视频' })).toBeInTheDocument()
@@ -85,10 +85,8 @@ describe('FavoriteLibraryApp', () => {
 
   it('keeps only search, selection, and batch actions in the toolbar', () => {
     const onSearchChange = vi.fn()
-    const onFilterChange = vi.fn()
-    const onSortChange = vi.fn()
     render(<FavoriteLibraryToolbar pageCount={1} selectedCount={0} allCurrentPageSelected={false} onTogglePage={() => undefined}
-      searchQuery="" filter="all" sort="updated-desc" onSearchChange={onSearchChange} onFilterChange={onFilterChange} onSortChange={onSortChange} />)
+      searchQuery="" onSearchChange={onSearchChange} />)
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '音乐' } })
     expect(onSearchChange).toHaveBeenCalledWith('音乐')
@@ -119,7 +117,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '来源视频', tags: [], favoriteAt: '2026-07-24T01:02:03.000Z', scannedAt: '2026-07-24T04:05:06.000Z', updatedAt: '2026-07-24T04:05:06.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '来源视频', tags: [], favoriteAt: '2026-07-24T01:02:03.000Z', scannedAt: '2026-07-24T04:05:06.000Z', updatedAt: '2026-07-24T04:05:06.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('来源视频'))
@@ -134,7 +132,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: 'B站来源视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilibili:default'], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: 'B站来源视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilibili:default'], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '默认收藏' }))
@@ -156,7 +154,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '未扫描视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [], position: { state: 'local-only-change', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-24T00:00:00.000Z' }, mirror: { status: 'never' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       adoptFavoriteLibraryRemotePlacement,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('未扫描视频'))
@@ -173,7 +171,7 @@ describe('FavoriteLibraryApp', () => {
         { video: { aid: 2, title: 'B站视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilibili:2'], pendingStates: [] }
       ] }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp uiCallbacks={{ onBatchAction }} />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 本地视频' }))
@@ -228,7 +226,7 @@ describe('FavoriteLibraryApp', () => {
       executeFavoriteRepositoryArchiveRestore,
       reconcileFavoriteRepositoryArchiveRestore,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '收藏存档' }))
@@ -269,7 +267,7 @@ describe('FavoriteLibraryApp', () => {
       createFavoriteRepositoryArchiveRestorePlan,
       executeFavoriteRepositoryArchiveRestore,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '收藏存档' }))
@@ -301,7 +299,7 @@ describe('FavoriteLibraryApp', () => {
       ] }),
       copyFavoriteLibrarySelection,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
@@ -327,7 +325,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 3, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 3, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['9'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       setFavoriteLibraryLocalPlacements, subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
     fireEvent.click(await screen.findByRole('button', { name: '调整本地归属' }))
@@ -347,7 +345,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 3, items: [{ video: { aid: 1, title: 'Video + ID', description, tags: ['测试标签'], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: ['protected'] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 3, video: { aid: 1, title: 'Video + ID', description, tags: ['测试标签'], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: ['protected'], protected: true, position: { state: 'failed', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'failed' }, transcription: { status: '转写失败' }, archive: { status: '登记异常', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       syncFavoriteLibrarySelection, subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Video + ID'))
@@ -380,7 +378,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }),
       deleteFavoriteLibraryVideo, subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
@@ -406,7 +404,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       previewFavoriteLibraryRemoteUnfavoriteOperation, confirmFavoriteLibraryRemoteUnfavoriteOperation, executeFavoriteLibraryRemoteUnfavoriteOperation,
       deleteFavoriteLibraryVideo, subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
@@ -438,7 +436,7 @@ describe('FavoriteLibraryApp', () => {
       executeFavoriteLibraryRemoteUnfavoriteOperation,
       reconcileFavoriteLibraryRemoteUnfavoriteOperation,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
@@ -469,7 +467,7 @@ describe('FavoriteLibraryApp', () => {
       reconcileFavoriteLibraryRemoteUnfavoriteOperation,
       reconcileFavoriteLibraryManagedFolderDelete,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     expect(await screen.findByRole('button', { name: '对账取消收藏结果' })).toBeInTheDocument()
@@ -494,7 +492,7 @@ describe('FavoriteLibraryApp', () => {
       deleteFavoriteLibrarySelection,
       deleteFavoriteLibraryVideo,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频二' }))
@@ -526,7 +524,7 @@ describe('FavoriteLibraryApp', () => {
       copyFavoriteLibrarySelection,
       moveFavoriteLibrarySelection,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
@@ -558,7 +556,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [] }),
       openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click((await screen.findAllByRole('button', { name: '音乐 菜单' }))[0])
@@ -576,7 +574,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [] }),
       openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '音乐 菜单' }))
@@ -593,7 +591,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [] }),
       previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'delete-token', currentRevision: 6, localMemberCount: 0, unmatchedFallbackCount: 0, extraRemoteMemberCount: 0, remoteOnlyMemberCount: 0 }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '音乐 菜单' }))
@@ -618,7 +616,7 @@ describe('FavoriteLibraryApp', () => {
       syncFavoriteLibrarySelection,
       enqueueFavoriteLibraryTranscription,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
@@ -642,7 +640,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [], position: { state: 'synced', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-24T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
@@ -659,7 +657,7 @@ describe('FavoriteLibraryApp', () => {
       resolveFavoriteLibraryArchive,
       openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
@@ -678,7 +676,7 @@ describe('FavoriteLibraryApp', () => {
       setFavoriteLibraryLocalPlacements,
       adoptFavoriteLibraryRemotePlacement,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
@@ -698,7 +696,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       getFavoriteRepositoryVideoEvents,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
@@ -719,7 +717,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn(async (_account, aid) => ({ video: { aid, title: aid === 1 ? 'First video' : 'Second video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } })),
       getFavoriteRepositoryVideoEvents: vi.fn(() => new Promise((resolve) => { resolveEvents = resolve })),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('First video'))
     fireEvent.click(await screen.findByRole('button', { name: '查看完整处理记录' }))
@@ -740,7 +738,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       getFavoriteRepositoryVideoEvents, subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('视频一'))
     fireEvent.click(await screen.findByRole('button', { name: '查看完整处理记录' }))
@@ -764,7 +762,7 @@ describe('FavoriteLibraryApp', () => {
         }]
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp embedded />)
 
@@ -812,7 +810,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined),
       syncFavoriteLibrarySelection
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -843,7 +841,7 @@ describe('FavoriteLibraryApp', () => {
         mirror: { status: 'failed' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Video + ID'))
@@ -874,7 +872,7 @@ describe('FavoriteLibraryApp', () => {
       subscribeFavoriteRepository: vi.fn(() => () => undefined),
       syncFavoriteLibrarySelection
     }
-    window.bilimiDesktop = desktop as typeof window.bilimiDesktop
+    window.bilimiDesktop = desktop as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -906,7 +904,7 @@ describe('FavoriteLibraryApp', () => {
       toggleFavoriteLibraryArchiveStar,
       saveFavoriteLibraryArchiveMemo,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('已扫描视频'))
@@ -931,7 +929,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, cid: 70, bvid: 'BV1xx', title: '结构化详情', author: 'UP 主', tags: ['音乐'], favoriteAt: '2026-07-20T08:00:00.000Z', updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, cid: 70, bvid: 'BV1xx', title: '结构化详情', author: 'UP 主', tags: ['音乐'], favoriteAt: '2026-07-20T08:00:00.000Z', updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], position: { state: 'synced', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-20T00:00:00.000Z' }, mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('结构化详情'))
@@ -954,7 +952,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '未分P详情', author: 'UP 主', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '未分P详情', author: 'UP 主', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('未分P详情'))
@@ -970,7 +968,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '等待确认', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['result-unknown'] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '等待确认', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['result-unknown'], mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('等待确认'))
@@ -1000,7 +998,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -1042,7 +1040,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -1060,7 +1058,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '等待转写', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, title: '等待转写', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: '已同步' }, transcription: { status: '正在转写' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('等待转写'))
@@ -1082,7 +1080,7 @@ describe('FavoriteLibraryApp', () => {
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 2, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     expect(await screen.findByText('First page history')).toBeInTheDocument()
@@ -1103,7 +1101,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue(page),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ ...page, video: page.items[0].video, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       subscribeFavoriteRepository: vi.fn((_mid, _folder, callback) => { notifyRepositoryChange = callback; return () => undefined })
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Refresh keeps detail'))
@@ -1133,7 +1131,7 @@ describe('FavoriteLibraryApp', () => {
       subscribeFavoriteRepository: vi.fn(() => () => undefined),
       syncFavoriteLibrarySelection,
       enqueueFavoriteLibraryTranscription
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     await screen.findByText('One')
@@ -1168,7 +1166,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined),
       syncFavoriteLibrarySelection: vi.fn().mockResolvedValue({ status: 'succeeded' })
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     await screen.findByRole('checkbox', { name: /All video/ })
@@ -1209,7 +1207,7 @@ describe('FavoriteLibraryApp', () => {
         notify = () => callback({})
         return () => undefined
       })
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -1238,7 +1236,7 @@ describe('FavoriteLibraryApp', () => {
       })),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -1264,7 +1262,7 @@ describe('FavoriteLibraryApp', () => {
         items: [{ video: { aid: 100, title: 'Video 100', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
       }),
       subscribeFavoriteRepository: vi.fn(() => unsubscribe)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
 
@@ -1294,7 +1292,7 @@ describe('FavoriteLibraryApp', () => {
       }),
       getFavoriteRepositoryLibraryPage: getPage,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     await waitFor(() => expect(resolveAll).toBeTypeOf('function'))

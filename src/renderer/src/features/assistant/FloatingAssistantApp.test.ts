@@ -18,10 +18,11 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
-  it('places local data between the Bilibili connection setting and closing setting', () => {
-    expect(SETTINGS_JUMP_OPTIONS.slice(-3).map((option) => option.value)).toEqual([
+  it('places local data and motion tuning after the Bilibili connection setting', () => {
+    expect(SETTINGS_JUMP_OPTIONS.slice(-4).map((option) => option.value)).toEqual([
       'bilibili-connection',
       'local-data',
+      'motion-tuning',
       'close'
     ])
   })

@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 
@@ -136,7 +136,7 @@ describe('FavoriteRepositoryBindingService', () => {
       newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100',
             folders: [
@@ -144,7 +144,7 @@ describe('FavoriteRepositoryBindingService', () => {
               ...Array.from({ length: 98 }, (_, index) => ({ id: `other-${index}`, title: `other-${index}`, memberCount: 0 }))
             ]
           }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -164,12 +164,12 @@ describe('FavoriteRepositoryBindingService', () => {
       newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100',
             folders: [{ id: 'saved-music', title: 'bilimi·Music', memberCount: 12 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -196,7 +196,7 @@ describe('FavoriteRepositoryBindingService', () => {
       newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100',
             folders: [
@@ -204,7 +204,7 @@ describe('FavoriteRepositoryBindingService', () => {
               { id: 'duplicate-music', title: 'bilimi\u00b7Music', memberCount: 1 }
             ]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -281,10 +281,10 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind, release,
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
           createFolder,
-          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -308,7 +308,7 @@ describe('FavoriteRepositoryBindingService', () => {
       newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({ readFolderInventory, createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn() }))
+        pageBridge: vi.fn((_accountMid, _runId) => ({ readFolderInventory, createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn() }))
       }
     })
 
@@ -327,9 +327,9 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -350,10 +350,10 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
           createFolder: vi.fn().mockRejectedValue(new Error('network interrupted')),
-          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -375,9 +375,9 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => ['a1b2c3', 'd4e5f6'][tokenIndex++],
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }), createFolder,
-          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -395,9 +395,9 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: Array.from({ length: 99 }, (_, index) => ({ id: `folder-${index}`, title: `other-${index}`, memberCount: 0 })) }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -417,12 +417,12 @@ describe('FavoriteRepositoryBindingService', () => {
       repository,
       pageBridgeManager: {
         bind, release,
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100',
             folders: [{ id: '4070414411', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }]
           }),
-          createFolder, append, remove, readMembers: vi.fn()
+          createFolder, append, remove, readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -456,11 +456,11 @@ describe('FavoriteRepositoryBindingService', () => {
       repository,
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockImplementation(async () => ({
             observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount }]
           })),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -487,9 +487,9 @@ describe('FavoriteRepositoryBindingService', () => {
       repository,
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [folder] }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -507,11 +507,11 @@ describe('FavoriteRepositoryBindingService', () => {
       repository,
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '200', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -529,11 +529,11 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -556,11 +556,11 @@ describe('FavoriteRepositoryBindingService', () => {
       repository, newBindingToken: () => 'a1b2c3',
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
-        pageBridge: vi.fn(() => ({
+        pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })

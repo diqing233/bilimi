@@ -29,10 +29,10 @@ function deferred<T>() {
 describe('useOldFavoriteWorkspace', () => {
   it('opens the compact workspace snapshot for the active account', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
 
     const { result } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
-      initialProps: { accountMid: '100' }
+      initialProps: { accountMid: '100' as string | undefined }
     })
 
     await waitFor(() => expect(result.current.snapshot).toEqual(workspace('100')))
@@ -42,7 +42,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('treats a new account with no organization round as an idle snapshot, not a read error', async () => {
     const open = vi.fn().mockResolvedValue(null)
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await waitFor(() => {
@@ -55,9 +55,9 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('clears its snapshot without an account or desktop bridge', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
-    const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
-      initialProps: { accountMid: '100' }
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result, rerender } = renderHook(({ accountMid }: { accountMid?: string }) => useOldFavoriteWorkspace(accountMid), {
+      initialProps: { accountMid: '100' as string | undefined }
     })
 
     await waitFor(() => expect(result.current.snapshot).toEqual(workspace('100')))
@@ -73,7 +73,7 @@ describe('useOldFavoriteWorkspace', () => {
     const first = deferred<ReturnType<typeof workspace>>()
     const second = deferred<ReturnType<typeof workspace>>()
     const open = vi.fn((accountMid: string) => accountMid === '100' ? first.promise : second.promise)
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
       initialProps: { accountMid: '100' }
     })
@@ -89,7 +89,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('does not publish a snapshot returned for a different account', async () => {
     const open = vi.fn().mockResolvedValue(workspace('200'))
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await waitFor(() => {
@@ -101,7 +101,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('clears the latest snapshot when the desktop bridge rejects', async () => {
     const open = vi.fn().mockRejectedValue(new Error('workspace unavailable'))
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await waitFor(() => {
@@ -115,7 +115,7 @@ describe('useOldFavoriteWorkspace', () => {
     const open = vi.fn()
       .mockResolvedValueOnce(workspace('100'))
       .mockResolvedValueOnce({ ...workspace('100'), continuationCount: 3 })
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await waitFor(() => expect(result.current.snapshot).toEqual(workspace('100')))
@@ -137,7 +137,7 @@ describe('useOldFavoriteWorkspace', () => {
     const open = vi.fn()
       .mockResolvedValueOnce(enrichingWorkspace)
       .mockReturnValueOnce(polling.promise)
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await vi.runOnlyPendingTimersAsync() })
@@ -160,7 +160,7 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await vi.runOnlyPendingTimersAsync() })
@@ -181,7 +181,7 @@ describe('useOldFavoriteWorkspace', () => {
     const command = vi.fn()
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     let firstCommand!: Promise<unknown>
@@ -203,7 +203,7 @@ describe('useOldFavoriteWorkspace', () => {
     const first = deferred<ReturnType<typeof workspace>>()
     const second = deferred<ReturnType<typeof workspace>>()
     const open = vi.fn((accountMid: string) => accountMid === '100' ? first.promise : second.promise)
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
       initialProps: { accountMid: '100' }
     })
@@ -217,7 +217,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('starts a compact scan through the constrained workspace command', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.startScan('full') })
@@ -228,7 +228,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('sends source selection as a constrained workspace command', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.selectSourceFolders(['source-a', 'source-b']) })
@@ -240,7 +240,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('sends current-segment changes and manual classifications as constrained workspace commands', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.selectSegment('segment-2') })
@@ -260,7 +260,7 @@ describe('useOldFavoriteWorkspace', () => {
       progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0 },
       failures: []
     })
-    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('low-confidence-and-unclassified') })
@@ -280,7 +280,7 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = {
       organizeOldFavoriteWorkspaceDeepSeekV1: organize,
       retryOldFavoriteWorkspaceDeepSeekV1: retry
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all') })
@@ -297,7 +297,7 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = {
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
@@ -316,7 +316,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('requests optional Bilibili mirror clearing only with a full reorganization scan', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.startScan('full', { clearBilibiliMirror: true }) })
@@ -330,11 +330,11 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({ ...workspace('100'), status: 'previewing' as const }),
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
-      onOldFavoriteWorkspaceDeepSeekProgress: (callback) => { publishProgress = callback; return vi.fn() }
-    } as typeof window.bilimiDesktop
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback: NonNullable<typeof publishProgress>) => { publishProgress = callback; return vi.fn() }
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
-    await waitFor(() => expect(result.current.snapshot?.status).toBe('previewing'))
+    await waitFor(() => expect((result.current.snapshot && 'status' in result.current.snapshot ? result.current.snapshot.status : undefined)).toBe('previewing'))
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
     await waitFor(() => expect(publishProgress).toBeTypeOf('function'))
     act(() => { publishProgress?.({ accountMid: '100', workspaceId: 'workspace-100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
@@ -354,12 +354,12 @@ describe('useOldFavoriteWorkspace', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(oldWorkspace),
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(deepSeek.promise),
       commandOldFavoriteWorkspaceV1: command,
-      onOldFavoriteWorkspaceDeepSeekProgress: (callback) => { publishProgress = callback; return vi.fn() }
-    } as typeof window.bilimiDesktop
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback: NonNullable<typeof publishProgress>) => { publishProgress = callback; return vi.fn() }
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await waitFor(() => expect(result.current.snapshot?.workspaceId).toBe('workspace-old'))
-    await waitFor(() => expect(result.current.snapshot?.status).toBe('previewing'))
+    await waitFor(() => expect((result.current.snapshot && 'status' in result.current.snapshot ? result.current.snapshot.status : undefined)).toBe('previewing'))
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
     await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
 
@@ -373,7 +373,7 @@ describe('useOldFavoriteWorkspace', () => {
   })
 
   it('reports a visible DeepSeek failure when its narrow bridge is unavailable', async () => {
-    window.bilimiDesktop = {} as typeof window.bilimiDesktop
+    window.bilimiDesktop = {} as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('unclassified-only') })
@@ -385,7 +385,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('sends undo and redo as payload-free constrained workspace commands', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.undoClassification() })
@@ -397,7 +397,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('freezes Bilibili execution without allowing the renderer to supply operations', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'frozen' as const })
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.freezeBilibiliExecution() })
@@ -408,7 +408,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('saves the current segment locally through a payload-free workspace command', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'completed' as const })
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.saveCurrentSegmentLocally() })
@@ -419,7 +419,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('abandons the current pending workspace through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue(null)
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.abandonCurrentWorkspace() })
@@ -434,7 +434,7 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
     await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
 
@@ -445,7 +445,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('keeps a mapped execution failure visible instead of silently swallowing a rejected confirmation', async () => {
     const command = vi.fn().mockRejectedValue(new Error('remote-target-unbound'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
@@ -457,7 +457,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('explains an unavailable remote folder inventory after confirmation instead of showing the generic plan error', async () => {
     const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote folder inventory is unavailable.'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
@@ -467,7 +467,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('explains an ambiguous remote folder target after confirmation instead of showing the generic plan error', async () => {
     const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote shard title is ambiguous.'))
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
@@ -477,7 +477,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('starts only the already frozen Bilibili plan through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.executeFrozenBilibiliPlan() })
@@ -488,13 +488,13 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('keeps execution pending and refreshes the compact remote status while a sync command is in flight', async () => {
     vi.useRealTimers()
-    const pending = deferred<ReturnType<typeof workspace>>()
+    const pending = deferred<Awaited<ReturnType<NonNullable<typeof window.bilimiDesktop.commandOldFavoriteWorkspaceV1>>>>()
     const command = vi.fn().mockReturnValue(pending.promise)
     const open = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
     window.bilimiDesktop = {
       commandOldFavoriteWorkspaceV1: command,
       openOldFavoriteWorkspaceV1: open
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     let execution!: Promise<unknown>
@@ -502,14 +502,14 @@ describe('useOldFavoriteWorkspace', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(true))
     await waitFor(() => expect(open).toHaveBeenCalled())
-    pending.resolve({ ...workspace('100'), status: 'completed' as const })
+    pending.resolve({ ...workspace('100'), status: 'completed' as const, scan: { phase: 'complete' as const, failureCount: 0 } })
     await act(async () => { await execution })
     expect(result.current.loading).toBe(false)
   })
 
   it('exposes explicit reconciliation and non-binding resume commands', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'reconciling' as const })
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
     await act(async () => { await result.current.reconcileFrozenBilibiliPlan() })

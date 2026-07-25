@@ -8,7 +8,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
     const props = {
       currentAccountMid: '100', ledgers: [], missingLedgerIds: [],
       onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn()
@@ -28,7 +28,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       getOldFavoriteWorkspaceRecoverySummaryV1: summary
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -49,7 +49,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: open,
       getOldFavoriteWorkspaceRecoverySummaryV1: summary,
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -121,7 +121,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
         scan: { phase: 'inventory', failureCount: 0 }, sourceFolders: [], continuationCount: 0,
         segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
       })
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 10, isDefault: true }
@@ -134,7 +134,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
@@ -155,7 +155,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn(),
       openFavoriteLibrary: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -199,7 +199,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
         segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
         history: { cursor: 0, length: 0 }
       })
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -251,7 +251,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -275,7 +275,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -296,7 +296,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -320,7 +320,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -342,7 +342,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(executing),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -365,7 +365,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
     }
     const command = vi.fn().mockResolvedValue({ ...preview, status: 'scanning' as const })
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
@@ -422,7 +422,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', () => {
     const save = vi.fn()
     const command = vi.fn()
-    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'music', displayName: 'bilimi:音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
     ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
@@ -493,7 +493,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command,
       openFavoriteLibrary
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -515,7 +515,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn(),
       openFavoriteLibrary: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -538,7 +538,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command,
       openFavoriteLibrary
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -576,7 +576,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -604,7 +604,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -633,7 +633,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanningSnapshot),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -667,7 +667,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
         recoveryChoices: ['view', 'continue-original', 'rescan']
       }),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -697,7 +697,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       getOldFavoriteWorkspaceRecoverySummaryV1: recoverySummary,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -730,7 +730,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
         recoveryChoices: ['view', 'abandon']
       }),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -756,7 +756,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -798,7 +798,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
@@ -835,7 +835,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -864,7 +864,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -894,7 +894,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -927,7 +927,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -964,7 +964,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(frozen),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1000,7 +1000,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1029,7 +1029,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const { rerender } = render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1055,7 +1055,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1088,7 +1088,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1113,7 +1113,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1140,7 +1140,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed),
       commandOldFavoriteWorkspaceV1: command,
       retryBilibiliSessionDirect: retryDirect
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1171,7 +1171,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1198,7 +1198,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1225,7 +1225,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       sourceFolders: [], continuationCount: 0, segments: [], currentSegment: null,
       classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
     }
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview) } as typeof window.bilimiDesktop
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview) } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1251,7 +1251,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1279,7 +1279,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn().mockRejectedValue(new Error('remote-target-unbound'))
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1307,7 +1307,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={['music']}
       ledgers={[{ id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
@@ -1338,7 +1338,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={['music']}
       ledgers={[{ id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
@@ -1370,7 +1370,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={['music']}
       ledgers={[{ id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
@@ -1397,7 +1397,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve(accountMid === '200' ? scanning : null)),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const { rerender } = render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1437,7 +1437,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1462,7 +1462,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1499,7 +1499,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve(accountMid === '100' ? preview : scanning)),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const { rerender } = render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1548,7 +1548,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command,
       organizeOldFavoriteWorkspaceDeepSeekV1: deepSeek
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
@@ -1637,7 +1637,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn(() => Promise.resolve(persisted)),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const props = {
       currentAccountMid: '100', ledgers: [], missingLedgerIds: [],
@@ -1687,7 +1687,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -1712,7 +1712,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1745,7 +1745,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const command = vi.fn().mockResolvedValue(preview)
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'knowledge', displayName: '知识学习', keywords: [], enabled: true, priority: 0, isDefault: true },
@@ -1777,7 +1777,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const command = vi.fn().mockResolvedValue(preview)
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1814,7 +1814,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       organizeOldFavoriteWorkspaceDeepSeekV1: organize,
       retryOldFavoriteWorkspaceDeepSeekV1: retry
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} deepSeekArchiveAvailable />)
@@ -1850,7 +1850,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
@@ -1886,7 +1886,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1915,7 +1915,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1946,7 +1946,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockImplementation(() => Promise.resolve(persisted)),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     const rendered = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -1981,7 +1981,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(reconciling),
       commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(completed)
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onRefreshOrganizationState={refreshProjection} />)
@@ -2001,7 +2001,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onOrganizationSnapshotChange={reportSnapshot} />)
@@ -2025,7 +2025,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(completed),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -2050,11 +2050,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
         status: 'previewing' as const,
         scan: { phase: 'complete' as const, failureCount: 0 }
       }
-    let persisted = scanning
+    let persisted: typeof scanning | typeof previewing = scanning
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockImplementation(() => Promise.resolve(persisted)),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -2083,7 +2083,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -2109,7 +2109,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
@@ -2136,7 +2136,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: vi.fn()
-    } as typeof window.bilimiDesktop
+    } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)

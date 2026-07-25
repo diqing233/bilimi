@@ -330,6 +330,23 @@ describe('FavoriteRepositoryArchiveService', () => {
     expect(write).toHaveBeenCalledWith(expect.objectContaining({ appendPhysicalFolderIds: ['music-2'] }))
   })
 
+  it('fails a restore when a post-capacity scan still finds every managed shard full', async () => {
+    const archive = await createService().exportAccount('100')
+    const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
+    const ensurePhysicalCapacity = vi.fn(async () => undefined)
+    const readBaseline = vi.fn(async () => ({ 1: {
+      managedLogicalFolderIds: [], managedPhysicalFolderIdsByLogicalFolderId: { 'bilimi-logical:music': ['music-1'] },
+      managedPhysicalFolderMemberCounts: { 'music-1': 1_000 }, managedObservedPhysicalFolderIds: []
+    } }))
+    const write = vi.fn(async () => undefined)
+
+    await expect(createService().executeRestorePlan(plan, { readBaseline, ensurePhysicalCapacity, write })).resolves.toMatchObject({
+      status: 'failed', items: [{ aid: 1, status: 'failed', reason: 'managed archive target capacity is exhausted' }]
+    })
+    expect(ensurePhysicalCapacity).toHaveBeenCalledTimes(1)
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('freezes archive restore when capacity binding is unknown and never writes a later target', async () => {
     const archive = await createService().exportAccount('100')
     const plan = createService().createRestorePlan(archive, { 1: { managedLogicalFolderIds: [] } }, 'safe')
