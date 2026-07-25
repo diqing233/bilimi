@@ -42,6 +42,31 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
+  it('positions the same requested editor again after it was closed and re-requested', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      const view = render(<FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" />)
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
+
+      fireEvent.click(screen.getByRole('button', { name: '取消' }))
+      expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+      view.rerender(<FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+      view.rerender(<FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" />)
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2))
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
   it('uses one bulk toggle that selects and clears the currently operable ledgers', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[

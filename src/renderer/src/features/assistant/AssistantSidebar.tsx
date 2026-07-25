@@ -40,7 +40,8 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
-  const [workspaceRequest, setWorkspaceRequest] = useState<Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId'> | undefined>()
+  const workspaceRequestVersion = useRef(0)
+  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId'> & { requestId: number }) | undefined>()
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
@@ -106,7 +107,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     // Pet-originated workspace commands remain in their floating host. Drawer edits carry a ledger target.
     if (!payload.ledgerId) return
     expandSidebar()
-    setWorkspaceRequest({ tab: payload.tab, ledgerId: payload.ledgerId })
+    setWorkspaceRequest({ tab: payload.tab, ledgerId: payload.ledgerId, requestId: ++workspaceRequestVersion.current })
   }), [])
 
   useEffect(() => () => {

@@ -268,13 +268,15 @@ export function FavoriteLibraryApp({
 
   const goToPending = useCallback(() => {
     setScopeId('pending')
+    setSearchQuery('')
+    setRowFilter('all')
     cursorHistoryRef.current = []
     setCursorHistory([])
     setSelectedAids([])
     setSelected(undefined)
     setDetailSnapshot(undefined)
-    if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
-  }, [accountMid, load, pageOptions, pageSize])
+    if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, { query: '', filter: 'all', sort: rowSort })
+  }, [accountMid, load, pageSize, rowSort])
 
   const drawerNotices = useMemo<FavoriteLibraryDrawerNotice[]>(() => {
     const failedCount = summary?.syncCounts.failed ?? 0
@@ -324,6 +326,7 @@ export function FavoriteLibraryApp({
         setAccountMid(undefined)
         setAccountNickname(undefined)
         setSummary(undefined)
+        setRemoteReconciliations([])
         setPage(undefined)
         setSelected(undefined)
         setSelectedAids([])
@@ -336,6 +339,7 @@ export function FavoriteLibraryApp({
         setAccountMid(mid)
         setAccountNickname(account?.nickname?.trim() || undefined)
         setSummary(undefined)
+        setRemoteReconciliations([])
         setPage(undefined)
       setSelected(undefined)
       setSelectedAids([])

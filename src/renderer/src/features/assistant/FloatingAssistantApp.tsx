@@ -165,7 +165,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; requestId?: number }
 }
 
 function findArchivedSummaryTextForNote(
@@ -898,6 +898,7 @@ export function FloatingAssistantApp({
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
+  const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -2517,6 +2518,7 @@ export function FloatingAssistantApp({
   useEffect(() => {
     if (!workspaceRequest) return
     setRequestedLedgerId(workspaceRequest.ledgerId)
+    setRequestedLedgerRequestVersion(workspaceRequest.requestId ?? 0)
     setActiveTab(workspaceRequest.tab)
   }, [workspaceRequest])
 
@@ -2715,6 +2717,7 @@ export function FloatingAssistantApp({
               preferences.deepseekArchiveOrganizationEnabled
             }
             openLedgerId={requestedLedgerId}
+            openLedgerRequestVersion={requestedLedgerRequestVersion}
             />
           </div>
         ) : null}

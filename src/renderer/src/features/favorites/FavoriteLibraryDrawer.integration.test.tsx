@@ -39,6 +39,11 @@ describe('FavoriteLibraryDrawer integration', () => {
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
     expect(screen.getByTestId('favorite-library-drawer').querySelector('.favorite-library__row-columns')).toHaveTextContent('视频名称')
 
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '不相关的搜索' } })
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, query: '不相关的搜索' }))
+    fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, query: '不相关的搜索', filter: 'unsynced' }))
     fireEvent.click(screen.getByRole('button', { name: '查看' }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50 }))
   })
