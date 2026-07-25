@@ -14,6 +14,7 @@ type FavoriteLedgerOverviewProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   organizationActive?: boolean
+  hasExpandedOrganizationGuide?: boolean
   defaultFavoriteSystemEnabled?: boolean
   openLedgerId?: string
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
@@ -61,7 +62,7 @@ function ledgerEditorSnapshot(ledger: FavoriteLedger) {
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, defaultFavoriteSystemEnabled = true, openLedgerId, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
+export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled = true, openLedgerId, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
   const externalLedgerSignature = JSON.stringify(ledgers)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(() => window.localStorage.getItem('bilimi:ledger-hint-open') === 'true')
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
@@ -98,12 +99,12 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       const editor = editorRef.current
       if (!editor || typeof editor.scrollIntoView !== 'function') return
       editor.scrollIntoView({
-        block: 'nearest',
+        block: hasExpandedOrganizationGuide ? 'center' : 'start',
         behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
       })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [activeLedgerId, openLedgerId])
+  }, [activeLedgerId, hasExpandedOrganizationGuide, openLedgerId])
   useEffect(() => { window.localStorage.setItem('bilimi:ledger-hint-open', String(ledgerHintExpanded)) }, [ledgerHintExpanded])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>

@@ -12,7 +12,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveAttribute('data-ledger-id', 'music-duplicate')
   })
 
-  it('brings a requested editor into view once after its layout settles', async () => {
+  it('brings a requested editor to the effective viewport top once after its layout settles', async () => {
     const scrollIntoView = vi.fn()
     const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
@@ -21,7 +21,22 @@ describe('FavoriteLedgerOverview', () => {
         { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
       ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" />)
 
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' }))
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' }))
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
+  it('centers a requested editor when the expanded old-favorites guide follows it', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      render(<FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" hasExpandedOrganizationGuide />)
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' }))
     } finally {
       Element.prototype.scrollIntoView = original
     }

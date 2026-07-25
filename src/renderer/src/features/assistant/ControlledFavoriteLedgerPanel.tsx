@@ -298,6 +298,7 @@ export function ControlledFavoriteLedgerPanel({
         ledgers={ledgers}
         missingLedgerIds={missingLedgerIds}
         organizationActive={Boolean(snapshot && !recovery && snapshot.status !== 'completed')}
+        hasExpandedOrganizationGuide={guideOpen}
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
         openLedgerId={openLedgerId}
         onSaveLedgers={onSaveLedgers}

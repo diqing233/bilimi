@@ -135,9 +135,15 @@ function transcriptionAction(status?: string, pending = false) {
   return { label: '加入队列', disabled: false }
 }
 
+export type FavoriteLibraryDrawerNotice = {
+  id: string
+  priority: number
+  message: string
+  onActivate: () => void
+}
+
 export type FavoriteLibraryDrawerStatus = {
-  hasRemoteAttention: boolean
-  onGoToPending: () => void
+  notices: FavoriteLibraryDrawerNotice[]
 }
 
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
@@ -270,13 +276,41 @@ export function FavoriteLibraryApp({
     if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, pageOptions)
   }, [accountMid, load, pageOptions, pageSize])
 
+  const drawerNotices = useMemo<FavoriteLibraryDrawerNotice[]>(() => {
+    const failedCount = summary?.syncCounts.failed ?? 0
+    const confirmationCount = summary?.syncCounts['result-unknown'] ?? 0
+    const notices: FavoriteLibraryDrawerNotice[] = []
+    if (failedCount) {
+      notices.push({
+        id: 'sync-failed',
+        priority: 100,
+        message: `${failedCount}个视频同步失败`,
+        onActivate: goToPending
+      })
+    }
+    if (confirmationCount) {
+      notices.push({
+        id: 'sync-confirmation-required',
+        priority: 90,
+        message: `${confirmationCount}个视频同步待确认`,
+        onActivate: goToPending
+      })
+    }
+    if (remoteReconciliations.length) {
+      notices.push({
+        id: 'remote-reconciliation-required',
+        priority: 80,
+        message: `${remoteReconciliations.length}项远程操作待处理`,
+        onActivate: goToPending
+      })
+    }
+    return notices.sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))
+  }, [goToPending, remoteReconciliations.length, summary?.syncCounts.failed, summary?.syncCounts['result-unknown']])
+
   useEffect(() => {
     if (!embedded) return
-    onDrawerStatusChange?.({
-      hasRemoteAttention: Boolean(summary?.syncCounts.failed || summary?.syncCounts['result-unknown'] || remoteReconciliations.length),
-      onGoToPending: goToPending
-    })
-  }, [embedded, goToPending, onDrawerStatusChange, remoteReconciliations.length, summary?.syncCounts.failed, summary?.syncCounts['result-unknown']])
+    onDrawerStatusChange?.({ notices: drawerNotices })
+  }, [drawerNotices, embedded, onDrawerStatusChange])
 
   const refresh = useCallback(async (expectedAccountMid?: string) => {
     const refreshId = ++requestIdRef.current

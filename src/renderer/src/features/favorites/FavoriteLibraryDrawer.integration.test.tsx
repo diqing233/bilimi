@@ -8,12 +8,12 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryDrawer integration', () => {
-  it('keeps three live panes and routes a remote reconciliation warning to pending', async () => {
+  it('keeps three live panes and puts the highest-priority reconciliation notice in the title bar', async () => {
     const getPage = vi.fn().mockResolvedValue({
       version: 1, accountMid: '100', revision: 1,
       items: [{
-        video: { aid: 1, title: '待对账视频', author: 'UP 主', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' },
-        folderIds: [], pendingStates: ['result-unknown']
+        video: { aid: 1, title: '同步失败视频', author: 'UP 主', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' },
+        folderIds: [], pendingStates: ['failed']
       }]
     })
     window.bilimiDesktop = {
@@ -21,7 +21,7 @@ describe('FavoriteLibraryDrawer integration', () => {
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
         version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0,
         folders: [], physicalShardCount: 0, syncRecordCount: 1,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 },
+        syncCounts: { pending: 0, succeeded: 0, failed: 1, 'result-unknown': 0 },
         remoteReconciliations: [{ kind: 'unfavorite', operationId: 'remote-1' }]
       }),
       getFavoriteRepositoryLibraryPage: getPage,
@@ -30,12 +30,16 @@ describe('FavoriteLibraryDrawer integration', () => {
 
     render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
-    expect(await screen.findByText('远程操作待处理')).toBeInTheDocument()
+    await screen.findByText('1个视频同步失败')
+    const header = screen.getByRole('banner', { name: '小咪收藏库' })
+    expect(header).toHaveTextContent('1个视频同步失败')
+    expect(header).toHaveTextContent('另有1条')
+    expect(screen.queryByText('远程操作待处理')).not.toBeInTheDocument()
     expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(3)
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
     expect(screen.getByTestId('favorite-library-drawer').querySelector('.favorite-library__row-columns')).toHaveTextContent('视频名称')
 
-    fireEvent.click(screen.getByRole('button', { name: '去待处理' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看' }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50 }))
   })
 })

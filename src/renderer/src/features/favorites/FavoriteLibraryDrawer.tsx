@@ -188,6 +188,10 @@ export function FavoriteLibraryDrawer({
     })
   }
 
+  const notices = drawerStatus?.notices ?? []
+  const activeNotice = notices[0]
+  const additionalNoticeCount = Math.max(0, notices.length - 1)
+
   return (
     <section
       className="favorite-library-drawer"
@@ -252,13 +256,20 @@ export function FavoriteLibraryDrawer({
           }
         }}
       />
-      <header className="favorite-library-drawer__header">
+      <header className="favorite-library-drawer__header" role="banner" aria-label="小咪收藏库">
         <div className="favorite-library-drawer__title">
           <img className="favorite-library-drawer__brand-mark" src={workingPetUrl} alt="小咪收藏库" />
           <strong>小咪收藏库</strong>
-          {account ? <span>{account.nickname ?? `UID：${account.mid}`}</span> : null}
+          {account ? <span aria-label={`当前账号：${account.nickname ?? `UID：${account.mid}`}`}>· {account.nickname ?? `UID：${account.mid}`}</span> : null}
         </div>
+        {activeNotice ? <div className="favorite-library-drawer__notice" role="status" title={activeNotice.message}>
+          <span aria-hidden="true">⚠</span>
+          <span className="favorite-library-drawer__notice-message">{activeNotice.message}</span>
+          {additionalNoticeCount ? <span className="favorite-library-drawer__notice-more">另有{additionalNoticeCount}条</span> : null}
+          <button type="button" onClick={activeNotice.onActivate}>查看</button>
+        </div> : null}
         <div className="favorite-library-drawer__actions">
+          <button type="button" aria-label="拉到最高" title="拉到最高" onClick={() => setHeight(maximumHeight())}>拉到最高</button>
           <button
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}
@@ -272,10 +283,6 @@ export function FavoriteLibraryDrawer({
           </button>
         </div>
       </header>
-      {drawerStatus?.hasRemoteAttention ? <div className="favorite-library-drawer__remote-warning" role="status">
-        <span>远程操作待处理</span>
-        <button type="button" onClick={drawerStatus.onGoToPending}>去待处理</button>
-      </div> : null}
       <div className="favorite-library-drawer__body" data-dragging={dragging ? 'true' : undefined} hidden={collapsed}>
         <FavoriteLibraryApp embedded onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
       </div>

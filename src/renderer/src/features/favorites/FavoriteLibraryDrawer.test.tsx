@@ -37,10 +37,10 @@ describe('FavoriteLibraryDrawer', () => {
   it('shows the embedded library account beside the drawer title', () => {
     render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
-    expect(screen.getByText('小咪')).toBeInTheDocument()
+    expect(screen.getByLabelText('当前账号：小咪')).toBeInTheDocument()
   })
 
-  it('uses the compact product header without a maximum-height button', () => {
+  it('uses the compact product header with a maximum-height button', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
     render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
@@ -50,7 +50,7 @@ describe('FavoriteLibraryDrawer', () => {
     expect(screen.getByRole('img', { name: '小咪收藏库' })).toBeInTheDocument()
     expect(screen.queryByText('米')).not.toBeInTheDocument()
     expect(screen.queryByText('收藏库')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '拉到最高' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '拉到最高' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '恢复高度' })).not.toBeInTheDocument()
     expect(drawer).toHaveStyle({ height: '360px' })
   })
