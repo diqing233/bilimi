@@ -174,7 +174,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-library-video-events', accountMid, aid, options) as Promise<import('../main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>,
   getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
-  getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>,
+  getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; nickname?: string; retained: boolean }> }>,
   calculateLocalDataUsage: () => ipcRenderer.invoke('local-data:calculate-usage') as Promise<{
     totalBytes: number; calculatedAt: string
     categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
@@ -186,7 +186,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   applyLocalDataImport: (previewToken: string, mode: 'merge' | 'overwrite') =>
     ipcRenderer.invoke('local-data:apply-import', previewToken, mode) as Promise<void>,
   previewLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
-    ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false }>,
+    ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
   copyFavoriteLibrarySelection: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>

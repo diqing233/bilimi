@@ -1788,6 +1788,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     service: localDataService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    getCurrentAccount: readCurrentBilibiliAccount,
     userDataPath: app.getPath('userData'),
     chooseExportPath: async () => {
       const result = await dialog.showSaveDialog({ defaultPath: 'bilimi-local-data.json', filters: [{ name: 'bilimi migration', extensions: ['json'] }] })

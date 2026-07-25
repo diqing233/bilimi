@@ -8,7 +8,8 @@ describe('LocalDataSettings', () => {
 
     expect(screen.getByRole('heading', { name: '本地数据' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '数据迁移' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '危险操作' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '管理数据' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '危险操作' })).not.toBeInTheDocument()
     expect(screen.getByText('本机保存 2 个账号的数据')).toBeInTheDocument()
     expect(screen.queryByText('200')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看账号列表' }))
@@ -24,11 +25,11 @@ describe('LocalDataSettings', () => {
     render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={calculateUsage} onFullClear={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '重新计算' }))
-    expect(await screen.findByText(/账号持久数据：1 B/)).toBeInTheDocument()
-    expect(screen.getByText(/设备共享设置：2 B/)).toBeInTheDocument()
-    expect(screen.getByText(/缓存：3 B/)).toBeInTheDocument()
-    expect(screen.getByText(/临时音频：4 B/)).toBeInTheDocument()
-    expect(screen.getByText(/日志：5 B/)).toBeInTheDocument()
+    expect(await screen.findByText(/账号持久数据：0\.0 MB/)).toBeInTheDocument()
+    expect(screen.getByText(/设备共享设置：0\.0 MB/)).toBeInTheDocument()
+    expect(screen.getByText(/缓存：0\.0 MB/)).toBeInTheDocument()
+    expect(screen.getByText(/临时音频：0\.0 MB/)).toBeInTheDocument()
+    expect(screen.getByText(/日志：0\.0 MB/)).toBeInTheDocument()
   })
 
   it('shows account groups, async recalculation feedback, migration actions, and typed full-clear confirmation', async () => {
@@ -39,7 +40,7 @@ describe('LocalDataSettings', () => {
     render(<LocalDataSettings userDataPath="C:\\Users\\test\\AppData\\bilimi" accounts={[{ uid: '100', nickname: 'Display only', retained: true }]} calculateUsage={calculateUsage} onFullClear={onFullClear} onExport={onExport} onImport={onImport} />)
     expect(screen.getByText(/bilimi$/u, { selector: 'code' })).toHaveTextContent('bilimi')
     fireEvent.click(screen.getByRole('button', { name: '重新计算' }))
-    expect(await screen.findByText((_, element) => element?.tagName === 'P' && element.textContent?.includes('1 KB') === true)).toBeInTheDocument()
+    expect(await screen.findByText((_, element) => element?.tagName === 'P' && element.textContent?.includes('0.0 MB') === true)).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('全部账户'))
     fireEvent.click(screen.getByLabelText('包含非敏感共享设置'))
     fireEvent.click(screen.getByRole('button', { name: '导出数据' }))
@@ -47,6 +48,7 @@ describe('LocalDataSettings', () => {
     expect(onExport).toHaveBeenCalledWith('all', true)
     fireEvent.click(screen.getByRole('button', { name: '导入并预览' }))
     expect(await screen.findByRole('list', { name: '导入预览' })).toHaveTextContent('100：merge')
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.click(screen.getByRole('button', { name: '清除全部用户数据' }))
     expect(screen.getByRole('button', { name: '清除并退出' })).toBeDisabled()
     fireEvent.change(screen.getByLabelText('输入 全部清除 以确认'), { target: { value: '全部清除' } })
@@ -69,24 +71,26 @@ describe('LocalDataSettings', () => {
 
   it('lets the user choose UIDs for selected-account export and previews non-destructive cleanup', async () => {
     const onExport = vi.fn().mockResolvedValue(undefined)
-    const onPreviewCleanup = vi.fn().mockResolvedValue({ affectsBilibiliServerData: false })
-    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', retained: true }, { uid: '200', retained: true }]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onExport={onExport} onPreviewCleanup={onPreviewCleanup} />)
+    const onPreviewCleanup = vi.fn().mockResolvedValue({ affectsBilibiliServerData: false, releasableBytes: 2 * 1024 * 1024 })
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', retained: true }]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onExport={onExport} onPreviewCleanup={onPreviewCleanup} />)
 
     fireEvent.click(screen.getByLabelText('所选账户'))
-    fireEvent.click(screen.getByLabelText('导出账户 100'))
+    fireEvent.click(screen.getByLabelText('导出账户 小咪（100）'))
     fireEvent.click(screen.getByRole('button', { name: '导出数据' }))
     expect(onExport).toHaveBeenCalledWith('selected', false, ['100'])
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.click(screen.getByRole('button', { name: '预览清理缓存' }))
     expect(onPreviewCleanup).toHaveBeenCalledWith('cache', undefined)
-    expect(await screen.findByText('清理预览已就绪：不会修改 B 站服务器数据。')).toBeInTheDocument()
+    expect(await screen.findByText('预计释放 2.0 MB；不会修改 B 站服务器数据。')).toBeInTheDocument()
   })
 
   it('requires a cleanup preview before applying the selected local cleanup', async () => {
-    const onPreviewCleanup = vi.fn().mockResolvedValue({ affectsBilibiliServerData: false })
+    const onPreviewCleanup = vi.fn().mockResolvedValue({ affectsBilibiliServerData: false, releasableBytes: 2 * 1024 * 1024 })
     const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
     render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onPreviewCleanup={onPreviewCleanup} onApplyCleanup={onApplyCleanup} />)
 
     expect(screen.queryByRole('button', { name: '执行清理缓存' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.click(screen.getByRole('button', { name: '预览清理缓存' }))
     expect(await screen.findByRole('button', { name: '执行清理缓存' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '执行清理缓存' }))

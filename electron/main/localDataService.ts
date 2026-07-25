@@ -92,7 +92,10 @@ export class LocalDataService {
     if (input.level !== 'all-user-data' && !input.uid && input.level !== 'cache') throw new Error('An account UID is required.')
     if (input.uid) normalizeUid(input.uid)
     const targets = input.level === 'cache' ? [join(this.options.root, 'Cache')] : input.level === 'current-account-temp' ? [join(this.options.root, 'accounts', input.uid!, 'temporary')] : input.level === 'current-account-data' ? [`account:${input.uid}`] : ['all-account-data', 'shared-settings', 'login-sessions']
-    return { ...input, targets, requiresExit: input.level === 'all-user-data', affectsBilibiliServerData: false }
+    const releasableBytes = input.level === 'cache' || input.level === 'current-account-temp'
+      ? await this.directorySize(targets[0])
+      : 0
+    return { ...input, targets, releasableBytes, requiresExit: input.level === 'all-user-data', affectsBilibiliServerData: false }
   }
 
   async applyImport(preview: LocalDataImportPreview, input: { mode: 'merge' | 'overwrite'; injectFailureAfterStage?: boolean }) {
@@ -172,6 +175,21 @@ export class LocalDataService {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(temporary, content, 'utf8')
     await rename(temporary, path)
+  }
+
+  private async directorySize(directory: string): Promise<number> {
+    let entries: Array<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }>
+    try { entries = await readdir(directory, { withFileTypes: true, encoding: 'utf8' }) } catch { return 0 }
+    let bytes = 0
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) bytes += await this.directorySize(path)
+      else {
+        try { bytes += (await stat(path)).size } catch { /* Unreadable files are not fatal. */ }
+      }
+    }
+    return bytes
   }
 
   private takeImportPreview(preview: LocalDataImportPreview) {

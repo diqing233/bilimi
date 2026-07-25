@@ -867,7 +867,7 @@ export function FloatingAssistantApp({
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
-  const [localDataInfo, setLocalDataInfo] = useState<{ path: string; accounts: Array<{ uid: string; retained: boolean }> } | null>(null)
+  const [localDataInfo, setLocalDataInfo] = useState<{ path: string; accounts: Array<{ uid: string; nickname?: string; retained: boolean }> } | null>(null)
   const [localDataUnavailable, setLocalDataUnavailable] = useState(false)
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
@@ -3547,7 +3547,7 @@ export function FloatingAssistantApp({
                   return preview ? { token: preview.token, accounts: preview.accounts ?? [] } : undefined
                 }}
                 onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
-                onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false }}
+                onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false, releasableBytes: 0 }}
                 onApplyCleanup={async (level, uid) => { await window.bilimiDesktop.applyLocalDataCleanup?.(level, uid) }}
                 onFullClear={async () => {
                   await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')

@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -286,9 +286,12 @@ describe('LocalDataService', () => {
   })
 
   it('previews destructive cleanup, permits usage cancellation, and never presents server data as a target', async () => {
-    const { service } = await makeService()
+    const { root, service } = await makeService()
+    await mkdir(join(root, 'Cache'), { recursive: true })
+    await writeFile(join(root, 'Cache', 'cache.bin'), Buffer.alloc(2 * 1024 * 1024))
     await expect(service.previewCleanup({ level: 'all-user-data' })).rejects.toThrow('confirmation')
     await expect(service.previewCleanup({ level: 'current-account-data' })).rejects.toThrow('UID')
+    await expect(service.previewCleanup({ level: 'cache' })).resolves.toMatchObject({ releasableBytes: 2 * 1024 * 1024, affectsBilibiliServerData: false })
     await expect(service.previewCleanup({ level: 'all-user-data', confirmation: '全部清除' })).resolves.toMatchObject({ requiresExit: true, affectsBilibiliServerData: false })
     service.cancelUsageCalculation()
   })

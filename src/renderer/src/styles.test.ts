@@ -245,6 +245,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-sidebar-shell { position: relative; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));')
   })
 
+  it('keeps local data usage readable in a narrow sidebar', () => {
+    expectStyleSnippet('.local-data-settings__section:first-child { padding-top: 0; border-top: 0; }')
+    expectStyleSnippet('@media (max-width: 420px) { .local-data-settings__usage { grid-template-columns: minmax(0, 1fr); }')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 

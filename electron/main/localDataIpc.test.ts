@@ -15,9 +15,9 @@ describe('registerLocalDataIpc', () => {
       exportArchive: vi.fn().mockResolvedValue({ schemaVersion: 1 }), previewImport: vi.fn().mockResolvedValue({ token: 'preview-1', accounts: [] }),
       applyImport: vi.fn(), previewCleanup: vi.fn().mockResolvedValue({ affectsBilibiliServerData: false }), applyCleanup: vi.fn()
     }
-    registerLocalDataIpc({ ipcMain, service: service as never, isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), userDataPath: 'C:/data', chooseExportPath: vi.fn().mockResolvedValue('C:/export.json'), chooseImportPath: vi.fn().mockResolvedValue('C:/import.json'), openUserDataPath: vi.fn() })
+    registerLocalDataIpc({ ipcMain, service: service as never, isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), getCurrentAccount: vi.fn().mockResolvedValue({ mid: '100', nickname: '小咪' }), userDataPath: 'C:/data', chooseExportPath: vi.fn().mockResolvedValue('C:/export.json'), chooseImportPath: vi.fn().mockResolvedValue('C:/import.json'), openUserDataPath: vi.fn() })
 
-    await expect(ipcMain.invoke('local-data:get-info')).resolves.toEqual({ path: 'C:/data', accounts: [{ uid: '100', retained: true }] })
+    await expect(ipcMain.invoke('local-data:get-info')).resolves.toEqual({ path: 'C:/data', accounts: [{ uid: '100', nickname: '小咪', retained: true }] })
     await ipcMain.invoke('local-data:export', { scope: 'current', includeSharedSettings: false })
     expect(service.exportArchive).toHaveBeenCalledWith(expect.objectContaining({ uids: ['100'], outputPath: 'C:/export.json' }))
     await ipcMain.invoke('local-data:apply-import', 'preview-1', 'merge')

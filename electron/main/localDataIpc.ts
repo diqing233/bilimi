@@ -19,6 +19,7 @@ export function registerLocalDataIpc(options: {
   service: LocalDataService
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  getCurrentAccount: () => Promise<{ mid: string; nickname?: string }>
   userDataPath: string
   chooseExportPath: () => Promise<string | undefined>
   chooseImportPath: () => Promise<string | undefined>
@@ -30,7 +31,13 @@ export function registerLocalDataIpc(options: {
   const current = async () => account(await options.getCurrentAccountMid())
   options.ipcMain.handle('local-data:get-info', async (event) => {
     trusted(event)
-    return { path: options.userDataPath, accounts: await options.service.listAccounts() }
+    const [accounts, currentAccount] = await Promise.all([options.service.listAccounts(), options.getCurrentAccount()])
+    const currentUid = /^\d+$/u.test(currentAccount.mid) && BigInt(currentAccount.mid) > 0n ? BigInt(currentAccount.mid).toString() : undefined
+    const nickname = currentAccount.nickname?.trim()
+    return {
+      path: options.userDataPath,
+      accounts: accounts.map((item) => item.uid === currentUid && nickname ? { ...item, nickname } : item)
+    }
   })
   options.ipcMain.handle('local-data:calculate-usage', async (event) => { trusted(event); return options.service.calculateUsage() })
   options.ipcMain.handle('local-data:open-path', async (event) => { trusted(event); await options.openUserDataPath() })

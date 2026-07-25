@@ -129,7 +129,7 @@ type BilimiDesktopApi = {
     options: { limit: number; cursor?: string }
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>
   getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
-  getLocalDataInfo?: () => Promise<{ path: string; accounts: Array<{ uid: string; retained: boolean }> }>
+  getLocalDataInfo?: () => Promise<{ path: string; accounts: Array<{ uid: string; nickname?: string; retained: boolean }> }>
   calculateLocalDataUsage?: () => Promise<{
     totalBytes: number; calculatedAt: string
     categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
@@ -138,7 +138,7 @@ type BilimiDesktopApi = {
   exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) => Promise<unknown>
   previewLocalDataImport?: () => Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
-  previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false }>
+  previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
   copyFavoriteLibrarySelection?: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
   moveFavoriteLibrarySelection?: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
