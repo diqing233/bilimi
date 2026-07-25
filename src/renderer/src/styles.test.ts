@@ -287,6 +287,7 @@ describe('renderer porcelain theme styles', () => {
   it('keeps the sidebar visible while it translates out before releasing browser space', () => {
     expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { transform: translateX(calc(100% + var(--panel-sidebar-collapse-offset, 14px))); transition: transform var(--panel-sidebar-collapse-duration, 220ms) var(--panel-sidebar-collapse-easing, cubic-bezier(0.4, 0, 1, 1)), border-color 160ms ease;')
     expect(normalizedStyles).not.toContain('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { opacity: 0;')
+    expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] { background: var(--porcelain-ice); }')
   })
 
   it('keeps the four assistant tabs equally spaced with horizontal labels', () => {
