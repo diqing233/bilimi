@@ -75,7 +75,7 @@ describe('FavoriteLibraryDrawer', () => {
       expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-closing', 'true')
       expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
 
-      act(() => { vi.advanceTimersByTime(180) })
+      act(() => { vi.advanceTimersByTime(220) })
 
       expect(screen.queryByTestId('favorite-library-drawer')).not.toBeInTheDocument()
     } finally {
@@ -84,18 +84,46 @@ describe('FavoriteLibraryDrawer', () => {
   })
 
   it('keeps the embedded library mounted while its body is collapsed', () => {
+    vi.useFakeTimers()
     function DrawerHarness() {
       const [collapsed, setCollapsed] = useState(false)
       return <FavoriteLibraryDrawer open collapsed={collapsed} onClose={vi.fn()} onCollapsedChange={setCollapsed} />
     }
-    render(<DrawerHarness />)
+    try {
+      render(<DrawerHarness />)
 
-    expect(screen.getByTestId('favorite-library-content')).toHaveAttribute('data-embedded', 'true')
-    fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
+      expect(screen.getByTestId('favorite-library-content')).toHaveAttribute('data-embedded', 'true')
+      fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
 
-    expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
-    expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsed', 'true')
-    expect(screen.getByRole('button', { name: '展开收藏库' })).toBeInTheDocument()
+      expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsing', 'true')
+      act(() => { vi.advanceTimersByTime(220) })
+
+      expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
+      expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsed', 'true')
+      expect(screen.getByRole('button', { name: '展开收藏库' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reverses a pending drawer collapse instead of queueing another transition', () => {
+    vi.useFakeTimers()
+    function DrawerHarness() {
+      const [collapsed, setCollapsed] = useState(false)
+      return <FavoriteLibraryDrawer open collapsed={collapsed} onClose={vi.fn()} onCollapsedChange={setCollapsed} />
+    }
+    try {
+      render(<DrawerHarness />)
+      fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
+      expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsing', 'true')
+
+      fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
+      expect(screen.getByTestId('favorite-library-drawer')).not.toHaveAttribute('data-collapsing')
+      act(() => { vi.advanceTimersByTime(220) })
+      expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsed', 'false')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('notifies its parent when closed', () => {
@@ -246,15 +274,21 @@ describe('FavoriteLibraryDrawer', () => {
   })
 
   it('snaps a drag at the lower boundary into the collapsed drawer state', () => {
+    vi.useFakeTimers()
     const onCollapsedChange = vi.fn()
-    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={onCollapsedChange} />)
-    const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
+    try {
+      render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={onCollapsedChange} />)
+      const handle = screen.getByRole('separator', { name: '调整收藏库高度' })
 
-    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 })
-    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 900 })
-    fireEvent.pointerUp(handle, { pointerId: 1 })
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 900 })
+      fireEvent.pointerUp(handle, { pointerId: 1 })
 
-    expect(onCollapsedChange).toHaveBeenCalledWith(true)
+      act(() => { vi.advanceTimersByTime(220) })
+      expect(onCollapsedChange).toHaveBeenCalledWith(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('notifies its host to pause size repaints while the drawer is resized', () => {

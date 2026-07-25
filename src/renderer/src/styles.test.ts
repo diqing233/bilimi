@@ -126,7 +126,7 @@ describe('renderer porcelain theme styles', () => {
       '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 8px; gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px; font-size: 13px;'
     )
     expectStyleSnippet(
-      '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
+      '.assistant-sidebar-shell { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
     )
   })
 
@@ -221,6 +221,20 @@ describe('renderer porcelain theme styles', () => {
 
   it('slides the closed favorite library drawer out before releasing its layout', () => {
     expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
+    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(14px); opacity: 0;')
+    expect(normalizedStyles).not.toContain(
+      '.favorite-library-drawer[data-collapsing="true"] {\n  transform: translateY(14px);\n  opacity: 0;\n  pointer-events: none;'
+    )
+  })
+
+  it('keeps panel transition gaps on the assistant ice surface', () => {
+    expectStyleSnippet(
+      '.app-shell { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--porcelain-ice);'
+    )
+    expectStyleSnippet(
+      '.browser-stack { position: relative; min-height: 0; overflow: hidden; background: var(--porcelain-ice);'
+    )
+    expectStyleSnippet('.assistant-sidebar-shell { position: relative; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));')
   })
 
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
@@ -235,7 +249,7 @@ describe('renderer porcelain theme styles', () => {
       'min-width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));'
     )
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
-    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"]:not([data-closing="true"]) {\n  width: 0;')
+    expect(sidebarStyles).toContain('.assistant-sidebar-shell[data-collapsed="true"]:not([data-closing="true"]) {\n  width: 0;')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-handle {')
     expect(sidebarStyles).toContain('cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-shield {\n  position: fixed;')
@@ -715,8 +729,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__chevron { width: 16px; height: 16px; flex: 0 0 16px; transition: transform 180ms ease-out;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron { transform: rotate(180deg);')
     expectStyleSnippet('.favorite-ledger-panel__sync-hint, .favorite-ledger-panel__guide-hint { overflow: hidden; transition: max-height 180ms ease-out, opacity 150ms ease-out, transform 180ms ease-out;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px; min-width: 14px; min-height: 18px; padding: 0; border: 0; background: transparent; box-shadow: none;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: auto; min-width: 0; min-height: 28px; padding: 4px 2px; border: 0; background: transparent; box-shadow: none;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).toContain(
       '.favorite-ledger-panel .favorite-ledger-panel__help-toggle {\n  border: 0;'

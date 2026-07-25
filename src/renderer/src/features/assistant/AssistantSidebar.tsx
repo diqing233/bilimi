@@ -33,8 +33,10 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const dragState = useRef<SidebarDragState | null>(null)
   const latestSidebarWidthPx = useRef<number | null>(null)
   const closeTimer = useRef<number | null>(null)
+  const openingFrame = useRef<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [opening, setOpening] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
@@ -57,6 +59,10 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }
 
   function collapseSidebar() {
+    if (openingFrame.current !== null) {
+      window.cancelAnimationFrame(openingFrame.current)
+      openingFrame.current = null
+    }
     window.bilimiDesktop?.setAssistantPetHint?.({
       tone: 'sleepy',
       message: pickPetLine(PET_COLLAPSE_FAREWELL_LINES)
@@ -77,6 +83,12 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     }
     setClosing(false)
     setCollapsed(false)
+    setOpening(true)
+    if (openingFrame.current !== null) window.cancelAnimationFrame(openingFrame.current)
+    openingFrame.current = window.requestAnimationFrame(() => {
+      openingFrame.current = null
+      setOpening(false)
+    })
     window.bilimiDesktop?.setAssistantPetHint?.({
       tone: 'hint',
       message: PET_EXPAND_GREETING_LINE
@@ -91,6 +103,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
   useEffect(() => () => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    if (openingFrame.current !== null) window.cancelAnimationFrame(openingFrame.current)
   }, [])
 
   useEffect(() => {
@@ -226,11 +239,19 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
         } as CSSProperties)
 
   return (
+    <div
+      className="assistant-sidebar-shell"
+      data-collapsed={collapsed ? 'true' : 'false'}
+      data-closing={closing || undefined}
+      data-opening={opening || undefined}
+      style={sidebarStyle}
+    >
     <aside
       className="assistant-sidebar"
       aria-label="bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
       data-closing={closing || undefined}
+      data-opening={opening || undefined}
       style={sidebarStyle}
     >
       <div
@@ -246,28 +267,6 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
         }}
       />
       {resizing ? <div className="assistant-sidebar__resize-shield" aria-hidden="true" /> : null}
-      <button
-        type="button"
-        className="assistant-sidebar__collapse-button"
-        aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
-        onClick={() => {
-          if (collapsed) {
-            expandSidebar()
-            return
-          }
-
-          collapseSidebar()
-        }}
-      >
-        <img
-          className="assistant-sidebar__collapse-pet"
-          src={idlePetUrl}
-          alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
-        />
-        <span className="assistant-sidebar__collapse-label" aria-hidden="true">
-          {collapsed ? '展开' : '折叠'}
-        </span>
-      </button>
       <div className="assistant-sidebar__workspace" hidden={collapsed && !closing}>
         <FloatingAssistantApp
           mode="sidebar"
@@ -279,5 +278,28 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
         />
       </div>
     </aside>
+    <button
+      type="button"
+      className="assistant-sidebar__collapse-button"
+      aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+      onClick={() => {
+        if (collapsed) {
+          expandSidebar()
+          return
+        }
+
+        collapseSidebar()
+      }}
+    >
+      <img
+        className="assistant-sidebar__collapse-pet"
+        src={idlePetUrl}
+        alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
+      />
+      <span className="assistant-sidebar__collapse-label" aria-hidden="true">
+        {collapsed ? '展开' : '折叠'}
+      </span>
+    </button>
+    </div>
   )
 }

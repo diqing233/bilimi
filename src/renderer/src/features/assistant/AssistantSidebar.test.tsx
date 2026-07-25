@@ -169,6 +169,9 @@ describe('AssistantSidebar', () => {
     expect(screen.getByRole('img', { name: '小咪展开侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
     )
+    expect(screen.getByRole('button', { name: '展开侧边栏' }).parentElement).toHaveClass(
+      'assistant-sidebar-shell'
+    )
 
     expect(screen.getByText('展开')).toHaveClass('assistant-sidebar__collapse-label')
 

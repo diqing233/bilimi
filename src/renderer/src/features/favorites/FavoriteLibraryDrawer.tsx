@@ -13,7 +13,7 @@ const COMPACT_BROWSER_TAB_HEIGHT = 38
 const COMPACT_BROWSER_WIDTH = 1200
 const COMPACT_BROWSER_HEIGHT = 760
 const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
-const DRAWER_CLOSE_DURATION_MS = 180
+const DRAWER_TRANSITION_DURATION_MS = 220
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
@@ -68,8 +68,10 @@ export function FavoriteLibraryDrawer({
   const [closing, setClosing] = useState(false)
   const [visible, setVisible] = useState(open)
   const [opening, setOpening] = useState(false)
+  const [collapsing, setCollapsing] = useState(false)
   const dragStartRef = useRef<{ clientY: number; height: number }>()
   const closeTimerRef = useRef<number | null>(null)
+  const collapseTimerRef = useRef<number | null>(null)
   const openingFrameRef = useRef<number | null>(null)
   const hasBeenOpenedRef = useRef(open)
   const wasOpenRef = useRef(open)
@@ -123,11 +125,26 @@ export function FavoriteLibraryDrawer({
       closeTimerRef.current = null
       setClosing(false)
       setVisible(false)
-    }, DRAWER_CLOSE_DURATION_MS)
+    }, DRAWER_TRANSITION_DURATION_MS)
   }, [open, visible])
+
+  useEffect(() => {
+    if (!open && collapseTimerRef.current !== null) {
+      window.clearTimeout(collapseTimerRef.current)
+      collapseTimerRef.current = null
+      setCollapsing(false)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (collapsed) {
+      setCollapsing(false)
+    }
+  }, [collapsed])
 
   useEffect(() => () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    if (collapseTimerRef.current !== null) window.clearTimeout(collapseTimerRef.current)
     if (openingFrameRef.current !== null) window.cancelAnimationFrame(openingFrameRef.current)
   }, [])
 
@@ -150,11 +167,46 @@ export function FavoriteLibraryDrawer({
     setHeight(maximumHeight())
   }
 
+  const beginDrawerCollapse = () => {
+    if (collapseTimerRef.current !== null) {
+      window.clearTimeout(collapseTimerRef.current)
+    }
+    setCollapsing(true)
+    collapseTimerRef.current = window.setTimeout(() => {
+      collapseTimerRef.current = null
+      onCollapsedChange(true)
+    }, DRAWER_TRANSITION_DURATION_MS)
+  }
+
+  const toggleDrawerCollapsed = () => {
+    if (collapsing) {
+      if (collapseTimerRef.current !== null) {
+        window.clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
+      setCollapsing(false)
+      return
+    }
+
+    if (!collapsed) {
+      beginDrawerCollapse()
+      return
+    }
+
+    onCollapsedChange(false)
+    setOpening(true)
+    openingFrameRef.current = window.requestAnimationFrame(() => {
+      openingFrameRef.current = null
+      setOpening(false)
+    })
+  }
+
   return (
     <section
       className="favorite-library-drawer"
       data-testid="favorite-library-drawer"
       data-collapsed={collapsed ? 'true' : 'false'}
+      data-collapsing={collapsing || undefined}
       data-closing={closing || undefined}
       data-opening={opening || undefined}
       style={collapsed ? undefined : { height: `${height}px` }}
@@ -187,7 +239,7 @@ export function FavoriteLibraryDrawer({
           setDragging(false)
           onResizeActiveChange?.(false)
           event.currentTarget.releasePointerCapture?.(event.pointerId)
-          if (shouldCollapse) onCollapsedChange(true)
+          if (shouldCollapse) beginDrawerCollapse()
         }}
         onPointerCancel={() => {
           dragStartRef.current = undefined
@@ -228,7 +280,7 @@ export function FavoriteLibraryDrawer({
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}
             title={collapsed ? '展开收藏库' : '收起收藏库'}
-            onClick={() => onCollapsedChange(!collapsed)}
+            onClick={toggleDrawerCollapsed}
           >
             {collapsed ? '展开' : '收起'}
           </button>
