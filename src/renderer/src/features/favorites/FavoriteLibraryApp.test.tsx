@@ -564,7 +564,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: '音乐 菜单' }))[0])
     fireEvent.click(screen.getByRole('button', { name: '编辑信息' }))
 
-    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', ledgerId: 'music-a' })
+    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', ledgerId: 'music-a', sidebar: true })
   })
   it('does not navigate to a title-matched editor when a managed folder has no stable ledger ID', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)

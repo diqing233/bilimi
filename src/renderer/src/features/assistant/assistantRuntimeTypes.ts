@@ -33,6 +33,8 @@ export type FloatingAssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'set
 
 export type FloatingAssistantWorkspaceRequest = {
   tab: FloatingAssistantWorkspaceTab
+  /** Opens the persistent sidebar rather than the floating pet workspace. */
+  sidebar?: boolean
   action?: AssistantAction
   anchor?: { screenX: number; screenY: number }
   openNoteArchive?: boolean

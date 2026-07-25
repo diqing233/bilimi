@@ -165,7 +165,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; requestId?: number }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean }
 }
 
 function findArchivedSummaryTextForNote(
@@ -899,6 +899,7 @@ export function FloatingAssistantApp({
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
   const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)
+  const [openOrganizationRequestVersion, setOpenOrganizationRequestVersion] = useState(0)
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -906,6 +907,21 @@ export function FloatingAssistantApp({
   const [videoNoteArchiveSelection, setVideoNoteArchiveSelection] =
     useState<VideoNoteArchiveSelection>(() => loadSessionVideoNoteArchiveSelection())
   const isSidebarMode = mode === 'sidebar'
+
+  const loadVideoNoteArchives = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      tellPet('progress', '小咪正在打开档案库。')
+    }
+
+    const archives = (await window.bilimiDesktop?.loadVideoNoteArchives?.()) ?? []
+    setVideoNoteArchives(archives)
+
+    if (!silent) {
+      tellPet('success', '档案库打开啦，想看的文稿都在这里。')
+    }
+
+    return archives
+  }, [])
 
   const refreshLocalDataInfo = useCallback(async () => {
     if (!window.bilimiDesktop?.getLocalDataInfo) return
@@ -2198,7 +2214,7 @@ export function FloatingAssistantApp({
         return
       }
       // Ledger editing belongs in the persistent assistant sidebar, not the pet window.
-      if (mode === 'floating' && payload.ledgerId) {
+      if (payload.sidebar || (mode === 'floating' && payload.ledgerId)) {
         return
       }
 
@@ -2214,7 +2230,7 @@ export function FloatingAssistantApp({
 
       if (payload.organizeOldFavorites) {
         tellPet('progress', '小咪切到掌库啦，旧藏整理从这里开始。')
-        setOrganizeOldFavoritesRequestSignal((signal) => signal + 1)
+        setOpenOrganizationRequestVersion((version) => version + 1)
       }
 
       if (payload.action) {
@@ -2383,21 +2399,6 @@ export function FloatingAssistantApp({
     return archives
   }
 
-  async function loadVideoNoteArchives({ silent = false } = {}) {
-    if (!silent) {
-      tellPet('progress', '小咪正在打开档案库。')
-    }
-
-    const archives = (await window.bilimiDesktop?.loadVideoNoteArchives?.()) ?? []
-    setVideoNoteArchives(archives)
-
-    if (!silent) {
-      tellPet('success', '档案库打开啦，想看的文稿都在这里。')
-    }
-
-    return archives
-  }
-
   async function syncCompletedQueuedVideoNote(snapshot: VideoAudioTranscriptionQueueSnapshot) {
     const completedItem = snapshot.items
       .filter((item) => item.status === 'completed' && item.archiveNoteId)
@@ -2519,8 +2520,14 @@ export function FloatingAssistantApp({
     if (!workspaceRequest) return
     setRequestedLedgerId(workspaceRequest.ledgerId)
     setRequestedLedgerRequestVersion(workspaceRequest.requestId ?? 0)
-    setActiveTab(workspaceRequest.tab)
-  }, [workspaceRequest])
+    if (workspaceRequest.openNoteArchive) {
+      void loadVideoNoteArchives()
+      setActiveTab(workspaceRequest.tab, { view: 'noteArchive' })
+    } else {
+      setActiveTab(workspaceRequest.tab)
+    }
+    if (workspaceRequest.organizeOldFavorites) setOpenOrganizationRequestVersion((version) => version + 1)
+  }, [loadVideoNoteArchives, workspaceRequest])
 
   async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
     const previous = preferencesRef.current
@@ -2718,6 +2725,7 @@ export function FloatingAssistantApp({
             }
             openLedgerId={requestedLedgerId}
             openLedgerRequestVersion={requestedLedgerRequestVersion}
+            openOrganizationRequestVersion={openOrganizationRequestVersion}
             />
           </div>
         ) : null}

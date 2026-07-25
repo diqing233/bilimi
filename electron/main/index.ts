@@ -530,6 +530,18 @@ function sendFloatingAssistantWorkspaceWhenReady(
   sendWorkspaceSignal()
 }
 
+function openAssistantWorkspace(payload: FloatingAssistantWorkspaceRequest) {
+  if (payload.sidebar) {
+    const mainAssistant = ensureMainWindowForAssistantRuntime()
+    sendFloatingAssistantWorkspaceWhenReady(mainAssistant, payload)
+    return
+  }
+
+  const assistant = floatingAssistantController.open()
+  positionFloatingAssistantWindow(assistant, payload.anchor)
+  sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
+}
+
 const floatingSealDragController = new FloatingSealDragController({
   getCursorPoint: () => screen.getCursorScreenPoint(),
   getSealBounds: () => floatingSealWindow?.getBounds() ?? getFloatingSealBounds(),
@@ -1150,9 +1162,7 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle(
     'floating-assistant:open-workspace',
     (_event, payload: FloatingAssistantWorkspaceRequest) => {
-      const assistant = floatingAssistantController.open()
-      positionFloatingAssistantWindow(assistant, payload.anchor)
-      sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
+      openAssistantWorkspace(payload)
     }
   )
   ipcMain.handle('floating-assistant:snapshot', () =>

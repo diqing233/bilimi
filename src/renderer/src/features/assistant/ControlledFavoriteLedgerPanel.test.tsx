@@ -3,6 +3,25 @@ import { describe, expect, it, vi } from 'vitest'
 import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('opens the old-favorite guide for an external navigation request without starting a scan', async () => {
+    const command = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+    const props = {
+      currentAccountMid: '100', ledgers: [], missingLedgerIds: [],
+      onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn()
+    }
+    const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} openOrganizationRequestVersion={0} />)
+
+    expect(screen.queryByLabelText('整理旧藏向导')).not.toBeInTheDocument()
+    rerender(<ControlledFavoriteLedgerPanel {...props} openOrganizationRequestVersion={1} />)
+
+    expect(await screen.findByLabelText('整理旧藏向导')).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('does not load workspace segments while the library panel merely mounts', async () => {
     const open = vi.fn().mockResolvedValue(null)
     const summary = vi.fn().mockResolvedValue(null)

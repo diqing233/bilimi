@@ -13,6 +13,8 @@ import type {
   FavoriteRepositoryRestoreExecutionResult,
   FavoriteRepositoryRestorePlan
 } from '../../../../../electron/main/favoriteRepositoryArchiveService'
+import type { VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
+import type { FloatingAssistantWorkspaceRequest } from '../assistant/assistantRuntimeTypes'
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from './FavoriteLibraryNavigation'
@@ -222,8 +224,11 @@ export function FavoriteLibraryApp({
     kind: 'unfavorite' | 'managed-folder'
     operationId: string
   }>>([])
+  const [transcriptionQueue, setTranscriptionQueue] = useState<VideoAudioTranscriptionQueueSnapshot>()
+  const [transcriptionSuccessNotice, setTranscriptionSuccessNotice] = useState<{ accountMid: string; count: number }>()
   const requestIdRef = useRef(0)
-  const selectedAidRef = useRef<number>()
+  const selectedAidRef = useRef<number | undefined>(undefined)
+  const transcriptionStatusesRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
@@ -278,6 +283,56 @@ export function FavoriteLibraryApp({
     if (accountMid) void load(accountMid, { kind: 'pending' }, undefined, pageSize, { query: '', filter: 'all', sort: rowSort })
   }, [accountMid, load, pageSize, rowSort])
 
+  const openAssistantWorkspace = useCallback((request: FloatingAssistantWorkspaceRequest) => {
+    void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ ...request, sidebar: true })
+  }, [])
+
+  useEffect(() => {
+    if (!accountMid) {
+      setTranscriptionQueue(undefined)
+      setTranscriptionSuccessNotice(undefined)
+      transcriptionStatusesRef.current = new Map()
+      return
+    }
+    let disposed = false
+    let observedQueueEvent = false
+    transcriptionStatusesRef.current = new Map()
+    setTranscriptionSuccessNotice((current) => current?.accountMid === accountMid ? current : undefined)
+    void window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()
+      .then((next) => {
+        if (disposed || observedQueueEvent) return
+        transcriptionStatusesRef.current = new Map(next.items.map((item) => [item.id, item.status]))
+        setTranscriptionQueue(next)
+      })
+      .catch(() => { if (!disposed && !observedQueueEvent) setTranscriptionQueue(undefined) })
+    const unsubscribe = window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((next) => {
+      if (disposed) return
+      observedQueueEvent = true
+      const previousStatuses = transcriptionStatusesRef.current
+      const newlyCompleted = next.items.filter((item) => item.accountMid === accountMid && item.status === 'completed' && previousStatuses.get(item.id) !== 'completed').length
+      transcriptionStatusesRef.current = new Map(next.items.map((item) => [item.id, item.status]))
+      setTranscriptionQueue(next)
+      if (newlyCompleted) {
+        setTranscriptionSuccessNotice((current) => current?.accountMid === accountMid
+          ? { accountMid, count: current.count + newlyCompleted }
+          : { accountMid, count: newlyCompleted })
+      }
+    })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [accountMid])
+
+  const transcriptionSuccessCount = transcriptionSuccessNotice?.accountMid === accountMid ? transcriptionSuccessNotice?.count ?? 0 : 0
+  useEffect(() => {
+    if (!transcriptionSuccessCount || !accountMid) return
+    const timer = window.setTimeout(() => {
+      setTranscriptionSuccessNotice((current) => current?.accountMid === accountMid ? undefined : current)
+    }, 4000)
+    return () => window.clearTimeout(timer)
+  }, [accountMid, transcriptionSuccessCount])
+
   const drawerNotices = useMemo<FavoriteLibraryDrawerNotice[]>(() => {
     const failedCount = summary?.syncCounts.failed ?? 0
     const confirmationCount = summary?.syncCounts['result-unknown'] ?? 0
@@ -306,8 +361,52 @@ export function FavoriteLibraryApp({
         onActivate: goToPending
       })
     }
+    if (summary?.workspace?.status === 'scanning') {
+      notices.push({
+        id: 'old-favorite-scan-running',
+        priority: 70,
+        message: '正在扫描旧藏',
+        onActivate: () => openAssistantWorkspace({ tab: 'ledger', organizeOldFavorites: true })
+      })
+    }
+    const accountTranscriptions = transcriptionQueue?.items.filter((item) => item.accountMid === accountMid) ?? []
+    const transcriptionFailures = accountTranscriptions.filter((item) => item.status === 'failed').length
+    const archiveRegistrationFailures = accountTranscriptions.filter((item) => item.archiveRegistrationStatus === 'failed').length
+    const activeTranscriptions = accountTranscriptions.filter((item) => item.status === 'pending' || item.status === 'running').length
+    if (transcriptionFailures) {
+      notices.push({
+        id: 'transcription-failed',
+        priority: 95,
+        message: `${transcriptionFailures}项转写失败`,
+        onActivate: () => openAssistantWorkspace({ tab: 'notes', openNoteArchive: true })
+      })
+    }
+    if (archiveRegistrationFailures) {
+      notices.push({
+        id: 'archive-registration-failed',
+        priority: 94,
+        message: `${archiveRegistrationFailures}项档案登记异常`,
+        onActivate: () => openAssistantWorkspace({ tab: 'notes', openNoteArchive: true })
+      })
+    }
+    if (activeTranscriptions) {
+      notices.push({
+        id: 'transcription-queued',
+        priority: 60,
+        message: `${activeTranscriptions}项转写排队中`,
+        onActivate: () => openAssistantWorkspace({ tab: 'notes', openNoteArchive: true })
+      })
+    }
+    if (transcriptionSuccessCount) {
+      notices.push({
+        id: 'transcription-succeeded',
+        priority: 20,
+        message: `本次转写成功 ${transcriptionSuccessCount} 项`,
+        onActivate: () => openAssistantWorkspace({ tab: 'notes', openNoteArchive: true })
+      })
+    }
     return notices.sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))
-  }, [goToPending, remoteReconciliations.length, summary?.syncCounts.failed, summary?.syncCounts['result-unknown']])
+  }, [accountMid, goToPending, openAssistantWorkspace, remoteReconciliations.length, summary?.syncCounts.failed, summary?.syncCounts['result-unknown'], summary?.workspace?.status, transcriptionQueue, transcriptionSuccessCount])
 
   useEffect(() => {
     if (!embedded) return
@@ -932,7 +1031,7 @@ export function FavoriteLibraryApp({
                 setError(text.unavailable)
                 return
               }
-              void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', ledgerId: folder.logicalLedgerId })
+              void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', ledgerId: folder.logicalLedgerId, sidebar: true })
               return
             }
             const folder = folders.find((candidate) => `folder:${candidate.id}` === id)

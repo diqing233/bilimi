@@ -41,7 +41,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
   const workspaceRequestVersion = useRef(0)
-  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId'> & { requestId: number }) | undefined>()
+  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'openNoteArchive' | 'organizeOldFavorites'> & { requestId: number }) | undefined>()
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
@@ -104,10 +104,16 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }, [])
 
   useEffect(() => window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.((payload) => {
-    // Pet-originated workspace commands remain in their floating host. Drawer edits carry a ledger target.
-    if (!payload.ledgerId) return
+    // Pet-originated workspace commands remain in their floating host. Drawer commands explicitly target the persistent sidebar.
+    if (!payload.ledgerId && !payload.sidebar) return
     expandSidebar()
-    setWorkspaceRequest({ tab: payload.tab, ledgerId: payload.ledgerId, requestId: ++workspaceRequestVersion.current })
+    setWorkspaceRequest({
+      tab: payload.tab,
+      ledgerId: payload.ledgerId,
+      openNoteArchive: payload.openNoteArchive,
+      organizeOldFavorites: payload.organizeOldFavorites,
+      requestId: ++workspaceRequestVersion.current
+    })
   }), [])
 
   useEffect(() => () => {

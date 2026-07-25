@@ -25,6 +25,7 @@ type ControlledFavoriteLedgerPanelProps = {
   deepSeekArchiveAvailable?: boolean
   openLedgerId?: string
   openLedgerRequestVersion?: number
+  openOrganizationRequestVersion?: number
 }
 
 function normalizeAccountMid(value: string | undefined) {
@@ -66,7 +67,8 @@ export function ControlledFavoriteLedgerPanel({
   onOrganizationSnapshotChange,
   deepSeekArchiveAvailable = false,
   openLedgerId,
-  openLedgerRequestVersion
+  openLedgerRequestVersion,
+  openOrganizationRequestVersion
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
@@ -113,6 +115,13 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     onOrganizationSnapshotChange?.(snapshot && !recovery ? snapshot : null)
   }, [onOrganizationSnapshotChange, recovery, snapshot])
+
+  useEffect(() => {
+    if (!openOrganizationRequestVersion) return
+    setGuideOpen(true)
+    setStep('scan')
+    setScanStartFailure(null)
+  }, [openOrganizationRequestVersion])
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return

@@ -255,6 +255,21 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('opens the persistent sidebar on the ledger organization guide for a drawer workspace request', async () => {
+    const api = installDesktopApi()
+
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
+
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true, sidebar: true })
+    })
+
+    expect(await screen.findByRole('tab', { name: '掌库' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('整理旧藏向导')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'false')
+  })
+
   it('keeps the default favorite system switch in Settings instead of the ledger overview', async () => {
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({

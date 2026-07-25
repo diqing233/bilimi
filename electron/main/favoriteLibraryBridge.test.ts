@@ -29,6 +29,11 @@ function createHarness() {
 }
 
 describe('favorite library bridge IPC', () => {
+  it('routes drawer workspace requests to the main sidebar without opening the floating assistant', () => {
+    expect(mainProcessSource).toMatch(/function openAssistantWorkspace\(payload: FloatingAssistantWorkspaceRequest\) \{\s*if \(payload\.sidebar\) \{\s*const mainAssistant = ensureMainWindowForAssistantRuntime\(\)\s*sendFloatingAssistantWorkspaceWhenReady\(mainAssistant, payload\)\s*return\s*}\s*const assistant = floatingAssistantController\.open\(\)/)
+    expect(mainProcessSource).toMatch(/'floating-assistant:open-workspace',\s*\(_event, payload: FloatingAssistantWorkspaceRequest\) => \{\s*openAssistantWorkspace\(payload\)/)
+  })
+
   it('exposes the embedded-library bridge from the main preload and opens only the main-window drawer', () => {
     expect(mainPreloadSource).toContain('getFavoriteRepositoryLibraryVideoDetail')
     expect(mainPreloadSource).toContain('syncFavoriteLibrarySelection')
