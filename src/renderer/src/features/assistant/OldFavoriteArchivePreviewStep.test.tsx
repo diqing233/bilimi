@@ -10,19 +10,20 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 },
         continuationCount: 0, sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]}
       loading={false}
       deepSeekAvailable={false}
       deepSeekFeedback={null}
       onSelectSegment={vi.fn()}
-      onAutoClassify={vi.fn()}
       onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()}
       onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()}
       onApplyManualClassification={vi.fn()}
-      onCreateLocalLedgerAndReclassify={vi.fn()}
+      onApplyManualClassifications={vi.fn()}
     />)
 
     const region = screen.getByRole('region', { name: '\u5f52\u6863\u9884\u89c8' })
@@ -49,11 +50,11 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 },
         continuationCount: 0, sourceFolders: [], segments: [],
         currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
-      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
-      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
     const toolCard = container.querySelector('.favorite-ledger-panel__archive-tool-card')
@@ -77,12 +78,12 @@ describe('OldFavoriteArchivePreviewStep', () => {
           ]
         },
         classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 2 }
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 2, entries: [] }
       }}
       ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
       loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
-      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
-      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
     expect(screen.getByText('改动记录')).toBeInTheDocument()
@@ -105,7 +106,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
           ]
         },
         classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
       loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
@@ -188,11 +189,13 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [{ id: 'source', title: 'Source', itemCount: items.length, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
-      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
-      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '显示全部 51 条' }))
@@ -206,7 +209,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [{ id: 'source', title: 'Source', itemCount: 20, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={true} deepSeekAvailable={true}
       deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段…', progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 } }}
@@ -227,7 +230,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={true}
       deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段。' }}
@@ -248,7 +251,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={true}
       deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段。' }}
@@ -262,10 +265,10 @@ describe('OldFavoriteArchivePreviewStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={true}
-      deepSeekFeedback={{ status: 'canceled', message: 'Canceled', failures: [{ chunkIndex: 2, affectedVideoCount: 3, message: 'Request canceled after start' }] }}
+      deepSeekFeedback={{ status: 'canceled', message: 'Canceled', failures: [{ chunkIndex: 2, affectedVideoCount: 3, aids: [], message: 'Request canceled after start' }] }}
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
@@ -278,7 +281,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       ledgers={[]} loading={false} deepSeekAvailable={true}
       deepSeekFeedback={{ status: 'completed', message: 'Completed', failures: [] }}

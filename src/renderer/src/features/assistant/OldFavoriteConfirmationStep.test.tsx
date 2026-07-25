@@ -11,7 +11,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'completed', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }, completionMode: 'bilibili'
+        history: { cursor: 0, length: 0, entries: [] }, completionMode: 'bilibili'
       }}
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
       onAcknowledgeCompletion={acknowledge}
@@ -28,7 +28,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0 }
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} onSaveLocally={vi.fn()} onAbandonCurrentWorkspace={abandon} onConfirmAndSync={vi.fn()}
       onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
@@ -44,7 +44,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0 }
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false}
       onSaveLocally={vi.fn()}
@@ -65,7 +65,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        planReadiness: { selectedAidCount: 2, classifiedAidCount: 0, unclassifiedAidCount: 2 }, history: { cursor: 0, length: 0 }
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 0, unclassifiedAidCount: 2 }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
@@ -80,7 +80,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
       }}
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
@@ -98,7 +98,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }
+        history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={reconcile}
     />)
@@ -113,7 +113,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
       }}
       loading={true} reconciling
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
@@ -129,7 +129,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 100, totalOperationCount: 244 }
       }}
       loading reconciling preparationStatus={null} executionError={null} scanStarting={false} scanStartFailure={null} step="confirm"
       onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()} onSelectSourceFolders={vi.fn()}
@@ -147,10 +147,10 @@ describe('OldFavoriteConfirmationStep', () => {
 
   it('shows reconciliation progress and restores an actionable retry after a failed check', () => {
     const snapshot = {
-      version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const, mode: 'incremental' as const,
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const, mode: 'incremental' as const,
       segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-      history: { cursor: 0, length: 0 }
+      history: { cursor: 0, length: 0, entries: [] }
     }
     const { rerender } = render(<OldFavoriteConfirmationStep snapshot={snapshot} loading={true}
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
@@ -171,7 +171,7 @@ describe('OldFavoriteConfirmationStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0 }
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} executionError="无法确认当前 B 站页面，请保持已登录的 B 站页面打开后重试。"
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}

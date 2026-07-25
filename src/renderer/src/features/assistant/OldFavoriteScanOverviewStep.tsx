@@ -43,8 +43,7 @@ export function OldFavoriteScanOverviewStep({
   ,onRetryFailedTagEnrichment
   ,onAcceptCurrentTags
 }: OldFavoriteScanOverviewStepProps) {
-  const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
-  if (recovery) {
+  if (snapshot && 'recovery' in snapshot) {
     return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
       <h4>扫描概览</h4>
       <p>工作镜像损坏，已完成的收藏库结果不会丢失。</p>
@@ -71,7 +70,7 @@ export function OldFavoriteScanOverviewStep({
   const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
   const fetchedTagItemCount = tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
-  const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
+  const sourceSelectionLocked = Boolean(snapshot && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'

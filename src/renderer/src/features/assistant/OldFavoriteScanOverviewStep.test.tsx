@@ -7,7 +7,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={null} loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
     expect(screen.getByText('尚未开始扫描，请点击“整理旧藏”后扫描。')).toBeInTheDocument()
@@ -21,11 +21,11 @@ describe('OldFavoriteScanOverviewStep', () => {
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 },
         protectedAidCount: 3, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 3 条已保护视频')
@@ -40,12 +40,12 @@ describe('OldFavoriteScanOverviewStep', () => {
         protectedAidCount: 221, continuationCount: 0,
         sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 246, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        history: { cursor: 0, length: 0 }, planReadiness: { selectedAidCount: 25, classifiedAidCount: 0, unclassifiedAidCount: 25 },
+        history: { cursor: 0, length: 0, entries: [] }, planReadiness: { selectedAidCount: 25, classifiedAidCount: 0, unclassifiedAidCount: 25 },
         tagEnrichment: { status: 'complete', totalItemCount: 25, completedItemCount: 25, pendingItemCount: 0, failedItemCount: 0 }
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('来源总数246')
@@ -65,12 +65,12 @@ describe('OldFavoriteScanOverviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false,
         scan: { phase: 'complete', failureCount: 0, totalItemCount: 244, scannedItemCount: 244, taggedItemCount: 183, untaggedItemCount: 61 },
         continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
         tagEnrichment: { status: 'running', totalItemCount: 244, completedItemCount: 184, pendingItemCount: 60, failedItemCount: 0 }
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
     expect(screen.getByText('标签补取进行中：已处理 184 / 244 条。')).toBeInTheDocument()
@@ -88,7 +88,7 @@ describe('OldFavoriteScanOverviewStep', () => {
         segmentSize: 2000, hasMultipleSegments: false,
         scan: { phase: 'complete', failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 1, untaggedItemCount: 2 },
         continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
-        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
         tagEnrichment: { status: 'accepted', totalItemCount: 3, completedItemCount: 2, pendingItemCount: 1, failedItemCount: 1 }
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}

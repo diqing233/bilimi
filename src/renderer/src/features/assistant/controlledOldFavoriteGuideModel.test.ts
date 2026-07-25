@@ -28,7 +28,7 @@ const snapshot = (overrides: Partial<OldFavoriteWorkspaceSnapshot> = {}): OldFav
   currentSegment: null,
   classifications: {},
   recommendations: { candidates: [], adoptedCandidateIds: [] },
-  history: { cursor: 0, length: 0 },
+  history: { cursor: 0, length: 0, entries: [] },
   ...overrides
 })
 

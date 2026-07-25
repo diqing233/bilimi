@@ -103,7 +103,10 @@ export function OldFavoriteGuide({
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
-  const tagEnrichmentBlocksNextStep = snapshot?.tagEnrichment?.status === 'running' || snapshot?.tagEnrichment?.status === 'paused'
+  const tagEnrichmentBlocksNextStep = Boolean(
+    snapshot && !('recovery' in snapshot)
+    && (snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
+  )
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
@@ -129,7 +132,6 @@ export function OldFavoriteGuide({
     {recovery || step === 'scan' ? <OldFavoriteScanOverviewStep
       snapshot={snapshot}
       loading={loading}
-      executionError={executionError}
       scanStarting={scanStarting}
       scanStartFailure={scanStartFailure}
       onRetry={onRetryScan}
