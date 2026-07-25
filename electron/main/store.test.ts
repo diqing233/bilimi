@@ -95,6 +95,8 @@ function createFakeStore(
       initial.closeChoiceMigrationVersion ?? DEFAULT_ASSISTANT_PREFERENCES.closeChoiceMigrationVersion,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
+    bilibiliConnectionMode:
+      initial.bilibiliConnectionMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliConnectionMode,
     favoriteArchiveMultiMode:
       initial.favoriteArchiveMultiMode ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveMultiMode,
     favoriteArchiveStrategy:
@@ -242,6 +244,16 @@ describe('assistant preference store helpers', () => {
     const store = createFakeStore()
 
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
+  })
+
+  it('defaults and persists the Bilibili connection mode', () => {
+    const store = createFakeStore()
+
+    expect(loadAssistantPreferences(store)).toMatchObject({ bilibiliConnectionMode: 'auto' })
+    expect(saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      bilibiliConnectionMode: 'direct'
+    } as typeof DEFAULT_ASSISTANT_PREFERENCES)).toMatchObject({ bilibiliConnectionMode: 'direct' })
   })
 
   it('defaults missing action preferences to two coins and comment choice mode', () => {
@@ -503,6 +515,7 @@ describe('assistant preference store helpers', () => {
       favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
+      bilibiliConnectionMode: 'direct',
       favoriteArchiveMultiMode: 'two',
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,
@@ -564,6 +577,7 @@ describe('assistant preference store helpers', () => {
       favoritesFolderName: 'Archive',
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
+      bilibiliConnectionMode: 'direct',
       favoriteArchiveMultiMode: 'two',
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,

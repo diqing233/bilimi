@@ -65,6 +65,7 @@ export type AssistantPreferences = {
   rememberCloseChoice?: boolean
   closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  bilibiliConnectionMode: 'auto' | 'direct'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
@@ -202,6 +203,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   rememberCloseChoice: false,
   closeChoiceMigrationVersion: 1,
   bilibiliOperationMode: 'api-assisted',
+  bilibiliConnectionMode: 'auto',
   favoriteArchiveMultiMode: 'off',
   favoriteArchiveStrategy: 'aggressive',
   favoriteCorrectionLearningEnabled: true,
@@ -421,6 +423,7 @@ export function loadAssistantPreferences(
 ): AssistantPreferences {
   const petStyle = store.get('petStyle')
   const bilibiliOperationMode = store.get('bilibiliOperationMode')
+  const bilibiliConnectionMode = store.get('bilibiliConnectionMode')
   const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
   const favoriteArchiveStrategy = store.get('favoriteArchiveStrategy')
   const defaultCoinCount = store.get('defaultCoinCount')
@@ -458,6 +461,7 @@ export function loadAssistantPreferences(
     closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    bilibiliConnectionMode: bilibiliConnectionMode === 'direct' ? 'direct' : 'auto',
     favoriteArchiveMultiMode:
       favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
         ? favoriteArchiveMultiMode
@@ -554,6 +558,7 @@ export function saveAssistantPreferences(
     closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    bilibiliConnectionMode: preferences.bilibiliConnectionMode === 'direct' ? 'direct' : 'auto',
     favoriteArchiveMultiMode:
       preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
         ? preferences.favoriteArchiveMultiMode
