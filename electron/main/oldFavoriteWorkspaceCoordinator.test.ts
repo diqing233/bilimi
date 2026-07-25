@@ -4,10 +4,15 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
-import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
+import { FavoriteRepositorySyncService, type FavoriteRepositoryPageBridge } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
-import { createOldFavoriteWorkspace } from '../../src/shared/oldFavoriteWorkspace'
+import {
+  createOldFavoriteWorkspace,
+  type OldFavoriteWorkspace,
+  type OldFavoriteWorkspaceRecoveryRequired,
+  type OldFavoriteWorkspaceSnapshot
+} from '../../src/shared/oldFavoriteWorkspace'
 import { createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
 
 const roots: string[] = []
@@ -51,6 +56,45 @@ function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => { resolve = next })
   return { promise, resolve }
+}
+
+function requireWorkspace(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null) {
+  if (!value || 'recovery' in value) throw new Error('workspace unexpectedly unavailable')
+  return value
+}
+
+function requireSnapshot(value: OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null) {
+  if (!value || 'recovery' in value) throw new Error('workspace unexpectedly unavailable')
+  return value
+}
+
+function createPageBridge(overrides: Partial<FavoriteRepositoryPageBridge> = {}): FavoriteRepositoryPageBridge {
+  return {
+    append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }),
+    remove: vi.fn().mockResolvedValue({ observedAccountMid: '100' }),
+    readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: {} }),
+    readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+    createFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100', folder: { id: 'remote-folder', title: 'Folder', memberCount: 0 } }),
+    deleteFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100' }),
+    ...overrides
+  }
+}
+
+type CoordinatorSyncService = NonNullable<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]['syncService']>
+
+function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): CoordinatorSyncService {
+  return {
+    abandonFrozenPlan: vi.fn(),
+    claimFrozenPlan: vi.fn(),
+    executeFrozenPlan: vi.fn(),
+    bindPageTarget: vi.fn(),
+    reconcile: vi.fn(),
+    resume: vi.fn(),
+    getRun: vi.fn(),
+    deleteManagedFolders: vi.fn(),
+    previewManagedFolderDeletion: vi.fn(),
+    ...overrides
+  }
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
@@ -301,7 +345,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     await repository.commit('100', {
       id: 'deleted-locally', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'tombstone-favorite-video',
-      payload: { aid: 7, deletedAt: '2026-07-20T00:00:00.000Z' }
+      payload: { aid: 7, deletedAt: '2026-07-20T00:00:00.000Z', allowRediscovery: false }
     })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     await coordinator.open('100')
@@ -568,8 +612,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await coordinator.finishScan('100')
-    const snapshot = await coordinator.getSnapshot('100')
-    if ('recovery' in snapshot) throw new Error('workspace unexpectedly unavailable')
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
     const tagCandidate = snapshot.recommendations.candidates.find((candidate) => candidate.kind === 'tag')
     if (!tagCandidate) throw new Error('tag recommendation unexpectedly unavailable')
 
@@ -665,7 +708,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root })
     )
-    const initial = await coordinator.open('100')
+    const initial = requireWorkspace(await coordinator.open('100'))
     await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'bilimi-empty', title: 'Bilimi·Inbox', itemCount: 0, isBilimiWorkFolder: true }]
@@ -873,7 +916,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore)
-    const workspace = await coordinator.open('100')
+    const workspace = requireWorkspace(await coordinator.open('100'))
     await coordinator.beginScan('100', 'incremental')
     const revision = (await repository.getSnapshot('100')).revision
 
@@ -893,7 +936,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, store)
-    const initial = await coordinator.open('100')
+    const initial = requireWorkspace(await coordinator.open('100'))
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     const completedMarker = (await repository.getSnapshot('100')).workspace!
     await repository.commit('100', {
@@ -922,7 +965,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    const completed = await coordinator.open('100')
+    const completed = requireWorkspace(await coordinator.open('100'))
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
     const completedMarker = (await repository.getSnapshot('100')).workspace!
     await repository.commit('100', {
@@ -1220,8 +1263,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ] })
     await coordinator.finishScan('100')
     await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }] })
-    const beforeDeepSeek = await coordinator.getSnapshot('100')
-    if ('recovery' in beforeDeepSeek || !beforeDeepSeek.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const beforeDeepSeek = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!beforeDeepSeek.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 3, targetLedgerIds: ['deepseek'] }], {
       workspaceId: beforeDeepSeek.workspaceId,
       currentSegmentId: beforeDeepSeek.currentSegment.id,
@@ -1578,7 +1621,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
     const syncService = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+      pageBridge: createPageBridge({ append }),
       now: () => '2026-07-20T00:00:00.000Z',
       pacingMs: 0
     })
@@ -1621,8 +1664,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
-    const deepSeekInput = await coordinator.getSnapshot('100')
-    if ('recovery' in deepSeekInput || !deepSeekInput.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const deepSeekInput = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!deepSeekInput.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 2, targetLedgerIds: ['knowledge'] }], {
       workspaceId: deepSeekInput.workspaceId,
       currentSegmentId: deepSeekInput.currentSegment.id,
@@ -1654,7 +1697,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       syncService: new FavoriteRepositorySyncService({
         repository: restartedRepository,
-        pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+        pageBridge: createPageBridge({ append }),
         now: () => '2026-07-20T00:00:00.000Z',
         pacingMs: 0
       }),
@@ -1687,7 +1730,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       syncService: new FavoriteRepositorySyncService({
         repository: restartedRepositoryAfterBindings,
-        pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+        pageBridge: createPageBridge({ append }),
         now: () => '2026-07-20T00:00:00.000Z',
         pacingMs: 0
       }),
@@ -1811,7 +1854,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
           createFolder,
           append: vi.fn(),
           remove: vi.fn(),
-          readMembers: vi.fn()
+          readMembers: vi.fn(),
+          deleteFolder: vi.fn()
         }))
       }
     })
@@ -2263,7 +2307,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
           createFolder: vi.fn(async ({ title }: { title: string }) => ({
             observedAccountMid: '100', folder: { id: 'remote-music-1', title, memberCount: 0 }
           })),
-          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2300,7 +2344,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
             observedAccountMid: '100',
             folders: [{ id: 'saved-music-folder', title: 'bilimi\u00b7Music', memberCount: 12 }]
           }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2342,7 +2386,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
           readFolderInventory: vi.fn().mockResolvedValue({
             observedAccountMid: '100', folders: [{ id: 'saved-music-folder', title: 'bilimi·Music', memberCount: 12 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2391,7 +2435,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
               { id: 'remote-knowledge', title: 'bilimi\u00b7Knowledge', memberCount: 0 }
             ]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2461,7 +2505,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
             observedAccountMid: '100',
             folders: [{ id: 'saved-music-folder', title: 'bilimi\u00b7Music', memberCount: 0 }]
           }),
-          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2498,7 +2542,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
             observedAccountMid: '100',
             folders: [{ id: 'remote-music-1', title: 'bilimi·音乐舞台', memberCount: 8 }]
           }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2537,7 +2581,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         release: vi.fn(),
         pageBridge: vi.fn(() => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
-          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
     })
@@ -2684,7 +2728,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const getRun = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan, getRun }, now: () => '2026-07-20T00:00:00.000Z'
+      syncService: createSyncService({ executeFrozenPlan, getRun }), now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     await coordinator.beginScan('100', 'incremental')
@@ -2710,7 +2754,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const executeFrozenPlan = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan, getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) },
+      syncService: createSyncService({ executeFrozenPlan, getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) }),
       now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
@@ -2740,7 +2784,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         bind,
         release: vi.fn(),
         pageBridge: vi.fn(() => ({
-          append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn()
+          append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
         }))
       },
       now: () => '2026-07-20T00:00:00.000Z'
@@ -2787,7 +2831,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const executeFrozenPlan = vi.fn()
     const getRun = vi.fn()
     const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan, getRun }
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: createSyncService({ executeFrozenPlan, getRun })
     })
     await coordinator.open('100')
 
@@ -2801,7 +2845,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const waiting = deferred<{ id: string; status: 'running' }>()
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan: vi.fn().mockReturnValue(waiting.promise), getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) }
+      syncService: createSyncService({ executeFrozenPlan: vi.fn().mockReturnValue(waiting.promise), getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) })
     })
     await coordinator.open('100')
     await repository.commit('100', {
@@ -2830,9 +2874,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       id: 'run-1', status: 'running', completedOperationCount: 3, totalOperationCount: 8
     })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: {
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: createSyncService({
         claimFrozenPlan: vi.fn(), executeFrozenPlan: vi.fn(), bindPageTarget: vi.fn(), reconcile: vi.fn(), resume: vi.fn(), getRun
-      }
+      })
     })
     const executing = {
       ...createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),
@@ -2863,7 +2907,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const reconcile = vi.fn().mockResolvedValue({ id: 'run-1', status: 'ready-to-resume' })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan: vi.fn(), bindPageTarget, reconcile }
+      syncService: createSyncService({ executeFrozenPlan: vi.fn(), bindPageTarget, reconcile })
     })
     await coordinator.open('100')
     await repository.commit('100', {
@@ -2911,7 +2955,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, store)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await store.appendOverlay('100', workspace.id, {
       currentSegmentId: 'segment-1', classifications: [], history: [],
@@ -2983,7 +3027,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
     })
 
-    const snapshot = await coordinator.getSnapshot('100')
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
 
     expect(snapshot).toMatchObject({
       version: 1,
@@ -3023,8 +3067,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
-    const snapshot = await coordinator.getSnapshot('100')
-    if ('recovery' in snapshot || !snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
 
     await coordinator.applyDeepSeekClassificationBatch('100', [
       { aid: 1, targetLedgerIds: ['knowledge'] },
@@ -3051,8 +3095,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
-    const snapshot = await coordinator.getSnapshot('100')
-    if ('recovery' in snapshot || !snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
@@ -3102,7 +3146,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore)
 
-    const workspace = await coordinator.open('00100')
+    const workspace = requireWorkspace(await coordinator.open('00100'))
 
     expect(workspace).toMatchObject({ accountMid: '100', status: 'scanning' })
     expect((await repository.getSnapshot('100')).workspace).toEqual({
@@ -3134,7 +3178,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const firstRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const firstStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(firstRepository, firstStore)
-    const scanning = await first.open('100')
+    const scanning = requireWorkspace(await first.open('100'))
     await first.completeScan('100', {
       revision: 7,
       aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
@@ -3153,10 +3197,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/)
     })
 
-    const reopened = await createCoordinator(
+    const reopened = requireWorkspace(await createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root })
-    ).open('100')
+    ).open('100'))
 
     expect(reopened).toMatchObject({
       id: scanning.id,
@@ -3168,8 +3212,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       },
       historyCursor: 1
     })
-    expect('recovery' in reopened).toBe(false)
-    if ('recovery' in reopened) throw new Error('workspace unexpectedly requires rebuild')
     expect(reopened.segments).toEqual([
       { id: 'segment-2', index: 1, aids: [2_001], status: 'previewing' }
     ])
@@ -3182,8 +3224,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore)
 
-    const first = await coordinator.open('100')
-    const second = await coordinator.open('200')
+    const first = requireWorkspace(await coordinator.open('100'))
+    const second = requireWorkspace(await coordinator.open('200'))
     await coordinator.completeScan('100', { revision: 3, aids: [1] })
 
     expect(first.accountMid).toBe('100')
@@ -3198,7 +3240,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore)
-    const workspace = await coordinator.open('100')
+    const workspace = requireWorkspace(await coordinator.open('100'))
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
     const repositoryRevision = (await repository.getSnapshot('100')).revision
     const commit = vi.spyOn(repository, 'commit')
@@ -3305,13 +3347,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
     })
-    const changed = await coordinator.getSnapshot('100')
-    if ('recovery' in changed || !changed) throw new Error('workspace unexpectedly unavailable')
+    const changed = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(changed.history).toMatchObject({
       cursor: 3, length: 3, baselineCursor: 2,
       entries: [{ cursor: 3, source: 'manual', targetLedgerIds: ['manual'] }]
     })
 
+    if (changed.history.baselineCursor === undefined) throw new Error('history baseline unexpectedly unavailable')
     await coordinator.moveHistoryCursor('100', changed.history.baselineCursor)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['initial-high'], source: 'system-high' } },
@@ -3329,7 +3371,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, store)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await first.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -3359,7 +3401,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, store)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await first.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -3587,8 +3629,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2, 3, 4] })
     await coordinator.autoClassifyCurrentSegment('100')
     await coordinator.applyClassificationBatch('100', { source: 'manual', assignments: [{ aid: 3, targetLedgerIds: ['manual'] }] })
-    const current = await coordinator.getSnapshot('100')
-    if ('recovery' in current || !current.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const current = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!current.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 4, targetLedgerIds: ['deepseek'] }], {
       workspaceId: current.workspaceId, currentSegmentId: current.currentSegment.id, selectedSourceFolderIds: ['legacy-source'],
       classifications: Object.fromEntries(Object.entries(current.classifications).map(([aid, classification]) => [aid, {
@@ -3630,8 +3672,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
-    const initial = await coordinator.getSnapshot('100')
-    if ('recovery' in initial || !initial.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!initial.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['deepseek'] }], {
       workspaceId: initial.workspaceId, currentSegmentId: initial.currentSegment.id, selectedSourceFolderIds: ['legacy-source'], classifications: {}
     })
@@ -3657,7 +3699,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, store)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     const marker = (await repository.getSnapshot('100')).workspace!
     const plan = {
@@ -3671,7 +3713,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const executeFrozenPlan = vi.fn().mockResolvedValue({ id: plan.id, status: 'ready-to-resume' })
     const restarted = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan }
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: createSyncService({ executeFrozenPlan })
     })
 
     await restarted.getSnapshot('100')
@@ -3684,7 +3726,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, store)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     const marker = (await repository.getSnapshot('100')).workspace!
     const plan = {
@@ -3702,10 +3744,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const sync = new FavoriteRepositorySyncService({
       repository,
-      pageBridge: {
-        append: vi.fn().mockRejectedValue(new Error('network interrupted')),
-        remove: vi.fn(), readMembers: vi.fn()
-      },
+      pageBridge: createPageBridge({ append: vi.fn().mockRejectedValue(new Error('network interrupted')) }),
       now: () => '2026-07-20T00:00:01.000Z', pacingMs: 0
     })
 
@@ -3731,7 +3770,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await first.freezeSegment('100', 'segment-1')
     await first.recordDiscoveredFavorites('100', [9, 9, 1])
@@ -3752,7 +3791,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await repository.commit('100', {
       id: 'completed-local-result', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z',
@@ -3782,7 +3821,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore)
-    const corrupted = await first.open('100')
+    const corrupted = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await repository.commit('100', {
       id: 'completed-local-result', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z',
@@ -3809,7 +3848,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     const marker = (await repository.getSnapshot('100')).workspace!
     await repository.commit('100', {
@@ -3835,7 +3874,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore)
-    const workspace = await first.open('100')
+    const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
     await writeFile(join(root, 'accounts', '100', 'workspaces', workspace.id, 'baseline', 'segment-1.json'), '{corrupt', 'utf8')
 
