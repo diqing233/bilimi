@@ -16,7 +16,7 @@ import type {
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from './FavoriteLibraryNavigation'
-import { FavoriteLibraryToolbar, type FavoriteLibraryFilter, type FavoriteLibrarySort } from './FavoriteLibraryToolbar'
+import { FavoriteLibraryColumnMenu, FavoriteLibraryToolbar, type FavoriteLibraryFilter, type FavoriteLibrarySort } from './FavoriteLibraryToolbar'
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
 import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 import { FavoriteLibraryFooter } from './FavoriteLibraryFooter'
@@ -125,6 +125,14 @@ function formatDetailTimestamp(value?: string) {
   }).formatToParts(date)
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
+}
+
+function transcriptionAction(status?: string, pending = false) {
+  if (pending || status === '等待转写') return { label: '排队中', disabled: true }
+  if (status === '正在转写') return { label: '转写中', disabled: true }
+  if (status === '转写失败') return { label: '重试转写', disabled: false }
+  if (status === '转写完成') return { label: '重新转写', disabled: false }
+  return { label: '加入队列', disabled: false }
 }
 
 export type FavoriteLibraryDrawerStatus = {
@@ -369,6 +377,20 @@ export function FavoriteLibraryApp({
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)), [folders])
   const rows = useMemo(() => page ? pageRows(page) : [], [page])
   const activeRow = selected && page?.items.find((item) => item.video.aid === selected.aid)
+  const currentScopeTotal = scopeId === 'all'
+    ? summary?.scopeCounts?.all ?? summary?.videoCount
+    : scopeId.startsWith('folder:')
+      ? summary?.folderCounts?.[scopeId.slice('folder:'.length)]
+      : summary?.scopeCounts?.[scopeId as keyof typeof summary.scopeCounts]
+  const displayedTotal = page?.totalCount ?? currentScopeTotal ?? rows.length
+  const hasActiveResultFilter = Boolean(searchQuery.trim()) || rowFilter !== 'all'
+  const currentScopeLabel = scopeId === 'all'
+    ? text.all
+    : scopeId.startsWith('folder:')
+      ? folders.find((folder) => folder.id === scopeId.slice('folder:'.length))?.title ?? text.results
+      : scopeId === 'pending' ? text.pending : text.results
+  const workspaceTitle = `${currentScopeLabel} ${currentScopeTotal ?? displayedTotal} 个视频`
+  const shouldShowFilteredCount = hasActiveResultFilter && displayedTotal !== currentScopeTotal
   const detail = selected && activeRow ? buildFavoriteLibraryDetail(
     detailSnapshot?.video.aid === selected.aid
       ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates].filter((state) => state !== 'transcription') }
@@ -390,13 +412,9 @@ export function FavoriteLibraryApp({
       }
     })
     return [
-      { id: 'range', label: '收藏范围', items: [
-        ...items.filter((item) => item.id === 'all' || item.id === 'pending'),
-        { id: 'protected', label: '已保护', count: summary?.scopeCounts?.protected ?? 0 },
-        { id: 'unsynced', label: '未同步', count: summary?.scopeCounts?.unsynced ?? 0 }
-      ] },
+      { id: 'range', label: '', items: items.filter((item) => item.id === 'all') },
       { id: 'workspace', label: 'bilimi 工作夹', items: items.filter((item) => item.managed || item.protected) },
-      { id: 'bilibili', label: '自建收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
+      { id: 'bilibili', label: '其他收藏夹', items: items.filter((item) => item.id.startsWith('folder:') && !item.managed && !item.protected) }
     ]
   }, [navigation, summary?.videoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
@@ -938,21 +956,15 @@ export function FavoriteLibraryApp({
         }} />
         {summary?.folderConflicts?.length ? <p className="favorite-library__conflicts" role="status">{text.conflicts}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
-          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!eligibleSelectedAids.length} allowedActions={[...batchAllowedActions]} searchQuery={searchQuery} filter={rowFilter} sort={rowSort} onSearchChange={(query) => {
+          <div className="favorite-library__workspace-heading">
+            <h2>{workspaceTitle}</h2>
+            {shouldShowFilteredCount ? <small>{`总计 ${currentScopeTotal} 个 · 当前显示 ${displayedTotal} 个`}</small> : null}
+          </div>
+          <FavoriteLibraryToolbar pageCount={rows.length} selectedCount={selectedAids.length} allCurrentPageSelected={allCurrentPageSelected} onTogglePage={toggleCurrentPage} batchDisabled={!eligibleSelectedAids.length} allowedActions={[...batchAllowedActions]} searchQuery={searchQuery} onSearchChange={(query) => {
             setSearchQuery(query)
             cursorHistoryRef.current = []
             setCursorHistory([])
             if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, query })
-          }} onFilterChange={(filter) => {
-            setRowFilter(filter)
-            cursorHistoryRef.current = []
-            setCursorHistory([])
-            if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, filter })
-          }} onSortChange={(sort) => {
-            setRowSort(sort)
-            cursorHistoryRef.current = []
-            setCursorHistory([])
-            if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, sort })
           }} onBatchAction={(action) => {
             const actionAids = action === 'copy' || action === 'unfavorite-remote' ? selectedAids : eligibleSelectedAids
             setBatchEligibilityNotice(selectedAids.length === actionAids.length ? undefined : `可操作 ${actionAids.length} 项，跳过 ${selectedAids.length - actionAids.length} 项`)
@@ -982,11 +994,6 @@ export function FavoriteLibraryApp({
                 baselineRevision: preview.baselineRevision
               })
             })().catch(() => setError(text.actionFailed))
-          }} pageSize={pageSize} onPageSizeChange={(nextPageSize) => {
-            setPageSize(nextPageSize)
-            cursorHistoryRef.current = []
-            setCursorHistory([])
-            if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
           }}>
             {batchEligibilityNotice ? <p role="status" className="favorite-library__batch-eligibility">{batchEligibilityNotice}</p> : null}
             {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
@@ -996,26 +1003,44 @@ export function FavoriteLibraryApp({
             })}>{text.syncFolder}</button> : null}
             {placementPickerOpen && placementPickerBatch ? renderPlacementPicker() : null}
           </FavoriteLibraryToolbar>
-          <div className="favorite-library__row-columns" aria-hidden="true">
-            <span /> <span>视频名称</span><span>来源</span><span>状态</span>
+          <div className="favorite-library__row-columns">
+            <span aria-hidden="true" /> <span>视频名称 <FavoriteLibraryColumnMenu label="标题排序" value={rowSort} options={[{ value: 'updated-desc', label: '最近更新' }, { value: 'updated-asc', label: '最早更新' }, { value: 'title-asc', label: '标题 A-Z' }, { value: 'title-desc', label: '标题 Z-A' }]} onChange={(sort) => {
+              setRowSort(sort); cursorHistoryRef.current = []; setCursorHistory([]); if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, sort })
+            }} /></span><span>状态 <FavoriteLibraryColumnMenu label="状态筛选" value={rowFilter} options={[{ value: 'all', label: '全部状态' }, { value: 'pending', label: '待处理' }, { value: 'protected', label: '已保护' }, { value: 'unsynced', label: '未同步' }]} onChange={(filter) => {
+              setRowFilter(filter); cursorHistoryRef.current = []; setCursorHistory([]); if (accountMid) void load(accountMid, scope, undefined, pageSize, { ...pageOptions, filter })
+            }} /></span><span>转写</span>
           </div>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
             items={rows}
             className="favorite-library__list"
             renderItem={(row) => (
-              <div className="favorite-library__row-wrap">
-                <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onChange={() => toggleAid(row.aid)} />
-                <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
+              (() => {
+                const rowDetail = detailSnapshot?.video.aid === row.aid ? detailSnapshot : undefined
+                const transcription = transcriptionAction(rowDetail?.transcription.status, row.pendingStates.includes('transcription'))
+                const archiveAvailable = rowDetail?.archive.status === '已入档'
+                return (
+              <div className="favorite-library__row-wrap" data-selected={selected?.aid === row.aid || undefined}>
+                <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onClick={(event) => event.stopPropagation()} onChange={() => toggleAid(row.aid)} />
+                <div role="button" tabIndex={0} className="favorite-library__row" onClick={() => {
+                  if (selected?.aid === row.aid && detailOpen) setDetailOpen(false)
+                  else { setSelected(row); setDetailOpen(true) }
+                }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.click() }}>
                   <span className="favorite-library__row-title"><strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor}{row.bvid ? ` · ${row.bvid}` : ` · AV${row.aid}`}</small></span>
-                  <span className="favorite-library__row-source">{row.folderIds.length} {text.memberships}</span>
                   <span className="favorite-library__row-status">{formatFavoriteLibraryMirrorStatus((row.pendingStates ?? []).filter((state) => state !== 'protected'))} · {formatFavoriteLibraryOrganizationStatus(row.pendingStates ?? [])}</span>
-                </button>
+                  <span className="favorite-library__row-transcription" onClick={(event) => event.stopPropagation()}><button type="button" disabled={transcription.disabled} onClick={() => void runAction(async () => {
+                    const api = window.bilimiDesktop
+                    if (!accountMid || !api?.enqueueFavoriteLibraryTranscription) throw new Error(text.unavailable)
+                    return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: [row.aid] })
+                  })}>{transcription.label}</button><button type="button" disabled={!archiveAvailable} onClick={() => void runDetailAction(openArchiveDetail)}>档案详情</button></span>
+                </div>
               </div>
+                )
+              })()
             )}
           />
         </section>
-        <FavoriteLibraryDetail selected={Boolean(detail)} collapsed={Boolean(detail && !detailOpen)} onRestore={() => setDetailOpen(true)} onCollapse={() => setDetailOpen(false)}>
+        <FavoriteLibraryDetail selected={Boolean(detail)} collapsed={Boolean(detail && !detailOpen)} onCollapse={() => setDetailOpen(false)}>
           {detail ? <>
             {eventsOpen ? <section className="favorite-library__detail-history" aria-label="完整处理记录">
               <h2>完整处理记录</h2>
@@ -1077,8 +1102,8 @@ export function FavoriteLibraryApp({
         pageNumber={cursorHistory.length + 1}
         pageSize={pageSize}
         visibleCount={rows.length}
-        totalCount={summary?.scopeCounts?.[scopeId as keyof typeof summary.scopeCounts] ?? (scopeId === 'all' ? summary?.videoCount : undefined)}
-        scopeLabel={scopeId === 'all' ? text.all : navigationGroups.flatMap((group) => group.items).find((item) => item.id === scopeId)?.label ?? text.results}
+        totalCount={displayedTotal}
+        scopeLabel={currentScopeLabel}
         detailLabel={detail ? `\u5df2\u9009\uff1a${detail.title}` : '\u9009\u62e9\u89c6\u9891\u67e5\u770b\u8be6\u60c5'}
         onPreviousPage={() => {
           if (!accountMid || !cursorHistory.length) return
@@ -1103,6 +1128,12 @@ export function FavoriteLibraryApp({
               })
             })
           }
+        }}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize)
+          cursorHistoryRef.current = []
+          setCursorHistory([])
+          if (accountMid) void load(accountMid, scope, undefined, nextPageSize, pageOptions)
         }}
       />
     </main>

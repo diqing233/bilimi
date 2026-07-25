@@ -268,6 +268,8 @@ describe('AssistantSidebar', () => {
     expect(screen.queryByRole('checkbox', { name: '启用默认收藏夹' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    expect(await screen.findByRole('heading', { name: '设置' })).toHaveClass('assistant-settings__title')
+    expect(screen.getByText('本地数据与迁移', { selector: 'legend' })).toBeInTheDocument()
     const defaultSystem = await screen.findByRole('checkbox', { name: '启用默认收藏夹' })
     expect(screen.getByText(/未备册也可先按默认逻辑目标等待标签完成后分类预览/)).toBeInTheDocument()
     expect(defaultSystem).toBeChecked()
@@ -311,6 +313,28 @@ describe('AssistantSidebar', () => {
       'data-collapsed',
       'false'
     )
+  })
+
+  it('expands the sidebar and opens the requested ledger editor for a drawer edit', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        favoriteAccountPreferences: {
+          '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [
+            { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+          ] }
+        }
+      })
+    })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
+
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', ledgerId: 'music' })
+    })
+
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'false')
+    expect(await screen.findByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByRole('region', { name: '当前收藏夹' })).toHaveAttribute('data-ledger-id', 'music')
   })
 
   it('loads, drags, persists, and resets a bounded sidebar width', async () => {

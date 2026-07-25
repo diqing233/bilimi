@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import type { FloatingAssistantWorkspaceRequest } from './assistantRuntimeTypes'
 import {
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
   clampAssistantSidebarWidthPx,
@@ -39,6 +40,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
+  const [workspaceRequest, setWorkspaceRequest] = useState<Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId'> | undefined>()
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
@@ -99,6 +101,13 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       expandSidebar()
     })
   }, [])
+
+  useEffect(() => window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.((payload) => {
+    // Pet-originated workspace commands remain in their floating host. Drawer edits carry a ledger target.
+    if (!payload.ledgerId) return
+    expandSidebar()
+    setWorkspaceRequest({ tab: payload.tab, ledgerId: payload.ledgerId })
+  }), [])
 
   useEffect(() => () => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
@@ -274,6 +283,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           onRequestCollapse={collapseSidebar}
           onOpenInTab={onOpenInTab}
           workspaceRequestsEnabled={false}
+          workspaceRequest={workspaceRequest}
         />
       </div>
     </aside>

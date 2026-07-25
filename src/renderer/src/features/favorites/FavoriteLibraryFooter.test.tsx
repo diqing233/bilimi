@@ -26,10 +26,10 @@ describe('FavoriteLibraryFooter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: previousPage }))
     expect(onPreviousPage).toHaveBeenCalledOnce()
-    expect(screen.queryByRole('button', { name: nextPage })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: nextPage })).toBeDisabled()
   })
 
-  it('shows scope, page range, page size, and detail context in aligned footer regions', () => {
+  it('shows range, page size control, and disabled boundary paging in the workspace footer', () => {
     render(<FavoriteLibraryFooter
       hasPreviousPage
       hasNextPage
@@ -42,9 +42,9 @@ describe('FavoriteLibraryFooter', () => {
       onNextPage={() => undefined}
     />)
 
-    expect(screen.getByTestId('favorite-library-footer-left')).toHaveTextContent(`${allFavorites} · 120 ${chinese(0x9879)}`)
-    expect(screen.getByTestId('favorite-library-footer-middle')).toHaveTextContent('51-100 / 120')
+    expect(screen.getByTestId('favorite-library-footer-left')).toHaveTextContent('51-100 / 120')
     expect(screen.getByTestId('favorite-library-footer-middle')).toHaveTextContent(`${chinese(0x7b2c)} 2 ${chinese(0x9875)}`)
-    expect(screen.getByTestId('favorite-library-footer-right')).toHaveTextContent(selectedVideo)
+    expect(screen.getByRole('combobox', { name: '每页数量' })).toHaveValue('50')
+    expect(screen.getByRole('button', { name: previousPage })).not.toBeDisabled()
   })
 })

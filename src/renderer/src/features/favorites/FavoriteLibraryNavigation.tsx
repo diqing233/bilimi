@@ -30,19 +30,19 @@ export function FavoriteLibraryNavigation({
 }: FavoriteLibraryNavigationProps) {
   return <nav className="favorite-library__navigation-groups" aria-label="\u6536\u85cf\u5939\u5bfc\u822a">
     {groups.map((group, index) => {
+      const fixed = group.id === 'range'
       const collapsed = Boolean(collapsedGroups[group.id])
-      return <section className={`favorite-library__navigation-group${index ? ' favorite-library__navigation-group--separated' : ''}`} key={group.id} data-group-id={group.id}>
-        <div className="favorite-library__navigation-group-heading">
-          <span className="favorite-library__navigation-group-label">{group.label}</span>
+      return <section className={`favorite-library__navigation-group${index ? ' favorite-library__navigation-group--separated' : ''}${fixed ? ' favorite-library__navigation-group--fixed' : ''}`} key={group.id} data-group-id={group.id}>
+        {fixed ? null : <div className="favorite-library__navigation-group-heading">
           <button
             type="button"
             className="favorite-library__navigation-group-toggle"
             aria-label={`${collapsed ? '展开' : '收起'}${group.label}`}
             aria-expanded={!collapsed}
             onClick={() => onCollapseChange(uid, group.id, !collapsed)}
-          ><Chevron /></button>
-        </div>
-        {!collapsed ? group.items.map((item) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}`} key={item.id}>
+          ><span className="favorite-library__navigation-group-label">{group.label}</span><Chevron /></button>
+        </div>}
+        {(fixed || !collapsed) ? group.items.map((item) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}`} key={item.id}>
           <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} onClick={() => onSelect(item.id)}>
             <span>{item.label}</span>{' '}<span className="favorite-library__navigation-count">{item.count}</span>
           </button>

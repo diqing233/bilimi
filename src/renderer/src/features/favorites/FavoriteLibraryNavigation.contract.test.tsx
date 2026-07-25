@@ -11,7 +11,7 @@ const favoriteLibraryStyles = readFileSync(
 )
 
 describe('FavoriteLibraryNavigation contract', () => {
-  it('uses right-aligned group controls, dashed group boundaries, and reserves folder menus for managed workspace rows', () => {
+  it('keeps all favorites fixed and makes only folder groups collapsible', () => {
     const range = chinese(0x6536, 0x85cf, 0x8303, 0x56f4)
     const workspace = `bilimi ${chinese(0x5de5, 0x4f5c, 0x5939)}`
     const staging = `bilimi ${chinese(0x6682, 0x5b58)}`
@@ -30,13 +30,27 @@ describe('FavoriteLibraryNavigation contract', () => {
       onSelect={vi.fn()}
     />)
 
-    expect(screen.getByText(range)).toHaveClass('favorite-library__navigation-group-label')
-    expect(screen.getByRole('button', { name: `${chinese(0x6536, 0x8d77)}${range}` })).toHaveClass('favorite-library__navigation-group-toggle')
+    expect(screen.queryByText(range)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: workspace })).not.toHaveAttribute('aria-expanded')
+    expect(screen.getByRole('button', { name: `${chinese(0x6536, 0x8d77)}${workspace}` })).toHaveClass('favorite-library__navigation-group-toggle')
     expect(container.querySelectorAll('.favorite-library__navigation-group--separated')).toHaveLength(2)
     expect(screen.getByText(staging).closest('.favorite-library__navigation-row')).toHaveClass('favorite-library__navigation-row--managed')
     expect(screen.getByRole('button', { name: `${workspace} ${menu}` })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: `${staging} ${menu}` })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: `${custom} ${menu}` })).not.toBeInTheDocument()
+  })
+
+  it('labels the ordinary Bilibili folder group as other favorites', () => {
+    render(<FavoriteLibraryNavigation
+      groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '默认收藏夹', count: 3 }] }]}
+      collapsedGroups={{}}
+      selectedId="folder:remote"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '收起其他收藏夹' })).toBeInTheDocument()
+    expect(screen.queryByText('自建收藏夹')).not.toBeInTheDocument()
   })
 
   it('keeps a managed folder count in a dedicated slot replaced by an accessible three-dot menu', () => {

@@ -4,6 +4,7 @@ import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
 
 describe('FavoriteLibraryDetail', () => {
   it('lets the user resize a visible detail panel without removing its collapse action', () => {
+    window.localStorage.removeItem('bilimi:favorite-library-detail-width')
     render(<FavoriteLibraryDetail title="测试视频" onCollapse={vi.fn()}>内容</FavoriteLibraryDetail>)
 
     const detail = screen.getByRole('complementary', { name: '视频详情' })
@@ -13,6 +14,7 @@ describe('FavoriteLibraryDetail', () => {
     fireEvent.pointerUp(handle, { pointerId: 1 })
 
     expect(detail).toHaveStyle({ '--favorite-detail-width': '380px' })
+    expect(window.localStorage.getItem('bilimi:favorite-library-detail-width')).toBe('380')
     expect(screen.getByRole('button', { name: '收起详情' })).toBeInTheDocument()
   })
 })

@@ -498,6 +498,8 @@ export type FavoriteRepositoryPage<T> = {
   version: 1
   accountMid: string
   items: T[]
+  /** Count after the requested scope, search, and status filter are applied. */
+  totalCount?: number
   nextCursor?: string
   revision: number
 }

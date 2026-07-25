@@ -3,6 +3,7 @@ type FavoriteLibraryFooterProps = {
   hasNextPage: boolean
   pageNumber?: number
   pageSize?: 25 | 50 | 100
+  onPageSizeChange?: (pageSize: 25 | 50 | 100) => void
   visibleCount?: number
   totalCount?: number
   scopeLabel?: string
@@ -24,21 +25,19 @@ const nextPage = chinese(0x4e0b, 0x4e00, 0x9875)
 /** Aligns pagination with the three persistent library columns. */
 export function FavoriteLibraryFooter({
   hasPreviousPage = false, hasNextPage, pageNumber = 1, pageSize = 50, visibleCount = 0, totalCount,
-  scopeLabel = currentScope, detailLabel = noSelectedVideo, onPreviousPage, onNextPage
+  scopeLabel = currentScope, detailLabel = noSelectedVideo, onPreviousPage, onNextPage, onPageSizeChange
 }: FavoriteLibraryFooterProps) {
   const firstItem = visibleCount ? (pageNumber - 1) * pageSize + 1 : 0
   const lastItem = visibleCount ? firstItem + visibleCount - 1 : 0
   const range = totalCount === undefined ? `${firstItem}-${lastItem}` : `${firstItem}-${lastItem} / ${totalCount}`
 
   return <footer className="favorite-library__footer" data-testid="favorite-library-footer" data-footer-split="true">
-    <div className="favorite-library__footer-region" data-testid="favorite-library-footer-left">
-      {totalCount === undefined ? scopeLabel : `${scopeLabel} · ${totalCount} ${itemUnit}`}
-    </div>
+    <div className="favorite-library__footer-region" data-testid="favorite-library-footer-left">{range}</div>
     <div className="favorite-library__footer-region favorite-library__footer-pagination" data-testid="favorite-library-footer-middle">
-      <span>{range}</span><span>{`${pagePrefix} ${pageNumber} ${pageSuffix}`}</span><span>{`${perPage} ${pageSize}`}</span>
-      {hasPreviousPage ? <button type="button" onClick={onPreviousPage}>{previousPage}</button> : null}
-      {hasNextPage ? <button type="button" onClick={onNextPage}>{nextPage}</button> : null}
+      <span>{`${pagePrefix} ${pageNumber} ${pageSuffix}`}</span><label>{perPage}<select aria-label="每页数量" value={pageSize} onChange={(event) => onPageSizeChange?.(Number(event.currentTarget.value) as 25 | 50 | 100)}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+      <button type="button" disabled={!hasPreviousPage} onClick={onPreviousPage}>{previousPage}</button>
+      <button type="button" disabled={!hasNextPage} onClick={onNextPage}>{nextPage}</button>
     </div>
-    <div className="favorite-library__footer-region" data-testid="favorite-library-footer-right">{detailLabel}</div>
+    <div className="favorite-library__footer-region" data-testid="favorite-library-footer-right">{scopeLabel === currentScope ? detailLabel : scopeLabel}</div>
   </footer>
 }

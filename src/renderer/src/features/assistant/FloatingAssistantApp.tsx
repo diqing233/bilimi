@@ -165,6 +165,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string }
 }
 
 function findArchivedSummaryTextForNote(
@@ -816,7 +817,8 @@ export function FloatingAssistantApp({
   onActiveTabChange,
   onRequestCollapse,
   onOpenInTab,
-  workspaceRequestsEnabled = true
+  workspaceRequestsEnabled = true,
+  workspaceRequest
 }: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
   const snapshotRef = useRef<AssistantSnapshot | null>(null)
@@ -2194,6 +2196,10 @@ export function FloatingAssistantApp({
       if (!workspaceRequestsEnabledRef.current) {
         return
       }
+      // Ledger editing belongs in the persistent assistant sidebar, not the pet window.
+      if (mode === 'floating' && payload.ledgerId) {
+        return
+      }
 
       // Clear stale editor targeting when the next workspace request has no ledger target.
       setRequestedLedgerId(payload.ledgerId)
@@ -2216,7 +2222,7 @@ export function FloatingAssistantApp({
         }, 0)
       }
     })
-  }, [loadVideoNoteArchives, workspaceRequestsEnabled])
+  }, [loadVideoNoteArchives, mode, workspaceRequestsEnabled])
 
   async function generateVideoNote(manualTranscript?: string) {
     setVideoNoteLoading(true)
@@ -2508,6 +2514,12 @@ export function FloatingAssistantApp({
     ), options)
   }
 
+  useEffect(() => {
+    if (!workspaceRequest) return
+    setRequestedLedgerId(workspaceRequest.ledgerId)
+    setActiveTab(workspaceRequest.tab)
+  }, [workspaceRequest])
+
   async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
     const previous = preferencesRef.current
     const next = createInitialAssistantPreferences({ ...previous, bilibiliConnectionMode: mode })
@@ -2711,7 +2723,7 @@ export function FloatingAssistantApp({
           <section className="assistant-settings" aria-label="助手设置">
             <header>
               <div className="assistant-settings__title-row">
-                <h2>设置</h2>
+                <h2 className="assistant-settings__title">设置</h2>
                 <div className="assistant-settings__header-actions">
                   <button type="button" onClick={() => void restoreDefaultLayoutSize()}>
                     恢复默认布局
@@ -3536,6 +3548,7 @@ export function FloatingAssistantApp({
               className="assistant-settings__group assistant-settings__group--local-data"
               data-settings-section="local-data"
             >
+              <legend>本地数据与迁移</legend>
               <LocalDataSettings
                 userDataPath={localDataInfo.path}
                 accounts={localDataInfo.accounts}

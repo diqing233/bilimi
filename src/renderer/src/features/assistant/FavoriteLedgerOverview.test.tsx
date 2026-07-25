@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
@@ -10,6 +10,21 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music-duplicate" />)
 
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveAttribute('data-ledger-id', 'music-duplicate')
+  })
+
+  it('brings a requested editor into view once after its layout settles', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      render(<FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" />)
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' }))
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 
   it('uses one bulk toggle that selects and clears the currently operable ledgers', () => {

@@ -3,26 +3,32 @@ import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 const DEFAULT_WIDTH = 300
 const MIN_WIDTH = 220
 const MAX_WIDTH = 520
+const DETAIL_WIDTH_STORAGE_KEY = 'bilimi:favorite-library-detail-width'
+
+function storedWidth() {
+  const stored = window.localStorage.getItem(DETAIL_WIDTH_STORAGE_KEY)
+  if (stored === null) return DEFAULT_WIDTH
+  const value = Number(stored)
+  return Number.isFinite(value) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, value)) : DEFAULT_WIDTH
+}
 
 type FavoriteLibraryDetailProps = {
   title?: string
   selected?: boolean
   onCollapse: (collapsed: boolean) => void
   collapsed?: boolean
-  onRestore?: () => void
   children?: ReactNode
 }
 
-export function FavoriteLibraryDetail({ title, selected = Boolean(title), onCollapse, collapsed = false, onRestore, children }: FavoriteLibraryDetailProps) {
-  const [width, setWidth] = useState(DEFAULT_WIDTH)
+export function FavoriteLibraryDetail({ title, selected = Boolean(title), onCollapse, collapsed = false, children }: FavoriteLibraryDetailProps) {
+  const [width, setWidth] = useState(() => storedWidth())
   const dragStart = useRef<{ clientX: number; width: number }>()
   const applyWidth = (nextWidth: number, target?: HTMLElement) => {
     setWidth(nextWidth)
+    window.localStorage.setItem(DETAIL_WIDTH_STORAGE_KEY, String(nextWidth))
     target?.closest('.favorite-library')?.style.setProperty('--favorite-detail-width', `${nextWidth}px`)
   }
-  if (collapsed) return <aside className="favorite-library__detail-restore" aria-label="视频详情已收起">
-    <button type="button" onClick={onRestore}>恢复视频详情</button>
-  </aside>
+  if (collapsed) return null
   if (!selected) return <aside className="favorite-library__detail favorite-library__detail-empty" aria-label={'\u89c6\u9891\u8be6\u60c5'}>
     <p>选择一个视频查看详情</p>
   </aside>

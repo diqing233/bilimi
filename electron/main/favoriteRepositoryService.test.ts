@@ -38,10 +38,10 @@ describe('FavoriteRepositoryService', () => {
 
     await expect(service.getLibraryPage('100', { kind: 'all' }, {
       limit: 1, query: 'needle', sort: 'title-asc'
-    })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }] })
+    })).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 3, title: 'Needle match' } }] })
     await expect(service.getLibraryPage('100', { kind: 'all' }, {
       limit: 1, sort: 'title-asc'
-    })).resolves.toMatchObject({ items: [{ video: { aid: 2, title: 'Alpha' } }], nextCursor: '1' })
+    })).resolves.toMatchObject({ totalCount: 3, items: [{ video: { aid: 2, title: 'Alpha' } }], nextCursor: '1' })
     await expect(service.getLibraryPage('100', { kind: 'all' }, {
       limit: 1, sort: 'title-asc', cursor: '1'
     })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
@@ -1082,7 +1082,7 @@ describe('FavoriteRepositoryService', () => {
     })
 
     await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1 })).resolves.toEqual({
-      version: 1, accountMid: '100', revision: 1,
+      version: 1, accountMid: '100', revision: 1, totalCount: 2,
       items: [{
         video: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
           folderIds: [], pendingStates: []

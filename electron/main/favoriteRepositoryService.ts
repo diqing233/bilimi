@@ -822,6 +822,7 @@ export class FavoriteRepositoryService {
     return {
       version: 1,
       accountMid: account,
+      totalCount: scopedAids.length,
       items: selected.flatMap((aid) => {
         const video = snapshot.videos[String(aid)]
         if (!video) return []
