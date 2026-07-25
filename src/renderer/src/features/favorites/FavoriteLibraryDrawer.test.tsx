@@ -40,7 +40,7 @@ describe('FavoriteLibraryDrawer', () => {
     expect(screen.getByText('小咪')).toBeInTheDocument()
   })
 
-  it('uses the compact product header and restores the prior height after maximizing the drawer', () => {
+  it('uses the compact product header without a maximum-height button', () => {
     vi.stubGlobal('innerWidth', 1440)
     vi.stubGlobal('innerHeight', 900)
     render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
@@ -50,10 +50,8 @@ describe('FavoriteLibraryDrawer', () => {
     expect(screen.getByRole('img', { name: '小咪收藏库' })).toBeInTheDocument()
     expect(screen.queryByText('米')).not.toBeInTheDocument()
     expect(screen.queryByText('收藏库')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '拉到最高' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '拉到最高' }))
-    expect(drawer).toHaveStyle({ height: '672px' })
-    fireEvent.click(screen.getByRole('button', { name: '恢复高度' }))
+    expect(screen.queryByRole('button', { name: '拉到最高' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '恢复高度' })).not.toBeInTheDocument()
     expect(drawer).toHaveStyle({ height: '360px' })
   })
 
@@ -75,7 +73,7 @@ describe('FavoriteLibraryDrawer', () => {
       expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-closing', 'true')
       expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
 
-      act(() => { vi.advanceTimersByTime(220) })
+      act(() => { vi.advanceTimersByTime(170) })
 
       expect(screen.queryByTestId('favorite-library-drawer')).not.toBeInTheDocument()
     } finally {
@@ -96,7 +94,7 @@ describe('FavoriteLibraryDrawer', () => {
       fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
 
       expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsing', 'true')
-      act(() => { vi.advanceTimersByTime(220) })
+      act(() => { vi.advanceTimersByTime(170) })
 
       expect(screen.getByTestId('favorite-library-content')).toBeInTheDocument()
       expect(screen.getByTestId('favorite-library-drawer')).toHaveAttribute('data-collapsed', 'true')

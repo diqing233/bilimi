@@ -13,7 +13,7 @@ const COMPACT_BROWSER_TAB_HEIGHT = 38
 const COMPACT_BROWSER_WIDTH = 1200
 const COMPACT_BROWSER_HEIGHT = 760
 const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
-const DRAWER_TRANSITION_DURATION_MS = 220
+const DRAWER_CLOSE_DURATION_MS = 170
 
 type FavoriteLibraryDrawerProps = {
   open: boolean
@@ -61,7 +61,6 @@ export function FavoriteLibraryDrawer({
   onResizeActiveChange
 }: FavoriteLibraryDrawerProps) {
   const [height, setHeight] = useState(savedHeight)
-  const [heightBeforeMaximize, setHeightBeforeMaximize] = useState<number>()
   const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const [drawerStatus, setDrawerStatus] = useState<FavoriteLibraryDrawerStatus>()
@@ -125,7 +124,7 @@ export function FavoriteLibraryDrawer({
       closeTimerRef.current = null
       setClosing(false)
       setVisible(false)
-    }, DRAWER_TRANSITION_DURATION_MS)
+    }, DRAWER_CLOSE_DURATION_MS)
   }, [open, visible])
 
   useEffect(() => {
@@ -156,17 +155,6 @@ export function FavoriteLibraryDrawer({
     return null
   }
 
-  const maximized = heightBeforeMaximize !== undefined
-  const toggleMaximumHeight = () => {
-    if (maximized) {
-      setHeight(clampHeight(heightBeforeMaximize))
-      setHeightBeforeMaximize(undefined)
-      return
-    }
-    setHeightBeforeMaximize(height)
-    setHeight(maximumHeight())
-  }
-
   const beginDrawerCollapse = () => {
     if (collapseTimerRef.current !== null) {
       window.clearTimeout(collapseTimerRef.current)
@@ -175,7 +163,7 @@ export function FavoriteLibraryDrawer({
     collapseTimerRef.current = window.setTimeout(() => {
       collapseTimerRef.current = null
       onCollapsedChange(true)
-    }, DRAWER_TRANSITION_DURATION_MS)
+    }, DRAWER_CLOSE_DURATION_MS)
   }
 
   const toggleDrawerCollapsed = () => {
@@ -248,7 +236,6 @@ export function FavoriteLibraryDrawer({
         }}
         onDoubleClick={() => {
           setHeight(clampHeight(DEFAULT_HEIGHT))
-          setHeightBeforeMaximize(undefined)
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowUp') {
@@ -273,9 +260,6 @@ export function FavoriteLibraryDrawer({
           {account ? <span>{account.nickname ?? `UID：${account.mid}`}</span> : null}
         </div>
         <div className="favorite-library-drawer__actions">
-          <button type="button" aria-label={maximized ? '恢复高度' : '拉到最高'} title={maximized ? '恢复高度' : '拉到最高'} onClick={toggleMaximumHeight}>
-            {maximized ? '恢复高度' : '拉到最高'}
-          </button>
           <button
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}

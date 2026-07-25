@@ -222,9 +222,16 @@ describe('renderer porcelain theme styles', () => {
   it('slides the closed favorite library drawer out before releasing its layout', () => {
     expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
     expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(14px); opacity: 0;')
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"], .favorite-library-drawer[data-collapsing="true"] { transition: transform 170ms cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
     expect(normalizedStyles).not.toContain(
       '.favorite-library-drawer[data-collapsing="true"] {\n  transform: translateY(14px);\n  opacity: 0;\n  pointer-events: none;'
     )
+  })
+
+  it('keeps the favorite drawer resize hit area out of the header layout', () => {
+    expectStyleSnippet('.favorite-library-drawer { position: relative; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-library-drawer__resize-handle { position: absolute; top: 0; right: 0; left: 0; z-index: 2; height: 10px;')
+    expectStyleSnippet(".favorite-library-drawer__resize-handle::after { content: ''; position: absolute; top: 0;")
   })
 
   it('keeps panel transition gaps on the assistant ice surface', () => {
