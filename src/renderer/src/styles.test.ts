@@ -222,7 +222,8 @@ describe('renderer porcelain theme styles', () => {
   it('slides the closed favorite library drawer out before releasing its layout', () => {
     expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
     expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(14px); opacity: 0;')
-    expectStyleSnippet('.favorite-library-drawer[data-closing="true"], .favorite-library-drawer[data-collapsing="true"] { transition: transform 170ms cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-close-duration, 170ms) cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
+    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-collapse-duration, 170ms) cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
     expect(normalizedStyles).not.toContain(
       '.favorite-library-drawer[data-collapsing="true"] {\n  transform: translateY(14px);\n  opacity: 0;\n  pointer-events: none;'
     )

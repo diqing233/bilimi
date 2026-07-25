@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './FavoriteLibraryApp'
+import { closeDurationFor, panelMotionTuning } from '../assistant/panelMotionTuning'
 
 const DEFAULT_HEIGHT = 360
 const MIN_HEIGHT = 220
@@ -13,8 +14,6 @@ const COMPACT_BROWSER_TAB_HEIGHT = 38
 const COMPACT_BROWSER_WIDTH = 1200
 const COMPACT_BROWSER_HEIGHT = 760
 const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
-const DRAWER_CLOSE_DURATION_MS = 170
-
 type FavoriteLibraryDrawerProps = {
   open: boolean
   collapsed: boolean
@@ -124,7 +123,7 @@ export function FavoriteLibraryDrawer({
       closeTimerRef.current = null
       setClosing(false)
       setVisible(false)
-    }, DRAWER_CLOSE_DURATION_MS)
+    }, closeDurationFor(panelMotionTuning(), 'drawer-close'))
   }, [open, visible])
 
   useEffect(() => {
@@ -163,7 +162,7 @@ export function FavoriteLibraryDrawer({
     collapseTimerRef.current = window.setTimeout(() => {
       collapseTimerRef.current = null
       onCollapsedChange(true)
-    }, DRAWER_CLOSE_DURATION_MS)
+    }, closeDurationFor(panelMotionTuning(), 'drawer-collapse'))
   }
 
   const toggleDrawerCollapsed = () => {

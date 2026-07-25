@@ -11,6 +11,7 @@ import {
   PET_EXPAND_GREETING_LINE,
   pickPetLine
 } from './petInteractionLines'
+import { closeDurationFor, panelMotionTuning } from './panelMotionTuning'
 
 type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 
@@ -19,8 +20,6 @@ type AssistantSidebarProps = {
 }
 
 export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
-
-const SIDEBAR_CLOSE_DURATION_MS = 220
 
 type SidebarDragState = {
   startClientX: number
@@ -73,7 +72,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null
       setClosing(false)
-    }, SIDEBAR_CLOSE_DURATION_MS)
+    }, closeDurationFor(panelMotionTuning(), 'sidebar-collapse'))
   }
 
   function expandSidebar() {

@@ -275,10 +275,10 @@ describe('AssistantSidebar', () => {
     const settingsSections = Array.from(
       document.querySelectorAll<HTMLElement>('[data-settings-section]')
     ).map((section) => section.dataset.settingsSection)
-    expect(settingsSections.slice(-3)).toEqual(['bilibili-connection', 'local-data', 'close'])
+    expect(settingsSections.slice(-4)).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
     expect(
-      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-3).map((option) => option.value)
-    ).toEqual(['bilibili-connection', 'local-data', 'close'])
+      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-4).map((option) => option.value)
+    ).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
   })
 
   it('shows only automatic system proxy and direct Bilibili connection choices', async () => {

@@ -48,6 +48,7 @@ import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 import { LocalDataSettings } from './LocalDataSettings'
+import { PanelMotionTuningSettings } from './PanelMotionTuningSettings'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import {
@@ -553,6 +554,7 @@ export const SETTINGS_JUMP_OPTIONS = [
   { value: 'favorites', label: '收藏夹体系' },
   { value: 'bilibili-connection', label: 'B 站连接方式' },
   { value: 'local-data', label: '本地数据与迁移' },
+  { value: 'motion-tuning', label: '面板动效' },
   { value: 'close', label: '关闭设置' }
 ] as const
 const SETTINGS_SCROLL_SYNC_OFFSET = 32
@@ -3558,6 +3560,7 @@ export function FloatingAssistantApp({
               <legend>本地数据与迁移</legend>
               <p role="status">{localDataUnavailable ? '本地数据服务暂不可用，请稍后重试。' : '正在读取本地数据服务…'}</p>
             </fieldset>}
+            <PanelMotionTuningSettings />
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"
               data-settings-section="close"
