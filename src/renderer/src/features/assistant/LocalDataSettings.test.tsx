@@ -101,12 +101,32 @@ describe('LocalDataSettings', () => {
     render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} onDataChanged={onDataChanged} />)
 
     fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
-    fireEvent.click(screen.getByRole('button', { name: '预览删除当前账号本地数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '预览删除小咪（100）本地数据' }))
     expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('小咪（100）')
     fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
 
     await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '100'))
     expect(onDataChanged).toHaveBeenCalledOnce()
+  })
+
+  it('explains when no local account can be deleted', () => {
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={vi.fn()} onFullClear={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
+    expect(screen.getByText('本机没有可删除的账号数据。')).toBeInTheDocument()
+  })
+
+  it('lets a signed-out user select which saved account to delete', async () => {
+    const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', nickname: '阿咪', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
+    fireEvent.change(screen.getByLabelText('选择要删除的账号'), { target: { value: '200' } })
+    fireEvent.click(screen.getByRole('button', { name: '预览删除阿咪（200）本地数据' }))
+    expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('阿咪（200）')
+    fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
+
+    await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '200'))
   })
 
   it('requires a cleanup preview before applying the selected local cleanup', async () => {
