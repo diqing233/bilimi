@@ -107,7 +107,7 @@ function decodeJournalEvent(value: { kind: string }): WorkspaceJournalEvent | un
 
 function isRecoveryRequired(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null):
 value is OldFavoriteWorkspaceRecoveryRequired {
-  return Boolean(value) && 'recovery' in value
+  return value !== null && 'recovery' in value
 }
 
 function recoveryBaselineChangeEvidence(workspaceBaselineRevision: number, repositoryRevision: number, baseline?: {
@@ -206,10 +206,28 @@ function stableRecommendationId(author: string) {
 type TagEnrichment = {
   status: 'running' | 'paused' | 'accepted' | 'complete'
   totalItemCount: number
+  completedItemCount: number
   pendingAids: number[]
   failedAids: number[]
   reusedTagItemCount: number
   taggedAids: number[]
+}
+
+function normalizeTagEnrichment(value: {
+  status: TagEnrichment['status']
+  totalItemCount: number
+  completedItemCount: number
+  pendingAids: number[]
+  failedAids?: number[]
+  reusedTagItemCount?: number
+  taggedAids?: number[]
+}): TagEnrichment {
+  return {
+    ...value,
+    failedAids: [...new Set(value.failedAids ?? [])],
+    reusedTagItemCount: value.reusedTagItemCount ?? 0,
+    taggedAids: [...new Set(value.taggedAids ?? [])]
+  }
 }
 
 function stableTagRecommendationId(tag: string) {
@@ -328,7 +346,7 @@ export class OldFavoriteWorkspaceCoordinator {
       }): Promise<unknown>
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
-    classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
+    classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[], accountMid: string) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
@@ -713,7 +731,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ])),
           folders: mirrorFolders,
           videos: [
-            ...itemsByAid.values().map((item) => ({
+            ...[...itemsByAid.values()].map((item) => ({
             aid: item.aid,
             title: item.title ?? `Video ${item.aid}`,
             ...(item.author ? { author: item.author } : {}),
@@ -852,6 +870,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const tagEnrichment: TagEnrichment = {
         status: pendingTagAids.length ? 'running' : 'complete',
         totalItemCount: pendingTagAids.length,
+        completedItemCount: 0,
         pendingAids: pendingTagAids,
         failedAids: [],
         reusedTagItemCount,
@@ -1188,6 +1207,17 @@ export class OldFavoriteWorkspaceCoordinator {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const marker = snapshot.workspace
     if (!marker) return null
+    if (marker.status === 'draft') {
+      return {
+        accountMid: snapshot.accountMid,
+        workspaceId: marker.id,
+        status: 'rebuild-required',
+        currentStep: 'rebuild-required',
+        baselineChangeEvidence: recoveryBaselineChangeEvidence(marker.workspaceRef.baselineRevision, snapshot.revision, undefined, snapshot,
+          await this.options.resolveRecoveryConfiguration?.(snapshot.accountMid)),
+        recoveryChoices: ['view']
+      }
+    }
     const summary = await this.options.workspaceStore.readRecoverySummary(snapshot.accountMid, marker.id)
     if ('recovery' in summary) {
       return {
@@ -1686,7 +1716,8 @@ export class OldFavoriteWorkspaceCoordinator {
         ...current,
         status: 'running',
         pendingAids: [...new Set([...current.pendingAids, ...current.failedAids])].sort((left, right) => left - right),
-        failedAids: []
+        failedAids: [],
+        completedItemCount: current.totalItemCount - [...new Set([...current.pendingAids, ...current.failedAids])].length
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
@@ -1757,6 +1788,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const next: TagEnrichment = {
         ...enrichment,
         pendingAids,
+        completedItemCount: enrichment.totalItemCount - pendingAids.length,
         failedAids: enrichment.failedAids.filter((candidate) => candidate !== aid),
         taggedAids: normalizedTags.length > 0
           ? [...new Set([...enrichment.taggedAids, aid])].sort((left, right) => left - right)
@@ -1794,6 +1826,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const next: TagEnrichment = {
         ...enrichment,
         pendingAids,
+        completedItemCount: enrichment.totalItemCount - pendingAids.length,
         failedAids: [...new Set([...enrichment.failedAids, aid])].sort((left, right) => left - right),
         status: pendingAids.length ? 'running' : 'complete'
       }
@@ -2023,6 +2056,15 @@ export class OldFavoriteWorkspaceCoordinator {
     marker: FavoriteRepositoryWorkspace,
     updatedAt: string
   ): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired> {
+    if (marker.status === 'draft') {
+      this.workspaces.delete(marker.accountMid)
+      return {
+        recovery: 'rebuild-required',
+        preserveCompletedLocalResults: true,
+        accountMid: marker.accountMid,
+        workspaceId: marker.id
+      }
+    }
     const recovered = await this.options.workspaceStore.recover(marker.accountMid, marker.id)
     if ('recovery' in recovered || recovered.baselineRevision !== marker.baselineRevision) {
       this.workspaces.delete(marker.accountMid)
@@ -2075,7 +2117,7 @@ export class OldFavoriteWorkspaceCoordinator {
         this.scannedAids.delete(marker.accountMid)
         this.scannedTagStates.delete(marker.accountMid)
       }
-      if (recovered.tagEnrichment) this.tagEnrichments.set(marker.accountMid, clone(recovered.tagEnrichment))
+      if (recovered.tagEnrichment) this.tagEnrichments.set(marker.accountMid, normalizeTagEnrichment(recovered.tagEnrichment))
       this.remember(scanning, '', [], new Set())
       return clone(scanning)
     }
@@ -2167,7 +2209,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
     this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
-      this.tagEnrichments.set(marker.accountMid, clone(recovered.tagEnrichment))
+      this.tagEnrichments.set(marker.accountMid, normalizeTagEnrichment(recovered.tagEnrichment))
       if (recovered.tagUpdates.length) {
         const updates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
         this.currentSegmentItems.set(marker.accountMid, recovered.loadedSegmentItems.map((item) =>
@@ -2527,7 +2569,7 @@ export class OldFavoriteWorkspaceCoordinator {
           return {
             status: enrichment.status,
             totalItemCount: enrichment.totalItemCount,
-            completedItemCount: enrichment.totalItemCount - enrichment.pendingAids.length,
+            completedItemCount: enrichment.completedItemCount,
             pendingItemCount: enrichment.pendingAids.length,
             failedItemCount: enrichment.failedAids.length
             ,reusedTagItemCount: enrichment.reusedTagItemCount

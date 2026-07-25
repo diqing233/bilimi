@@ -6,6 +6,11 @@ type ScanItem = {
   aid: number
   title?: string
   author?: string
+  tags?: string[]
+  tagEvidence?: 'confirmed'
+  category?: string
+  cover?: string
+  addedAt?: number
   sourceFolderIds: string[]
   [key: string]: unknown
 }
@@ -18,6 +23,7 @@ type ScanPage = {
   /** Stored with new pages so a resumed scan can stop at a known terminal page. */
   hasMore?: boolean
 }
+type StoredScanPage = Omit<ScanPage, 'runId'>
 type ManagedMembers = { runId: string; members: Record<string, number[]> }
 type SourceFolder = {
   id: string
@@ -31,7 +37,7 @@ type History = { kind: string; aids: number[] }
 type Recommendation = {
   id: string
   displayName: string
-  kind: 'author' | 'series'
+  kind: 'author' | 'series' | 'tag'
   sourceName: string
   keywords: string[]
   count: number
@@ -230,12 +236,12 @@ export class OldFavoriteWorkspaceStore {
     })
   }
 
-  async readScanPages(accountMid: string, workspaceId: string): Promise<ScanPage[]> {
+  async readScanPages(accountMid: string, workspaceId: string): Promise<StoredScanPage[]> {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)
     const manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
-    const pages: ScanPage[] = []
+    const pages: StoredScanPage[] = []
     for (const page of manifest.scanPages ?? []) {
       const content = await readFile(join(directory, page.file), 'utf8')
       if (checksum(content) !== page.checksum) throw new Error('Old favorite workspace scan page is corrupt.')
@@ -396,6 +402,9 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.tagEnrichment) {
           tagEnrichment = {
             ...clone(overlay.tagEnrichment),
+            completedItemCount: Number.isSafeInteger(overlay.tagEnrichment.completedItemCount)
+              ? overlay.tagEnrichment.completedItemCount
+              : Math.max(0, overlay.tagEnrichment.totalItemCount - overlay.tagEnrichment.pendingAids.length),
             failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])],
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
             taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])]
