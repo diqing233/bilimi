@@ -7,6 +7,13 @@ import {
   type PanelMotionTuning
 } from './panelMotionTuning'
 
+const EASING_OPTIONS = [
+  ['cubic-bezier(0.2, 0.72, 0.24, 1)', '平滑展开'],
+  ['cubic-bezier(0.16, 1, 0.3, 1)', '快速展开'],
+  ['cubic-bezier(0.4, 0, 1, 1)', '平稳收起'],
+  ['cubic-bezier(0.7, 0, 1, 0.5)', '利落收起']
+] as const
+
 const CONTROLS: Array<{ key: keyof PanelMotionTuning; label: string }> = [
   { key: 'sidebarExpandMs', label: '右侧助手栏展开' },
   { key: 'sidebarCollapseMs', label: '右侧助手栏折叠时长' },
@@ -15,6 +22,14 @@ const CONTROLS: Array<{ key: keyof PanelMotionTuning; label: string }> = [
   { key: 'drawerCollapseMs', label: '小咪收藏库收起时长' },
   { key: 'drawerCloseMs', label: '小咪收藏库关闭' },
   { key: 'drawerCollapseOffsetPx', label: '小咪收藏库收起位移' }
+]
+
+const EASING_CONTROLS: Array<{ key: keyof PanelMotionTuning; label: string }> = [
+  { key: 'sidebarExpandEasing', label: '右侧助手栏展开缓动' },
+  { key: 'sidebarCollapseEasing', label: '右侧助手栏折叠缓动' },
+  { key: 'drawerExpandEasing', label: '小咪收藏库展开缓动' },
+  { key: 'drawerCollapseEasing', label: '小咪收藏库收起缓动' },
+  { key: 'drawerCloseEasing', label: '小咪收藏库关闭缓动' }
 ]
 
 export function PanelMotionTuningSettings() {
@@ -42,6 +57,14 @@ export function PanelMotionTuningSettings() {
             />
           </label>
           })}
+        {EASING_CONTROLS.map(({ key, label }) => (
+          <label key={key}>
+            <span>{label}</span>
+            <select value={tuning[key]} aria-label={label} onChange={(event) => updatePanelMotionTuning({ [key]: event.currentTarget.value as PanelMotionTuning[typeof key] })}>
+              {EASING_OPTIONS.map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
+            </select>
+          </label>
+        ))}
         <button type="button" className="panel-motion-tuning__reset" onClick={resetPanelMotionTuning}>恢复默认</button>
       </div>
     </fieldset>

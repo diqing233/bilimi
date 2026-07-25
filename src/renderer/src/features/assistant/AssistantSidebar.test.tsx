@@ -277,7 +277,7 @@ describe('AssistantSidebar', () => {
     ).map((section) => section.dataset.settingsSection)
     expect(settingsSections.slice(-4)).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
     expect(
-      Array.from(screen.getByRole('combobox').querySelectorAll('option')).slice(-4).map((option) => option.value)
+      Array.from(screen.getByRole('combobox', { name: '设置项' }).querySelectorAll('option')).slice(-4).map((option) => option.value)
     ).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
   })
 

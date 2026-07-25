@@ -2719,6 +2719,7 @@ export function FloatingAssistantApp({
               <label className="assistant-settings__jump">
                 <span>设置项</span>
                 <select
+                  aria-label="设置项"
                   value={settingsJumpValue}
                   onChange={(event) =>
                     jumpToSettingsSection(event.currentTarget.value as SettingsJumpValue)

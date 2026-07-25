@@ -222,8 +222,8 @@ describe('renderer porcelain theme styles', () => {
   it('slides the closed favorite library drawer out before releasing its layout', () => {
     expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
     expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(14px); opacity: 0;')
-    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-close-duration, 170ms) cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
-    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-collapse-duration, 170ms) cubic-bezier(0.4, 0, 1, 1), opacity 140ms cubic-bezier(0.4, 0, 1, 1);')
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-close-duration, 170ms) var(--panel-drawer-close-easing, cubic-bezier(0.4, 0, 1, 1)), opacity 140ms var(--panel-drawer-close-easing, cubic-bezier(0.4, 0, 1, 1));')
+    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-collapse-duration, 170ms) var(--panel-drawer-collapse-easing, cubic-bezier(0.4, 0, 1, 1)), opacity 140ms var(--panel-drawer-collapse-easing, cubic-bezier(0.4, 0, 1, 1));')
     expect(normalizedStyles).not.toContain(
       '.favorite-library-drawer[data-collapsing="true"] {\n  transform: translateY(14px);\n  opacity: 0;\n  pointer-events: none;'
     )
@@ -282,6 +282,11 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-pet {\n  width: 24px;\n  height: 24px;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
+  })
+
+  it('keeps the sidebar visible while it translates out before releasing browser space', () => {
+    expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { transform: translateX(calc(100% + var(--panel-sidebar-collapse-offset, 14px))); transition: transform var(--panel-sidebar-collapse-duration, 220ms) var(--panel-sidebar-collapse-easing, cubic-bezier(0.4, 0, 1, 1)), border-color 160ms ease;')
+    expect(normalizedStyles).not.toContain('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { opacity: 0;')
   })
 
   it('keeps the four assistant tabs equally spaced with horizontal labels', () => {

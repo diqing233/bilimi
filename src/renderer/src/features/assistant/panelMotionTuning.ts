@@ -1,20 +1,36 @@
 export type PanelMotionTuning = {
   sidebarExpandMs: number
   sidebarCollapseMs: number
+  sidebarExpandEasing: PanelMotionEasing
+  sidebarCollapseEasing: PanelMotionEasing
   sidebarCollapseOffsetPx: number
   drawerExpandMs: number
   drawerCollapseMs: number
   drawerCloseMs: number
+  drawerExpandEasing: PanelMotionEasing
+  drawerCollapseEasing: PanelMotionEasing
+  drawerCloseEasing: PanelMotionEasing
   drawerCollapseOffsetPx: number
 }
 
+export type PanelMotionEasing =
+  | 'cubic-bezier(0.2, 0.72, 0.24, 1)'
+  | 'cubic-bezier(0.16, 1, 0.3, 1)'
+  | 'cubic-bezier(0.4, 0, 1, 1)'
+  | 'cubic-bezier(0.7, 0, 1, 0.5)'
+
 export const DEFAULT_PANEL_MOTION_TUNING: PanelMotionTuning = {
   sidebarExpandMs: 220,
-  sidebarCollapseMs: 220,
+  sidebarCollapseMs: 180,
+  sidebarExpandEasing: 'cubic-bezier(0.2, 0.72, 0.24, 1)',
+  sidebarCollapseEasing: 'cubic-bezier(0.16, 1, 0.3, 1)',
   sidebarCollapseOffsetPx: 14,
   drawerExpandMs: 220,
   drawerCollapseMs: 170,
   drawerCloseMs: 170,
+  drawerExpandEasing: 'cubic-bezier(0.2, 0.72, 0.24, 1)',
+  drawerCollapseEasing: 'cubic-bezier(0.4, 0, 1, 1)',
+  drawerCloseEasing: 'cubic-bezier(0.4, 0, 1, 1)',
   drawerCollapseOffsetPx: 14
 }
 
@@ -40,6 +56,11 @@ export function applyPanelMotionTuning(tuning: PanelMotionTuning) {
   style.setProperty('--panel-drawer-expand-duration', `${tuning.drawerExpandMs}ms`)
   style.setProperty('--panel-drawer-collapse-duration', `${tuning.drawerCollapseMs}ms`)
   style.setProperty('--panel-drawer-close-duration', `${tuning.drawerCloseMs}ms`)
+  style.setProperty('--panel-sidebar-expand-easing', tuning.sidebarExpandEasing)
+  style.setProperty('--panel-sidebar-collapse-easing', tuning.sidebarCollapseEasing)
+  style.setProperty('--panel-drawer-expand-easing', tuning.drawerExpandEasing)
+  style.setProperty('--panel-drawer-collapse-easing', tuning.drawerCollapseEasing)
+  style.setProperty('--panel-drawer-close-easing', tuning.drawerCloseEasing)
   style.setProperty('--panel-sidebar-collapse-offset', `${tuning.sidebarCollapseOffsetPx}px`)
   style.setProperty('--panel-drawer-collapse-offset', `${tuning.drawerCollapseOffsetPx}px`)
   window.localStorage.setItem(PANEL_MOTION_TUNING_STORAGE_KEY, JSON.stringify(tuning))
