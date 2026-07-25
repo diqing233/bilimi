@@ -20,12 +20,13 @@ type Props = {
   onApplyImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void> | void
   onPreviewCleanup?: (level: CleanupLevel, uid?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }> | void
   onApplyCleanup?: (level: CleanupLevel, uid?: string) => Promise<void> | void
+  onDataChanged?: () => Promise<void> | void
 }
 
 const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 const accountLabel = (account: Account) => account.nickname?.trim() ? `${account.nickname.trim()}（${account.uid}）` : account.uid
 
-export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, calculateUsage, onFullClear, onOpenPath, onExport, onImport, onApplyImport, onPreviewCleanup, onApplyCleanup }: Props) {
+export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, calculateUsage, onFullClear, onOpenPath, onExport, onImport, onApplyImport, onPreviewCleanup, onApplyCleanup, onDataChanged }: Props) {
   const [usage, setUsage] = useState<Usage | null>(null)
   const [busy, setBusy] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
@@ -37,8 +38,9 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const [cleanupPreview, setCleanupPreview] = useState('')
   const [approvedCleanup, setApprovedCleanup] = useState<{ level: Extract<CleanupLevel, 'cache' | 'current-account-temp'>; uid?: string } | null>(null)
   const [pendingDeletion, setPendingDeletion] = useState<'current' | 'all' | null>(null)
-  const currentAccount = accounts.find((account) => account.uid === currentAccountUid)
-  const currentAccountLabel = currentAccount ? accountLabel(currentAccount) : currentAccountUid ? `当前账号（${currentAccountUid}）` : '当前账号'
+  const cleanupAccount = accounts.find((account) => account.uid === currentAccountUid) ?? (accounts.length === 1 ? accounts[0] : undefined)
+  const cleanupAccountUid = cleanupAccount?.uid
+  const cleanupAccountLabel = cleanupAccount ? accountLabel(cleanupAccount) : currentAccountUid ? `当前账号（${currentAccountUid}）` : '当前账号'
   const recalculate = async () => { setBusy(true); try { setUsage(await calculateUsage()) } finally { setBusy(false) } }
   const toggleUid = (uid: string) => setSelectedUids((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid])
   const applyImport = async (mode: 'merge' | 'overwrite') => {
@@ -57,7 +59,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const applyCleanup = async () => {
     if (!approvedCleanup) return
     setCleanupPreview('正在清理')
-    try { await onApplyCleanup?.(approvedCleanup.level, approvedCleanup.uid); setApprovedCleanup(null); setCleanupPreview('清理完成') } catch { setCleanupPreview('清理失败') }
+    try { await onApplyCleanup?.(approvedCleanup.level, approvedCleanup.uid); await onDataChanged?.(); setApprovedCleanup(null); setCleanupPreview('清理完成') } catch (error) { setCleanupPreview(`清理失败：${error instanceof Error ? error.message : String(error)}`) }
   }
   const exportData = async () => {
     setMigrationProgress('正在导出')
@@ -70,8 +72,15 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const confirmDeletion = async () => {
     const deletion = pendingDeletion
     setPendingDeletion(null)
-    if (deletion === 'current' && currentAccountUid) await onApplyCleanup?.('current-account-data', currentAccountUid)
-    if (deletion === 'all') await onFullClear()
+    setCleanupPreview('正在清理')
+    try {
+      if (deletion === 'current' && cleanupAccountUid) await onApplyCleanup?.('current-account-data', cleanupAccountUid)
+      if (deletion === 'all') await onFullClear()
+      await onDataChanged?.()
+      setCleanupPreview('清理完成')
+    } catch (error) {
+      setCleanupPreview(`清理失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   return <section className="local-data-settings" aria-label="本地数据与迁移">
@@ -92,8 +101,8 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     </section>
     <section className="local-data-settings__section" aria-labelledby="data-management-heading">
       <h2 id="data-management-heading"><button type="button" className="local-data-settings__section-toggle" onClick={() => setCleanupOpen((open) => !open)} aria-expanded={cleanupOpen}>管理数据</button></h2><p>清理不会修改 B 站服务器数据。先查看预估范围，确认后才会执行。</p>
-      {cleanupOpen ? <><div className="local-data-settings__actions"><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!currentAccountUid} onClick={() => void previewCleanup('current-account-temp', currentAccountUid)}>预览清理当前账号临时数据</button></div>{cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={() => void applyCleanup()}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : '清理当前账号临时数据'}</button>}<div className="local-data-settings__danger-actions">{currentAccountUid ? <button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('current')}>删除当前账号本地数据</button> : null}<button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('all')}>清除全部用户数据</button></div></> : null}
-      {pendingDeletion ? <div className="local-data-settings__confirmation" role="alertdialog" aria-label={pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}><p>{pendingDeletion === 'current' ? `将删除 ${currentAccountLabel} 在本机保存的收藏库、设置、归档、转写和操作记录，不会删除 B 站服务器数据。` : '将删除这台电脑中所有 bilimi 账号数据、登录状态和缓存，不会删除 B 站服务器数据。'}</p><div className="local-data-settings__actions"><button type="button" onClick={() => setPendingDeletion(null)}>取消</button><button type="button" className="local-data-settings__danger-button" onClick={() => void confirmDeletion()}>{pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}</button></div></div> : null}
+      {cleanupOpen ? <><div className="local-data-settings__actions"><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!cleanupAccountUid} onClick={() => void previewCleanup('current-account-temp', cleanupAccountUid)}>预览清理当前账号临时数据</button></div>{cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={() => void applyCleanup()}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : '清理当前账号临时数据'}</button>}<div className="local-data-settings__danger-actions">{cleanupAccountUid ? <button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('current')}>预览删除当前账号本地数据</button> : null}<button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('all')}>清除全部用户数据</button></div></> : null}
+      {pendingDeletion ? <div className="local-data-settings__confirmation" role="alertdialog" aria-label={pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}><p>{pendingDeletion === 'current' ? `将删除 ${cleanupAccountLabel} 在本机保存的收藏库、设置、归档、转写和操作记录，不会删除 B 站服务器数据。` : '将删除这台电脑中所有 bilimi 账号数据、登录状态和缓存，不会删除 B 站服务器数据。'}</p><div className="local-data-settings__actions"><button type="button" onClick={() => setPendingDeletion(null)}>取消</button><button type="button" className="local-data-settings__danger-button" onClick={() => void confirmDeletion()}>{pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}</button></div></div> : null}
     </section>
   </section>
 }

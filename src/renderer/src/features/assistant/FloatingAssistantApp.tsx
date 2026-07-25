@@ -904,12 +904,17 @@ export function FloatingAssistantApp({
     useState<VideoNoteArchiveSelection>(() => loadSessionVideoNoteArchiveSelection())
   const isSidebarMode = mode === 'sidebar'
 
-  useEffect(() => {
-    if (activeView !== 'settings' || !window.bilimiDesktop?.getLocalDataInfo) return
-    void window.bilimiDesktop.getLocalDataInfo()
+  const refreshLocalDataInfo = useCallback(async () => {
+    if (!window.bilimiDesktop?.getLocalDataInfo) return
+    await window.bilimiDesktop.getLocalDataInfo()
       .then((info) => { setLocalDataInfo(info); setLocalDataUnavailable(false) })
       .catch(() => setLocalDataUnavailable(true))
-  }, [activeView])
+  }, [])
+
+  useEffect(() => {
+    if (activeView !== 'settings') return
+    void refreshLocalDataInfo()
+  }, [activeView, refreshLocalDataInfo])
 
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
     const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
@@ -3549,6 +3554,7 @@ export function FloatingAssistantApp({
                 onApplyImport={async (previewToken, mode) => { await window.bilimiDesktop.applyLocalDataImport?.(previewToken, mode) }}
                 onPreviewCleanup={async (level, uid) => window.bilimiDesktop.previewLocalDataCleanup?.(level, uid) ?? { affectsBilibiliServerData: false, releasableBytes: 0 }}
                 onApplyCleanup={async (level, uid) => { await window.bilimiDesktop.applyLocalDataCleanup?.(level, uid) }}
+                onDataChanged={refreshLocalDataInfo}
                 onFullClear={async () => {
                   await window.bilimiDesktop.previewLocalDataCleanup?.('all-user-data', undefined, '全部清除')
                   await window.bilimiDesktop.applyLocalDataCleanup?.('all-user-data', undefined, '全部清除')

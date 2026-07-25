@@ -34,7 +34,7 @@ describe('LocalDataSettings', () => {
 
   it('shows account groups, async recalculation feedback, migration actions, and confirmed local deletion', async () => {
     const calculateUsage = vi.fn().mockResolvedValue({ totalBytes: 1024, calculatedAt: '2026-07-24T00:00:00.000Z' })
-    const onFullClear = vi.fn()
+    const onFullClear = vi.fn().mockResolvedValue(undefined)
     const onExport = vi.fn().mockResolvedValue(undefined)
     const onImport = vi.fn().mockResolvedValue({ accounts: [{ uid: '100', action: 'merge' }] })
     render(<LocalDataSettings userDataPath="C:\\Users\\test\\AppData\\bilimi" accounts={[{ uid: '100', nickname: 'Display only', retained: true }]} calculateUsage={calculateUsage} onFullClear={onFullClear} onExport={onExport} onImport={onImport} />)
@@ -52,7 +52,7 @@ describe('LocalDataSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除全部用户数据' }))
     expect(screen.getByRole('alertdialog', { name: '确认清除全部本地数据' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认清除全部本地数据' }))
-    expect(onFullClear).toHaveBeenCalledOnce()
+    await waitFor(() => expect(onFullClear).toHaveBeenCalledOnce())
   })
 
   it('retains an import preview token until the user explicitly chooses merge or overwrite', async () => {
@@ -88,11 +88,25 @@ describe('LocalDataSettings', () => {
     render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} />)
 
     fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除当前账号本地数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '预览删除当前账号本地数据' }))
     expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('小咪（100）')
     fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
 
     await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '100'))
+  })
+
+  it('uses the only saved account for cleanup while signed out and refreshes after cleanup', async () => {
+    const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
+    const onDataChanged = vi.fn().mockResolvedValue(undefined)
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} onDataChanged={onDataChanged} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '预览删除当前账号本地数据' }))
+    expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('小咪（100）')
+    fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
+
+    await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '100'))
+    expect(onDataChanged).toHaveBeenCalledOnce()
   })
 
   it('requires a cleanup preview before applying the selected local cleanup', async () => {
