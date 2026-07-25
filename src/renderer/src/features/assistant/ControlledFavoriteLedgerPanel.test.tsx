@@ -157,7 +157,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     const checklist = screen.getByRole('region', { name: '收藏夹' }).querySelector('.favorite-ledger-panel__checklist')
     expect(checklist).not.toBeNull()
-    expect(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹说明' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' })).toHaveAttribute('aria-expanded', 'false')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
@@ -165,8 +165,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(checklist as HTMLElement).getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
 
-    fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹说明' }))
-    expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' }))
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
     expect(within(checklist as HTMLElement).getByText(/自定义你的 bilimi 收藏夹/)).toBeInTheDocument()
   })
 
@@ -187,21 +187,21 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
 
     const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
-    const help = within(guide).getByRole('button', { name: '展开整理旧藏说明' })
+    const help = within(guide).getByRole('button', { name: '展开整理旧藏' })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
-    expect(within(guide).getByRole('button', { name: '收起整理旧藏说明' })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(guide).getByRole('button', { name: '收起整理旧藏' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('keeps the legacy folder help arrow in the checklist title row', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    const help = screen.getByRole('button', { name: /收藏夹说明/ })
+    const help = screen.getByRole('button', { name: /^(展开|收起)收藏夹$/ })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
-    expect(help).toHaveTextContent('收藏夹说明')
+    expect(help).toHaveTextContent('收藏夹')
   })
 
   it('remembers each explanation row after it is expanded', async () => {
@@ -210,13 +210,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹说明' }))
-    expect(screen.getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
+    expect(screen.getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
     first.unmount()
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    expect(screen.getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
 
     window.localStorage.clear()
   })

@@ -115,10 +115,10 @@ export function OldFavoriteGuide({
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
           <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title"
-            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理旧藏说明`}
+            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理旧藏`}
             aria-expanded={guideHintExpanded}
             title="扫描旧藏，确认后整理到 bilimi 收藏夹里。"
-            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理旧藏说明</h3><Chevron /></button>
+            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理旧藏</h3><Chevron /></button>
       </div>
       {guideHintExpanded ? <p className="favorite-ledger-panel__guide-hint">扫描旧藏后，按扫描概览、推荐收藏夹、归档预览和确认执行依次完成本轮整理。</p> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
