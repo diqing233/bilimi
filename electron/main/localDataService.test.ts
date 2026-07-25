@@ -55,7 +55,7 @@ describe('LocalDataService', () => {
   it('requires the persistence transaction to preserve both accounts and shared settings on failure', async () => {
     const { root, accounts, persistence, service } = await makeService()
     const archive = join(root, 'portable.json')
-    await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
     const preview = await service.previewImport(archive)
     const beforeAccounts = structuredClone(accounts)
     const beforeShared = await persistence.readSharedSettings()
@@ -69,7 +69,7 @@ describe('LocalDataService', () => {
   it('compensates a partially applied import with the complete account and shared-settings snapshot', async () => {
     const { root, accounts, persistence, service } = await makeService()
     const archive = join(root, 'portable.json')
-    await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
     const preview = await service.previewImport(archive)
     const beforeAccounts = structuredClone(accounts)
     const beforeShared = await persistence.readSharedSettings()
@@ -172,8 +172,9 @@ describe('LocalDataService', () => {
   it('exports atomically, rejects secret data, previews imports before mutation, and rolls back injected failures', async () => {
     const { root, accounts, service } = await makeService()
     const archive = join(root, 'portable.json')
-    await service.exportArchive({ uids: ['100'], includeSharedSettings: true, outputPath: archive })
+    await service.exportArchive({ uids: ['100'], outputPath: archive })
     const content = await readFile(archive, 'utf8')
+    expect(content).not.toContain('sharedSettings')
     expect(content).not.toContain('deepseekApiKey')
     expect(content).not.toContain('cookies')
     expect(content).not.toContain('encryptionKey')
@@ -182,6 +183,20 @@ describe('LocalDataService', () => {
     expect(preview.accounts).toEqual([{ uid: '100', action: 'merge' }])
     await expect(service.applyImport(preview, { mode: 'merge', injectFailureAfterStage: true })).rejects.toThrow('injected')
     expect((accounts['100'].repository as { videos: unknown[] }).videos).toHaveLength(1)
+  })
+
+  it('does not restore shared settings from a legacy migration archive', async () => {
+    const { root, persistence, service } = await makeService()
+    const archive = join(root, 'legacy-shared-settings.json')
+    await writeFile(archive, JSON.stringify(createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-25T00:00:00.000Z',
+      accounts: { '100': portableAccount('imported') }, sharedSettings: { theme: 'dark' }
+    })))
+    const beforeShared = await persistence.readSharedSettings()
+
+    await service.applyImport(await service.previewImport(archive), { mode: 'overwrite' })
+
+    expect(await persistence.readSharedSettings()).toEqual(beforeShared)
   })
 
   it('removes the staged import file when staging fails before publication', async () => {

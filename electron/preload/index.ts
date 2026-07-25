@@ -180,7 +180,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
   }>,
   openLocalDataPath: () => ipcRenderer.invoke('local-data:open-path') as Promise<void>,
-  exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) =>
+  exportLocalData: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[] }) =>
     ipcRenderer.invoke('local-data:export', input) as Promise<unknown>,
   previewLocalDataImport: () => ipcRenderer.invoke('local-data:preview-import') as Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>,
   applyLocalDataImport: (previewToken: string, mode: 'merge' | 'overwrite') =>

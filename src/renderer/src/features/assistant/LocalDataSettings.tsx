@@ -15,7 +15,7 @@ type Props = {
   calculateUsage: () => Promise<Usage>
   onFullClear: () => Promise<void> | void
   onOpenPath?: () => void
-  onExport?: (scope: 'current' | 'selected' | 'all', includeSharedSettings: boolean, uids?: string[]) => Promise<void> | void
+  onExport?: (scope: 'current' | 'selected' | 'all', uids?: string[]) => Promise<void> | void
   onImport?: () => Promise<ImportPreview | void>
   onApplyImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void> | void
   onPreviewCleanup?: (level: CleanupLevel, uid?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }> | void
@@ -28,17 +28,17 @@ const accountLabel = (account: Account) => account.nickname?.trim() ? `${account
 export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, calculateUsage, onFullClear, onOpenPath, onExport, onImport, onApplyImport, onPreviewCleanup, onApplyCleanup }: Props) {
   const [usage, setUsage] = useState<Usage | null>(null)
   const [busy, setBusy] = useState(false)
-  const [confirmation, setConfirmation] = useState('')
-  const [dangerOpen, setDangerOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [exportScope, setExportScope] = useState<'current' | 'selected' | 'all'>('current')
   const [selectedUids, setSelectedUids] = useState<string[]>([])
-  const [includeSharedSettings, setIncludeSharedSettings] = useState(false)
   const [migrationProgress, setMigrationProgress] = useState('')
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [cleanupPreview, setCleanupPreview] = useState('')
-  const [approvedCleanup, setApprovedCleanup] = useState<{ level: CleanupLevel; uid?: string } | null>(null)
+  const [approvedCleanup, setApprovedCleanup] = useState<{ level: Extract<CleanupLevel, 'cache' | 'current-account-temp'>; uid?: string } | null>(null)
+  const [pendingDeletion, setPendingDeletion] = useState<'current' | 'all' | null>(null)
+  const currentAccount = accounts.find((account) => account.uid === currentAccountUid)
+  const currentAccountLabel = currentAccount ? accountLabel(currentAccount) : currentAccountUid ? `当前账号（${currentAccountUid}）` : '当前账号'
   const recalculate = async () => { setBusy(true); try { setUsage(await calculateUsage()) } finally { setBusy(false) } }
   const toggleUid = (uid: string) => setSelectedUids((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid])
   const applyImport = async (mode: 'merge' | 'overwrite') => {
@@ -46,7 +46,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     setMigrationProgress('正在导入')
     try { await onApplyImport?.(importPreview.token, mode); setImportPreview(null); setMigrationProgress('导入完成') } catch { setMigrationProgress('导入失败') }
   }
-  const previewCleanup = async (level: CleanupLevel, uid?: string) => {
+  const previewCleanup = async (level: Extract<CleanupLevel, 'cache' | 'current-account-temp'>, uid?: string) => {
     setCleanupPreview('正在生成清理预览'); setApprovedCleanup(null)
     try {
       const preview = await onPreviewCleanup?.(level, uid)
@@ -61,11 +61,17 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   }
   const exportData = async () => {
     setMigrationProgress('正在导出')
-    try { if (exportScope === 'selected') await onExport?.(exportScope, includeSharedSettings, selectedUids); else await onExport?.(exportScope, includeSharedSettings); setMigrationProgress('导出完成') } catch { setMigrationProgress('导出失败') }
+    try { if (exportScope === 'selected') await onExport?.(exportScope, selectedUids); else await onExport?.(exportScope); setMigrationProgress('导出完成') } catch { setMigrationProgress('导出失败') }
   }
   const previewImport = async () => {
     setMigrationProgress('正在读取导入预览')
     try { const preview = await onImport?.(); setImportPreview(preview ? { token: preview.token, accounts: preview.accounts ?? [] } : null); setMigrationProgress('导入预览已就绪') } catch { setMigrationProgress('导入预览失败') }
+  }
+  const confirmDeletion = async () => {
+    const deletion = pendingDeletion
+    setPendingDeletion(null)
+    if (deletion === 'current' && currentAccountUid) await onApplyCleanup?.('current-account-data', currentAccountUid)
+    if (deletion === 'all') await onFullClear()
   }
 
   return <section className="local-data-settings" aria-label="本地数据与迁移">
@@ -78,16 +84,16 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
       {accountsOpen ? <ul className="local-data-settings__account-list">{accounts.map((account) => <li key={account.uid}>{accountLabel(account)}</li>)}</ul> : null}
     </section>
     <section className="local-data-settings__section" aria-labelledby="migration-heading">
-      <h2 id="migration-heading">数据迁移</h2><p>导出本机数据以备份或迁移；导入前会先生成预览，不会立即覆盖现有数据。</p>
-      <div className="local-data-settings__segmented" role="radiogroup" aria-label="导出范围"><label><input type="radio" name="migration-scope" checked={exportScope === 'current'} onChange={() => setExportScope('current')} />当前账户</label><label><input type="radio" name="migration-scope" checked={exportScope === 'selected'} onChange={() => setExportScope('selected')} />所选账户</label><label><input type="radio" name="migration-scope" checked={exportScope === 'all'} onChange={() => setExportScope('all')} />全部账户</label></div>
-      {exportScope === 'selected' ? <div className="local-data-settings__selected-accounts" aria-label="选择导出账户">{accounts.map((account) => <label key={account.uid}><input type="checkbox" aria-label={`导出账户 ${accountLabel(account)}`} checked={selectedUids.includes(account.uid)} onChange={() => toggleUid(account.uid)} />{accountLabel(account)}</label>)}</div> : null}
-      <label className="local-data-settings__check"><input type="checkbox" checked={includeSharedSettings} onChange={(event) => setIncludeSharedSettings(event.target.checked)} />包含非敏感共享设置</label>
+      <h2 id="migration-heading">数据迁移</h2><p>导出本机账号数据以备份或迁移；导入前会先生成预览，不会立即覆盖现有数据。</p>
+      <div className="local-data-settings__segmented" role="radiogroup" aria-label="导出范围"><label><input type="radio" name="migration-scope" checked={exportScope === 'current'} onChange={() => setExportScope('current')} />当前账号</label><label><input type="radio" name="migration-scope" checked={exportScope === 'selected'} onChange={() => setExportScope('selected')} />所选账号</label><label><input type="radio" name="migration-scope" checked={exportScope === 'all'} onChange={() => setExportScope('all')} />全部账号</label></div>
+      {exportScope === 'selected' ? <div className="local-data-settings__selected-accounts" aria-label="选择导出账号">{accounts.map((account) => <label key={account.uid}><input type="checkbox" aria-label={`导出账号 ${accountLabel(account)}`} checked={selectedUids.includes(account.uid)} onChange={() => toggleUid(account.uid)} />{accountLabel(account)}</label>)}</div> : null}
       <div className="local-data-settings__actions"><button type="button" className="local-data-settings__primary" disabled={exportScope === 'selected' && !selectedUids.length} onClick={() => void exportData()}>导出数据</button><button type="button" onClick={() => void previewImport()}>导入并预览</button></div>
-      {migrationProgress && <p role="status">{migrationProgress}</p>}{importPreview && <div className="local-data-settings__preview"><ul aria-label="导入预览">{importPreview.accounts.map((item) => <li key={item.uid}>{item.uid}：{item.action}</li>)}</ul><p>先校验并暂存；请选择导入方式。</p><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('merge')}>按UID合并并保留较新记录</button><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('overwrite')}>覆盖所选账户的本地数据</button></div>}
+      {migrationProgress && <p role="status">{migrationProgress}</p>}{importPreview && <div className="local-data-settings__preview"><ul aria-label="导入预览">{importPreview.accounts.map((item) => <li key={item.uid}>{item.uid}：{item.action}</li>)}</ul><p>先校验并暂存；请选择导入方式。</p><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('merge')}>按 UID 合并并保留较新记录</button><button type="button" disabled={!importPreview.token} onClick={() => void applyImport('overwrite')}>覆盖所选账号的本地数据</button></div>}
     </section>
     <section className="local-data-settings__section" aria-labelledby="data-management-heading">
       <h2 id="data-management-heading"><button type="button" className="local-data-settings__section-toggle" onClick={() => setCleanupOpen((open) => !open)} aria-expanded={cleanupOpen}>管理数据</button></h2><p>清理不会修改 B 站服务器数据。先查看预估范围，确认后才会执行。</p>
-      {cleanupOpen ? <><div className="local-data-settings__actions"><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!currentAccountUid} onClick={() => void previewCleanup('current-account-temp', currentAccountUid)}>预览清理当前账户临时数据</button>{currentAccountUid ? <button type="button" onClick={() => void previewCleanup('current-account-data', currentAccountUid)}>预览删除当前账户本地数据</button> : null}</div>{cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={() => void applyCleanup()}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : approvedCleanup.level === 'current-account-temp' ? '清理当前账户临时数据' : '删除当前账户本地数据'}</button>}<button type="button" className="local-data-settings__danger-button" onClick={() => setDangerOpen(true)}>清除全部用户数据</button>{dangerOpen && <div className="local-data-settings__confirmation" role="alertdialog" aria-label="确认清除全部数据"><p>不会改动 B 站服务器收藏；未知远程结果的对账记录也会丢失。</p><label>输入 全部清除 以确认<input aria-label="输入 全部清除 以确认" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button type="button" disabled={confirmation !== '全部清除'} onClick={() => void onFullClear()}>清除并退出</button></div>}</> : null}
+      {cleanupOpen ? <><div className="local-data-settings__actions"><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!currentAccountUid} onClick={() => void previewCleanup('current-account-temp', currentAccountUid)}>预览清理当前账号临时数据</button></div>{cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={() => void applyCleanup()}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : '清理当前账号临时数据'}</button>}<div className="local-data-settings__danger-actions">{currentAccountUid ? <button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('current')}>删除当前账号本地数据</button> : null}<button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('all')}>清除全部用户数据</button></div></> : null}
+      {pendingDeletion ? <div className="local-data-settings__confirmation" role="alertdialog" aria-label={pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}><p>{pendingDeletion === 'current' ? `将删除 ${currentAccountLabel} 在本机保存的收藏库、设置、归档、转写和操作记录，不会删除 B 站服务器数据。` : '将删除这台电脑中所有 bilimi 账号数据、登录状态和缓存，不会删除 B 站服务器数据。'}</p><div className="local-data-settings__actions"><button type="button" onClick={() => setPendingDeletion(null)}>取消</button><button type="button" className="local-data-settings__danger-button" onClick={() => void confirmDeletion()}>{pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}</button></div></div> : null}
     </section>
   </section>
 }

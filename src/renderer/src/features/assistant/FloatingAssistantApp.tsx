@@ -3541,7 +3541,7 @@ export function FloatingAssistantApp({
                   categories: { accountPersistent: { bytes: 0 }, deviceShared: { bytes: 0 }, cache: { bytes: 0 }, temporaryAudio: { bytes: 0 }, logs: { bytes: 0 } }
                 }}
                 onOpenPath={() => { void window.bilimiDesktop.openLocalDataPath?.() }}
-                onExport={async (scope, includeSharedSettings, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, includeSharedSettings, ...(uids?.length ? { uids } : {}) }) }}
+                onExport={async (scope, uids) => { await window.bilimiDesktop.exportLocalData?.({ scope, ...(uids?.length ? { uids } : {}) }) }}
                 onImport={async () => {
                   const preview = await window.bilimiDesktop.previewLocalDataImport?.()
                   return preview ? { token: preview.token, accounts: preview.accounts ?? [] } : undefined

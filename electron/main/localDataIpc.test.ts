@@ -18,7 +18,7 @@ describe('registerLocalDataIpc', () => {
     registerLocalDataIpc({ ipcMain, service: service as never, isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), getCurrentAccount: vi.fn().mockResolvedValue({ mid: '100', nickname: '小咪' }), userDataPath: 'C:/data', chooseExportPath: vi.fn().mockResolvedValue('C:/export.json'), chooseImportPath: vi.fn().mockResolvedValue('C:/import.json'), openUserDataPath: vi.fn() })
 
     await expect(ipcMain.invoke('local-data:get-info')).resolves.toEqual({ path: 'C:/data', accounts: [{ uid: '100', nickname: '小咪', retained: true }] })
-    await ipcMain.invoke('local-data:export', { scope: 'current', includeSharedSettings: false })
+    await ipcMain.invoke('local-data:export', { scope: 'current' })
     expect(service.exportArchive).toHaveBeenCalledWith(expect.objectContaining({ uids: ['100'], outputPath: 'C:/export.json' }))
     await ipcMain.invoke('local-data:apply-import', 'preview-1', 'merge')
     expect(service.applyImport).toHaveBeenCalledWith({ token: 'preview-1' }, { mode: 'merge' })

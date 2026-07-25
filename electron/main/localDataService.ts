@@ -28,7 +28,6 @@ export type LocalDataImportPreview = {
   accounts: Array<{ uid: string; action: 'merge' | 'add' }>
 }
 
-const SHARED_SETTINGS_ALLOWLIST = new Set(['theme', 'language', 'windowBounds', 'closeBehavior', 'favoritesFolderName'])
 const EXCLUDED_NAMES = /^(Cookies|Network|Cache|Code Cache|GPUCache|logs?|temp|temporary|audio-temp|lock|proxy)$/iu
 
 export class LocalDataService {
@@ -62,14 +61,12 @@ export class LocalDataService {
   }
 
   async listAccounts() { return (await this.options.persistence.listAccountUids()).map((uid) => ({ uid, retained: true })) }
-  async exportArchive(input: { uids: string[]; includeSharedSettings?: boolean; outputPath: string }) {
+  async exportArchive(input: { uids: string[]; outputPath: string }) {
     const selectedUids = [...new Set(input.uids.map(normalizeUid))]
     const known = new Set((await this.options.persistence.listAccountUids()).map(normalizeUid))
     if (selectedUids.some((uid) => !known.has(uid))) throw new Error('Local data export account is unknown.')
     const accounts = Object.fromEntries(await Promise.all(selectedUids.map(async (uid) => [uid, await this.options.persistence.readAccount(uid)] as const)))
-    const rawShared = await this.options.persistence.readSharedSettings()
-    const sharedSettings = input.includeSharedSettings ? Object.fromEntries(Object.entries(rawShared).filter(([key]) => SHARED_SETTINGS_ALLOWLIST.has(key))) : undefined
-    const archive = createMigrationArchiveV1({ appVersion: this.options.appVersion, generatedAt: new Date().toISOString(), accounts, ...(sharedSettings ? { sharedSettings } : {}) })
+    const archive = createMigrationArchiveV1({ appVersion: this.options.appVersion, generatedAt: new Date().toISOString(), accounts })
     await this.atomicWrite(input.outputPath, JSON.stringify(archive))
     return archive
   }
@@ -117,8 +114,8 @@ export class LocalDataService {
       await this.atomicWrite(stagingPath, JSON.stringify(staged))
       if (input.injectFailureAfterStage) throw new Error('injected import failure')
       if (!this.options.persistence.writePortableState) throw new Error('Local data persistence does not support atomic import.')
-      const sharedSettings = archive.sharedSettings ? { ...beforeSharedSettings, ...archive.sharedSettings } : beforeSharedSettings
-      await this.options.persistence.writePortableState({ accounts: staged, sharedSettings }, { mode: input.mode, selectedUids: archive.selectedUids })
+      // Migration archives contain only account data; device settings stay on this computer.
+      await this.options.persistence.writePortableState({ accounts: staged, sharedSettings: beforeSharedSettings }, { mode: input.mode, selectedUids: archive.selectedUids })
       await rm(stagingPath, { force: true })
     } catch (error) {
       // Persistence implementations can fail after one durable backend has

@@ -2451,8 +2451,8 @@ body[data-floating-window="true"],
 @media (max-width: 420px) { .local-data-settings__usage { grid-template-columns: minmax(0, 1fr); } }
 .local-data-settings__accounts, .local-data-settings__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .local-data-settings__accounts span { margin-right: auto; color: var(--porcelain-muted); font-size: 13px; }
-.local-data-settings__segmented { display: flex; flex-wrap: wrap; gap: 0; align-self: start; border: 1px solid rgba(31, 99, 181, .25); border-radius: 6px; overflow: hidden; }
-.local-data-settings__segmented label { padding: 5px 8px; border-right: 1px solid rgba(31, 99, 181, .18); background: rgba(226, 238, 249, .42); font-size: 12px; }
+.local-data-settings__segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; gap: 0; align-self: start; border: 1px solid rgba(31, 99, 181, .25); border-radius: 6px; overflow: hidden; }
+.local-data-settings__segmented label { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; padding: 5px 8px; border-right: 1px solid rgba(31, 99, 181, .18); background: rgba(226, 238, 249, .42); font-size: 12px; white-space: nowrap; }
 .local-data-settings__segmented label:last-child { border-right: 0; }
 .local-data-settings__selected-accounts { display: flex; flex-wrap: wrap; gap: 7px; }
 .local-data-settings__check { font-size: 13px; }
@@ -2460,6 +2460,8 @@ body[data-floating-window="true"],
 .local-data-settings__section-toggle { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 .local-data-settings__danger-button { color: #9d2e2e !important; }
 .local-data-settings__danger-button { border-color: rgba(183, 62, 48, .38) !important; }
+.local-data-settings__danger-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding-top: 10px; border-top: 1px solid rgba(183, 62, 48, .38); }
+.local-data-settings__danger-actions .local-data-settings__danger-button { width: 100%; }
 .local-data-settings__confirmation { border-left-color: rgba(183, 62, 48, .48); background: #fff9f7; }
 .local-data-settings__confirmation label { display: grid; gap: 5px; font-size: 12px; }
 .local-data-settings__confirmation input { min-height: 28px; box-sizing: border-box; border: 1px solid rgba(183, 62, 48, .35); border-radius: 5px; }

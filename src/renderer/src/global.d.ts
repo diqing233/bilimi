@@ -135,7 +135,7 @@ type BilimiDesktopApi = {
     categories: Record<'accountPersistent' | 'deviceShared' | 'cache' | 'temporaryAudio' | 'logs', { bytes: number }>
   }>
   openLocalDataPath?: () => Promise<void>
-  exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[]; includeSharedSettings: boolean }) => Promise<unknown>
+  exportLocalData?: (input: { scope: 'current' | 'selected' | 'all'; uids?: string[] }) => Promise<unknown>
   previewLocalDataImport?: () => Promise<{ token?: string; accounts?: Array<{ uid: string; action: string }>; cancelled?: boolean }>
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>

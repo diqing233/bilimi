@@ -250,6 +250,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('@media (max-width: 420px) { .local-data-settings__usage { grid-template-columns: minmax(0, 1fr); }')
   })
 
+  it('keeps the migration scope equally sized and separates destructive data actions', () => {
+    expectStyleSnippet('.local-data-settings__segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%;')
+    expectStyleSnippet('.local-data-settings__danger-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding-top: 10px; border-top: 1px solid rgba(183, 62, 48, .38); }')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
