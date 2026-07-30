@@ -1,11 +1,13 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { VideoNoteArchiveEntry } from '@shared/types'
 import {
   AssistantSidebar,
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
   clampAssistantSidebarWidthPx
 } from './AssistantSidebar'
 import { createInitialAssistantPreferences } from '../state/assistantState'
+import type { AssistantSnapshot } from './assistantRuntimeTypes'
 
 function setWindowInnerWidth(width: number) {
   Object.defineProperty(window, 'innerWidth', {
@@ -14,14 +16,58 @@ function setWindowInnerWidth(width: number) {
   })
 }
 
+function assistantSnapshot(accountMid: string): AssistantSnapshot {
+  return {
+    accountMid,
+    preferences: createInitialAssistantPreferences(),
+    favoriteLedgerStatus: null,
+    videoContentContext: { title: 'Current video' },
+    videoTitle: 'Current video',
+    activeTabUrl: ''
+  }
+}
+
+function archivedVideo(accountMid: string, title: string): VideoNoteArchiveEntry {
+  return {
+    id: `archive-${accountMid}`,
+    source: { accountMid, title, author: 'Author', bvid: `BV${accountMid}`, url: `https://www.bilibili.com/video/BV${accountMid}`, tags: [] },
+    versions: [{
+      id: `version-${accountMid}`,
+      plainTranscript: 'Transcript',
+      summaryText: '',
+      createdAt: '2026-07-27T00:00:00.000Z',
+      note: {
+        id: `note-${accountMid}`,
+        source: { accountMid, title, author: 'Author', bvid: `BV${accountMid}`, url: `https://www.bilibili.com/video/BV${accountMid}`, tags: [] },
+        transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z'
+      }
+    }],
+    createdAt: '2026-07-27T00:00:00.000Z',
+    updatedAt: '2026-07-27T00:00:00.000Z'
+  }
+}
+
 function installDesktopApi({
-  preferences = createInitialAssistantPreferences()
-}: { preferences?: ReturnType<typeof createInitialAssistantPreferences> } = {}) {
+  preferences = createInitialAssistantPreferences(),
+  snapshot = assistantSnapshot('100'),
+  archives = [],
+  patchPreferences
+}: {
+  preferences?: ReturnType<typeof createInitialAssistantPreferences>
+  snapshot?: AssistantSnapshot
+  archives?: VideoNoteArchiveEntry[]
+  patchPreferences?: (patch: Partial<ReturnType<typeof createInitialAssistantPreferences>>) => Promise<ReturnType<typeof createInitialAssistantPreferences>>
+} = {}) {
   let openAssistantCallback: (() => void) | undefined
   let preferencesChangedCallback:
     | ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void)
     | undefined
   let storedPreferences = preferences
+  let currentSnapshot = snapshot
+  let currentArchives = archives
+  const loadVideoNoteArchives = vi.fn(async () => currentArchives)
+  const loadTranscriptionModels = vi.fn(async () => [])
+  let accountChangedCallback: (() => void) | undefined
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
   > = []
@@ -43,15 +89,15 @@ function installDesktopApi({
         preferencesChangedCallback = callback
         return vi.fn()
       }),
-      requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
+      requestAssistantSnapshot: vi.fn(async () => currentSnapshot),
       savePreferences: vi.fn(async (nextPreferences) => {
         storedPreferences = createInitialAssistantPreferences(nextPreferences)
         return storedPreferences
       }),
-      patchPreferences: vi.fn(async (patch) => {
+      patchPreferences: vi.fn(patchPreferences ?? (async (patch) => {
         storedPreferences = createInitialAssistantPreferences({ ...storedPreferences, ...patch })
         return storedPreferences
-      }),
+      })),
       setAssistantPetHint: vi.fn(),
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         activeItemId: 'bvid:BV1note',
@@ -68,7 +114,13 @@ function installDesktopApi({
         ]
       }),
       onVideoAudioTranscriptionQueueChanged: vi.fn(() => vi.fn()),
-      loadVideoNoteArchives: vi.fn().mockResolvedValue([]),
+      loadVideoNoteArchives,
+      loadTranscriptionModels,
+      loadCurrentTranscriptionModelInstallProgress: vi.fn(async () => undefined),
+      onBilibiliAccountChanged: vi.fn((callback) => {
+        accountChangedCallback = callback
+        return vi.fn()
+      }),
       getLocalDataInfo: vi.fn().mockResolvedValue({ path: 'C:\\test\\bilimi', accounts: [] })
     }
   })
@@ -91,9 +143,18 @@ function installDesktopApi({
         callback(payload)
       }
     },
+    changeAccount: (nextSnapshot: AssistantSnapshot, nextArchives: VideoNoteArchiveEntry[]) => {
+      currentSnapshot = nextSnapshot
+      currentArchives = nextArchives
+      accountChangedCallback?.()
+    },
     setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>,
+    loadVideoNoteArchives,
+    loadTranscriptionModels,
+    loadPreferences: window.bilimiDesktop.loadPreferences as ReturnType<typeof vi.fn>,
     patchPreferences: window.bilimiDesktop.patchPreferences as ReturnType<typeof vi.fn>,
-    savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>
+    savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>,
+    getLocalDataInfo: window.bilimiDesktop.getLocalDataInfo as ReturnType<typeof vi.fn>
   }
 }
 
@@ -183,6 +244,74 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('switches to Settings without rereading unchanged transcription models', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+    await waitFor(() => expect(api.loadTranscriptionModels).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
+    expect(api.loadTranscriptionModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('lazily mounts settings, retains it across workspaces, and reuses local data info', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+
+    expect(document.querySelector('section[aria-label="助手设置"]')).not.toBeInTheDocument()
+    expect(api.getLocalDataInfo).not.toHaveBeenCalled()
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const settings = await screen.findByLabelText('助手设置')
+    await waitFor(() => expect(api.getLocalDataInfo).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
+
+    expect(document.querySelector('section[aria-label="助手设置"]')).toBe(settings)
+    expect(settings).toHaveAttribute('hidden')
+
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+
+    expect(document.querySelector('section[aria-label="助手设置"]')).toBe(settings)
+    expect(settings).toHaveAttribute('hidden')
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+
+    expect(screen.getByLabelText('助手设置')).toBe(settings)
+    expect(api.getLocalDataInfo).toHaveBeenCalledTimes(1)
+  })
+
+  it('invalidates local data info for an account change and reloads it on the next Settings visit', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await waitFor(() => expect(api.getLocalDataInfo).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
+    act(() => api.changeAccount(assistantSnapshot('200'), []))
+
+    await waitFor(() => expect(api.loadVideoNoteArchives).toHaveBeenCalledTimes(2))
+    expect(api.getLocalDataInfo).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+
+    await waitFor(() => expect(api.getLocalDataInfo).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes local data info immediately when the visible account changes', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await waitFor(() => expect(api.getLocalDataInfo).toHaveBeenCalledTimes(1))
+
+    act(() => api.changeAccount(assistantSnapshot('200'), []))
+
+    await waitFor(() => expect(api.getLocalDataInfo).toHaveBeenCalledTimes(2))
+  })
+
   it('reverses a pending sidebar close without releasing its workspace width', async () => {
     installDesktopApi()
     render(<AssistantSidebar />)
@@ -266,7 +395,7 @@ describe('AssistantSidebar', () => {
     })
 
     expect(await screen.findByRole('tab', { name: '掌库' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('整理旧藏向导')).toBeInTheDocument()
+    expect(await screen.findByLabelText('整理收藏向导')).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'false')
   })
 
@@ -300,7 +429,7 @@ describe('AssistantSidebar', () => {
 
   it('shows only automatic system proxy and direct Bilibili connection choices', async () => {
     installDesktopApi({
-      preferences: createInitialAssistantPreferences({ bilibiliConnectionMode: 'system' })
+      preferences: createInitialAssistantPreferences({ bilibiliConnectionMode: 'auto' })
     })
 
     render(<AssistantSidebar />)
@@ -372,18 +501,19 @@ describe('AssistantSidebar', () => {
 
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '320px' })
 
-    await act(async () => {
-      fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 })
-    })
+    fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 })
 
-    expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 320 })
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 320 }, expect.any(Object))
+    )
     expect(api.savePreferences).not.toHaveBeenCalled()
 
     fireEvent.doubleClick(resizeHandle)
 
     expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
     await waitFor(() =>
-      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: null })
+      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: null }, expect.any(Object))
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })
@@ -457,6 +587,135 @@ describe('AssistantSidebar', () => {
     expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
   })
 
+  it('reports one host resize session around sidebar pointer dragging', async () => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    const onResizeActiveChange = vi.fn()
+    render(<AssistantSidebar onResizeActiveChange={onResizeActiveChange} />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 71 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 71 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 60, pointerId: 71 })
+    expect(onResizeActiveChange).toHaveBeenCalledTimes(1)
+    expect(onResizeActiveChange).toHaveBeenLastCalledWith(true)
+
+    fireEvent.pointerUp(window, { clientX: 60, pointerId: 71 })
+    expect(onResizeActiveChange).toHaveBeenCalledTimes(2)
+    expect(onResizeActiveChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it.each([
+    ['pointer capture is lost', (resizeHandle: HTMLElement) => fireEvent.lostPointerCapture(resizeHandle, { pointerId: 72 })],
+    ['the window loses focus', () => fireEvent.blur(window)]
+  ])('ends the host resize session when %s', async (_reason, endSession) => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    const onResizeActiveChange = vi.fn()
+    render(<AssistantSidebar onResizeActiveChange={onResizeActiveChange} />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 72 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 72 })
+    endSession(resizeHandle)
+
+    expect(onResizeActiveChange).toHaveBeenLastCalledWith(false)
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
+  })
+
+  it('ignores move and release events from a different pointer during resizing', async () => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    const onResizeActiveChange = vi.fn()
+    render(<AssistantSidebar onResizeActiveChange={onResizeActiveChange} />)
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 73 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 20, pointerId: 74 })
+    fireEvent.pointerUp(window, { clientX: 20, pointerId: 74 })
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
+    expect(onResizeActiveChange).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).toBeInTheDocument()
+
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 73 })
+    fireEvent.pointerUp(window, { clientX: 80, pointerId: 73 })
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '380px' })
+    expect(onResizeActiveChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('releases the resize shield before a pending width save completes without reloading preferences', async () => {
+    let finishSave: ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void) | undefined
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 }),
+      patchPreferences: () => new Promise((resolve) => { finishSave = resolve })
+    })
+    render(<AssistantSidebar />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+    api.loadPreferences.mockClear()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 8 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 8 })
+    fireEvent.pointerUp(window, { clientX: 80, pointerId: 8 })
+
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
+    expect(api.loadPreferences).not.toHaveBeenCalled()
+    finishSave?.(createInitialAssistantPreferences({ assistantSidebarWidthPx: 380 }))
+  })
+
+  it('coalesces rapid completed drags into one final narrow width save', async () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    render(<AssistantSidebar />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+    api.patchPreferences.mockClear()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 9 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 9 })
+    fireEvent.pointerUp(window, { clientX: 80, pointerId: 9 })
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 80, pointerId: 10 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 40, pointerId: 10 })
+    fireEvent.pointerUp(window, { clientX: 40, pointerId: 10 })
+
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(199) })
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(api.patchPreferences).toHaveBeenCalledTimes(1)
+    expect(api.patchPreferences).toHaveBeenCalledWith({ assistantSidebarWidthPx: 420 }, expect.any(Object))
+  })
+
+  it('allows a new resize immediately after pointer release before persistence starts', async () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    render(<AssistantSidebar />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+    api.patchPreferences.mockClear()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 11 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 11 })
+    fireEvent.pointerUp(window, { clientX: 80, pointerId: 11 })
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 80, pointerId: 12 })
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).toBeInTheDocument()
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+  })
+
   it('stops resizing when pointer moves after the left mouse button is released', async () => {
     installDesktopApi({
       preferences: createInitialAssistantPreferences({
@@ -486,7 +745,7 @@ describe('AssistantSidebar', () => {
     render(<AssistantSidebar />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
-    expect(await screen.findByRole('region', { name: '转写状态' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '视频札记' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
@@ -500,7 +759,103 @@ describe('AssistantSidebar', () => {
       'aria-selected',
       'true'
     )
-    expect(screen.getByRole('region', { name: '转写状态' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '视频札记' })).toBeInTheDocument()
+  })
+
+  it('removes a completed archive export and its folder access when the account changes', async () => {
+    const startVideoNoteArchiveBatch = vi.fn().mockResolvedValue({
+      batchId: 'batch-100', folderPath: 'C:\\exports\\bilimi文稿_2026-07-27_1200', succeededCount: 1, skippedCount: 0, failedCount: 0
+    })
+    const api = installDesktopApi({
+      snapshot: assistantSnapshot('100'),
+      archives: [archivedVideo('100', '旧账号档案')]
+    })
+    Object.assign(window.bilimiDesktop!, {
+      previewVideoNoteArchiveBatch: vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 }),
+      startVideoNoteArchiveBatch,
+      cancelVideoNoteArchiveBatch: vi.fn(),
+      openVideoNoteArchiveBatchFolder: vi.fn(),
+      onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    })
+
+    render(<AssistantSidebar />)
+    act(() => {
+      api.openWorkspace({ tab: 'notes', openNoteArchive: true, sidebar: true })
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /旧账号档案/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(screen.getByRole('button', { name: '导出' }))
+    const dialog = await screen.findByRole('dialog', { name: '导出文稿' })
+    fireEvent.click(screen.getByRole('button', { name: '开始导出' }))
+    expect(await screen.findByRole('button', { name: '打开文件夹' })).toBeInTheDocument()
+
+    act(() => {
+      api.changeAccount(assistantSnapshot('200'), [archivedVideo('200', '新账号档案')])
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '导出文稿' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '打开文件夹' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /旧账号档案/ })).not.toBeInTheDocument()
+    })
+    expect(await screen.findByRole('button', { name: /新账号档案/ })).toBeInTheDocument()
+  })
+
+  it('shows copy feedback in the global status and XiaoMi before restoring the previous status', async () => {
+    window.sessionStorage.clear()
+    const archive = archivedVideo('100', '复制反馈档案')
+    archive.versions[0].plainTranscript = '需要复制的文稿。'
+    const api = installDesktopApi({ archives: [archive] })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+
+    render(<AssistantSidebar />)
+    act(() => api.openWorkspace({ tab: 'notes', openNoteArchive: true, sidebar: true }))
+    await waitFor(() => expect(api.loadVideoNoteArchives).toHaveBeenCalled())
+    await act(async () => undefined)
+    const archiveButton = await screen.findByRole('button', { name: /复制反馈档案/ })
+    await act(async () => {
+      fireEvent.click(archiveButton)
+    })
+    await screen.findByRole('article', { name: '复制反馈档案' })
+    fireEvent.click(await screen.findByRole('tab', { name: /无时间线文稿/ }))
+    const previousStatus = screen.getByLabelText('全局提示').textContent
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制无时间线文稿' }))
+
+    await act(async () => undefined)
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('无时间线文稿已复制')
+    expect(api.setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'happy',
+      message: '主人，无时间线文稿已复制'
+    })
+    expect(screen.queryByText('无时间线文稿已复制', { selector: '.video-notes__feedback *' })).not.toBeInTheDocument()
+
+    act(() => vi.advanceTimersByTime(3_000))
+    expect(screen.getByLabelText('全局提示').textContent).toBe(previousStatus)
+  })
+
+  it('expands the one-line global message downward and closes it on an outside click', async () => {
+    installDesktopApi({
+      snapshot: {
+        ...assistantSnapshot('100'),
+        activeTabUrl: 'https://www.bilibili.com/video/BV1status'
+      }
+    })
+    render(<AssistantSidebar />)
+    const feedback = await screen.findByLabelText('全局提示')
+    const disclosure = screen.getByRole('button', { name: '展开全局提示' })
+
+    expect(feedback).toHaveAttribute('data-expanded', 'false')
+    fireEvent.click(disclosure)
+    expect(feedback).toHaveAttribute('data-expanded', 'true')
+    expect(screen.getByRole('button', { name: '收起全局提示' })).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.pointerDown(document.body)
+    expect(feedback).toHaveAttribute('data-expanded', 'false')
   })
 
   it('lets XiaoMi ask what to do when the sidebar expands', async () => {

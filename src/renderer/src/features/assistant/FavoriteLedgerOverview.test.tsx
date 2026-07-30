@@ -1,8 +1,61 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
 describe('FavoriteLedgerOverview', () => {
+  afterEach(() => vi.useRealTimers())
+  it('inserts a dragged ledger above the blue-line target', () => {
+    const save = vi.fn()
+    const data = new Map<string, string>()
+    const dataTransfer = {
+      effectAllowed: 'none',
+      dropEffect: 'none',
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? ''
+    }
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'first', displayName: 'bilimi·第一', keywords: [], enabled: true, priority: 10, isDefault: false },
+      { id: 'second', displayName: 'bilimi·第二', keywords: [], enabled: true, priority: 20, isDefault: false },
+      { id: 'third', displayName: 'bilimi·第三', keywords: [], enabled: true, priority: 30, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    const source = screen.getByTestId('favorite-ledger-chip-first')
+    const target = screen.getByTestId('favorite-ledger-chip-third')
+    fireEvent.dragStart(source.querySelector('button[draggable="true"]')!, { dataTransfer })
+    fireEvent.dragOver(target, { dataTransfer })
+    expect(target).toHaveAttribute('data-drop-position', 'before')
+    fireEvent.drop(target, { dataTransfer })
+
+    expect(save).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'second', priority: 10 }),
+      expect.objectContaining({ id: 'first', priority: 20 }),
+      expect.objectContaining({ id: 'third', priority: 30 })
+    ], { deleteDisabled: false })
+  })
+
+  it('never starts native row dragging from the enabled action button', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'first', displayName: 'bilimi·第一', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn()} />)
+
+    const action = screen.getByRole('button', { name: '移出同步 bilimi·第一' })
+    const name = screen.getByRole('button', { name: '第一' })
+    const row = screen.getByTestId('favorite-ledger-chip-first')
+    expect(row).not.toHaveAttribute('draggable', 'true')
+    expect(name).toHaveAttribute('draggable', 'true')
+    expect(action).toHaveAttribute('draggable', 'false')
+    expect(action.closest('[draggable="true"]')).toBeNull()
+
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() }
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer })
+    action.dispatchEvent(dragStart)
+
+    expect(dragStart.defaultPrevented).toBe(true)
+    expect(dataTransfer.setData).not.toHaveBeenCalled()
+    expect(row).not.toHaveAttribute('data-dragging')
+  })
+
   it('opens the requested ledger editor by its stable ID', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi路音乐', keywords: [], enabled: true, priority: 10, isDefault: false },
@@ -10,6 +63,20 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music-duplicate" />)
 
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveAttribute('data-ledger-id', 'music-duplicate')
+  })
+
+  it('opens a new ledger editor and centers it for an explicit creation request', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      render(<FavoriteLedgerOverview ledgers={[]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} createLedger createLedgerRequestVersion={1} />)
+
+      expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('新建收藏夹')
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' }))
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 
   it('brings a requested editor to the effective viewport top once after its layout settles', async () => {
@@ -67,7 +134,8 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
-  it('uses one bulk toggle that selects and clears the currently operable ledgers', () => {
+  it('uses one bulk toggle that selects and clears the currently operable ledgers', async () => {
+    vi.useFakeTimers()
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
@@ -77,6 +145,8 @@ describe('FavoriteLedgerOverview', () => {
     const toggle = screen.getByTestId('favorite-ledger-cancel-all')
     expect(toggle).toHaveTextContent('全选')
     fireEvent.click(toggle)
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(250) })
     expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'music', enabled: true }),
       expect.objectContaining({ id: 'custom-tech', enabled: true })
@@ -84,13 +154,192 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('取消全选')
     fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+    await act(async () => { vi.advanceTimersByTime(250) })
     expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'music', enabled: false }),
       expect.objectContaining({ id: 'custom-tech', enabled: false })
     ]), { deleteDisabled: false })
   })
 
-  it('keeps required defaults selected when cancel-all clears custom targets during a round', () => {
+  it('updates rapid enable clicks immediately and persists only the final state', async () => {
+    vi.useFakeTimers()
+    const saveEnabled = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+    const addName = `${String.fromCodePoint(0x52a0, 0x5165, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+    const removeName = `${String.fromCodePoint(0x79fb, 0x51fa, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+
+    fireEvent.click(screen.getByRole('button', { name: addName }))
+    expect(screen.getByRole('button', { name: removeName })).toHaveAttribute('data-enabled', 'true')
+    fireEvent.click(screen.getByRole('button', { name: removeName }))
+    expect(screen.getByRole('button', { name: addName })).toHaveAttribute('data-enabled', 'false')
+    fireEvent.click(screen.getByRole('button', { name: addName }))
+    expect(screen.getByRole('button', { name: removeName })).toHaveAttribute('data-enabled', 'true')
+    expect(saveEnabled).not.toHaveBeenCalled()
+
+    await act(async () => { vi.advanceTimersByTime(249) })
+    expect(saveEnabled).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+    expect(saveEnabled).toHaveBeenCalledWith('music', true)
+  })
+
+  it('persists 101 rapid clicks through one narrow final enabled mutation', async () => {
+    vi.useFakeTimers()
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+    const addName = '加入同步 bilimi·音乐'
+    const removeName = '移出同步 bilimi·音乐'
+
+    for (let index = 0; index < 101; index += 1) {
+      fireEvent.click(screen.getByRole('button', { name: index % 2 === 0 ? addName : removeName }))
+    }
+    expect(saveEnabled).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(250) })
+
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+    expect(saveEnabled).toHaveBeenCalledWith('music', true)
+  })
+
+  it('does not revisit 30k ledger records when one pending toggle flushes', async () => {
+    vi.useFakeTimers()
+    let reads = 0
+    const ledgers = Array.from({ length: 30_000 }, (_, index) => {
+      const ledger = { id: `ledger-${index}`, keywords: [], enabled: false, priority: index, isDefault: false } as Record<string, unknown>
+      Object.defineProperty(ledger, 'displayName', { enumerable: true, get: () => { reads += 1; return `bilimi·${index}` } })
+      return ledger
+    })
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    render(<FavoriteLedgerOverview
+      ledgers={ledgers as unknown as Parameters<typeof FavoriteLedgerOverview>[0]['ledgers']}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      onSaveLedgerEnabled={saveEnabled}
+    />)
+    const readsAfterRender = reads
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·0' }))
+    const readsAfterClick = reads
+    await act(async () => { vi.advanceTimersByTime(250) })
+
+    expect(readsAfterClick).toBe(readsAfterRender + 1)
+    expect(reads).toBe(readsAfterClick)
+    expect(saveEnabled).toHaveBeenCalledWith('ledger-0', true)
+  })
+
+  it('does not rerender a non-target row for one enable click', () => {
+    const firstTitleRead = vi.fn()
+    const secondTitleRead = vi.fn()
+    const first = { id: 'first', keywords: [], enabled: false, priority: 10, isDefault: false } as Record<string, unknown>
+    const second = { id: 'second', keywords: [], enabled: false, priority: 20, isDefault: false } as Record<string, unknown>
+    Object.defineProperty(first, 'displayName', { enumerable: true, get: () => { firstTitleRead(); return 'bilimi·第一' } })
+    Object.defineProperty(second, 'displayName', { enumerable: true, get: () => { secondTitleRead(); return 'bilimi·第二' } })
+    render(<FavoriteLedgerOverview
+      ledgers={[first, second] as unknown as Parameters<typeof FavoriteLedgerOverview>[0]['ledgers']}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      onSaveLedgerEnabled={vi.fn()}
+    />)
+    const firstReadsBefore = firstTitleRead.mock.calls.length
+    const secondReadsBefore = secondTitleRead.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·第一' }))
+
+    expect(firstTitleRead.mock.calls.length).toBeGreaterThan(firstReadsBefore)
+    expect(secondTitleRead.mock.calls.length).toBe(secondReadsBefore)
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·第一' })).toHaveAttribute('data-enabled', 'true')
+  })
+
+  it('flushes one pending final toggle when the overview unmounts', async () => {
+    vi.useFakeTimers()
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    const view = render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·音乐' }))
+    view.unmount()
+    await act(async () => { await Promise.resolve() })
+
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+    expect(saveEnabled).toHaveBeenCalledWith('music', true)
+    act(() => { vi.runAllTimers() })
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+  })
+
+  it('flushes only the last rapid toggle intent when unmounted before debounce', async () => {
+    vi.useFakeTimers()
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    const view = render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·音乐' }))
+    view.unmount()
+    await act(async () => { await Promise.resolve() })
+
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+    expect(saveEnabled).toHaveBeenCalledWith('music', true)
+  })
+
+  it('does not save when an overview without pending toggle changes unmounts', () => {
+    const save = vi.fn()
+    const view = render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    view.unmount()
+
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('keeps accepting clicks while a save is pending and never lets an old failure replace the newer state', async () => {
+    vi.useFakeTimers()
+    let rejectFirstSave: ((reason?: unknown) => void) | undefined
+    const saveEnabled = vi.fn()
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirstSave = reject }))
+      .mockResolvedValue(undefined)
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+    const addName = `${String.fromCodePoint(0x52a0, 0x5165, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+    const removeName = `${String.fromCodePoint(0x79fb, 0x51fa, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+
+    fireEvent.click(screen.getByRole('button', { name: addName }))
+    await act(async () => { vi.advanceTimersByTime(250) })
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: removeName }))
+    expect(screen.getByRole('button', { name: addName })).toHaveAttribute('data-enabled', 'false')
+    await act(async () => { vi.advanceTimersByTime(250) })
+    expect(saveEnabled).toHaveBeenCalledTimes(1)
+
+    await act(async () => { rejectFirstSave?.(new Error('old write failed')); await Promise.resolve() })
+    expect(screen.getByRole('button', { name: addName })).toHaveAttribute('data-enabled', 'false')
+    expect(saveEnabled).toHaveBeenCalledTimes(2)
+    expect(saveEnabled).toHaveBeenLastCalledWith('music', false)
+  })
+
+  it('rolls an enable toggle back when its background save fails', async () => {
+    const saveEnabled = vi.fn().mockRejectedValue(new Error('write failed'))
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: false, priority: 10, isDefault: true }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+    const actionName = `${String.fromCodePoint(0x52a0, 0x5165, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+
+    fireEvent.click(screen.getByRole('button', { name: actionName }))
+    expect(screen.getByRole('button', { name: `${String.fromCodePoint(0x79fb, 0x51fa, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50` })).toHaveAttribute('data-enabled', 'true')
+
+    await waitFor(() => expect(screen.getByRole('button', { name: actionName })).toHaveAttribute('data-enabled', 'false'))
+  })
+
+  it('keeps required defaults selected when cancel-all clears custom targets during a round', async () => {
+    vi.useFakeTimers()
     const save = vi.fn()
     render(<FavoriteLedgerOverview
       organizationActive
@@ -104,6 +353,7 @@ describe('FavoriteLedgerOverview', () => {
     />)
 
     fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+    await act(async () => { vi.advanceTimersByTime(250) })
     expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'knowledge', enabled: true }),
       expect.objectContaining({ id: 'inbox', enabled: true }),
@@ -137,6 +387,56 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.getByRole('button', { name: '影视飓风' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '（待同步）影视飓风' })).not.toBeInTheDocument()
+  })
+
+  it('explains how a recovered remote workspace draft becomes an active rule', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn()
+    const saveEnabled = vi.fn()
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'custom-genshin', displayName: '原神', keywords: [], enabled: false, priority: 10, isDefault: false, syncState: 'local-draft', bilibiliFolderId: '42' }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={save}
+      onSaveLedgerEnabled={saveEnabled}
+    />)
+
+    expect(screen.getByText(/识别到一个可启用的 bilimi 工作夹/)).toBeInTheDocument()
+    expect(screen.getByText(/更换设备.*本地数据迁移/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（未保存）原神' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '加入同步 原神' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）原神' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '原神 攻略' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(save).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'custom-genshin', enabled: false, bilibiliFolderId: '42', keywords: ['原神', '攻略'] })
+    ], { deleteDisabled: false })
+    expect(save.mock.calls.at(-1)?.[0][0]).not.toHaveProperty('syncState')
+    expect(screen.getByRole('button', { name: '原神' })).toBeInTheDocument()
+    save.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 原神' }))
+    expect(saveEnabled).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(250) })
+    expect(saveEnabled).toHaveBeenLastCalledWith('custom-genshin', true)
+  })
+
+  it('restores the last saved rule when an explicit local save fails', async () => {
+    let rejectSave!: (reason?: unknown) => void
+    const save = vi.fn(() => new Promise((_resolve, reject) => { rejectSave = reject }))
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: ['old'], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={save}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'new' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await act(async () => { rejectSave(new Error('local write failed')); await Promise.resolve() })
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    expect(screen.getByRole('textbox', { name: '关键词' })).toHaveValue('old')
   })
 
   it('keeps an edited ledger marked as unsaved after selecting another ledger', () => {
@@ -191,19 +491,19 @@ describe('FavoriteLedgerOverview', () => {
 
     const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: vi.fn(() => 'first') }
     const fourthChip = screen.getByTestId('favorite-ledger-chip-fourth')
-    fireEvent.dragStart(screen.getByTestId('favorite-ledger-chip-first'), { dataTransfer: transfer })
+    fireEvent.dragStart(screen.getByRole('button', { name: 'First' }), { dataTransfer: transfer })
     fireEvent.dragOver(fourthChip, { dataTransfer: transfer, clientY: 36 })
     expect(fourthChip).toHaveAttribute('data-drop-position', 'before')
     fireEvent.drop(fourthChip, { dataTransfer: transfer })
     expect(save).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'second', priority: 10 }),
       expect.objectContaining({ id: 'third', priority: 20 }),
-      expect.objectContaining({ id: 'fourth', priority: 30 }),
-      expect.objectContaining({ id: 'first', priority: 40 })
+      expect.objectContaining({ id: 'first', priority: 30 }),
+      expect.objectContaining({ id: 'fourth', priority: 40 })
     ], { deleteDisabled: false })
     expect(Array.from(screen.getByRole('region', { name: '收藏夹' })
       .querySelectorAll('.favorite-ledger-panel__chip-item > button:first-child'))
-      .map((button) => button.textContent)).toEqual(['Second', 'Third', 'Fourth', 'First'])
+      .map((button) => button.textContent)).toEqual(['Second', 'Third', 'First', 'Fourth'])
     expect(fourthChip).not.toHaveAttribute('data-drop-position')
     fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-first'))
     expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')
@@ -233,7 +533,8 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync).not.toHaveBeenCalled()
   })
 
-  it('uses the restored cancel-all action to clear the current selection', () => {
+  it('uses the restored cancel-all action to clear the current selection', async () => {
+    vi.useFakeTimers()
     const save = vi.fn()
     render(<FavoriteLedgerOverview
       ledgers={[
@@ -245,6 +546,7 @@ describe('FavoriteLedgerOverview', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
+    await act(async () => { vi.advanceTimersByTime(250) })
     expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'music', enabled: false }),
       expect.objectContaining({ id: 'reading', enabled: false })

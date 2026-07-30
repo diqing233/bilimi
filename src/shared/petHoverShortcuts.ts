@@ -86,8 +86,8 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
   {
     id: 'organize-old-favorites',
     label: '整',
-    title: '整理旧藏',
-    description: '打开掌库，开始整理旧藏',
+    title: '整理收藏',
+    description: '打开掌库，开始整理收藏',
     intent: 'workspace'
   }
 ]

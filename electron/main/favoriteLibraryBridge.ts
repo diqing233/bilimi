@@ -84,7 +84,7 @@ function archiveForAid(
   return { archive, version }
 }
 
-function archiveNavigationForVideo(
+export function archiveNavigationForVideo(
   archives: readonly VideoNoteArchiveEntry[],
   requestedAccountMid: string,
   requestedAid: number,
@@ -115,7 +115,7 @@ export function registerFavoriteLibraryBridgeIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   getSnapshot: (accountMid: string) => Promise<Pick<AccountFavoriteRepositorySnapshot, 'folders' | 'physicalShards'>>
   loadArchives: () => VideoNoteArchiveEntry[]
-  updateArchiveVersion: (archiveId: string, versionId: string, note: VideoNote) => unknown
+  updateArchiveVersion: (archiveId: string, versionId: string, note: VideoNote) => unknown | Promise<unknown>
   openMainUrl: (url: string) => void
 }) {
   const assertLibrary = (event: IpcEvent) => {
@@ -161,7 +161,7 @@ export function registerFavoriteLibraryBridgeIpc(options: {
     assertLibrary(event)
     const currentAccount = await assertCurrentAccount(requestedAccountMid)
     const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid), requestedCid)
-    options.updateArchiveVersion(archive.id, version.id, {
+    await options.updateArchiveVersion(archive.id, version.id, {
       ...version.note,
       starred: !version.note.starred,
       updatedAt: new Date().toISOString()
@@ -178,7 +178,7 @@ export function registerFavoriteLibraryBridgeIpc(options: {
     const currentAccount = await assertCurrentAccount(requestedAccountMid)
     if (typeof memo !== 'string' || memo.length > 10_000) throw new Error('备注内容无效。')
     const { archive, version } = archiveForAid(options.loadArchives(), currentAccount, aid(requestedAid), requestedCid)
-    options.updateArchiveVersion(archive.id, version.id, {
+    await options.updateArchiveVersion(archive.id, version.id, {
       ...version.note,
       userMemo: memo.trim(),
       updatedAt: new Date().toISOString()

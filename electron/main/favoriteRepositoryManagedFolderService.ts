@@ -34,7 +34,15 @@ export type ManagedFolderDeletionPreview = {
   executionToken: string
 }
 
-type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'failed' | 'result-unknown' | 'succeeded' }
+export type ManagedFolderGroupDeletionPreview = {
+  accountMid: string
+  folderCount: number
+  affectedVideoCount: number
+  remoteAllowed: boolean
+  folders: Array<ManagedFolderDeletionPreview & { remoteAllowed: boolean }>
+}
+
+type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'failed' | 'result-unknown' | 'reconciliation-required' | 'succeeded' }
 
 class ManagedFolderRemotePreconditionError extends Error {}
 
@@ -60,10 +68,14 @@ export class FavoriteRepositoryManagedFolderService {
 
   async preview(accountMid: string, logicalFolderId: string): Promise<ManagedFolderDeletionPreview> {
     const normalizedAccount = account(accountMid)
+    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
+    return this.previewFromSnapshot(normalizedAccount, logicalFolderId, snapshot)
+  }
+
+  private previewFromSnapshot(normalizedAccount: string, logicalFolderId: string, snapshot: Awaited<ReturnType<Repository['getSnapshot']>>): ManagedFolderDeletionPreview {
     const folderId = logicalFolderId.trim()
     if (folderId === 'local:inbox') throw new Error('The unmatched safety folder cannot be deleted.')
     if (!/^bilimi-logical:\S+$/.test(folderId)) throw new Error('Managed folder is invalid.')
-    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     const logical = snapshot.folders.find((folder) => folder.id === folderId && folder.kind === 'bilimi-logical')
     if (!logical?.logicalLedgerId) throw new Error('Managed folder was not found.')
     const members = new Set(snapshot.memberships[folderId] ?? [])
@@ -92,6 +104,25 @@ export class FavoriteRepositoryManagedFolderService {
     return { ...operation }
   }
 
+  /** Group deletion is local by default; remote deletion is available only for wholly unambiguous scans. */
+  async previewAll(accountMid: string): Promise<ManagedFolderGroupDeletionPreview> {
+    const normalizedAccount = account(accountMid)
+    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
+    const folderIds = snapshot.folders
+      .filter((folder) => folder.kind === 'bilimi-logical' && folder.id !== 'local:inbox')
+      .map((folder) => folder.id)
+      .sort()
+    const folders = folderIds.map((folderId) => {
+      const preview = this.previewFromSnapshot(normalizedAccount, folderId, snapshot)
+      const logicalLedgerId = this.logicalLedgerId(folderId)
+      const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+      const remoteAllowed = Boolean(preview.remoteBinding) && shards.length > 0 && shards.every((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      return { ...preview, remoteAllowed }
+    })
+    const affectedVideoCount = new Set(folderIds.flatMap((folderId) => snapshot.memberships[folderId] ?? [])).size
+    return { accountMid: normalizedAccount, folderCount: folders.length, affectedVideoCount, remoteAllowed: folders.length > 0 && folders.every((folder) => folder.remoteAllowed), folders }
+  }
+
   async deleteLocal(accountMid: string, executionToken: string) {
     const operation = this.operationFor(accountMid, executionToken)
     const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
@@ -107,8 +138,8 @@ export class FavoriteRepositoryManagedFolderService {
     return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }
 
-  confirm(executionToken: string) {
-    const operation = [...this.operations.values()].find((item) => item.executionToken === executionToken && item.status === 'previewed')
+  confirm(accountMid: string, executionToken: string) {
+    const operation = [...this.operations.values()].find((item) => item.executionToken === executionToken && item.accountMid === account(accountMid) && item.status === 'previewed')
     if (!operation) throw new Error('Managed folder deletion preview is unavailable.')
     if (!operation.remoteBinding) throw new Error('Managed folder has no unambiguous remote binding.')
     operation.confirmationToken = randomUUID()

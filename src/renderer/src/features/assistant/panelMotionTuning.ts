@@ -40,6 +40,7 @@ export function applyPanelMotionTuning(tuning: PanelMotionTuning) {
   style.setProperty('--panel-sidebar-expand-duration', `${tuning.sidebarExpandMs}ms`)
   style.setProperty('--panel-sidebar-collapse-duration', `${tuning.sidebarCollapseMs}ms`)
   style.setProperty('--panel-drawer-expand-duration', `${tuning.drawerExpandMs}ms`)
+  style.setProperty('--favorite-library-drawer-maximize-duration', `${tuning.drawerExpandMs}ms`)
   style.setProperty('--panel-drawer-collapse-duration', `${tuning.drawerCollapseMs}ms`)
   style.setProperty('--panel-drawer-close-duration', `${tuning.drawerCloseMs}ms`)
   window.localStorage.setItem(PANEL_MOTION_TUNING_STORAGE_KEY, JSON.stringify(tuning))

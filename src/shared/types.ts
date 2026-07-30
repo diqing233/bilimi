@@ -51,7 +51,7 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
-  /** Local draft rules classify old favorites but are never created remotely until explicit sync. */
+  /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */
   syncState?: FavoriteLedgerSyncState
   isDefault: boolean
 }
@@ -63,6 +63,63 @@ export type FavoriteLedgerSaveOptions = {
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'choose' | 'random'
 export type VideoAudioTranscriptionThreadLimit = 'unlimited' | 1 | 2 | 4
+export type TranscriptionModelId =
+  | 'sensevoice-small'
+  | 'whisper-small'
+  | 'faster-whisper-large-v3-turbo'
+  | 'faster-whisper-large-v3'
+export type TranscriptionRuntimeFamily = 'sensevoice' | 'whisper.cpp' | 'faster-whisper'
+export type TranscriptionGpuProbe =
+  | { modelId?: TranscriptionModelId; status: 'available'; device: 'cuda'; computeType: 'float16' | 'int8_float16'; gpuName: string; driverVersion: string; memoryMiB: number; freeMemoryMiB: number }
+  | { modelId?: TranscriptionModelId; status: 'cpu-only'; reason: string }
+export type TranscriptionModelInstallation = {
+  id: TranscriptionModelId
+  bundled: boolean
+  installed: boolean
+  /** A verified download may continue from this machine-wide partial directory. */
+  resumable?: boolean
+  /** This installation lives under bilimi's managed model directory and can be removed safely. */
+  removable?: boolean
+  /** The legacy bundled Whisper file can be copied into managed storage for unified management. */
+  migratable?: boolean
+  /** Shown only for a managed installation before the user confirms removal. */
+  managedPath?: string
+  /** Installed artifacts are selectable only after their runtime health check passes. */
+  available: boolean
+  version: string
+  runtimeFamily: TranscriptionRuntimeFamily
+  /** Optional for renderer/preload compatibility with an older main process. */
+  hardware?: string
+  license: string
+  attribution: string
+  downloadBytes: number
+  installedBytes: number
+}
+export type TranscriptionModelInstallStage =
+  | 'connecting'
+  | 'downloading'
+  | 'downloading-part'
+  | 'verifying'
+  | 'merging-parts'
+  | 'installing'
+  | 'validating-runtime'
+  | 'available'
+  | 'failed'
+  | 'canceled'
+export type TranscriptionModelInstallProgress = {
+  id: TranscriptionModelId
+  stage: TranscriptionModelInstallStage
+  receivedBytes?: number
+  totalBytes?: number
+  percentage?: number
+  bytesPerSecond?: number
+  etaSeconds?: number
+  source?: 'ModelScope' | 'GitHub Release' | 'Official source'
+  sourceFallbackMessage?: string
+  partIndex?: number
+  partCount?: number
+  error?: string
+}
 export type MainWindowCloseBehavior = 'minimize-to-tray' | 'exit-launcher'
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
@@ -185,6 +242,17 @@ export type RecommendationLabel = {
   hint?: string
 }
 
+export type AssistantPreferencePatchMeta = {
+  originId: string
+  mutationId: number
+}
+
+export type FavoriteLedgerEnabledPatch = {
+  accountMid: string
+  ledgerId: FavoriteLedgerId
+  enabled: boolean
+}
+
 export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
@@ -234,6 +302,7 @@ export type FavoriteAccountPreferences = {
   favoriteLedgers: FavoriteLedger[]
   /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
   favoriteLibraryCollapsedGroups?: Record<string, boolean>
+  transcriptionModelId?: TranscriptionModelId
   /** Durable conflict-resolution timestamp for portable account settings. */
   updatedAt?: string
 }
@@ -264,6 +333,10 @@ export type VisualAutomationFallback = (
 export type VideoNoteSourceMetadata = {
   /** Archive ownership. Entries created before this field stay unassigned and private to the archive library. */
   accountMid?: string
+  /** Stable Bilibili video identity for archive navigation and exports. */
+  aid?: number
+  /** Stable Bilibili part identity; absent only for single-part/legacy notes. */
+  cid?: number
   title: string
   author?: string
   description?: string
@@ -350,6 +423,11 @@ export type NotePosterSummary = {
   subtitle: string
   keyPoints: string[]
   keywords: string[]
+  /** Ordered, source-grounded detail for the readable summary/export. */
+  detailedOutline?: string[]
+  /** Uncertain source tokens are intentionally kept out of the asserted detail. */
+  reviewItems?: Array<{ text: string; reason: string }>
+  /** Retained solely to render pre-structure archives without rewriting them. */
   prompt: string
   polishedTranscriptText?: string
   auditChecklistText?: string
@@ -561,6 +639,8 @@ export type VideoAudioTranscriptionProgressStep =
   | 'generating-note'
   | 'summarizing-deepseek'
   | 'saving-archive'
+  | 'canceling'
+  | 'canceling-summary'
   | 'queue-completed'
 
 export type VideoAudioTranscriptionProgress = {
@@ -568,6 +648,9 @@ export type VideoAudioTranscriptionProgress = {
   message: string
   segmentIndex?: number
   segmentCount?: number
+  actualDevice?: 'cpu' | 'cuda'
+  actualComputeType?: 'int8' | 'float16' | 'int8_float16'
+  runtimeFallbackMessage?: string
 }
 
 export type VideoAudioTranscriptionRequest = {
@@ -582,11 +665,20 @@ export type VideoAudioTranscriptionRequest = {
   /** Immutable local metadata snapshot used when this item was enqueued. */
   metadataRevision?: number
   summarizeWithDeepSeek?: boolean
+  /** Captured by the queue so a preference change cannot switch an active job. */
+  transcriptionModelId?: TranscriptionModelId
+  /** A user-selected one-shot retry after a CUDA out-of-memory failure. */
+  transcriptionDeviceOverride?: 'cpu'
 }
+
+export type VideoAudioTranscriptionFailureKind = 'cuda-oom'
+/** A summary is only saved once its exact archive version can be re-read. */
+export type VideoAudioTranscriptionSummaryStatus = 'not-requested' | 'generating' | 'generated' | 'saved' | 'failed'
 
 export type VideoAudioTranscriptionResult = {
   transcript: TranscriptSegment[]
   transcriptSource: 'audio'
+  runtime?: { device: 'cpu' | 'cuda'; computeType: 'int8' | 'float16' | 'int8_float16'; fallbackMessage?: string }
 }
 
 export type VideoAudioTranscriptionQueueStatus =
@@ -605,14 +697,29 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
   updatedAt: string
   startedAt?: string
   completedAt?: string
+  /** A running worker acknowledges cancellation only after it exits. */
+  cancelRequested?: boolean
   progress?: VideoAudioTranscriptionProgress
   errorMessage?: string
+  /** Diagnostics are intentionally separate so the queue can show a concise actionable error. */
+  errorDetails?: string
+  failureKind?: VideoAudioTranscriptionFailureKind
+  /** Authoritative runtime selected by the main-process provider for this job. */
+  actualDevice?: 'cpu' | 'cuda'
+  actualComputeType?: 'int8' | 'float16' | 'int8_float16'
+  runtimeFallbackMessage?: string
   archiveNoteId?: string
+  /** Exact immutable archive version registered for this completed queue job. */
+  archiveVersionId?: string
   draftNote?: VideoNote
   /** Registration is separate from transcription so a retry never re-downloads audio. */
   archiveRegistrationStatus?: 'pending' | 'registered' | 'failed'
   archiveRegistrationError?: string
   archiveSummaryText?: string
+  /** Empty ASR output is a normal completion and must not be presented as a summary failure. */
+  transcriptOutcome?: 'no-speech'
+  /** Independent from transcription/archive registration so summary-only retry never retranscribes audio. */
+  summaryStatus?: VideoAudioTranscriptionSummaryStatus
 }
 
 export type VideoAudioTranscriptionQueueSnapshot = {

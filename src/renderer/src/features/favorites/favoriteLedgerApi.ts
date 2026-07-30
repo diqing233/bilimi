@@ -122,6 +122,10 @@ function sharedScriptHelpers(): string {
       return url.toString();
     };
     const findFolderId = (folder) => folder?.id ?? folder?.fid;
+    const normalizeFolderTitle = (title) => String(title || '')
+      .trim()
+      .replace(/^bilimi\s*[·:：\-]?\s*/iu, '')
+      .trim();
     const syncLedgerFolderIds = (ledgers, folders) => {
       const folderById = new Map(
         folders
@@ -129,11 +133,14 @@ function sharedScriptHelpers(): string {
           .filter(([folderId]) => folderId)
       );
       return ledgers.map((ledger) => {
+        const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
         const storedFolder = ledger.bilibiliFolderId
           ? folderById.get(String(ledger.bilibiliFolderId))
           : null;
-        const titleMatches = folders.filter((candidate) => candidate?.title === ledger.displayName);
-        const folder = storedFolder?.title === ledger.displayName
+        const titleMatches = folders.filter((candidate) =>
+          normalizeFolderTitle(candidate?.title) === normalizedLedgerTitle
+        );
+        const folder = storedFolder && normalizeFolderTitle(storedFolder.title) === normalizedLedgerTitle
           ? storedFolder
           : titleMatches.length === 1
             ? titleMatches[0]
@@ -168,7 +175,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
       const backupConflictLedgerIds = payload.ledgers.filter((ledger) =>
         ledger.enabled && ledger.syncState !== 'local-draft' &&
-        folders.filter((folder) => folder?.title === ledger.displayName).length > 1
+        folders.filter((folder) => normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)).length > 1
       ).map((ledger) => ledger.id);
 
       return {
@@ -212,7 +219,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
       const duplicateLedgers = payload.ledgers.filter((ledger) =>
         ledger.enabled && ledger.syncState !== 'local-draft' &&
-        folders.filter((folder) => folder?.title === ledger.displayName).length > 1
+        folders.filter((folder) => normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)).length > 1
       );
       if (duplicateLedgers.length > 0) {
         return {
@@ -235,7 +242,9 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
-        const recheckedMatches = recheckedFolders.filter((folder) => folder?.title === ledger.displayName);
+        const recheckedMatches = recheckedFolders.filter((folder) =>
+          normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)
+        );
         if (recheckedMatches.length > 1) {
           return {
             ok: false,

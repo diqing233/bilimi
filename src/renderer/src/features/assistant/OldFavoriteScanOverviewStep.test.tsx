@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
 describe('OldFavoriteScanOverviewStep', () => {
+  it('keeps the scan view mounted when a scan reports a rebuild-required recovery state', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{ recovery: 'rebuild-required', preserveCompletedLocalResults: true, accountMid: '100', workspaceId: 'workspace-100' }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('region', { name: '扫描概览' })).toHaveTextContent('工作镜像损坏')
+    expect(screen.getByRole('button', { name: '重建工作镜像并重新扫描' })).toBeEnabled()
+  })
+
   it('shows an unstarted state until the user starts old-favorite organization', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={null} loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
@@ -10,7 +22,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('尚未开始扫描，请点击“整理旧藏”后扫描。')).toBeInTheDocument()
+    expect(screen.getByText('尚未开始扫描，请点击“整理收藏”后扫描。')).toBeInTheDocument()
     expect(screen.getByText('尚未开始')).toBeInTheDocument()
     expect(screen.queryByText('正在扫描')).not.toBeInTheDocument()
   })

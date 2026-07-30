@@ -3,6 +3,8 @@ import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
   loadVideoNoteArchives,
+  saveVideoNoteArchiveVersionWithIdentity,
+  saveVideoNoteArchiveSummaryWithIdentity,
   loadAssistantPreferences,
   loadFavoriteAccountPreferences,
   loadDeepSeekApiKey,
@@ -16,7 +18,9 @@ import {
   saveVideoNote,
   saveAssistantPreferences,
   saveFavoriteAccountPreferences,
+  writeFavoriteLedgerEnabled,
   patchAssistantPreferences,
+  writeAssistantPreferencePatch,
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
   clearPendingFavoriteQueue,
@@ -26,10 +30,15 @@ import {
   updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
   saveVideoAudioTranscriptionQueue,
+  loadNoteProcessingCheckpoints,
+  saveNoteProcessingCheckpoint,
+  deleteNoteProcessingCheckpoint,
   type DesktopStoreState,
-  type AssistantStoreLike
+  type AssistantStoreLike,
+  type FavoriteLedgerEnabledOverrideStoreLike
 } from './store'
 import type {
+  FavoriteLedgerEnabledPatch,
   PendingFavoriteQueueItem,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
@@ -162,7 +171,8 @@ function createFakeStore(
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
     pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
-    videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
+    videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? [],
+    noteProcessingCheckpointsV1: initial.noteProcessingCheckpointsV1 ?? {}
   }
   const setCalls: unknown[] = []
   const set: AssistantStoreLike['set'] = (
@@ -189,6 +199,27 @@ function createFakeStore(
     },
     set
   }
+}
+
+function createFakeEnabledOverrideStore(initial: Record<string, Record<string, boolean>> = {}) {
+  let snapshot = structuredClone(initial)
+  const appended: unknown[] = []
+  const store: FavoriteLedgerEnabledOverrideStoreLike & { appended: unknown[]; snapshot: () => typeof snapshot } = {
+    getOverrides() { return snapshot },
+    async append(patch) {
+      appended.push(patch)
+      snapshot[patch.accountMid] ??= {}
+      snapshot[patch.accountMid][patch.ledgerId] = patch.enabled
+    },
+    clear(accountMid) {
+      if (!accountMid) { snapshot = {}; return }
+      const { [accountMid]: _removed, ...remaining } = snapshot
+      snapshot = remaining
+    },
+    appended,
+    snapshot: () => snapshot
+  }
+  return store
 }
 
 describe('assistant preference store helpers', () => {
@@ -244,6 +275,66 @@ describe('assistant preference store helpers', () => {
     const store = createFakeStore()
 
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
+  })
+
+  it('writes an ordinary preference patch without rewriting untouched heavy branches', () => {
+    const correctionRecords = [{
+      id: 'record-1', aid: 1, title: 'Heavy', originalLedgerId: 'inbox', userLedgerIds: ['game'],
+      source: 'user', feedbackType: 'strong-correction', sourceScene: 'archive-preview', tags: [],
+      matchedKeywords: [], createdAt: '2026-07-29T00:00:00.000Z', confirmedAt: '2026-07-29T00:00:00.000Z'
+    }] as never
+    const store = createFakeStore({
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteCorrectionRecords: correctionRecords
+    })
+
+    const saved = patchAssistantPreferences(store, { deepseekAutoSummaryEnabled: false })
+
+    expect(store.setCalls.at(-1)).toEqual({ deepseekAutoSummaryEnabled: false })
+    expect(store.snapshot.favoriteCorrectionRecords).toBe(correctionRecords)
+    expect(saved.deepseekAutoSummaryEnabled).toBe(false)
+  })
+
+  it('returns only the normalized fields from the fast preference patch writer', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, {
+      deepseekEnabled: 1 as never,
+      assistantSidebarWidthPx: 999
+    })
+
+    expect(written).toEqual({ deepseekEnabled: true, assistantSidebarWidthPx: 486 })
+    expect(store.setCalls.at(-1)).toEqual(written)
+  })
+
+  it('writes pet hover shortcuts through the narrow patch without rewriting preferences', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, {
+      petHoverShortcuts: [
+        'comment',
+        'like',
+        'comment',
+        'assistant',
+        'coin',
+        'transcribe',
+        'favorite'
+      ] as never
+    })
+
+    expect(written).toEqual({
+      petHoverShortcuts: ['comment', 'like', 'coin', 'transcribe']
+    })
+    expect(store.setCalls.at(-1)).toEqual(written)
+  })
+
+  it('accepts an empty pet hover shortcut list through the narrow patch', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, { petHoverShortcuts: [] })
+
+    expect(written).toEqual({ petHoverShortcuts: [] })
+    expect(store.setCalls.at(-1)).toEqual(written)
   })
 
   it('defaults and persists the Bilibili connection mode', () => {
@@ -496,6 +587,17 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('keeps Whisper small as the safe account default until SenseVoice passes its acceptance gate', () => {
+    const store = createFakeStore()
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'whisper-small' })
+
+    saveFavoriteAccountPreferences(store, '100', {
+      ...loadFavoriteAccountPreferences(store, '100'),
+      transcriptionModelId: 'whisper-small'
+    })
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'whisper-small' })
+  })
+
   it('persists a durable timestamp with every favorite-account preference projection', () => {
     const store = createFakeStore()
 
@@ -505,6 +607,76 @@ describe('assistant preference store helpers', () => {
     expect(initialized).toMatchObject({ updatedAt: expect.any(String) })
     expect(saved).toMatchObject({ defaultFavoriteSystemEnabled: false, updatedAt: expect.any(String) })
     expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ updatedAt: saved.updatedAt })
+  })
+
+  it('updates one account ledger enabled flag with one narrow journal append', async () => {
+    const store = createFakeEnabledOverrideStore()
+
+    const patch = await writeFavoriteLedgerEnabled(store, '00100', ' music ', true)
+
+    expect(patch).toEqual({ accountMid: '100', ledgerId: 'music', enabled: true })
+    expect(store.appended).toEqual([{ accountMid: '100', ledgerId: 'music', enabled: true }])
+    expect(store.snapshot()).toEqual({ '100': { music: true } })
+  })
+
+  it('appends one constant-size record without reading 30k persisted overrides', async () => {
+    const mainStore = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: Array.from({ length: 30_000 }, (_, index) => ({
+            id: `ledger-${index}`, displayName: `Ledger ${index}`, keywords: [], enabled: false, priority: index, isDefault: false
+          }))
+        }
+      }
+    })
+    const originalGet = mainStore.get.bind(mainStore)
+    mainStore.get = ((key: keyof DesktopStoreState) => {
+      if (key === 'favoriteAccountPreferences') throw new Error('large rules accessed')
+      return originalGet(key)
+    }) as AssistantStoreLike['get']
+    const history = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => [`ledger-${index}`, false]))
+    const guardedHistory = new Proxy(history, {
+      ownKeys() { throw new Error('override history enumerated during click') }
+    })
+    let inMemory: Record<string, Record<string, boolean>> = { '100': guardedHistory }
+    const appended: FavoriteLedgerEnabledPatch[] = []
+    const overrideStore: FavoriteLedgerEnabledOverrideStoreLike = {
+      getOverrides: () => { throw new Error('override history replayed during click') },
+      async append(patch) {
+        appended.push(patch)
+        inMemory[patch.accountMid] ??= {}
+        inMemory[patch.accountMid][patch.ledgerId] = patch.enabled
+      },
+      clear: () => { inMemory = {} }
+    }
+
+    expect(await writeFavoriteLedgerEnabled(overrideStore, '100', 'ledger-29999', true)).toEqual({
+      accountMid: '100', ledgerId: 'ledger-29999', enabled: true
+    })
+    expect(mainStore.setCalls).toHaveLength(0)
+    expect(appended).toEqual([
+      { accountMid: '100', ledgerId: 'ledger-29999', enabled: true }
+    ])
+  })
+
+  it('merges enabled overrides on load and clears them after an explicit account save', () => {
+    const store = createFakeStore({ favoriteAccountPreferences: { '100': {
+      defaultFavoriteSystemEnabled: true,
+      favoriteLedgers: [{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }]
+    } } })
+    const overrides = createFakeEnabledOverrideStore({ '100': { music: true, removed: false }, '200': { other: true } })
+
+    expect(loadFavoriteAccountPreferences(store, '100', overrides).favoriteLedgers.find(
+      (ledger) => ledger.id === 'music'
+    )).toEqual(expect.objectContaining({ id: 'music', enabled: true }))
+
+    saveFavoriteAccountPreferences(store, '100', {
+      defaultFavoriteSystemEnabled: true,
+      favoriteLedgers: [{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }]
+    }, overrides)
+    expect(overrides.snapshot()).toEqual({ '200': { other: true } })
+    expect(loadFavoriteAccountPreferences(store, '100', overrides).favoriteLedgers[0].enabled).toBe(false)
   })
 
   it('saves favorites folder name and preference counts and returns the persisted shape', () => {
@@ -853,6 +1025,15 @@ describe('assistant preference store helpers', () => {
 
     expect(loadAssistantPreferences(store).deepseekApiKeyStored).toBe(true)
   })
+
+  it('does not project an unreadable encrypted DeepSeek key as stored when a protector is supplied', () => {
+    const safeStorage = createSafeStorage()
+    const store = createFakeStore({
+      deepseekApiKeyEncrypted: safeStorage.encryptString('sk-encrypted').toString('base64')
+    })
+
+    expect(loadAssistantPreferences(store, createSafeStorage({ failDecrypt: true })).deepseekApiKeyStored).toBe(false)
+  })
 })
 
 describe('pending favorite queue store helpers', () => {
@@ -911,6 +1092,20 @@ describe('pending favorite queue store helpers', () => {
 })
 
 describe('video note store helpers', () => {
+  it('persists resumable note checkpoints locally and removes them after a completed summary', () => {
+    const store = createFakeStore()
+    const checkpoint = {
+      accountMid: '42', videoId: 'BV1checkpoint', transcriptHash: 'hash', promptVersion: 'faithful-v1', model: 'deepseek-chat',
+      completedBatchIds: ['segment-1'], polishedTextBySegmentId: { 'segment-1': '保留的精修片段' }, updatedAt: '2026-07-26T00:00:00.000Z'
+    }
+
+    saveNoteProcessingCheckpoint(store, checkpoint)
+    expect(loadNoteProcessingCheckpoints(store)).toEqual({ '42:BV1checkpoint:hash:faithful-v1:deepseek-chat': checkpoint })
+
+    deleteNoteProcessingCheckpoint(store, checkpoint)
+    expect(loadNoteProcessingCheckpoints(store)).toEqual({})
+  })
+
   it('loads an empty video note list by default', () => {
     const store = createFakeStore()
 
@@ -999,6 +1194,114 @@ describe('video note archive store helpers', () => {
     expect(store.snapshot.videoNoteArchives[0].versions[1].summaryText).toBe('')
   })
 
+  it('updates only the second save when identical timestamps would otherwise collide', () => {
+    const store = createFakeStore()
+    const note = createStoreNote()
+    const createdAt = '2026-06-17T00:00:00.000Z'
+
+    const first = saveVideoNoteArchiveVersionWithIdentity(store, note, createdAt)
+    const second = saveVideoNoteArchiveVersionWithIdentity(store, note, createdAt)
+    const updated = updateVideoNoteArchiveVersion(
+      store,
+      second.archiveId,
+      second.versionId,
+      note,
+      'Only the second version is summarized.'
+    )
+
+    expect(second.archiveId).toBe(first.archiveId)
+    expect(second.versionId).not.toBe(first.versionId)
+    expect(updated[0].versions).toHaveLength(2)
+    expect(updated[0].versions.map((version) => version.summaryText)).toEqual([
+      '',
+      'Only the second version is summarized.'
+    ])
+  })
+
+  it('rejects a write when the exact archive version cannot be re-read from persistent storage', () => {
+    const store = createFakeStore()
+    const originalSet = store.set
+    function ignoreArchiveWrites(values: Partial<DesktopStoreState>): void
+    function ignoreArchiveWrites<Key extends keyof DesktopStoreState>(
+      key: Key,
+      value: DesktopStoreState[Key]
+    ): void
+    function ignoreArchiveWrites(
+      keyOrValues: Partial<DesktopStoreState> | keyof DesktopStoreState,
+      value?: DesktopStoreState[keyof DesktopStoreState]
+    ): void {
+      if (keyOrValues === 'videoNoteArchives') return
+      if (typeof keyOrValues === 'object') {
+        originalSet(keyOrValues)
+        return
+      }
+      originalSet(
+        keyOrValues as keyof DesktopStoreState,
+        value as DesktopStoreState[keyof DesktopStoreState]
+      )
+    }
+    store.set = ignoreArchiveWrites
+
+    expect(() => saveVideoNoteArchiveVersionWithIdentity(
+      store,
+      createStoreNote(),
+      '2026-06-17T00:00:00.000Z'
+    )).toThrow('Archive version could not be re-read after saving.')
+  })
+
+  it('returns the newly written archive version when a queue note uses an account and part id instead of the archive id', () => {
+    const store = createFakeStore()
+    const first = {
+      ...createStoreNote('account:42:aid:7:cid:70'),
+      source: {
+        ...createStoreNote().source,
+        accountMid: '42',
+        aid: 7,
+        cid: 70,
+        bvid: 'BV1queue'
+      },
+      transcript: [{ start: 0, end: 10, text: 'first archived transcript' }]
+    }
+    const second = {
+      ...first,
+      transcript: [{ start: 0, end: 10, text: 'second archived transcript' }],
+      updatedAt: '2026-06-17T01:00:00.000Z'
+    }
+
+    const initial = saveVideoNoteArchiveVersionWithIdentity(store, first, '2026-06-17T00:00:00.000Z')
+    const next = saveVideoNoteArchiveVersionWithIdentity(store, second, '2026-06-17T01:00:00.000Z')
+
+    expect(next.archiveId).toBe(initial.archiveId)
+    expect(next.versionId).not.toBe(initial.versionId)
+    expect(next.archives[0]?.versions).toHaveLength(2)
+    expect(next.archives[0]?.versions.find((version) => version.id === next.versionId)?.note.transcript[0]?.text)
+      .toBe('second archived transcript')
+  })
+
+  it('persists a recovered DeepSeek summary into the exact existing archive version and re-reads it', () => {
+    const store = createFakeStore()
+    const note = {
+      ...createStoreNote('account:42:aid:7:cid:70'),
+      source: {
+        ...createStoreNote('account:42:aid:7:cid:70').source,
+        accountMid: '42', aid: 7, cid: 70, bvid: 'BV1store'
+      }
+    }
+    const saved = saveVideoNoteArchiveVersionWithIdentity(store, note, '2026-06-17T00:00:00.000Z')
+
+    const confirmed = saveVideoNoteArchiveSummaryWithIdentity(
+      store,
+      saved.archiveId,
+      saved.versionId,
+      note,
+      'Recovered DeepSeek summary'
+    )
+
+    expect(confirmed).toMatchObject({ archiveId: saved.archiveId, versionId: saved.versionId })
+    expect(loadVideoNoteArchives(store).find((archive) => archive.id === saved.archiveId)?.versions)
+      .toContainEqual(expect.objectContaining({ id: saved.versionId, summaryText: 'Recovered DeepSeek summary' }))
+  })
+
   it('stores explicit DeepSeek summary text with archive versions', () => {
     const store = createFakeStore()
     const note = createStoreNote()
@@ -1046,6 +1349,15 @@ describe('video note archive store helpers', () => {
 })
 
 describe('video audio transcription queue store helpers', () => {
+  it('migrates legacy queue items without a captured model to Whisper small', () => {
+    const legacy = {
+      id: 'legacy', url: 'https://www.bilibili.com/video/BV1legacy', title: 'Legacy', status: 'waiting-restart',
+      createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z'
+    } as VideoAudioTranscriptionQueueItem
+    const store = createFakeStore({ videoAudioTranscriptionQueue: [legacy] })
+
+    expect(loadVideoAudioTranscriptionQueue(store)[0]).toMatchObject({ transcriptionModelId: 'whisper-small' })
+  })
   it('loads an empty queue by default', () => {
     const store = createFakeStore()
 
@@ -1145,7 +1457,7 @@ describe('video audio transcription queue store helpers', () => {
     const store = createFakeStore()
     saveVideoAudioTranscriptionQueue(store, [waitingItem])
 
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([waitingItem])
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([waitingItem])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([{ ...waitingItem, transcriptionModelId: 'whisper-small' }])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([{ ...waitingItem, transcriptionModelId: 'whisper-small' }])
   })
 })

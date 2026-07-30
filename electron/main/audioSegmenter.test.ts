@@ -36,6 +36,53 @@ describe('audio segmenter', () => {
     ])
   })
 
+  it('builds RIFF PCM WAV segments for SenseVoice without changing the default MP3 profile', () => {
+    expect(
+      buildFfmpegSegmentArgs({
+        inputPath: 'C:/tmp/input.m4a',
+        segmentSeconds: 600,
+        outputPattern: 'C:/tmp/segment-%03d.wav',
+        profile: 'wav-pcm-16khz-mono'
+      })
+    ).toEqual([
+      '-y',
+      '-i',
+      'C:/tmp/input.m4a',
+      '-vn',
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-c:a',
+      'pcm_s16le',
+      '-f',
+      'segment',
+      '-segment_time',
+      '600',
+      '-reset_timestamps',
+      '1',
+      'C:/tmp/segment-%03d.wav'
+    ])
+  })
+
+  it('discovers ordered WAV segments for the SenseVoice preparation profile', async () => {
+    const runProcess = vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 })
+    const listFiles = vi.fn().mockResolvedValue(['segment-001.wav', 'segment-000.wav', 'segment-999.mp3'])
+
+    await expect(segmentAudioForTranscription({
+      ffmpegPath: 'C:/tools/ffmpeg.exe',
+      inputPath: 'C:/tmp/input.m4a',
+      outputDir: 'C:/tmp/segments',
+      durationSeconds: 900,
+      profile: 'wav-pcm-16khz-mono',
+      runProcess,
+      listFiles
+    })).resolves.toEqual([
+      { path: 'C:/tmp/segments/segment-000.wav', offsetSeconds: 0 },
+      { path: 'C:/tmp/segments/segment-001.wav', offsetSeconds: 600 }
+    ])
+  })
+
   it('returns ordered segment files with offsets', async () => {
     const runProcess = vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 })
     const listFiles = vi.fn().mockResolvedValue(['segment-001.mp3', 'segment-000.mp3'])

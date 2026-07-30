@@ -14,6 +14,7 @@ import {
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import { createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import type { FavoriteLedger } from '../../src/shared/types'
 
 const roots: string[] = []
 
@@ -31,7 +32,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'saveRecoveredLedgerDrafts' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -142,6 +143,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
 
     await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({ status: 'scanning' })
+  })
+
+  it('reports a restored portable draft as resumable instead of corrupt', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await repository.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      workspace: {
+        id: 'portable-draft', accountMid: '100', status: 'draft', resumable: true, baselineRevision: 0, continuationAids: [],
+        workspaceRef: { workspaceId: 'portable-draft', accountMid: '100', status: 'draft', baselineRevision: 0, currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+      }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+    await repository.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'draft', currentStep: 'draft', recoveryChoices: ['view', 'rescan']
+    })
   })
 
   it('persists tag enrichment pause, resume, and current-tag adoption across coordinator restart', async () => {
@@ -398,6 +418,113 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('repairs an empty stale placement from existing logical membership when the remote folder still matches', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-knowledge', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'Knowledge', shardNumber: 1, memberAids: [7],
+        remoteTitle: 'bilimi Knowledge', bindingState: 'bound', remoteFolderId: 'formal'
+      }
+    })
+    await repository.commit('100', {
+      id: 'stale-empty-placement', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 7, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['default', 'formal'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'], positionState: 'local-only-change',
+        updatedAt: '2026-07-20T00:00:01.000Z'
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'default', title: 'Default', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'formal', title: 'bilimi Knowledge', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { formal: [7] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'default', page: 1, items: [{ aid: 7, title: 'Video', sourceFolderIds: ['default'] }]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilimi-logical:knowledge': [7] },
+      positions: {
+        '100:7': {
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: ['default', 'formal'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+          positionState: 'aligned'
+        }
+      }
+    })
+  })
+
+  it('commits a 257-video scan observation as one bounded repair batch', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-creative', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'creative-aesthetic', logicalTitle: 'bilimi·创意美学', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·创意美学', bindingState: 'bound', remoteFolderId: 'creative'
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'creative', title: 'bilimi·创意美学', itemCount: 257, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { creative: Array.from({ length: 257 }, (_, index) => index + 1) })
+    const commit = vi.spyOn(repository, 'commit')
+
+    await coordinator.finishScan('100')
+
+    const repairs = commit.mock.calls.filter(([, command]) => command.type === 'set-favorite-placements')
+    expect(repairs).toHaveLength(1)
+    expect(repairs[0][1].payload.placements).toHaveLength(257)
+  })
+
+  it('retries a stale repair batch without overwriting a concurrent user placement', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-knowledge', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'knowledge', logicalTitle: 'Knowledge', shardNumber: 1, memberAids: [], remoteTitle: 'Knowledge', bindingState: 'bound', remoteFolderId: 'knowledge' }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'knowledge', title: 'Knowledge', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { knowledge: [7] })
+    const originalCommit = repository.commit.bind(repository)
+    let raced = false
+    vi.spyOn(repository, 'commit').mockImplementation(async (accountMid, command) => {
+      if (!raced && command.type === 'set-favorite-placements') {
+        raced = true
+        await originalCommit(accountMid, {
+          id: 'user-move-during-repair', accountMid, issuedAt: '2026-07-20T00:00:01.000Z', type: 'set-favorite-placement',
+          payload: { aid: 7, localDesiredFolderIds: ['local:keep'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+        })
+      }
+      return originalCommit(accountMid, command)
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:7': { localDesiredFolderIds: ['local:keep'], remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'] } }
+    })
+  })
+
   it('keeps a duplicate remote binding as a physical observation without choosing one logical target', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -436,7 +563,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
-    await coordinator.beginScan('100', 'full')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
       { aid: 1, title: 'Tagged', sourceFolderIds: ['source'] },
       { aid: 2, title: 'Pending', sourceFolderIds: ['source'] }
@@ -648,7 +775,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:inbox': [2_001] }
+      memberships: { 'local:inbox': expect.arrayContaining([2_001]) }
     })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2_000, unclassifiedAidCount: 1 }
@@ -1010,6 +1137,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids: [2, 3], protectedAids: [1] })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ scan: { totalItemCount: 4, scannedItemCount: 4 } })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       organizationMigrationInitialized: true,
       organizationRecords: [
@@ -1082,6 +1210,527 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('recovers uniquely identified managed remote folders into logical bindings without absorbing ordinary folders', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'managed-creative', title: 'bilimi·创意美学', itemCount: 2, isBilimiWorkFolder: true },
+        { id: 'ordinary', title: '普通收藏夹', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'managed-creative': [11, 12] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary', page: 1,
+      items: [{ aid: 21, title: '普通视频', sourceFolderIds: ['ordinary'] }]
+    })
+
+    await coordinator.finishScan('100')
+
+    const first = await repository.getSnapshot('100')
+    expect(first.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic', kind: 'bilimi-logical', title: 'bilimi·创意美学' }),
+      expect.objectContaining({ id: 'bilibili:ordinary', kind: 'bilibili', title: '普通收藏夹' })
+    ]))
+    await expect(repository.getLibrarySummary('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic', kind: 'bilimi-logical' }),
+        expect.objectContaining({ id: 'bilibili:ordinary', kind: 'bilibili' })
+      ])
+    })
+    expect(first.physicalShards).toEqual([expect.objectContaining({
+      logicalLedgerId: 'creative-aesthetic', shardNumber: 1, remoteFolderId: 'managed-creative', bindingState: 'bound'
+    })])
+    expect(first.memberships).toMatchObject({
+      'bilimi-logical:creative-aesthetic': [11, 12],
+      'bilimi:creative-aesthetic:001': [11, 12],
+      'bilibili:ordinary': [21]
+    })
+    expect(first.positions['100:11']).toMatchObject({
+      remoteObservedPhysicalFolderIds: ['managed-creative'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:creative-aesthetic']
+    })
+
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'managed-creative', title: 'bilimi·创意美学', itemCount: 2, isBilimiWorkFolder: true },
+        { id: 'ordinary', title: '普通收藏夹', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'managed-creative': [11, 12] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary', page: 1,
+      items: [{ aid: 21, title: '普通视频', sourceFolderIds: ['ordinary'] }]
+    })
+    await coordinator.finishScan('100')
+
+    const second = await repository.getSnapshot('100')
+    expect(second.folders.filter((folder) => folder.id === 'bilimi-logical:creative-aesthetic')).toHaveLength(1)
+    expect(second.physicalShards.filter((shard) => shard.remoteFolderId === 'managed-creative')).toHaveLength(1)
+    expect(second.memberships['bilimi-logical:creative-aesthetic']).toEqual([11, 12])
+  })
+
+  it('keeps duplicate remote titles pending instead of choosing a managed binding', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'creative-a', title: 'bilimi·创意美学', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'creative-b', title: 'bilimi·创意美学', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'creative-a': [1], 'creative-b': [2] })
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic', kind: 'bilimi-logical', syncState: 'pending-reconcile' })
+    ]))
+    expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'creative-aesthetic', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['creative-a', 'creative-b'] })
+    ]))
+    expect(snapshot.memberships['bilimi-logical:creative-aesthetic']).toEqual([])
+    expect(snapshot.folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id).sort())
+      .toEqual(['bilibili:creative-a', 'bilibili:creative-b'])
+  })
+
+  it('keeps duplicate custom remote titles on one explicitly unbound logical target', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'custom-a', title: 'bilimi\u00b7\u6211\u7684\u7247\u5355', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'custom-b', title: 'bilimi\u00b7\u6211\u7684\u7247\u5355', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'custom-a': [1], 'custom-b': [2] })
+
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    const customFolders = snapshot.folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.title === 'bilimi\u00b7\u6211\u7684\u7247\u5355')
+    expect(customFolders).toHaveLength(1)
+    expect(customFolders[0]).toMatchObject({ syncState: 'pending-reconcile', logicalLedgerId: expect.stringMatching(/^custom-/) })
+    expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: customFolders[0].logicalLedgerId, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom-a', 'custom-b'] })
+    ]))
+  })
+
+  it('recovers the staging folder and a unique custom Bilimi workspace with stable logical identities', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'genshin-remote', title: 'bilimi\u00b7\u539f\u795e', itemCount: 2, isBilimiWorkFolder: true },
+        { id: 'ordinary-remote', title: '\u666e\u901a\u6536\u85cf', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1], 'genshin-remote': [2, 3] })
+
+    const commit = vi.spyOn(repository, 'commit')
+    await coordinator.finishScan('100')
+
+    const bindingRepairs = commit.mock.calls.filter(([, command]) => command.type === 'repair-persisted-managed-bindings')
+    expect(bindingRepairs).toHaveLength(1)
+    expect(bindingRepairs[0][1].payload.bindings).toHaveLength(2)
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:inbox', title: 'bilimi\u00b7\u6682\u5b58', kind: 'bilimi-logical' }),
+      expect.objectContaining({ title: 'bilimi\u00b7\u539f\u795e', kind: 'bilimi-logical', logicalLedgerId: expect.stringMatching(/^custom-/) })
+    ]))
+    const genshin = snapshot.folders.find((folder) => folder.title === 'bilimi\u00b7\u539f\u795e' && folder.kind === 'bilimi-logical')!
+    expect(genshin.logicalLedgerId).not.toBe('game')
+    expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'inbox', remoteFolderId: 'inbox-remote', bindingState: 'bound' }),
+      expect.objectContaining({ remoteFolderId: 'genshin-remote', bindingState: 'bound', logicalLedgerId: expect.stringMatching(/^custom-/) })
+    ]))
+    expect(snapshot.memberships[`bilimi-logical:${genshin.logicalLedgerId}`]).toEqual([2, 3])
+
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'genshin-remote', title: 'bilimi·原神收藏', itemCount: 2, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'genshin-remote': [2, 3] })
+    await coordinator.finishScan('100')
+
+    const renamed = await repository.getSnapshot('100')
+    expect(renamed.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: `bilimi-logical:${genshin.logicalLedgerId}`, title: 'bilimi·原神收藏' })
+    ]))
+    expect(renamed.positions['100:2']).toMatchObject({
+      localDesiredFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      remoteObservedPhysicalFolderIds: ['genshin-remote'],
+      remoteObservedLogicalFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      positionState: 'aligned'
+    })
+    expect(renamed.positions['100:3']).toMatchObject({
+      localDesiredFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      positionState: 'aligned'
+    })
+  })
+
+  it('creates one disabled local rule draft for a uniquely recovered custom workspace', async () => {
+    const root = await createRoot()
+    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecommendedLedgers: saved })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'genshin-remote', title: 'bilimi\u00b7\u539f\u795e', itemCount: 2, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'genshin-remote': [2, 3] })
+
+    await coordinator.finishScan('100')
+
+    expect(saved).toHaveBeenCalledOnce()
+    expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
+      bilibiliFolderId: 'genshin-remote', syncState: 'local-draft'
+    })])
+  })
+
+  it('reconciles a missing local rule draft when the remote binding already exists', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const firstCoordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await firstCoordinator.open('100')
+    await firstCoordinator.beginScan('100', 'incremental')
+    await firstCoordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'genshin-remote', title: 'bilimi\u00b7\u539f\u795e', itemCount: 2, isBilimiWorkFolder: true }]
+    })
+    await firstCoordinator.recordManagedMembers('100', { 'genshin-remote': [2, 3] })
+    await firstCoordinator.finishScan('100')
+
+    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecoveredLedgerDrafts: saved })
+
+    await coordinator.recoverPersistedManagedBindings('100')
+
+    expect(saved).toHaveBeenCalledOnce()
+    expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
+      bilibiliFolderId: 'genshin-remote', syncState: 'local-draft'
+    })])
+  })
+
+  it('bounds scan-time deterministic binding repairs to one hundred targets per atomic command', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const sourceFolders = Array.from({ length: 101 }, (_, index) => ({
+      id: `custom-${index + 1}`,
+      title: `bilimi·自定义${index + 1}`,
+      itemCount: 1,
+      isBilimiWorkFolder: true
+    }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', { sourceFolders })
+    await coordinator.recordManagedMembers('100', Object.fromEntries(sourceFolders.map((folder, index) => [folder.id, [index + 1]])))
+    const commit = vi.spyOn(repository, 'commit')
+
+    await coordinator.finishScan('100')
+
+    const bindingRepairs = commit.mock.calls.filter(([, command]) => command.type === 'repair-persisted-managed-bindings')
+    expect(bindingRepairs).toHaveLength(2)
+    expect(bindingRepairs.map(([, command]) => command.payload.bindings.length)).toEqual([100, 1])
+  })
+
+  it('restores complete persisted Bilimi folders when an existing account opens the library', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'genshin-remote', title: 'bilimi\u00b7\u539f\u795e', itemCount: 2, isBilimiWorkFolder: true }
+      ]
+    })
+    await first.recordManagedMembers('100', { 'inbox-remote': [1], 'genshin-remote': [2, 3] })
+    await first.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'clear-legacy-bindings', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'clear-local-repository',
+      payload: { preserveTombstones: true }
+    })
+    await repository.commit('100', {
+      id: 'legacy-bilibili-mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'legacy-workspace',
+        folders: [
+          { id: 'bilibili:inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', remoteFolderId: 'inbox-remote' },
+          { id: 'bilibili:genshin-remote', title: 'bilimi\u00b7\u539f\u795e', remoteFolderId: 'genshin-remote' },
+          { id: 'bilibili:ordinary-remote', title: '\u666e\u901a\u6536\u85cf', remoteFolderId: 'ordinary-remote' }
+        ],
+        memberAidsByFolderId: {
+          'bilibili:inbox-remote': [1], 'bilibili:genshin-remote': [2, 3], 'bilibili:ordinary-remote': [1]
+        },
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }))
+      }
+    })
+    await repository.commit('100', {
+      id: 'restore-legacy-workspace-marker', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: completedMarker
+    })
+
+    const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
+    const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    const commit = vi.spyOn(reopenedRepository, 'commit')
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 2, pendingCount: 0 })
+    expect(commit).toHaveBeenCalledOnce()
+    expect(commit.mock.calls[0][1].type).toBe('repair-persisted-managed-bindings')
+
+    await expect(reopenedRepository.getLibrarySummary('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilimi-logical:inbox', kind: 'bilimi-logical', title: 'bilimi\u00b7\u6682\u5b58' }),
+        expect.objectContaining({ kind: 'bilimi-logical', title: 'bilimi\u00b7\u539f\u795e', logicalLedgerId: expect.stringMatching(/^custom-/) })
+      ])
+    })
+    const restored = await reopenedRepository.getSnapshot('100')
+    expect(restored.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'inbox', remoteFolderId: 'inbox-remote', bindingState: 'bound' }),
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), remoteFolderId: 'genshin-remote', bindingState: 'bound' })
+    ]))
+    expect(restored.positions['100:2']).toMatchObject({
+      remoteObservedPhysicalFolderIds: ['genshin-remote'],
+      remoteObservedLogicalFolderIds: [expect.stringMatching(/^bilimi-logical:custom-/)]
+    })
+    expect(restored.positions['100:1']).toMatchObject({
+      remoteObservedPhysicalFolderIds: ['inbox-remote', 'ordinary-remote'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:inbox']
+    })
+  })
+
+  it('continues persisted managed-binding recovery after the first 100 bindings', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const sourceFolders = Array.from({ length: 101 }, (_, index) => ({
+      id: `custom-remote-${index + 1}`,
+      title: `bilimi·分类${index + 1}`,
+      itemCount: 1,
+      isBilimiWorkFolder: true
+    }))
+    await first.open('100')
+    await first.recordScanInventory('100', { sourceFolders })
+    await first.recordManagedMembers('100', Object.fromEntries(sourceFolders.map((folder, index) => [folder.id, [index + 1]])))
+    await first.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'clear-persisted-binding-batches', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'clear-local-repository',
+      payload: { preserveTombstones: true }
+    })
+    await repository.commit('100', {
+      id: 'restore-persisted-binding-batches-mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'legacy-workspace',
+        folders: sourceFolders.map((folder) => ({ id: `bilibili:${folder.id}`, title: folder.title, remoteFolderId: folder.id })),
+        memberAidsByFolderId: Object.fromEntries(sourceFolders.map((folder, index) => [`bilibili:${folder.id}`, [index + 1]])),
+        videos: sourceFolders.map((_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }))
+      }
+    })
+    await repository.commit('100', {
+      id: 'restore-persisted-binding-batches-workspace', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: completedMarker
+    })
+
+    const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
+    const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    const commit = vi.spyOn(reopenedRepository, 'commit')
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 101, pendingCount: 0 })
+
+    const repairs = commit.mock.calls.filter(([, command]) => command.type === 'repair-persisted-managed-bindings')
+    expect(repairs.map(([, command]) => command.payload.bindings.length)).toEqual([100, 1])
+    expect((await reopenedRepository.getSnapshot('100')).physicalShards).toHaveLength(101)
+  })
+
+  it('abandons a persisted recovery when a user starts a new scan while its background read is pending', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1] })
+    await coordinator.finishScan('100')
+
+    const members = deferred<Record<string, number[]>>()
+    vi.spyOn(store, 'readManagedMembers').mockImplementationOnce(() => members.promise)
+    const recovery = coordinator.recoverPersistedManagedBindings('100')
+    await vi.waitFor(() => expect(store.readManagedMembers).toHaveBeenCalledOnce())
+    await coordinator.beginScan('100', 'full')
+    const commit = vi.spyOn(repository, 'commit')
+
+    members.resolve({ 'inbox-remote': [1] })
+    await expect(recovery).resolves.toEqual({ recoveredCount: 0, pendingCount: 0 })
+    expect(commit).not.toHaveBeenCalled()
+  })
+
+  it('continues persisted recovery observations after the first bounded atomic batch', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const aids = Array.from({ length: 501 }, (_, index) => index + 1)
+    await first.open('100')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: aids.length, isBilimiWorkFolder: true }]
+    })
+    await first.recordManagedMembers('100', { 'inbox-remote': aids })
+    await first.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'clear-persisted-recovery-batch', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'clear-local-repository',
+      payload: { preserveTombstones: true }
+    })
+    await repository.commit('100', {
+      id: 'restore-persisted-recovery-mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'legacy-workspace',
+        folders: [{ id: 'bilibili:inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', remoteFolderId: 'inbox-remote' }],
+        memberAidsByFolderId: { 'bilibili:inbox-remote': aids },
+        videos: aids.map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }))
+      }
+    })
+    await repository.commit('100', {
+      id: 'restore-persisted-recovery-workspace', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: completedMarker
+    })
+
+    const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
+    const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    const commit = vi.spyOn(reopenedRepository, 'commit')
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 1, pendingCount: 0 })
+
+    expect(commit).toHaveBeenCalledTimes(2)
+    expect(commit.mock.calls.map(([, command]) => command.type)).toEqual([
+      'repair-persisted-managed-bindings', 'set-favorite-placements'
+    ])
+    await expect(reopenedRepository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:501': { remoteObservedPhysicalFolderIds: ['inbox-remote'] } }
+    })
+  })
+
+  it('does not serialize an interactive snapshot behind a background persisted-binding read', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi·暂存', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1] })
+    await coordinator.finishScan('100')
+
+    const members = deferred<Record<string, number[]>>()
+    const readManagedMembers = vi.spyOn(store, 'readManagedMembers').mockImplementationOnce(() => members.promise)
+    const recovery = coordinator.recoverPersistedManagedBindings('100')
+    await vi.waitFor(() => expect(readManagedMembers).toHaveBeenCalledOnce())
+
+    let snapshotReady = false
+    void coordinator.getSnapshot('100').then(() => { snapshotReady = true })
+    await vi.waitFor(() => expect(snapshotReady).toBe(true))
+
+    members.resolve({ 'inbox-remote': [1] })
+    await recovery
+  })
+
+  it('rebuilds placement consistency from the current complete remote set', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi·暂存', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1] })
+    await coordinator.finishScan('100')
+    await repository.commit('100', {
+      id: 'stale-remote-placement', accountMid: '100', issuedAt: '2026-07-20T00:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1,
+        localDesiredFolderIds: ['bilimi-logical:inbox'],
+        remoteObservedPhysicalFolderIds: ['inbox-remote', 'obsolete-remote'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:inbox'],
+        updatedAt: '2026-07-20T00:01:00.000Z'
+      }
+    })
+
+    await coordinator.recoverPersistedManagedBindings('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:1': {
+          localDesiredFolderIds: ['bilimi-logical:inbox'],
+          remoteObservedPhysicalFolderIds: ['inbox-remote'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:inbox']
+        }
+      }
+    })
+  })
+
+  it('does not recover persisted Bilimi bindings while its scan is incomplete', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1] })
+
+    await expect(coordinator.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 0 })
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.physicalShards).toEqual([])
+    expect(snapshot.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:inbox' })
+    ]))
+  })
+
+  it('keeps incomplete managed-member recovery pending instead of attaching remote members', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'inbox-remote', title: 'bilimi\u00b7\u6682\u5b58', itemCount: 2, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'inbox-remote': [1] })
+
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'inbox', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['inbox-remote'] })
+    ]))
+    expect(snapshot.memberships['bilimi-logical:inbox']).toEqual([])
+  })
+
   it('counts only unique planned aids in snapshots and recovery summaries after protected source duplicates', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -1140,11 +1789,17 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(repository.getLibraryPage('100', { kind: 'all' }, { limit: 100 })).resolves.toMatchObject({
       items: [{
         video: { aid: 7, title: '真实 B 站收藏', author: 'UP 主' },
-        folderIds: ['bilibili:remote-music']
+        folderIds: ['bilibili:remote-music', 'local:inbox']
       }]
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      folders: [{ id: 'bilibili:remote-music', title: '音乐收藏', kind: 'bilibili', remoteFolderId: 'remote-music' }]
+      folders: [{ id: 'bilibili:remote-music', title: '音乐收藏', kind: 'bilibili', remoteFolderId: 'remote-music' }],
+      positions: {
+        '100:7': {
+          remoteObservedPhysicalFolderIds: ['remote-music'],
+          remoteObservedLogicalFolderIds: []
+        }
+      }
     })
   })
 
@@ -2330,6 +2985,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }))
   })
 
+  it('reuses an existing bilimi logical ledger when saving an old-favorite plan locally', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1,
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '4099454411', memberAids: []
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['game'] }]
+    })
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.memberships['bilimi-logical:game']).toEqual([1])
+    expect(snapshot.organizationRecords).toContainEqual(expect.objectContaining({
+      aid: 1, targetFolderIds: ['bilimi-logical:game']
+    }))
+    expect(snapshot.folders).not.toContainEqual(expect.objectContaining({ id: 'local:game' }))
+  })
+
   it('reclaims a saved remote target after the repository was reset', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3509,6 +4191,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
       expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
     })).rejects.toThrow('baseline changed')
+  })
+
+  it('replaces a restored preview workspace after its recovery decision requests a rescan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await first.beginScan('100', 'incremental')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const summary = await first.getRecoverySummary('100')
+    if (!summary) throw new Error('workspace summary unexpectedly unavailable')
+    await first.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId,
+      choice: 'rescan',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(restarted.beginScan('100', 'incremental')).resolves.toMatchObject({
+      status: 'scanning',
+      mode: 'incremental',
+      workspaceId: expect.not.stringMatching(new RegExp(`^${summary.workspaceId}$`))
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'scanning' }
+    })
   })
 
   it('compares recovery baselines by affected aids and managed bindings instead of unrelated repository writes', async () => {

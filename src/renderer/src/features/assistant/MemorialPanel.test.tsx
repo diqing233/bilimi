@@ -272,11 +272,57 @@ describe('MemorialPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
-    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
     fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
 
     expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV1note')
     expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV2note')
+  })
+
+  it('passes a summary-only retry action into the notes panel', () => {
+    const onRetryQueuedVideoSummary = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onTranscribeVideoAudio={vi.fn().mockResolvedValue(null)}
+        onRetryQueuedVideoSummary={onRetryQueuedVideoSummary}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        initialTab="notes"
+        transcriptionQueue={{
+          sessionCompletedCount: 1,
+          items: [{
+            id: 'account:1:aid:2:cid:3',
+            accountMid: '1',
+            aid: 2,
+            cid: 3,
+            bvid: 'BV2note',
+            url: 'https://www.bilibili.com/video/BV2note',
+            title: 'Summary failed video',
+            status: 'completed',
+            archiveRegistrationStatus: 'registered',
+            archiveNoteId: 'bvid:BV2note',
+            archiveVersionId: 'version-1',
+            summaryStatus: 'failed',
+            createdAt: '2026-06-25T00:03:00.000Z',
+            updatedAt: '2026-06-25T00:04:00.000Z'
+          }]
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅重试总结 Summary failed video' }))
+
+    expect(onRetryQueuedVideoSummary).toHaveBeenCalledWith('account:1:aid:2:cid:3')
   })
 
   it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {

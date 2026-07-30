@@ -188,6 +188,29 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
+  it('accepts a bounded 257-video remote observation repair in one revision', () => {
+    const now = '2026-07-23T00:00:00.000Z'
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })
+
+    const repaired = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'repair-257', accountMid: '100', issuedAt: now, expectedRevision: 0,
+      type: 'set-favorite-placements', payload: {
+        placements: Array.from({ length: 257 }, (_, index) => ({
+          aid: index + 1,
+          localDesiredFolderIds: [],
+          remoteObservedPhysicalFolderIds: ['remote-creative'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:creative-aesthetic'],
+          updatedAt: now
+        }))
+      }
+    }, now)
+
+    expect(repaired.revision).toBe(1)
+    expect(repaired.positions['100:257']).toMatchObject({
+      remoteObservedLogicalFolderIds: ['bilimi-logical:creative-aesthetic']
+    })
+  })
+
   it('tombstones a local record without deleting its observed Bilibili source or protection evidence, and prevents scan rediscovery', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
@@ -484,11 +507,16 @@ describe('account favorite repository contracts', () => {
         folders: [{ id: 'local:inbox', title: 'Inbox', kind: 'local', syncState: 'local-only' }],
         videos: [{ aid: 1, title: 'Stale', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }] }
     }, '2026-07-20T00:00:01.000Z')
-    const reset = applyFavoriteRepositoryCommand(seeded, {
-      id: 'reset', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'clear-local-repository', payload: {}
+    const tombstoned = applyFavoriteRepositoryCommand(seeded, {
+      id: 'delete-before-reset', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'delete-favorite-from-library',
+      payload: { aid: 1, deletedAt: '2026-07-20T00:00:02.000Z', reason: 'user-delete' }
     }, '2026-07-20T00:00:02.000Z')
+    const reset = applyFavoriteRepositoryCommand(tombstoned, {
+      id: 'reset', accountMid: '100', issuedAt: '2026-07-20T00:00:03.000Z', type: 'clear-local-repository', payload: {}
+    }, '2026-07-20T00:00:03.000Z')
 
-    expect(reset).toMatchObject({ videos: {}, libraryMirrors: {}, folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [] })
+    expect(reset).toMatchObject({ videos: {}, libraryMirrors: {}, folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [], tombstones: {} })
+    expect(isFavoriteRepositoryScanVisible(reset, 1)).toBe(true)
     expect(reset.workspace).toBeUndefined()
   })
 
@@ -613,6 +641,19 @@ describe('account favorite repository contracts', () => {
     expect(result.organizationRecords).toEqual([
       expect.objectContaining({ aid: 1, targetFolderIds: ['remote-knowledge', 'remote-music'] })
     ])
+  })
+
+  it('retains account-scoped local deletion tombstones while a full rescan clears repository projections', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' })
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-local', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'delete-favorite-from-library', payload: { aid: 7, deletedAt: '2026-07-20T00:00:01.000Z' }
+    }, '2026-07-20T00:00:01.000Z')
+
+    const reset = applyFavoriteRepositoryCommand(deleted, {
+      id: 'rescan-reset', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'clear-local-repository', payload: { preserveTombstones: true }
+    }, '2026-07-20T00:00:02.000Z')
+
+    expect(reset.tombstones['100:7']).toMatchObject({ aid: 7, allowRediscovery: false })
   })
 
   it('removes a deleted shard binding while retaining local videos and other formal protection targets', () => {

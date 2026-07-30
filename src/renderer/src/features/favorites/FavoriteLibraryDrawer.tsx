@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './FavoriteLibraryApp'
 import { closeDurationFor, panelMotionTuning } from '../assistant/panelMotionTuning'
@@ -16,13 +16,20 @@ const COMPACT_BROWSER_HEIGHT = 760
 const DRAWER_HEIGHT_STORAGE_KEY = 'bilimi:favorite-library-drawer-height'
 type FavoriteLibraryDrawerProps = {
   open: boolean
-  collapsed: boolean
+  collapsed?: boolean
   onClose: () => void
-  onCollapsedChange: (collapsed: boolean) => void
+  onCollapsedChange?: (collapsed: boolean) => void
   onResizeActiveChange?: (active: boolean) => void
 }
 
+export type FavoriteLibraryDrawerHandle = {
+  expand: () => void
+  isCollapsed: () => boolean
+}
+
 type FavoriteLibraryAccount = { mid: string; nickname?: string }
+
+const FavoriteLibraryWorkspace = memo(FavoriteLibraryApp)
 
 function browserTabHeight() {
   return window.innerWidth <= COMPACT_BROWSER_WIDTH || window.innerHeight <= COMPACT_BROWSER_HEIGHT
@@ -52,13 +59,16 @@ function isVisible(element: HTMLElement) {
   return element.isConnected && !element.closest('[hidden]') && style.display !== 'none' && style.visibility !== 'hidden'
 }
 
-export function FavoriteLibraryDrawer({
+export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, FavoriteLibraryDrawerProps>(function FavoriteLibraryDrawer({
   open,
-  collapsed,
+  collapsed: controlledCollapsed,
   onClose,
   onCollapsedChange,
   onResizeActiveChange
-}: FavoriteLibraryDrawerProps) {
+}, forwardedRef) {
+  const controlled = controlledCollapsed !== undefined
+  const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState(false)
+  const collapsed = controlled ? controlledCollapsed : uncontrolledCollapsed
   const [height, setHeight] = useState(savedHeight)
   const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
@@ -67,13 +77,28 @@ export function FavoriteLibraryDrawer({
   const [visible, setVisible] = useState(open)
   const [opening, setOpening] = useState(false)
   const [collapsing, setCollapsing] = useState(false)
-  const dragStartRef = useRef<{ clientY: number; height: number }>()
+  const [maximizing, setMaximizing] = useState(false)
+  const [maximizeStartHeight, setMaximizeStartHeight] = useState<number>()
+  const drawerRef = useRef<HTMLElement>(null)
+  const liveHeightRef = useRef(height)
+  const dragStartRef = useRef<{ clientY: number; height: number } | undefined>(undefined)
   const closeTimerRef = useRef<number | null>(null)
   const collapseTimerRef = useRef<number | null>(null)
   const openingFrameRef = useRef<number | null>(null)
+  const maximizeFrameRef = useRef<number | null>(null)
+  const maximizeTimerRef = useRef<number | null>(null)
   const hasBeenOpenedRef = useRef(open)
   const wasOpenRef = useRef(open)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const collapsedRef = useRef(collapsed)
+  collapsedRef.current = collapsed
+
+  useEffect(() => {
+    if (!controlled || collapseTimerRef.current === null) return
+    window.clearTimeout(collapseTimerRef.current)
+    collapseTimerRef.current = null
+    setCollapsing(false)
+  }, [controlled, controlledCollapsed])
 
   useEffect(() => {
     const reconcileHeight = () => setHeight((current) => clampHeight(current))
@@ -84,6 +109,13 @@ export function FavoriteLibraryDrawer({
   useEffect(() => {
     window.localStorage.setItem(DRAWER_HEIGHT_STORAGE_KEY, String(height))
   }, [height])
+
+  liveHeightRef.current = height
+
+  const applyLiveHeight = (nextHeight: number) => {
+    liveHeightRef.current = nextHeight
+    drawerRef.current?.style.setProperty('height', `${nextHeight}px`)
+  }
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -134,23 +166,33 @@ export function FavoriteLibraryDrawer({
     }
   }, [open])
 
-  useEffect(() => {
-    if (collapsed) {
-      setCollapsing(false)
-    }
-  }, [collapsed])
-
   useEffect(() => () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
     if (collapseTimerRef.current !== null) window.clearTimeout(collapseTimerRef.current)
     if (openingFrameRef.current !== null) window.cancelAnimationFrame(openingFrameRef.current)
+    if (maximizeFrameRef.current !== null) window.cancelAnimationFrame(maximizeFrameRef.current)
+    if (maximizeTimerRef.current !== null) window.clearTimeout(maximizeTimerRef.current)
   }, [])
+
+  useImperativeHandle(forwardedRef, () => ({
+    expand: () => {
+      if (!collapsedRef.current) return
+      if (!controlled) setUncontrolledCollapsed(false)
+      onCollapsedChange?.(false)
+      setOpening(true)
+      openingFrameRef.current = window.requestAnimationFrame(() => {
+        openingFrameRef.current = null
+        setOpening(false)
+      })
+    },
+    isCollapsed: () => collapsedRef.current
+  }), [controlled, onCollapsedChange])
 
   if (open) {
     hasBeenOpenedRef.current = true
   }
 
-  if (!hasBeenOpenedRef.current || !visible) {
+  if (!hasBeenOpenedRef.current) {
     return null
   }
 
@@ -161,7 +203,9 @@ export function FavoriteLibraryDrawer({
     setCollapsing(true)
     collapseTimerRef.current = window.setTimeout(() => {
       collapseTimerRef.current = null
-      onCollapsedChange(true)
+      setCollapsing(false)
+      if (!controlled) setUncontrolledCollapsed(true)
+      onCollapsedChange?.(true)
     }, closeDurationFor(panelMotionTuning(), 'drawer-collapse'))
   }
 
@@ -180,12 +224,41 @@ export function FavoriteLibraryDrawer({
       return
     }
 
-    onCollapsedChange(false)
+    if (!controlled) setUncontrolledCollapsed(false)
+    onCollapsedChange?.(false)
     setOpening(true)
     openingFrameRef.current = window.requestAnimationFrame(() => {
       openingFrameRef.current = null
       setOpening(false)
     })
+  }
+
+  const expandAndMaximize = () => {
+    if (maximizing) return
+    const next = maximumHeight()
+    if (!collapsed && height === next) return
+    setMaximizing(true)
+    const finish = () => {
+      maximizeTimerRef.current = window.setTimeout(() => {
+        maximizeTimerRef.current = null
+        setMaximizing(false)
+      }, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 1 : panelMotionTuning().drawerExpandMs)
+    }
+    if (collapsed) {
+      const startHeight = Math.max(MIN_HEIGHT, drawerRef.current?.getBoundingClientRect().height ?? MIN_HEIGHT)
+      setMaximizeStartHeight(startHeight)
+      if (!controlled) setUncontrolledCollapsed(false)
+      onCollapsedChange?.(false)
+      maximizeFrameRef.current = window.requestAnimationFrame(() => {
+        maximizeFrameRef.current = null
+        setMaximizeStartHeight(undefined)
+        setHeight(next)
+        finish()
+      })
+      return
+    }
+    setHeight(next)
+    finish()
   }
 
   const notices = drawerStatus?.notices ?? []
@@ -194,15 +267,21 @@ export function FavoriteLibraryDrawer({
 
   return (
     <section
+      ref={drawerRef}
       className="favorite-library-drawer"
       data-testid="favorite-library-drawer"
       data-collapsed={collapsed ? 'true' : 'false'}
       data-collapsing={collapsing || undefined}
       data-closing={closing || undefined}
       data-opening={opening || undefined}
-      style={collapsed ? undefined : { height: `${height}px` }}
+      data-maximizing={maximizing || undefined}
+      style={open ? (collapsed ? undefined : {
+        height: `${maximizeStartHeight ?? height}px`,
+        '--favorite-library-drawer-height-duration': `${panelMotionTuning().drawerExpandMs}ms`
+      } as React.CSSProperties) : { display: 'none' }}
       aria-label="收藏库"
       aria-hidden={!open || undefined}
+      inert={!open}
     >
       <div
         className="favorite-library-drawer__resize-handle"
@@ -222,12 +301,14 @@ export function FavoriteLibraryDrawer({
         onPointerMove={(event) => {
           const start = dragStartRef.current
           if (!start) return
-          setHeight(clampHeight(start.height + start.clientY - event.clientY))
+          applyLiveHeight(clampHeight(start.height + start.clientY - event.clientY))
         }}
         onPointerUp={(event) => {
-          const shouldCollapse = height <= MIN_HEIGHT + COLLAPSE_SNAP_DISTANCE
+          const finalHeight = liveHeightRef.current
+          const shouldCollapse = finalHeight <= MIN_HEIGHT + COLLAPSE_SNAP_DISTANCE
           dragStartRef.current = undefined
           setDragging(false)
+          setHeight(finalHeight)
           onResizeActiveChange?.(false)
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           if (shouldCollapse) beginDrawerCollapse()
@@ -259,8 +340,7 @@ export function FavoriteLibraryDrawer({
       <header className="favorite-library-drawer__header" role="banner" aria-label="小咪收藏库">
         <div className="favorite-library-drawer__title">
           <img className="favorite-library-drawer__brand-mark" src={workingPetUrl} alt="小咪收藏库" />
-          <strong>小咪收藏库</strong>
-          {account ? <span aria-label={`当前账号：${account.nickname ?? `UID：${account.mid}`}`}>· {account.nickname ?? `UID：${account.mid}`}</span> : null}
+          <strong>小咪收藏库{account ? <span className="favorite-library-drawer__account">{`（${account.nickname ?? `UID：${account.mid}`}）`}</span> : null}</strong>
         </div>
         {activeNotice ? <div className="favorite-library-drawer__notice" role="status" title={activeNotice.message}>
           <span aria-hidden="true">⚠</span>
@@ -269,7 +349,7 @@ export function FavoriteLibraryDrawer({
           <button type="button" onClick={activeNotice.onActivate}>查看</button>
         </div> : null}
         <div className="favorite-library-drawer__actions">
-          <button type="button" aria-label="拉到最高" title="拉到最高" onClick={() => setHeight(maximumHeight())}>拉到最高</button>
+          <button type="button" aria-label="展开并拉到最高" title="展开并拉到最高" disabled={maximizing} onClick={expandAndMaximize}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h14M12 19V8m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
           <button
             type="button"
             aria-label={collapsed ? '展开收藏库' : '收起收藏库'}
@@ -284,8 +364,8 @@ export function FavoriteLibraryDrawer({
         </div>
       </header>
       <div className="favorite-library-drawer__body" data-dragging={dragging ? 'true' : undefined} hidden={collapsed}>
-        <FavoriteLibraryApp embedded onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
+        <FavoriteLibraryWorkspace embedded active={open && !collapsed} onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
       </div>
     </section>
   )
-}
+})

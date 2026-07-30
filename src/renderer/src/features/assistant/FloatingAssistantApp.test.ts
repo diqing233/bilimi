@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import type { FavoriteLedger } from '@shared/types'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { defaultFavoriteSystemToggleAvailable, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS } from './FloatingAssistantApp'
+import * as FloatingAssistantAppModule from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
 
 const defaultLedger: FavoriteLedger = {
   id: 'knowledge', displayName: 'bilimi\u00b7\u77e5\u8bc6', keywords: [], enabled: true,
   priority: 10, isDefault: true
+}
+
+const emptyOverview = { shortSummary: [], keywords: [], timeline: [], highlights: [] }
+
+function readFloatingAssistantAppRootSource(): string {
+  const source = readFileSync(
+    resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'),
+    'utf8'
+  )
+  const rootStart = source.indexOf('export function FloatingAssistantApp')
+  return rootStart === -1 ? source : source.slice(rootStart)
 }
 
 function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteWorkspaceSnapshot {
@@ -18,6 +32,320 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('routes a direct ledger-enabled intent through the narrow IPC without scanning the ledger array', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerEnabled'),
+      source.indexOf('async function saveFavoriteLedgerRules')
+    )
+
+    expect(saveFunction).toContain('writeFavoriteLedgerEnabled')
+    expect(saveFunction).not.toContain('favoriteLedgers')
+    expect(saveFunction).not.toContain('JSON.stringify')
+    expect(saveFunction).not.toContain('.find(')
+    expect(saveFunction).not.toContain('.map(')
+    expect(saveFunction).not.toContain('applyPreferenceSnapshot')
+    expect(saveFunction).not.toContain('setPreferences')
+    expect(saveFunction).not.toContain('requestAssistantSnapshot')
+    expect(saveFunction).not.toContain('reclassify-favorite-configuration')
+  })
+
+  it('passes the direct enabled callback through the isolated ledger panel', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const panelStart = source.indexOf('<LedgerWorkspacePanel')
+    const panel = source.slice(panelStart, source.indexOf('/>', panelStart))
+    expect(panel).toContain('onSaveLedgerEnabled={saveFavoriteLedgerEnabledForPanel}')
+  })
+
+  it('keeps ledger-enabled broadcasts outside the large assistant render tree', () => {
+    const source = readFloatingAssistantAppRootSource()
+    const effect = source.slice(
+      source.indexOf('return window.bilimiDesktop?.onFavoriteLedgerEnabledChanged'),
+      source.indexOf('const resolvedSnapshot')
+    )
+
+    expect(effect).toContain('applyIndexedFavoriteLedgerEnabledPatch')
+    expect(effect).not.toContain('setPreferences')
+    expect(effect).not.toContain('applyPreferenceSnapshot')
+  })
+
+  it('reclassifies ledger changes only for the active preview workspace of that account', () => {
+    expect(favoriteLedgerReclassificationRequired(workspace('previewing'), '100')).toBe(true)
+    expect(favoriteLedgerReclassificationRequired(workspace('completed'), '100')).toBe(false)
+    expect(favoriteLedgerReclassificationRequired(workspace('previewing'), '200')).toBe(false)
+    expect(favoriteLedgerReclassificationRequired(null, '100')).toBe(false)
+  })
+
+  it('uses the merged preference patch path for ledger saves instead of flushing the full tree', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(saveFunction).toContain('scheduleAndWait')
+    expect(saveFunction).not.toContain('persistPreferences(')
+  })
+
+  it('keeps ordinary ledger-rule saves local and reserves remote work for explicit sync', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+    const syncFunction = source.slice(
+      source.indexOf('async function syncFavoriteLedgers'),
+      source.indexOf('async function retryQueuedVideoAudioTranscriptionOnCpu')
+    )
+
+    expect(saveFunction).not.toContain('saveFavoriteLedgers')
+    expect(saveFunction).not.toContain('requestAssistantSnapshot')
+    expect(saveFunction).not.toContain('reclassify-favorite-configuration')
+    expect(syncFunction).toContain('saveFavoriteLedgers')
+  })
+
+  it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(source).toContain('favoriteLedgerRuleMutationIdRef')
+    expect(saveFunction).toContain('mutationId === favoriteLedgerRuleMutationIdRef.current')
+  })
+
+  it('keeps sidebar-width-only broadcasts out of the large assistant render tree', () => {
+    const source = readFloatingAssistantAppRootSource()
+    const effect = source.slice(
+      source.indexOf('return window.bilimiDesktop?.onAssistantPreferencePatchChanged'),
+      source.indexOf('const resolvedSnapshot')
+    )
+
+    expect(effect).toContain("key === 'assistantSidebarWidthPx' || key === 'petHoverShortcuts'")
+  })
+
+  it('broadcasts pet shortcut previews before the deferred persistence write', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const persistFunction = source.slice(
+      source.indexOf('function persistPetHoverShortcuts'),
+      source.indexOf('function deleteCorrectionRecord')
+    )
+
+    expect(persistFunction).toContain('previewPreferencePatch?.(patch, meta)')
+    expect(persistFunction.indexOf('previewPreferencePatch?.(patch, meta)')).toBeLessThan(
+      persistFunction.indexOf('getPreferencePatchScheduler().schedule(patch)')
+    )
+  })
+
+  it('scopes stale pet shortcut echoes to one settings-window session', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const rootSource = readFloatingAssistantAppRootSource()
+    const effect = rootSource.slice(
+      rootSource.indexOf('return window.bilimiDesktop?.onAssistantPreferencePatchChanged'),
+      rootSource.indexOf('const resolvedSnapshot')
+    )
+    const persistFunction = source.slice(
+      source.indexOf('function persistPetHoverShortcuts'),
+      source.indexOf('function deleteCorrectionRecord')
+    )
+
+    expect(source).toContain('createAssistantPreferenceOriginId')
+    expect(source).toContain('petHoverShortcutOriginIdRef')
+    expect(effect).toContain('meta?.originId === petHoverShortcutOriginIdRef.current')
+    expect(effect).toContain('meta.mutationId <= latestPetHoverShortcutMutationIdRef.current')
+    expect(persistFunction).toContain('originId: petHoverShortcutOriginIdRef.current')
+    expect(source).not.toContain("originId: 'pet_shortcuts'")
+  })
+
+  it('uses one fixed chevron for the expandable global feedback row', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const feedbackToggle = source.slice(
+      source.indexOf('className="floating-assistant-global-status__feedback-toggle"'),
+      source.indexOf('</button>', source.indexOf('className="floating-assistant-global-status__feedback-toggle"'))
+    )
+
+    expect(feedbackToggle).toContain('aria-expanded={globalFeedbackExpanded}')
+    expect(feedbackToggle).toContain('className="floating-assistant-global-status__feedback-chevron"')
+    expect(feedbackToggle).toContain('viewBox="0 0 16 16"')
+    expect(feedbackToggle).toContain('d="m3 6 5 5 5-5"')
+    expect(feedbackToggle).not.toContain('<span aria-hidden="true">')
+  })
+
+  it('expands global feedback into live tasks and recent transient history without changing navigation', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain('createPersistentStatusTasks({')
+    expect(source).toContain('className="floating-assistant-global-status__menu"')
+    expect(source).toContain('常驻任务')
+    expect(source).toContain('最近提示')
+    expect(source).toContain("openSettingsSection('transcription')")
+  })
+
+  it('does not reload the full archive library for a generic assistant snapshot signal', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const effect = source.slice(
+      source.indexOf('return window.bilimiDesktop?.onAssistantSnapshotChanged'),
+      source.indexOf('useEffect(() => window.bilimiDesktop?.onBilibiliAccountChanged')
+    )
+
+    expect(effect).toContain('loadSnapshot({ resetVideoNote: true })')
+    expect(effect).not.toContain('loadVideoNoteArchives')
+  })
+  it('keeps DeepSeek feature toggles behind the post-paint settings field boundary', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const deepSeekSwitches = source.slice(
+      source.indexOf('className="assistant-settings__deepseek-switches"'),
+      source.indexOf('<span>DeepSeek API')
+    )
+
+    expect(deepSeekSwitches.match(/<SettingsPreferenceCheckbox/g)).toHaveLength(5)
+    expect(deepSeekSwitches).not.toContain('type="checkbox"')
+  })
+
+  it('does not normalize the complete preference tree for an ordinary DeepSeek field patch', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const updateFunction = source.slice(
+      source.indexOf('function updateDeepSeekPreference'),
+      source.indexOf('function toggleDeepSeekEnabled')
+    )
+
+    expect(updateFunction).toContain('applyImmediatePreferencePatch')
+    expect(updateFunction).not.toContain('createInitialAssistantPreferences')
+  })
+
+  it('restores layout through an independent field patch instead of a full preference flush', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const restoreFunction = source.slice(
+      source.indexOf('function restoreDefaultLayoutSize'),
+      source.indexOf('async function copyDeepSeekRecommendation')
+    )
+
+    expect(restoreFunction).toContain('restoreDefaultLayoutSize?.()')
+    expect(restoreFunction).toContain('scheduleAndWait(patch)')
+    expect(restoreFunction).toContain('assistantSidebarWidthPx: null')
+    expect(restoreFunction).not.toContain('persistPreferences(')
+    expect(restoreFunction).not.toContain('createInitialAssistantPreferences')
+  })
+
+  it('uses themed confirmation dialogs instead of browser confirmations for settings resets', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).not.toContain('window.confirm(')
+    expect(source).toContain('<BilimiModal title="重置 DeepSeek？"')
+    expect(source).toContain('<BilimiModal title="确认重置全部设置？"')
+  })
+
+  it('creates one shared feedback event for queued transcription start, completion, and failure', () => {
+    const base = {
+      id: 'queue-1', url: 'https://www.bilibili.com/video/BV1queue', title: '队列视频', bvid: 'BV1queue',
+      createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:01:00.000Z'
+    }
+    const empty = { items: [], sessionCompletedCount: 0 } satisfies VideoAudioTranscriptionQueueSnapshot
+    const running = { items: [{ ...base, status: 'running' as const }], sessionCompletedCount: 0 } satisfies VideoAudioTranscriptionQueueSnapshot
+    const completed = { items: [{ ...base, status: 'completed' as const, archiveRegistrationStatus: 'registered' as const, archiveNoteId: 'archive-1', archiveVersionId: 'version-1' }], sessionCompletedCount: 1 } satisfies VideoAudioTranscriptionQueueSnapshot
+    const failed = { items: [{ ...base, status: 'failed' as const, errorMessage: '音频下载失败。' }], sessionCompletedCount: 0 } satisfies VideoAudioTranscriptionQueueSnapshot
+
+    expect(createTranscriptionQueueFeedback(empty, running)).toEqual({
+      tone: 'progress', globalMessage: '已开始转写：队列视频', petMessage: '小咪已经开始转写「队列视频」。'
+    })
+    expect(createTranscriptionQueueFeedback(running, completed)).toEqual({
+      tone: 'success', globalMessage: '转写完成，文稿已保存到档案库', petMessage: '「队列视频」转写完成，文稿已保存到档案库。'
+    })
+    expect(createTranscriptionQueueFeedback(running, failed)).toEqual({
+      tone: 'error', globalMessage: '转写失败：队列视频', petMessage: '「队列视频」转写失败：音频下载失败。'
+    })
+  })
+
+  it('uses shared feedback messages for DeepSeek summary progress, completion, and failure', () => {
+    expect(createDeepSeekSummaryFeedback('progress')).toEqual({
+      tone: 'progress', globalMessage: 'DeepSeek 正在生成总结。', petMessage: '小咪正在整理 DeepSeek 总结。'
+    })
+    expect(createDeepSeekSummaryFeedback('success')).toEqual({
+      tone: 'success', globalMessage: 'DeepSeek 总结已生成。', petMessage: 'DeepSeek 总结做好啦。'
+    })
+    expect(createDeepSeekSummaryFeedback('error', 'DeepSeek 服务不可用。')).toEqual({
+      tone: 'error', globalMessage: 'DeepSeek 服务不可用。', petMessage: 'DeepSeek 服务不可用。'
+    })
+  })
+
+  it('uses a neutral explanation for the transcription speed setting', () => {
+    const descriptions = FloatingAssistantAppModule as unknown as {
+      transcriptionSpeedSettingDescription?: () => string
+    }
+
+    expect(descriptions.transcriptionSpeedSettingDescription?.()).toBe(
+      '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
+    )
+  })
+
+  it('maps all global status lights to their approved workspace destinations', () => {
+    expect(statusLightNavigation('deepseek', 'review')).toEqual({ tab: 'settings', section: 'deepseek' })
+    expect(statusLightNavigation('transcription', 'noteArchive')).toEqual({ tab: 'notes', view: 'notes' })
+    expect(statusLightNavigation('ledger', 'notes')).toEqual({ tab: 'ledger' })
+  })
+
+  it('keeps the live multi-line status detail as the hover tooltip', () => {
+    expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
+      '收藏夹：未备册。\n整理收藏：完成备册后可开始。'
+    )
+  })
+
+  it('does not treat a completed transcription for another part as the current video', () => {
+    const note = {
+      id: 'bvid:BV1old', source: { accountMid: '100', aid: 7, cid: 70, bvid: 'BV1old', title: 'Old', tags: [], url: '' },
+      transcriptSource: 'audio' as const, transcript: [], chapters: [], overview: emptyOverview, annotations: [], userMemo: '', starred: false,
+      createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:00:00.000Z'
+    }
+    const currentSnapshot = {
+      accountMid: '100',
+      videoContentContext: { aid: 8, cid: 80, bvid: 'BV1new' }
+    } as never
+
+    expect(matchesCurrentVideoNote(note, currentSnapshot)).toBe(false)
+  })
+
+  it('does not guess a summary from the newest archive version when the current note identity is ambiguous', () => {
+    const note = {
+      id: 'note-1', source: { accountMid: '100', aid: 7, cid: 70, bvid: 'BV1same', title: 'Video', tags: [], url: '' },
+      transcriptSource: 'audio' as const, transcript: [], chapters: [], overview: emptyOverview, annotations: [], userMemo: '', starred: false,
+      createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z'
+    }
+    expect(findArchivedSummaryTextForNote([{ id: 'bvid:BV1same', source: note.source, createdAt: note.createdAt, updatedAt: note.updatedAt, versions: [
+      { id: 'version-1', createdAt: note.createdAt, note, plainTranscript: '', summaryText: 'older summary' },
+      { id: 'version-2', createdAt: '2026-07-27T01:00:00.000Z', note, plainTranscript: '', summaryText: 'newer unrelated summary' }
+    ] }], note)).toBe('')
+  })
+
+  it('does not retain another account archive when the signed-in account changes', () => {
+    expect(archivesForCurrentAccount([
+      { id: 'old', source: { accountMid: '100', title: 'Old', tags: [], url: '' }, versions: [], createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:00:00.000Z' },
+      { id: 'current', source: { accountMid: '200', title: 'Current', tags: [], url: '' }, versions: [], createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:00:00.000Z' }
+    ], '200').map((archive) => archive.id)).toEqual(['current'])
+    expect(archivesForCurrentAccount([], '').length).toBe(0)
+  })
+
+  it('rejects an archive response captured before account-change invalidation', () => {
+    expect(canPublishVideoNoteArchiveLoad(3, 4)).toBe(false)
+    expect(canPublishVideoNoteArchiveLoad(4, 4)).toBe(true)
+  })
+
+  it('refreshes a missing exact archive version for a completed queue item without guessing another version', () => {
+    const item = {
+      id: 'account:100:bvid:BV1done', accountMid: '100', bvid: 'BV1done', url: 'https://www.bilibili.com/video/BV1done', title: 'Video', status: 'completed' as const,
+      archiveRegistrationStatus: 'registered' as const, archiveNoteId: 'bvid:BV1done', archiveVersionId: 'version-done',
+      createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:00:01.000Z'
+    }
+    const otherVersion = {
+      id: 'version-other', createdAt: item.createdAt, plainTranscript: '', summaryText: '',
+      note: { id: 'bvid:BV1done', source: { accountMid: '100', bvid: 'BV1done', title: 'Video', tags: [], url: '' }, transcriptSource: 'audio' as const, transcript: [], chapters: [], overview: emptyOverview, annotations: [], userMemo: '', starred: false, createdAt: item.createdAt, updatedAt: item.updatedAt }
+    }
+
+    expect(archiveSnapshotNeedsRefresh([], [item], '100')).toBe(true)
+    expect(archiveSnapshotNeedsRefresh([{ id: 'bvid:BV1done', source: otherVersion.note.source, versions: [otherVersion], createdAt: item.createdAt, updatedAt: item.updatedAt }], [item], '100')).toBe(true)
+    expect(archiveSnapshotNeedsRefresh([{ id: 'bvid:BV1done', source: otherVersion.note.source, versions: [{ ...otherVersion, id: 'version-done' }], createdAt: item.createdAt, updatedAt: item.updatedAt }], [item], '100')).toBe(false)
+  })
+
   it('places local data and motion tuning after the Bilibili connection setting', () => {
     expect(SETTINGS_JUMP_OPTIONS.slice(-4).map((option) => option.value)).toEqual([
       'bilibili-connection',
@@ -57,12 +385,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
   })
 
   it('uses the backup status only when no real organization round is active', () => {
-    expect(resolveFavoriteOrganizationLamp({
+    const status = resolveFavoriteOrganizationLamp({
       snapshot: null,
       defaultFavoriteSystemEnabled: true,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
+    })
+    expect(status).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
+    expect(status.detail.split('\n')).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^收藏夹：/),
+      expect.stringMatching(/^整理收藏：/)
+    ]))
 
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace('scanning'),

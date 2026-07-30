@@ -148,7 +148,7 @@ export function OldFavoriteArchivePreviewStep({
         <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
       </div>
     </div>
-    <p className="favorite-ledger-panel__step-note">当前分段 {items.length} 条；可调整分类和暂存，预览中的修改不会立即操作 B 站。</p>
+    <p className="favorite-ledger-panel__step-note">检查分类结果，可手动调整或使用 DeepSeek 辅助整理。</p>
     <p className="favorite-ledger-panel__action-explanation">DeepSeek 只辅助更新预览；撤销、恢复和改动记录只处理本轮预览改动。</p>
     {snapshot.segments.length > 1 ? <div role="group" aria-label="整理分段">
       {snapshot.segments.map((segment) => <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
@@ -167,7 +167,7 @@ export function OldFavoriteArchivePreviewStep({
                 <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
                   title={`当前选择：${DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === deepSeekMode)?.label ?? ''}`}
                   disabled={loading || deepSeekCancellationAction} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
-                  <span>整理范围</span><span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
+                  <span>整理范围</span><span className="disclosure-arrow favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
                 </button>
                 {deepSeekScopeOpen ? <div className="favorite-ledger-panel__deepseek-archive-scope-menu" role="menu" aria-label="DeepSeek 处理对象">
                   {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitemradio"
@@ -217,7 +217,7 @@ export function OldFavoriteArchivePreviewStep({
               <button ref={historyTriggerRef} type="button" className="favorite-ledger-panel__archive-history-trigger"
                 aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || historyEntries.length === 0}
                 onClick={() => setHistoryOpen((open) => !open)}>
-                <span className="favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
+                <span className="disclosure-arrow favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
               {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
                 <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>

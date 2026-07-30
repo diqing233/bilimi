@@ -8,6 +8,7 @@ function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
   return {
     id: 'bvid:BV1note',
     source: {
+      accountMid: '100',
       title: '机器学习入门',
       author: '李老师',
       bvid: 'BV1note',
@@ -83,6 +84,60 @@ function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof Video
 }
 
 describe('VideoNoteArchivePanel', () => {
+  it('enters batch mode with no selection and keeps archive details available', () => {
+    const archives = createArchives()
+    renderArchivePanel({ archives })
+
+    fireEvent.click(screen.getByRole('button', { name: '批量导出' }))
+
+    expect(screen.getAllByRole('checkbox', { name: /选择档案/ })).toHaveLength(archives.length)
+    expect(screen.getByText('已选 0 项')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '导出所选档案' })).toBeDisabled()
+
+    const firstCheckbox = screen.getByRole('checkbox', { name: `选择档案：${archives[0]!.source.title}` })
+    fireEvent.click(firstCheckbox)
+    expect(screen.getByText('已选 1 项')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(archives[0]!.source.title) }))
+    expect(screen.getByRole('article', { name: archives[0]!.source.title })).toBeInTheDocument()
+    expect(firstCheckbox).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: '清除选择' }))
+    expect(firstCheckbox).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '取消批量' }))
+    expect(screen.queryByRole('checkbox', { name: /选择档案/ })).not.toBeInTheDocument()
+  })
+
+  it('selects the whole archive library through filters and exports every latest version', async () => {
+    const archives = createArchives()
+    for (const archive of archives) archive.source.accountMid = '100'
+    const previewVideoNoteArchiveBatch = vi.fn().mockResolvedValue({ selectedCount: 2, exportableCount: 2, skippedCount: 0 })
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch, startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    renderArchivePanel({ archives, accountMid: '100' })
+
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索档案' }), { target: { value: archives[0]!.source.title } })
+    fireEvent.click(screen.getByRole('button', { name: '批量导出' }))
+    fireEvent.click(screen.getByRole('button', { name: '全选全部档案' }))
+
+    expect(screen.getByText('已选 2 项，其中 1 项不在当前筛选结果中')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(archives[0]!.source.title) }))
+    fireEvent.change(screen.getByLabelText('历史版本'), { target: { value: archives[0]!.versions[0]!.id } })
+    fireEvent.click(screen.getByRole('button', { name: '导出所选档案' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '导出文稿' })
+    expect(within(dialog).getByLabelText('当前版本完整档案')).toBeChecked()
+    fireEvent.click(within(dialog).getByLabelText('单项内容'))
+    expect(within(dialog).getByRole('button', { name: '选择导出内容' })).toBeEnabled()
+    await waitFor(() => expect(previewVideoNoteArchiveBatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      accountMid: '100',
+      selections: archives.map((archive) => ({ archiveId: archive.id, versionId: archive.versions.at(-1)!.id })),
+      scope: 'current'
+    })))
+  })
+
   it('marks the return-to-notes control as the archive primary navigation action', () => {
     renderArchivePanel()
 
@@ -125,25 +180,25 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveTextContent(
-      '纯文稿连续阅读，提供复制全文。'
+      '查看纯文稿，适合连续阅读'
     )
     expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveTextContent(
-      '按时间段阅读，提供复制全文。'
+      '查看时间线文稿，可点击时间跳转'
     )
     expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveTextContent(
-      '更丰富精细的结构化摘要，提供复制全文。'
+      '查看结构化总结与精修文稿'
     )
     expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
       'title',
-      '无时间线文稿：纯文稿连续阅读，提供复制全文。'
+      '无时间线文稿：查看纯文稿，适合连续阅读'
     )
     expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveAttribute(
       'title',
-      '带时间线文稿：按时间段阅读，提供复制全文。'
+      '带时间线文稿：查看时间线文稿，可点击时间跳转'
     )
     expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveAttribute(
       'title',
-      'DeepSeek 总结：更丰富精细的结构化摘要，提供复制全文。'
+      'DeepSeek 总结：查看结构化总结与精修文稿'
     )
   })
 
@@ -370,12 +425,14 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制无时间线文稿' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getByText('暂无 DeepSeek 总结。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '复制全文' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(''))
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    expect(screen.getByRole('menuitem', { name: '复制无时间线文稿' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: '复制 DeepSeek 总结全文' })).toBeDisabled()
   })
 
   it('uses an attached triangle menu for DeepSeek summary copies in the archive', async () => {
@@ -414,16 +471,21 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
     const splitButton = screen.getByRole('group', { name: '档案 DeepSeek 复制' })
-    fireEvent.click(within(splitButton).getByRole('button', { name: '复制全文' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(summaryText))
-    expect(within(splitButton).getByRole('button', { name: '更多复制' })).toHaveTextContent('▾')
+    fireEvent.click(within(splitButton).getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制 DeepSeek 总结全文' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith([
+      '## 精准总结', '', '### 机器学习入门', '整体主旨：用数据和模型解释机器学习。', '',
+      '- 核心内容：训练数据影响模型表现。', '关键词：机器学习、训练数据', '',
+      '## 详细内容提要', '', '- 数据：训练数据', '', '## 精修文稿', '', '先介绍机器学习的基本概念。'
+    ].join('\n')))
+    expect(within(splitButton).getByRole('button', { name: '复制' })).toHaveTextContent('▾')
 
-    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '复制精修文' }))
+    fireEvent.click(within(splitButton).getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '仅复制精修文稿' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('先介绍机器学习的基本概念。'))
 
-    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '复制总结' }))
+    fireEvent.click(within(splitButton).getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '仅复制精准总结' }))
     await waitFor(() =>
       expect(writeText).toHaveBeenLastCalledWith(
         [
@@ -457,7 +519,11 @@ describe('VideoNoteArchivePanel', () => {
       '2026-06-17T02:00:00.000Z',
       '## 精准总结\n\n### 归档总结\n基于已有文稿生成'
     )
-    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
+    const onArchivePosterSummary = vi.fn().mockResolvedValue({
+      archives: nextArchives,
+      archiveId: nextArchives[0].id,
+      versionId: nextArchives[0].versions.at(-1)?.id
+    })
 
     renderArchivePanel({
       archives: originalArchives,
@@ -472,8 +538,48 @@ describe('VideoNoteArchivePanel', () => {
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(expect.objectContaining({
       id: 'bvid:BV1note'
     })))
-    expect(onArchivePosterSummary).toHaveBeenCalledWith(expect.any(Object), poster)
+    expect(onArchivePosterSummary).toHaveBeenCalledWith(
+      originalArchives[0].id,
+      originalArchives[0].versions.at(-1)?.id,
+      expect.any(Object),
+      poster
+    )
     expect(await screen.findByText('归档总结')).toBeInTheDocument()
+  })
+
+  it('reports archive copy feedback outside the archive card', async () => {
+    const onCopyFeedback = vi.fn()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+    renderArchivePanel({ onCopyFeedback })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制无时间线文稿' }))
+
+    await waitFor(() => expect(onCopyFeedback).toHaveBeenCalledWith({ tone: 'success', message: '无时间线文稿已复制' }))
+    expect(screen.queryByText('无时间线文稿已复制')).not.toBeInTheDocument()
+  })
+
+  it('opens a current-content download dialog from every archive transcript panel', async () => {
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch: vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 }),
+      startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    renderArchivePanel({ accountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+
+    for (const tabName of ['无时间线文稿', '带时间线文稿', 'DeepSeek 总结']) {
+      fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName) }))
+      const panel = screen.getByRole('tabpanel')
+      fireEvent.click(within(panel).getByRole('button', { name: '导出' }))
+      expect(await screen.findByRole('dialog', { name: '导出文稿' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+      fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName) }))
+    }
   })
 
   it('switches to the newly archived version after regenerating a summary', async () => {
@@ -497,7 +603,11 @@ describe('VideoNoteArchivePanel', () => {
       '2026-06-17T01:00:00.000Z',
       '## 精准总结\n\n### 新总结\n重新生成的内容'
     )
-    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
+    const onArchivePosterSummary = vi.fn().mockResolvedValue({
+      archives: nextArchives,
+      archiveId: nextArchives[0].id,
+      versionId: nextArchives[0].versions.at(-1)?.id
+    })
     const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
 
     renderArchivePanel({
@@ -662,5 +772,117 @@ describe('VideoNoteArchivePanel', () => {
     const entryDialog = screen.getByRole('dialog', { name: '确认删除' })
     fireEvent.click(within(entryDialog).getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(onDeleteEntry).toHaveBeenCalledWith('bvid:BV1note'))
+  })
+
+  it('disables shared export for a legacy archive without an account identity', () => {
+    const archives = createArchives()
+    const legacy = archives[0]!
+    delete legacy.source.accountMid
+    renderArchivePanel({ archives })
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(legacy.source.title) }))
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(within(screen.getByRole('tabpanel')).getByRole('button', { name: '导出' })).toBeDisabled()
+    expect(within(screen.getByRole('tabpanel')).getByRole('button', { name: '导出' })).toHaveAttribute('title', '此历史档案缺少账号标识，无法安全导出文稿。')
+  })
+
+  it('uses the shared batch dialog with identity-only current content, both formats, and available notes included', async () => {
+    const previewVideoNoteArchiveBatch = vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 })
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch, startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    renderArchivePanel()
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '导出' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '导出文稿' })
+    expect(within(dialog).getByLabelText('单项内容')).toBeChecked()
+    expect(within(dialog).getByLabelText('Markdown')).toBeChecked()
+    expect(within(dialog).getByLabelText('Word')).not.toBeChecked()
+    expect(within(dialog).getByLabelText('包含备注')).toBeChecked()
+    fireEvent.click(within(dialog).getByLabelText('Word'))
+    await waitFor(() => expect(previewVideoNoteArchiveBatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      accountMid: '100', selections: [{ archiveId: 'bvid:BV1note', versionId: 'bvid:BV1note:version:2026-06-17T01:00:00.000Z' }], formats: ['markdown', 'word'], scope: 'current', currentContent: 'plain', includeNotes: true
+    })))
+  })
+
+  it('immediately hides an open export dialog when the archive account changes', async () => {
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch: vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 }),
+      startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    const view = renderArchivePanel({ accountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '导出' }))
+    expect(await screen.findByRole('dialog', { name: '导出文稿' })).toBeInTheDocument()
+
+    view.rerender(<VideoNoteArchivePanel
+      archives={createArchives()}
+      accountMid="200"
+      onClose={vi.fn()}
+      onOpenSource={vi.fn()}
+      onUpdateVersion={vi.fn()}
+      onDeleteEntry={vi.fn()}
+      onDeleteVersion={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('dialog', { name: '导出文稿' })).not.toBeInTheDocument()
+  })
+
+  it('moves complete-archive export into the more-actions menu', async () => {
+    const previewVideoNoteArchiveBatch = vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 })
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch, startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    renderArchivePanel({ accountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('button', { name: '更多档案操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出完整档案' }))
+
+    await waitFor(() => expect(previewVideoNoteArchiveBatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      accountMid: '100', scope: 'complete', selections: [{ archiveId: 'bvid:BV1note', versionId: 'bvid:BV1note:version:2026-06-17T01:00:00.000Z' }]
+    })))
+  })
+
+  it('keeps the clicked archive version identity when the version picker changes behind an open download dialog', async () => {
+    const previewVideoNoteArchiveBatch = vi.fn().mockResolvedValue({ selectedCount: 1, exportableCount: 1, skippedCount: 0 })
+    window.bilimiDesktop = {
+      previewVideoNoteArchiveBatch, startVideoNoteArchiveBatch: vi.fn(), cancelVideoNoteArchiveBatch: vi.fn(), openVideoNoteArchiveBatchFolder: vi.fn(), onVideoNoteArchiveBatchProgress: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+    renderArchivePanel({ accountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '导出' }))
+    await screen.findByRole('dialog', { name: '导出文稿' })
+    fireEvent.change(screen.getByLabelText('历史版本'), { target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' } })
+
+    await waitFor(() => expect(previewVideoNoteArchiveBatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      selections: [{ archiveId: 'bvid:BV1note', versionId: 'bvid:BV1note:version:2026-06-17T01:00:00.000Z' }]
+    })))
+  })
+
+  it('seeks the archived video part only from valid timeline timestamps', () => {
+    const onSeekSource = vi.fn()
+    const archives = createArchives()
+    const archive = archives.find((entry) => entry.id === 'bvid:BV1note')!
+    const version = archive.versions.at(-1)!
+    version.note.transcript.push({ start: null, end: null, text: '无有效时间点。' })
+
+    renderArchivePanel({ archives, onSeekSource })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /带时间线文稿/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '00:03' }))
+
+    expect(onSeekSource).toHaveBeenCalledWith(
+      expect.objectContaining({ bvid: 'BV1note' }),
+      3
+    )
+    expect(screen.queryByRole('button', { name: '--:--' })).not.toBeInTheDocument()
+    expect(screen.getByText('--:--')).toBeInTheDocument()
   })
 })

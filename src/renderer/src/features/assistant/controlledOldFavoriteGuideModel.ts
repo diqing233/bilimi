@@ -24,7 +24,7 @@ export function createControlledOldFavoriteGuideModel(
     return {
       currentStep: 'scan',
       steps: stepsThrough('scan'),
-      primaryAction: '整理旧藏',
+      primaryAction: '整理收藏',
       progress: { value: 0, label: '尚未开始' },
       error: null
     }

@@ -1,7 +1,7 @@
 export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 
-export type OldFavoriteWorkspaceStatus = 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
+export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
 export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'deepseek' | 'system-high' | 'system-low'
 

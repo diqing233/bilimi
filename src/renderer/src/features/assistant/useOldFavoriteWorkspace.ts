@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { OldFavoriteWorkspaceDeepSeekFailure, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
+import type {
+  OldFavoriteWorkspaceDeepSeekFailure,
+  OldFavoriteWorkspaceDeepSeekResult,
+  OldFavoriteWorkspaceRecoveryDecisionResult,
+  OldFavoriteWorkspaceRecoverySummary,
+  OldFavoriteWorkspaceView
+} from '../../../../shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode } from '@shared/types'
 
 type WorkspaceView = OldFavoriteWorkspaceView
@@ -139,7 +145,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
         : requestVersion.current === version && accountGeneration.current === generation
       if (isCurrent) setSnapshot(null)
-      if (isCurrent) setLastError(error instanceof Error ? error.message : '读取整理旧藏工作区失败。')
+      if (isCurrent) setLastError(error instanceof Error ? error.message : '读取收藏整理工作区失败。')
       return null
     } finally {
       if (preserveSnapshot) {
@@ -175,7 +181,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
     } catch (error) {
-      if (requestVersion.current === version && accountGeneration.current === generation) setLastError(error instanceof Error ? error.message : '启动整理旧藏扫描失败。')
+      if (requestVersion.current === version && accountGeneration.current === generation) setLastError(error instanceof Error ? error.message : '启动收藏整理扫描失败。')
       throw error
     } finally {
       if (accountGeneration.current === generation) {
@@ -235,10 +241,19 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid) return null
     return window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1?.(accountMid) ?? null
   }, [accountMid])
-  const sendRecoveryDecision = useCallback((summary: OldFavoriteWorkspaceRecoverySummary, choice: 'continue-original' | 'merge-latest' | 'rescan') =>
-    sendCommand({ type: 'select-recovery-decision', workspaceId: summary.workspaceId, choice,
+  const sendRecoveryDecision = useCallback(async (
+    summary: OldFavoriteWorkspaceRecoverySummary,
+    choice: 'continue-original' | 'merge-latest' | 'rescan'
+  ): Promise<OldFavoriteWorkspaceRecoveryDecisionResult | null> => {
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return null
+    // This command acknowledges a recovery choice; it is not a workspace snapshot.
+    return command(accountMid, {
+      type: 'select-recovery-decision', workspaceId: summary.workspaceId, choice,
       expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
-      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision }), [sendCommand])
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    }) as Promise<OldFavoriteWorkspaceRecoveryDecisionResult>
+  }, [accountMid])
 
   useEffect(() => {
     // Current preload builds expose the manifest-only recovery endpoint, so
@@ -395,14 +410,17 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const rebuildCorruptWorkspace = useCallback(() => sendCommand({ type: 'rebuild-corrupt-workspace' }), [sendCommand])
 
   useEffect(() => {
+    if (!snapshot || 'recovery' in snapshot) return
     const hasActiveWork = snapshot && (
       ['scanning', 'executing', 'reconciling'].includes(snapshot.status) ||
       snapshot.tagEnrichment?.status === 'running'
     )
     if (!hasActiveWork) return
-    const timer = window.setInterval(() => { void refresh(true) }, 400)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh(true)
+    }, 4_000)
     return () => window.clearInterval(timer)
-  }, [refresh, snapshot?.status, snapshot?.tagEnrichment?.status])
+  }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,

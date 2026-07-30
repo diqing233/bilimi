@@ -31,7 +31,7 @@ export function buildSeekVideoTimeScript(seconds: number): string {
           playResult.catch(() => undefined);
         }
       } catch {
-        // Playback resume can be blocked or slow; the seek already completed.
+        // Autoplay can be blocked; the requested seek still remains applied.
       }
 
       return true;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { createLayeredPetTransientView, createLayeredPetView } from './layeredPetModel'
 import { getBlueWhiteMaidPetAssets, type PetStyle } from './petAssets'
 import type { AssistantPetState } from './petState'
@@ -33,7 +33,7 @@ function getLayerClassName(layerId: PetLayerId) {
   return `layered-pet__layer layered-pet__layer--${layerId}`
 }
 
-export function LayeredPetRenderer({
+export const LayeredPetRenderer = memo(function LayeredPetRenderer({
   petState,
   clickReactionSignal,
   petStyle = 'big-head'
@@ -98,4 +98,4 @@ export function LayeredPetRenderer({
       {assetFailed ? <span className="layered-pet__fallback">bilimi</span> : null}
     </span>
   )
-}
+})

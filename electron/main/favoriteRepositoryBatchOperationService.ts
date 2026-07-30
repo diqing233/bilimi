@@ -35,7 +35,7 @@ export type FavoriteRemoteUnfavoritePreview = {
   executionToken: string
 }
 
-type PendingRemoteUnfavorite = FavoriteRemoteUnfavoritePreview & { confirmationToken?: string; status: 'previewed' | 'result-unknown' | 'failed' | 'succeeded' }
+type PendingRemoteUnfavorite = FavoriteRemoteUnfavoritePreview & { confirmationToken?: string; status: 'previewed' | 'result-unknown' | 'reconciliation-required' | 'failed' | 'succeeded' }
 
 function account(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Favorite operation account is invalid.')
@@ -45,8 +45,15 @@ function account(value: string) {
 function aids(value: number[]) {
   if (!Array.isArray(value) || value.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Favorite operation aids are invalid.')
   const result = [...new Set(value)].sort((left, right) => left - right)
-  if (!result.length || result.length > 100) throw new Error('Favorite operation aids are invalid.')
+  if (!result.length) throw new Error('Favorite operation aids are invalid.')
   return result
+}
+
+const COMMAND_AID_LIMIT = 100
+
+function chunks<T>(values: T[]) {
+  return Array.from({ length: Math.ceil(values.length / COMMAND_AID_LIMIT) }, (_value, index) =>
+    values.slice(index * COMMAND_AID_LIMIT, (index + 1) * COMMAND_AID_LIMIT))
 }
 
 function targetFolderIds(value: string[]) {
@@ -87,10 +94,16 @@ export class FavoriteRepositoryBatchOperationService {
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
     const deletedAt = this.now()
-    const result = await this.options.repository.commitWithAudit(normalizedAccount, {
-      id: `favorite-batch:delete-local:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: deletedAt, expectedRevision,
-      type: 'delete-favorites-from-library', payload: { aids: selected, deletedAt, reason: 'user-delete' }
-    }, this.events(selected, 'batch-local-delete', deletedAt))
+    let revision = expectedRevision
+    let result: FavoriteRepositoryCommandResult | undefined
+    for (const selectedChunk of chunks(selected)) {
+      result = await this.options.repository.commitWithAudit(normalizedAccount, {
+        id: `favorite-batch:delete-local:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: deletedAt, expectedRevision: revision,
+        type: 'delete-favorites-from-library', payload: { aids: selectedChunk, deletedAt, reason: 'user-delete' }
+      }, this.events(selectedChunk, 'batch-local-delete', deletedAt))
+      revision = result.revision
+    }
+    if (!result) throw new Error('Favorite operation aids are invalid.')
     return { ...result, auditStatus: 'recorded' }
   }
 
@@ -108,8 +121,8 @@ export class FavoriteRepositoryBatchOperationService {
     return { ...operation }
   }
 
-  confirmRemoteUnfavorite(executionToken: string) {
-    const operation = [...this.remoteOperations.values()].find((item) => item.executionToken === executionToken && item.status === 'previewed')
+  confirmRemoteUnfavorite(accountMid: string, executionToken: string) {
+    const operation = [...this.remoteOperations.values()].find((item) => item.executionToken === executionToken && item.accountMid === account(accountMid) && item.status === 'previewed')
     if (!operation) throw new Error('Favorite remote unfavorite preview is unavailable.')
     operation.confirmationToken = randomUUID()
     return operation.confirmationToken
@@ -128,24 +141,31 @@ export class FavoriteRepositoryBatchOperationService {
       const current = await this.options.repository.getSnapshot(operation.accountMid)
       if (current.revision !== operation.baselineRevision) throw this.staleRemoteUnfavoriteBaselineError()
       const result = await (async () => {
-        try {
-          return await this.options.remoteUnfavorite!.unfavorite(operation.accountMid, operation.aids, {
-            beforeRemoteWrite: async () => {
-              const current = await this.options.repository.getSnapshot(operation.accountMid)
-              if (current.revision !== operation.baselineRevision) throw this.staleRemoteUnfavoriteBaselineError()
+        let completedOperationCount = 0
+        let status: FavoriteLibraryCommandResult['status'] = 'succeeded'
+        let reason: string | undefined
+        for (const aidChunk of chunks(operation.aids)) {
+          try {
+            const chunkResult = await this.options.remoteUnfavorite!.unfavorite(operation.accountMid, aidChunk, {
+              beforeRemoteWrite: async () => {
+                const current = await this.options.repository.getSnapshot(operation.accountMid)
+                if (current.revision !== operation.baselineRevision) throw this.staleRemoteUnfavoriteBaselineError()
+              }
+            })
+            completedOperationCount += chunkResult.completedOperationCount
+            if (chunkResult.status !== 'succeeded') {
+              status = chunkResult.status
+              reason = chunkResult.reason
+              break
             }
-          })
-        } catch (error) {
-          if (this.isStaleRemoteUnfavoriteBaselineError(error)) throw error
-          const reason = error instanceof Error ? error.message : String(error)
-          return {
-            status: this.isKnownRemoteRejection(error) ? 'failed' as const : 'result-unknown' as const,
-            completedOperationCount: 0,
-            totalOperationCount: operation.aids.length,
-            affectedAids: [...operation.aids],
-            reason
+          } catch (error) {
+            if (this.isStaleRemoteUnfavoriteBaselineError(error)) throw error
+            status = this.isKnownRemoteRejection(error) ? 'failed' : 'result-unknown'
+            reason = error instanceof Error ? error.message : String(error)
+            break
           }
         }
+        return { status, completedOperationCount, totalOperationCount: operation.aids.length, affectedAids: [...operation.aids], ...(reason ? { reason } : {}) }
       })()
       const remoteStatus = result.status === 'failed' ? 'failed' : result.status === 'result-unknown' ? 'result-unknown' : 'succeeded'
       operation.status = remoteStatus
@@ -222,10 +242,17 @@ export class FavoriteRepositoryBatchOperationService {
       const retained = action === 'move' ? existing.filter((folderId) => folderId !== sourceFolderId) : existing
       return this.placement(aid, [...retained, ...targets], prior, timestamp)
     })
-    const result = await this.options.repository.commitWithAudit(normalizedAccount, {
-      id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision,
-      type: 'set-favorite-placements', payload: { placements }
-    }, this.events(selected, action === 'copy' ? 'batch-copy' : 'batch-move', timestamp))
+    let revision = expectedRevision
+    let result: FavoriteRepositoryCommandResult | undefined
+    for (const placementChunk of chunks(placements)) {
+      const chunkAids = placementChunk.map((placement) => placement.aid)
+      result = await this.options.repository.commitWithAudit(normalizedAccount, {
+        id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: revision,
+        type: 'set-favorite-placements', payload: { placements: placementChunk }
+      }, this.events(chunkAids, action === 'copy' ? 'batch-copy' : 'batch-move', timestamp))
+      revision = result.revision
+    }
+    if (!result) throw new Error('Favorite operation aids are invalid.')
     return { ...result, auditStatus: 'recorded' }
   }
 
@@ -262,8 +289,11 @@ export class FavoriteRepositoryBatchOperationService {
       return
     }
     const selected = aids(requestedAids)
-    if (!Array.isArray(source.skippedAids)) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
-    const eligible = new Set(aids(source.eligibleAids))
+    if (source.kind !== 'virtual' || !Array.isArray(source.skippedAids)) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
+    const eligibleAids = aids(source.eligibleAids)
+    const skippedAids = source.skippedAids.length ? aids(source.skippedAids) : []
+    if (skippedAids.some((aid) => eligibleAids.includes(aid))) throw new Error('Virtual source eligibility and skipped-item evidence overlap.')
+    const eligible = new Set(eligibleAids)
     if (selected.some((aid) => !eligible.has(aid))) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
   }
 

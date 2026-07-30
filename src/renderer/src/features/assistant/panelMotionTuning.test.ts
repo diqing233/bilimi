@@ -37,6 +37,7 @@ describe('panel motion tuning', () => {
     expect(document.documentElement.style.getPropertyValue('--panel-sidebar-expand-duration')).toBe('245ms')
     expect(document.documentElement.style.getPropertyValue('--panel-sidebar-collapse-duration')).toBe('145ms')
     expect(document.documentElement.style.getPropertyValue('--panel-drawer-expand-duration')).toBe('230ms')
+    expect(document.documentElement.style.getPropertyValue('--favorite-library-drawer-maximize-duration')).toBe('230ms')
     expect(document.documentElement.style.getPropertyValue('--panel-drawer-collapse-duration')).toBe('155ms')
     expect(document.documentElement.style.getPropertyValue('--panel-drawer-close-duration')).toBe('135ms')
     expect(window.localStorage.getItem('bilimi:panel-motion-tuning')).toContain('"sidebarCollapseMs":145')

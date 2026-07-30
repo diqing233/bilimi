@@ -21,7 +21,8 @@ describe('OldFavoriteModal', () => {
     )
 
     const dialog = screen.getByRole('alertdialog', { name: '确认重置' })
-    expect(dialog.parentElement).toHaveClass('old-favorite-modal__viewport')
+    expect(dialog).toHaveClass('bilimi-modal__dialog', 'old-favorite-modal__dialog')
+    expect(dialog.parentElement).toHaveClass('bilimi-modal__viewport')
     expect(dialog.closest('[data-testid="nested-host"]')).toBeNull()
     expect(screen.getByRole('button', { name: '取消' })).toHaveFocus()
     expect(document.documentElement.style.overflow).toBe('hidden')
@@ -45,7 +46,8 @@ describe('OldFavoriteModal', () => {
       </OldFavoriteModal>
     )
 
-    fireEvent.click(screen.getByTestId('old-favorite-modal-scrim'))
+    expect(screen.getByRole('button', { name: '确认' })).toHaveAttribute('data-variant', 'danger')
+    fireEvent.pointerDown(screen.getByTestId('bilimi-modal-scrim'))
     expect(onCancel).toHaveBeenCalledOnce()
     expect(onConfirm).not.toHaveBeenCalled()
   })

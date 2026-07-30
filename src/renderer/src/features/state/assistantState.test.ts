@@ -5,6 +5,8 @@ import {
   createInitialAssistantState,
   effectiveFavoriteLedgersForAccount,
   favoriteLedgersForAccount,
+  applyImmediatePreferencePatch,
+  applyFavoriteLedgerEnabledPatch,
   withFavoriteLedgersForAccount,
   reduceAssistantState,
   recordAssistantPreferenceFeedback
@@ -15,6 +17,55 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
+  it('applies one account ledger enabled patch without rebuilding unrelated accounts or ledgers', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [
+            { id: 'first', displayName: 'bilimi·first', enabled: false, keywords: [], ruleType: 'keyword', priority: 10, isDefault: false },
+            { id: 'second', displayName: 'bilimi·second', enabled: true, keywords: [], ruleType: 'keyword', priority: 20, isDefault: false }
+          ],
+          transcriptionModelId: 'whisper-small'
+        },
+        '200': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          transcriptionModelId: 'whisper-small'
+        }
+      }
+    })
+    const otherAccount = preferences.favoriteAccountPreferences?.['200']
+    const untouchedLedger = preferences.favoriteAccountPreferences?.['100']?.favoriteLedgers[1]
+
+    const next = applyFavoriteLedgerEnabledPatch(preferences, { accountMid: '100', ledgerId: 'first', enabled: true })
+
+    expect(next.favoriteAccountPreferences?.['100']?.favoriteLedgers[0]?.enabled).toBe(true)
+    expect(next.favoriteAccountPreferences?.['100']?.favoriteLedgers[1]).toBe(untouchedLedger)
+    expect(next.favoriteAccountPreferences?.['200']).toBe(otherAccount)
+  })
+  it('applies an interactive setting patch without cloning unrelated heavy preferences', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteCorrectionRecords: [{
+        id: 'record-1', aid: 1, title: 'Heavy preference record', originalLedgerId: 'inbox', userLedgerIds: ['game'],
+        source: 'user', feedbackType: 'strong-correction', sourceScene: 'archive-preview', tags: [], matchedKeywords: [],
+        createdAt: '2026-07-29T00:00:00.000Z', confirmedAt: '2026-07-29T00:00:00.000Z'
+      }]
+    })
+    const records = preferences.favoriteCorrectionRecords
+    const accounts = preferences.favoriteAccountPreferences
+
+    const next = applyImmediatePreferencePatch(preferences, { hidePetDuringVideoFullscreen: true })
+
+    expect(next.hidePetDuringVideoFullscreen).toBe(true)
+    expect(next.favoriteCorrectionRecords).toBe(records)
+    expect(next.favoriteAccountPreferences).toBe(accounts)
+  })
+  it('reuses the current preference object when an acknowledged patch changes nothing', () => {
+    const preferences = createInitialAssistantPreferences({ deepseekEnabled: true })
+
+    expect(applyImmediatePreferencePatch(preferences, { deepseekEnabled: true })).toBe(preferences)
+  })
   it('records funny likes into local preferences', () => {
     const next = reduceAssistantState(createInitialAssistantState(), {
       type: 'record-feedback',
@@ -199,6 +250,18 @@ describe('assistant state', () => {
         '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) }
       }
     })
+  })
+
+  it('preserves each account transcription model when normalizing and replacing ledgers', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], transcriptionModelId: 'faster-whisper-large-v3-turbo' }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.transcriptionModelId).toBe('faster-whisper-large-v3-turbo')
+    expect(withFavoriteLedgersForAccount(preferences, '100', [])
+      .favoriteAccountPreferences?.['100']?.transcriptionModelId).toBe('faster-whisper-large-v3-turbo')
   })
 
   it('removes ordinary defaults from an account effective target set while retaining staging and custom targets', () => {

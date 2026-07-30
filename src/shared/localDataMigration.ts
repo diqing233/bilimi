@@ -21,7 +21,7 @@ const APP_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u
 const ARCHIVE_KEYS = new Set(['schemaVersion', 'appVersion', 'generatedAt', 'selectedUids', 'accounts', 'sharedSettings', 'manifest', 'checksum'])
 const ACCOUNT_SOURCE_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES)
 const SHARED_SETTING_KEYS = new Set<string>(LOCAL_DATA_MIGRATION_SHARED_SETTINGS)
-const ACCOUNT_SETTING_KEYS = new Set(['defaultFavoriteSystemEnabled', 'favoriteLedgers', 'favoriteLibraryCollapsedGroups', 'updatedAt'])
+const ACCOUNT_SETTING_KEYS = new Set(['defaultFavoriteSystemEnabled', 'favoriteLedgers', 'favoriteLibraryCollapsedGroups', 'transcriptionModelId', 'updatedAt'])
 
 export type PortableAccountData = Record<string, unknown>
 export type MigrationManifestEntry = { path: string; byteLength: number; sha256: string }
@@ -111,26 +111,41 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
+function isFiniteTimestampOffset(value: unknown) {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function isPortableArchiveSource(value: unknown, accountMid: string): value is Record<string, unknown> {
+  return isRecord(value) && value.accountMid === accountMid && typeof value.title === 'string' && Boolean(value.title.trim()) &&
+    typeof value.url === 'string' && Boolean(value.url.trim()) && isStringList(value.tags)
+}
+
+function isPortableArchiveOverview(value: unknown) {
+  if (!isRecord(value) || !isStringList(value.shortSummary) || !isStringList(value.keywords)) return false
+  return ['timeline', 'highlights'].every((key) => {
+    const entries = value[key]
+    return Array.isArray(entries) && entries.every((item) => isRecord(item) && isFiniteTimestampOffset(item.start) &&
+      typeof item.title === 'string' && typeof item.detail === 'string')
+  })
+}
+
 function isPortableArchive(value: unknown, accountMid: string) {
-  if (!isRecord(value) || !isRecord(value.source)) return false
+  if (!isRecord(value) || !isPortableArchiveSource(value.source, accountMid)) return false
   const source = value.source
-  if (typeof value.id !== 'string' || !value.id.trim() || source.accountMid !== accountMid || typeof source.title !== 'string' || !source.title.trim() ||
-    typeof source.url !== 'string' || !source.url.trim() || !isStringList(source.tags) ||
+  if (typeof value.id !== 'string' || !value.id.trim() ||
     !Array.isArray(value.versions) || !value.versions.length || !isIsoTimestamp(value.createdAt) || !isIsoTimestamp(value.updatedAt)) return false
   return value.versions.every((version) => {
     if (!isRecord(version) || typeof version.id !== 'string' || !version.id.trim() || !isIsoTimestamp(version.createdAt) ||
-      typeof version.plainTranscript !== 'string' || typeof version.summaryText !== 'string' || !isRecord(version.note) || !isRecord(version.note.source)) return false
+      typeof version.plainTranscript !== 'string' || typeof version.summaryText !== 'string' || !isRecord(version.note)) return false
     const note = version.note
     const noteSource = note.source
+    if (!isPortableArchiveSource(noteSource, accountMid)) return false
     const identity = portableArchiveVersionIdentity(note.id, accountMid, noteSource)
-    return Boolean(identity) && noteSource.accountMid === accountMid && typeof noteSource.title === 'string' && Boolean(noteSource.title.trim()) &&
-      typeof noteSource.url === 'string' && Boolean(noteSource.url.trim()) && isStringList(noteSource.tags) &&
-      ['auto', 'manual', 'audio'].includes(String(note.transcriptSource)) && Array.isArray(note.transcript) && note.transcript.every((segment) =>
-        isRecord(segment) && (segment.start === null || typeof segment.start === 'number') && (segment.end === null || typeof segment.end === 'number') && typeof segment.text === 'string') &&
-      Array.isArray(note.chapters) && note.chapters.every((chapter) => isRecord(chapter) && (chapter.start === null || typeof chapter.start === 'number') && typeof chapter.title === 'string' && typeof chapter.summary === 'string' && Array.isArray(chapter.segmentIndexes) && chapter.segmentIndexes.every((index) => Number.isSafeInteger(index) && Number(index) >= 0)) &&
-      isRecord(note.overview) && isStringList(note.overview.shortSummary) && isStringList(note.overview.keywords) &&
-      ['timeline', 'highlights'].every((key) => Array.isArray(note.overview[key]) && note.overview[key].every((item) => isRecord(item) && (item.start === null || typeof item.start === 'number') && typeof item.title === 'string' && typeof item.detail === 'string')) &&
-      Array.isArray(note.annotations) && note.annotations.every((annotation) => isRecord(annotation) && typeof annotation.id === 'string' && annotation.id.trim() && (annotation.start === null || typeof annotation.start === 'number') && typeof annotation.title === 'string' && typeof annotation.body === 'string' && isIsoTimestamp(annotation.createdAt) && isIsoTimestamp(annotation.updatedAt)) &&
+    return Boolean(identity) && ['auto', 'manual', 'audio'].includes(String(note.transcriptSource)) && Array.isArray(note.transcript) && note.transcript.every((segment) =>
+        isRecord(segment) && isFiniteTimestampOffset(segment.start) && isFiniteTimestampOffset(segment.end) && typeof segment.text === 'string') &&
+      Array.isArray(note.chapters) && note.chapters.every((chapter) => isRecord(chapter) && isFiniteTimestampOffset(chapter.start) && typeof chapter.title === 'string' && typeof chapter.summary === 'string' && Array.isArray(chapter.segmentIndexes) && chapter.segmentIndexes.every((index) => Number.isSafeInteger(index) && Number(index) >= 0)) &&
+      isPortableArchiveOverview(note.overview) &&
+      Array.isArray(note.annotations) && note.annotations.every((annotation) => isRecord(annotation) && typeof annotation.id === 'string' && annotation.id.trim() && isFiniteTimestampOffset(annotation.start) && typeof annotation.title === 'string' && typeof annotation.body === 'string' && isIsoTimestamp(annotation.createdAt) && isIsoTimestamp(annotation.updatedAt)) &&
       typeof note.userMemo === 'string' && (note.starred === undefined || typeof note.starred === 'boolean') && isIsoTimestamp(note.createdAt) && isIsoTimestamp(note.updatedAt)
   })
 }
@@ -155,6 +170,7 @@ function isPortableAccountSettings(value: Record<string, unknown>) {
     !Array.isArray(value.favoriteLedgers)) return false
   if (value.favoriteLibraryCollapsedGroups !== undefined && (!isRecord(value.favoriteLibraryCollapsedGroups) ||
     Object.entries(value.favoriteLibraryCollapsedGroups).some(([key, item]) => !/^[a-z-]+$/u.test(key) || typeof item !== 'boolean'))) return false
+  if (value.transcriptionModelId !== undefined && !['sensevoice-small', 'whisper-small', 'faster-whisper-large-v3-turbo', 'faster-whisper-large-v3'].includes(String(value.transcriptionModelId))) return false
   return value.updatedAt === undefined || isIsoTimestamp(value.updatedAt)
 }
 
@@ -182,9 +198,10 @@ function assertSharedSettings(value: Record<string, unknown>) {
   if (value.theme !== undefined && !['light', 'dark', 'system'].includes(String(value.theme))) throw new Error('Migration shared settings are invalid.')
   if (value.language !== undefined && (typeof value.language !== 'string' || !value.language.trim() || value.language.length > 64)) throw new Error('Migration shared settings are invalid.')
   if (value.windowBounds !== undefined) {
-    if (!isRecord(value.windowBounds) || Object.keys(value.windowBounds).some((key) => !['x', 'y', 'width', 'height'].includes(key)) ||
-      !['x', 'y', 'width', 'height'].every((key) => typeof value.windowBounds![key] === 'number' && Number.isFinite(value.windowBounds![key])) ||
-      Number(value.windowBounds.width) < 100 || Number(value.windowBounds.height) < 100) throw new Error('Migration shared settings are invalid.')
+    const bounds = value.windowBounds
+    if (!isRecord(bounds) || Object.keys(bounds).some((key) => !['x', 'y', 'width', 'height'].includes(key)) ||
+      !['x', 'y', 'width', 'height'].every((key) => typeof bounds[key] === 'number' && Number.isFinite(bounds[key])) ||
+      Number(bounds.width) < 100 || Number(bounds.height) < 100) throw new Error('Migration shared settings are invalid.')
   }
   if (value.closeBehavior !== undefined && !['minimize-to-tray', 'exit-launcher'].includes(String(value.closeBehavior))) throw new Error('Migration shared settings are invalid.')
   if (value.favoritesFolderName !== undefined && (typeof value.favoritesFolderName !== 'string' || !value.favoritesFolderName.trim() || value.favoritesFolderName.length > 120)) throw new Error('Migration shared settings are invalid.')
@@ -345,7 +362,7 @@ function compareWorkspaces(left: unknown, right: unknown) {
 }
 
 function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
-  const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp = updatedAt) => {
+  const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp: (record: T) => string = updatedAt) => {
     const values = new Map<string, T>()
     for (const record of [...(left ?? []), ...(right ?? [])]) {
       const key = identity(record); const previous = values.get(key)
@@ -403,7 +420,11 @@ export function mergeMigrationAccounts(local: Record<string, PortableAccountData
 export function restorePortableAccountState(account: PortableAccountData): PortableAccountData {
   const restored = structuredClone(account)
   for (const workspace of Array.isArray(restored.workspaces) ? restored.workspaces : []) if (isRecord(workspace) && ['running', 'scanning', 'previewing', 'frozen', 'executing', 'reconciling'].includes(String(workspace.status))) Object.assign(workspace, { status: 'draft', resumable: true, continuationAids: [] })
-  for (const task of Array.isArray(restored.transcription) ? restored.transcription : []) if (isRecord(task) && task.status === 'running') task.status = 'waiting-restart'
+  for (const task of Array.isArray(restored.transcription) ? restored.transcription : []) {
+    if (!isRecord(task)) continue
+    if (task.status === 'running') task.status = 'waiting-restart'
+    if (task.transcriptionModelId === undefined) task.transcriptionModelId = 'whisper-small'
+  }
   for (const operation of Array.isArray(restored.remoteOperations) ? restored.remoteOperations : []) if (isRecord(operation) && operation.status === 'result-unknown') Object.assign(operation, { status: 'reconciliation-required', autoRetry: false })
   restored.repository = restoreFavoriteRepositoryArchiveRecovery(restored.repository)
   return restored

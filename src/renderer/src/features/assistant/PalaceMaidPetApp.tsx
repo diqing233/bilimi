@@ -14,7 +14,7 @@ import {
   type AssistantPetHint,
   type AssistantPetState
 } from './petState'
-import { createInitialAssistantPreferences } from '../state/assistantState'
+import { applyImmediatePreferencePatch, createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 import {
   PET_IDLE_GREETINGS,
@@ -80,6 +80,7 @@ export function PalaceMaidPetApp() {
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const chatOpenRef = useRef(false)
+  const latestPreferenceMutationByOrigin = useRef(new Map<string, number>())
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [hoverShortcutsVisible, setHoverShortcutsVisible] = useState(false)
@@ -151,13 +152,16 @@ export function PalaceMaidPetApp() {
       return
     }
 
-    idleGreetingTimeout.current = window.setTimeout(() => {
+    idleGreetingTimeout.current = window.setTimeout(async () => {
       if (chatOpenRef.current) {
         idleGreetingTimeout.current = null
         return
       }
 
-      showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
+      const mainWindowState = await window.bilimiDesktop?.getMainWindowPresentationState?.()
+      if (!mainWindowState?.visible || mainWindowState.minimized) {
+        showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
+      }
       idleGreetingTimeout.current = null
       scheduleIdleGreeting()
     }, IDLE_GREETING_DELAY_MS)
@@ -208,7 +212,22 @@ export function PalaceMaidPetApp() {
   }, [])
 
   useEffect(() => {
-    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
+    return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch, meta) => {
+      if (meta) {
+        const latestMutationId = latestPreferenceMutationByOrigin.current.get(meta.originId) ?? 0
+        if (meta.mutationId <= latestMutationId) return
+        latestPreferenceMutationByOrigin.current.set(meta.originId, meta.mutationId)
+      }
+      setPreferences((current) => applyImmediatePreferencePatch(current, patch))
+    })
+  }, [])
+
+  useEffect(() => window.bilimiDesktop?.onFavoriteLedgerEnabledChanged?.(() => {}), [])
+
+  useEffect(() => {
+    // The native window must accept the first pointer event; otherwise Windows
+    // may never forward the pointerenter needed to recover from pass-through.
+    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(false)
 
     function hideClosePrompt() {
       setClosePromptVisible(false)
@@ -604,7 +623,7 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.id === 'organize-old-favorites') {
-      showLocalPetHint('happy', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
+      showLocalPetHint('happy', '主人，小咪切到掌库啦，收藏整理从这里开始。')
       openFloatingWorkspace({
         tab: 'ledger',
         anchor,
@@ -795,6 +814,7 @@ export function PalaceMaidPetApp() {
         aria-label="小咪悬浮快捷按钮"
         data-visible={hoverShortcutsVisible ? 'true' : 'false'}
         data-layout={hoverShortcutLayout}
+        data-count={hoverShortcuts.length}
         data-assistant-shortcut={preferences.showPetAssistantShortcut ? 'true' : 'false'}
         onPointerEnter={() => {
           enterInteractiveRegion()

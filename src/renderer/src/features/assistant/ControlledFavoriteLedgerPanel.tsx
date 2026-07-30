@@ -18,6 +18,7 @@ type ControlledFavoriteLedgerPanelProps = {
   defaultFavoriteSystemEnabled?: boolean
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
+  onSaveLedgerEnabled?: (ledgerId: string, enabled: boolean) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onOpenFavoritePage?: () => Promise<unknown> | void
   onRefreshOrganizationState?: () => Promise<unknown> | void
@@ -25,6 +26,8 @@ type ControlledFavoriteLedgerPanelProps = {
   deepSeekArchiveAvailable?: boolean
   openLedgerId?: string
   openLedgerRequestVersion?: number
+  createLedger?: boolean
+  createLedgerRequestVersion?: number
   openOrganizationRequestVersion?: number
 }
 
@@ -61,6 +64,7 @@ export function ControlledFavoriteLedgerPanel({
   defaultFavoriteSystemEnabled,
   onEnsureLedgers,
   onSaveLedgers,
+  onSaveLedgerEnabled,
   onSyncLedgers,
   onOpenFavoritePage,
   onRefreshOrganizationState,
@@ -68,6 +72,8 @@ export function ControlledFavoriteLedgerPanel({
   deepSeekArchiveAvailable = false,
   openLedgerId,
   openLedgerRequestVersion,
+  createLedger,
+  createLedgerRequestVersion,
   openOrganizationRequestVersion
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
@@ -296,9 +302,9 @@ export function ControlledFavoriteLedgerPanel({
               if ((result as { ok?: boolean } | undefined)?.ok !== false) return onOpenFavoritePage?.()
             })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
-          <AssistantActionButton type="button" aria-label="整理旧藏" disabled={scanStarting || !currentAccountMid}
-            onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
-            label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
+          <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || !currentAccountMid}
+            onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理收藏" badge="整"
+            label="整理收藏" description="扫描已有收藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
             onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={idlePetUrl} iconAlt="小咪收藏库" badge="库"
             label="收藏库" description="在独立窗口浏览收藏库" />
@@ -313,7 +319,10 @@ export function ControlledFavoriteLedgerPanel({
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
         openLedgerId={openLedgerId}
         openLedgerRequestVersion={openLedgerRequestVersion}
+        createLedger={createLedger}
+        createLedgerRequestVersion={createLedgerRequestVersion}
         onSaveLedgers={onSaveLedgers}
+        onSaveLedgerEnabled={onSaveLedgerEnabled}
         onSyncLedgers={onSyncLedgers}
       />
       {managedDeletionCandidates && !managedDeletionReviewOpen ? <OldFavoriteModal title="同步变更说明" confirmLabel="继续" onCancel={() => setManagedDeletionCandidates(null)} onConfirm={() => setManagedDeletionReviewOpen(true)}>
@@ -325,7 +334,7 @@ export function ControlledFavoriteLedgerPanel({
         <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
         <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
       </OldFavoriteModal> : null}
-      {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理旧藏"
+      {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setRecoverySummary(null); setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
           {recoverySummary.recoveryChoices.includes('continue-original') ? <button type="button" onClick={() => void selectRecoveryDecision('continue-original')}>按原草稿继续</button> : null}
@@ -338,7 +347,7 @@ export function ControlledFavoriteLedgerPanel({
         <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
         {recoverySummary.baselineChangeEvidence.changed ? <p>检测到草稿后的资料、B站位置或收藏夹绑定变化；人工分类会保留。</p> : null}
       </OldFavoriteModal> : null}
-      {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理旧藏"
+      {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
           <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>

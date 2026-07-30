@@ -22,6 +22,97 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('filters transcription states before pagination with strict account, video, and part identity', async () => {
+    const root = await createRoot()
+    const queueItems = [
+      { id: 'account:100:aid:1:cid:10', accountMid: '100', aid: 1, cid: 10, url: 'https://bilibili.com/1', title: 'Saved and running', status: 'running', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:2:cid:20', accountMid: '100', aid: 2, cid: 20, url: 'https://bilibili.com/2', title: 'Pending', status: 'pending', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:3:cid:30', accountMid: '100', aid: 3, cid: 30, url: 'https://bilibili.com/3', title: 'Failed', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:1:cid:99', accountMid: '100', aid: 1, cid: 99, url: 'https://bilibili.com/1', title: 'Other part', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:999:aid:1:cid:10', accountMid: '999', aid: 1, cid: 10, url: 'https://bilibili.com/1', title: 'Other account', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:5:cid:50', accountMid: '100', aid: 5, cid: 50, url: 'https://bilibili.com/5', title: 'Canceled', status: 'canceled', createdAt: '', updatedAt: '' }
+    ]
+    const archives = [{
+      id: 'archive-1', createdAt: '', updatedAt: '', versions: [{
+        id: 'version-1', note: { source: { accountMid: '100', aid: 1, cid: 10 } }
+      }],
+      source: { accountMid: '100', aid: 1, cid: 10, title: 'Saved and running', url: 'https://bilibili.com/1', tags: [] }
+    }, {
+      id: 'archive-wrong-part', createdAt: '', updatedAt: '', versions: [],
+      source: { accountMid: '100', aid: 2, cid: 99, title: 'Other part', url: 'https://bilibili.com/2', tags: [] }
+    }]
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionItems: () => queueItems,
+      getTranscriptionArchives: () => archives as never
+    } as never)
+    for (const aid of [1, 2, 3, 4, 5]) {
+      await service.commit('100', {
+        id: `transcription-filter-${aid}`, accountMid: '100', issuedAt: '2026-07-27T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, cid: aid * 10, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-27T00:00:0${aid}.000Z` }
+      })
+    }
+
+    const page = (transcriptionFilters: string[], limit = 10) => service.getLibraryPage('100', { kind: 'all' }, {
+      limit, sort: 'title-asc', transcriptionFilters
+    } as never)
+    await expect(page(['completed'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page(['running'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page(['pending'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2 } }] })
+    await expect(page(['failed'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 3 } }] })
+    await expect(page(['none'])).resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 4 } }, { video: { aid: 5 } }] })
+    await expect(page(['completed', 'running'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page([])).resolves.toMatchObject({ totalCount: 5 })
+    await expect(page(['none'], 1)).resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 4 } }], nextCursor: '1' })
+  })
+
+  it('derives completed transcriptions from each archive version source when a BV archive spans accounts and parts', async () => {
+    const root = await createRoot()
+    const sharedBvid = 'BV1shared'
+    const archives = [{
+      id: `bvid:${sharedBvid}`,
+      // This mutable projection follows the latest write, not every preserved version.
+      source: { accountMid: '200', aid: 2, cid: 20, bvid: sharedBvid, title: 'Account 200 part', url: '', tags: [] },
+      versions: [{
+        id: 'version-account-100-part-10', note: { source: { accountMid: '100', aid: 1, cid: 10, bvid: sharedBvid } }
+      }, {
+        id: 'version-account-200-part-20', note: { source: { accountMid: '200', aid: 2, cid: 20, bvid: sharedBvid } }
+      }],
+      createdAt: '', updatedAt: ''
+    }]
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionArchives: () => archives as never
+    } as never)
+    for (const [accountMid, aid, cid] of [['100', 1, 10], ['200', 2, 20]] as const) {
+      await service.commit(accountMid, {
+        id: `archive-version-${accountMid}`, accountMid, issuedAt: '2026-07-28T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, cid, bvid: sharedBvid, title: `Account ${accountMid} part`, tags: [], updatedAt: '2026-07-28T00:00:00.000Z' }
+      })
+    }
+
+    const completed = (accountMid: string) => service.getLibraryPage(accountMid, { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed']
+    })
+    await expect(completed('100')).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1, cid: 10 } }] })
+    await expect(completed('200')).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2, cid: 20 } }] })
+  })
+
+  it('resolves a filtered library selection in the main process without returning every row to the renderer', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-26T00:00:00.000Z' })
+    for (const [aid, title] of [[1, 'Needle one'], [2, 'Other'], [3, 'Needle three']] as const) {
+      await service.commit('100', {
+        id: `selection-video-${aid}`, accountMid: '100', issuedAt: '2026-07-26T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt: '2026-07-26T00:00:00.000Z' }
+      })
+    }
+
+    await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
+      query: 'needle', sort: 'title-asc'
+    }, [3])).resolves.toEqual([1])
+  })
+
   it('filters and sorts the scoped library before cursor pagination', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -45,6 +136,251 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibraryPage('100', { kind: 'all' }, {
       limit: 1, sort: 'title-asc', cursor: '1'
     })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
+  })
+
+  it('reuses one full updated-date ordering across pages for the same 30k repository revision and query', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => {
+      const aid = index + 1
+      return [String(aid), {
+        aid, title: `Needle ${aid}`, tags: [], updatedAt: new Date(aid * 1000).toISOString()
+      }]
+    }))
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+    const parse = vi.spyOn(Date, 'parse')
+
+    const first = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, page: 1, query: 'needle', sort: 'updated-desc'
+    })
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z').length).toBeGreaterThan(100)
+    parse.mockClear()
+
+    const second = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, page: 2, query: 'needle', sort: 'updated-desc'
+    })
+
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z')).toEqual([])
+    expect(first.items.map((row) => row.video.aid)).toEqual([30_000, 29_999])
+    expect(second.items.map((row) => row.video.aid)).toEqual([29_998, 29_997])
+    parse.mockRestore()
+  })
+
+  it('keeps ordinary updated-date ordering cached across unrelated queue and archive revisions', async () => {
+    const root = await createRoot()
+    let queueRevision = 1
+    let archiveRevision = 1
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => queueRevision,
+      getTranscriptionArchiveRevision: () => archiveRevision,
+      getTranscriptionItems: () => [],
+      getTranscriptionArchives: () => []
+    })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `unrelated-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 2, sort: 'updated-desc' })
+    const parse = vi.spyOn(Date, 'parse')
+    queueRevision += 1
+    archiveRevision += 1
+
+    const page = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, cursor: '2', sort: 'updated-desc'
+    })
+
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z')).toEqual([])
+    expect(page.items.map((row) => row.video.aid)).toEqual([2, 1])
+    parse.mockRestore()
+  })
+
+  it('invalidates a cached library ordering when the repository revision changes', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `cached-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
+    const parse = vi.spyOn(Date, 'parse')
+
+    await service.commit('100', {
+      id: 'cached-revision-3', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 3, title: 'Video 3', tags: [], updatedAt: '2026-07-24T00:00:03.000Z' }
+    })
+    const page = await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
+
+    expect(parse.mock.calls.some(([value]) => value !== '1970-01-01T00:00:00.000Z')).toBe(true)
+    expect(page.items.map((row) => row.video.aid)).toEqual([3, 2, 1])
+    parse.mockRestore()
+  })
+
+  it('keeps search and alternate sort cache entries semantically isolated', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, title, description] of [
+      [1, 'Zulu', 'needle'],
+      [2, 'Alpha', 'other'],
+      [3, 'Beta', 'needle']
+    ] as const) {
+      await service.commit('100', {
+        id: `cached-semantics-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title, description, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    const titleAscending = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, query: 'needle', sort: 'title-asc'
+    })
+    const titleDescending = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, query: 'needle', sort: 'title-desc'
+    })
+    const allTitles = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc'
+    })
+
+    expect(titleAscending.items.map((row) => row.video.aid)).toEqual([3, 1])
+    expect(titleDescending.items.map((row) => row.video.aid)).toEqual([1, 3])
+    expect(allTitles.items.map((row) => row.video.aid)).toEqual([2, 3, 1])
+  })
+
+  it('invalidates pending page and selection caches when a sync checkpoint changes without a repository revision', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'checkpoint-cache-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'unsynced' }, {
+      limit: 10, filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    await expect(service.resolveLibrarySelection('100', { kind: 'unsynced' }, {
+      filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toEqual([])
+    const revision = (await service.getSnapshot('100')).revision
+
+    await service.recordSyncCheckpoint('100', 'checkpoint-cache-failed', {
+      id: 'checkpoint-cache-failed', commandId: 'checkpoint-cache-failed', status: 'failed',
+      affectedAids: [1], updatedAt: '2026-07-24T00:00:01.000Z'
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'unsynced' }, {
+      limit: 10, filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toMatchObject({ revision, items: [{ video: { aid: 1 }, pendingStates: ['failed'] }] })
+    await expect(service.resolveLibrarySelection('100', { kind: 'unsynced' }, {
+      filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toEqual([1])
+  })
+
+  it('does not cache completed or none filters when archives have no reliable revision', async () => {
+    const root = await createRoot()
+    let archiveReads = 0
+    const archives: Array<{ id: string; createdAt: string; updatedAt: string; versions: Array<{ id: string; note: { source: { accountMid: string; aid: number } } }>; source: { accountMid: string; aid: number; title: string; url: string; tags: string[] } }> = []
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => 1,
+      getTranscriptionArchives: () => {
+        archiveReads += 1
+        return archives as never
+      }
+    })
+    await service.commit('100', {
+      id: 'archive-cache-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    archiveReads = 0
+    archives.push({
+      id: 'archive-cache-1', createdAt: '', updatedAt: '',
+      versions: [{ id: 'archive-version-1', note: { source: { accountMid: '100', aid: 1 } } }],
+      source: { accountMid: '100', aid: 1, title: 'Video 1', url: '', tags: [] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+    expect(archiveReads).toBeGreaterThan(0)
+  })
+
+  it('invalidates completed and none filter caches when the archive revision changes', async () => {
+    const root = await createRoot()
+    let archiveRevision = 1
+    const archives: Array<{ id: string; createdAt: string; updatedAt: string; versions: Array<{ id: string; note: { source: { accountMid: string; aid: number } } }>; source: { accountMid: string; aid: number; title: string; url: string; tags: string[] } }> = []
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionArchiveRevision: () => archiveRevision,
+      getTranscriptionArchives: () => archives as never
+    })
+    await service.commit('100', {
+      id: 'archive-revision-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['none'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+    archives.push({
+      id: 'archive-revision-1', createdAt: '', updatedAt: '',
+      versions: [{ id: 'archive-version-1', note: { source: { accountMid: '100', aid: 1 } } }],
+      source: { accountMid: '100', aid: 1, title: 'Video 1', url: '', tags: [] }
+    })
+    archiveRevision += 1
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['none'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+  })
+
+  it('returns an exact local library page and page count without walking cursors', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4, 5]) {
+      await service.commit('100', {
+        id: `page-row-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 2, page: 3 }))
+      .resolves.toMatchObject({ totalCount: 5, page: 3, pageCount: 3, items: [{ video: { aid: 5 } }] })
+  })
+
+  it('treats a cursor as an exact result offset even when it is not aligned to the page limit', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4, 5, 6]) {
+      await service.commit('100', {
+        id: `cursor-offset-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, cursor: '3', sort: 'updated-desc'
+    })).resolves.toMatchObject({
+      items: [{ video: { aid: 3 } }, { video: { aid: 2 } }],
+      nextCursor: '5'
+    })
   })
 
   it('searches video descriptions before globally paginating the library', async () => {
@@ -677,6 +1013,13 @@ describe('FavoriteRepositoryService', () => {
       payload: { folderId: 'bilimi-logical:music', aids: [1] }
     })
     await service.commit('100', {
+      id: 'film-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'film', logicalTitle: 'bilimi·影视', shardNumber: 1, memberAids: [2, 3],
+        remoteTitle: 'bilimi·影视', bindingState: 'bound', remoteFolderId: '3990843512'
+      }
+    })
+    await service.commit('100', {
       id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
       payload: {
         workspaceId: 'workspace-1',
@@ -687,19 +1030,21 @@ describe('FavoriteRepositoryService', () => {
     })
 
     const summary = await service.getLibrarySummary('100')
-    expect(summary.folderCount).toBe(1)
-    expect(summary.folders).toEqual([
-      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music' })
-    ])
+    expect(summary.folderCount).toBe(2)
+    expect(summary.workspaceVideoCount).toBe(3)
+    expect(summary.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music' }),
+      expect.objectContaining({ id: 'bilimi-logical:film', kind: 'bilimi-logical', logicalLedgerId: 'film' })
+    ]))
     await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, { limit: 10 }))
       .resolves.toMatchObject({
         items: [
           { video: { aid: 1 }, folderIds: ['bilimi-logical:music'] },
-          { video: { aid: 2 }, folderIds: ['bilimi-logical:music'] },
-          { video: { aid: 3 }, folderIds: ['bilimi-logical:music'] }
+          { video: { aid: 2 }, folderIds: expect.arrayContaining(['bilimi-logical:music']) },
+          { video: { aid: 3 }, folderIds: expect.arrayContaining(['bilimi-logical:music']) }
         ]
     })
-    await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: ['bilimi-logical:music'] })
+    await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: expect.arrayContaining(['bilimi-logical:music']) })
     await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3])
   })
 
@@ -851,24 +1196,53 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('keeps unbound same-title Bilibili folders separate and reports the conflict', async () => {
+  it('keeps unbound same-title Bilibili folders separate, reports the conflict, and deduplicates their summary video total', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
     await service.commit('100', {
       id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
       payload: {
-        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1, 2], 'bilibili:2': [2, 3] },
         folders: [
           { id: 'bilibili:1', title: '同名收藏夹', remoteFolderId: '1' },
           { id: 'bilibili:2', title: '同名收藏夹', remoteFolderId: '2' }
         ],
-        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
       }
     })
 
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
       folderCount: 2,
-      folderConflicts: [{ title: '同名收藏夹', folderIds: ['bilibili:1', 'bilibili:2'] }]
+      otherFavoriteVideoCount: 3,
+      folderConflicts: [expect.objectContaining({
+        title: '同名收藏夹', folderIds: ['bilibili:1', 'bilibili:2'],
+        reason: expect.stringContaining('同名收藏夹'),
+        candidates: [{ id: 'bilibili:1', title: '同名收藏夹' }, { id: 'bilibili:2', title: '同名收藏夹' }]
+      })]
+    })
+  })
+
+  it('does not report a local classification folder as a remote binding conflict with its bound logical ledger', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'game-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1,
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '4099454411', memberAids: [1]
+      }
+    })
+    await service.commit('100', {
+      id: 'legacy-local-game', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'legacy-local-save', memberAidsByFolderId: { 'local:game': [2] },
+        folders: [{ id: 'local:game', title: 'bilimi·游戏专区', kind: 'local', syncState: 'local-only' }],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.not.toMatchObject({
+      folderConflicts: expect.arrayContaining([expect.objectContaining({ title: 'bilimi·游戏专区' })])
     })
   })
 
@@ -895,7 +1269,9 @@ describe('FavoriteRepositoryService', () => {
 
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
       folderCount: 3,
-      folderConflicts: expect.arrayContaining([{ title: 'Shared', folderIds: ['bilimi-logical:games', 'bilimi-logical:music'] }])
+      folderConflicts: expect.arrayContaining([expect.objectContaining({
+        title: 'Shared', folderIds: ['bilimi-logical:games', 'bilimi-logical:music'], reason: expect.stringContaining('多个逻辑工作夹')
+      })])
     })
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ folderIds: ['bilibili:99'] })
   })
@@ -1118,6 +1494,44 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
       items: []
     })
+  })
+
+  it('reuses dynamic pending states for a 30k library while repository and transcription revisions are unchanged', async () => {
+    const root = await createRoot()
+    let transcriptionReads = 0
+    const organizationRecords = [{ aid: 1 }]
+    const videos = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => {
+      const aid = index + 1
+      return [String(aid), { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }]
+    }))
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => 1,
+      getTranscriptionItems: () => {
+        transcriptionReads += 1
+        return []
+      }
+    })
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z',
+          videos,
+          folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords, organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 50 })
+    transcriptionReads = 0
+    const page = await service.getLibraryPage('100', { kind: 'all' }, { limit: 50 })
+
+    expect(transcriptionReads).toBe(0)
+    expect(page).toMatchObject({ totalCount: 30_000, items: { length: 50 } })
   })
 
   it('keeps metadata refresh separate from actionable remote-operation work after organization', async () => {

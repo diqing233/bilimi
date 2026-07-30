@@ -13,10 +13,40 @@ class FakeIpcMain {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 describe('registerFavoriteRepositoryIpc', () => {
-  it('reconciles saved work-folder bindings before returning an opened library account', async () => {
+  it('returns the same complete library summary contract from snapshot and account-open reads', async () => {
     const ipcMain = new FakeIpcMain()
-    const onAccountOpen = vi.fn().mockResolvedValue(undefined)
+    const summary = {
+      version: 1, accountMid: '100', revision: 3, updatedAt: '2026-07-25T00:00:00.000Z',
+      videoCount: 2, folderCount: 1, folders: [], folderCounts: { 'bilimi-logical:music': 2 },
+      scopeCounts: { all: 2, pending: 1, protected: 2, unsynced: 1 }, folderConflicts: [],
+      physicalShardCount: 0, syncRecordCount: 1,
+      syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 }, pendingAidCount: 1,
+      remoteReconciliations: [{ kind: 'unfavorite', operationId: 'remote-1' }]
+    }
+    const getLibrarySummary = vi.fn().mockResolvedValue(summary)
+    const getSnapshot = vi.fn()
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary, getSnapshot } as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual(summary)
+    await expect(ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')).resolves.toEqual(summary)
+    expect(getLibrarySummary).toHaveBeenCalledTimes(2)
+    expect(getSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('returns the local summary before deferred account-open recovery completes', async () => {
+    const ipcMain = new FakeIpcMain()
+    const recovery = deferred<void>()
+    const onAccountOpen = vi.fn().mockReturnValue(recovery.promise)
     const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })
     registerFavoriteRepositoryIpc({
       ipcMain,
@@ -26,10 +56,32 @@ describe('registerFavoriteRepositoryIpc', () => {
       onAccountOpen
     })
 
-    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 1 })
+    const opened = ipcMain.invoke('favorite-repository:open-account', 7, '100')
+    await Promise.resolve()
+    await Promise.resolve()
     expect(onAccountOpen).toHaveBeenCalledWith('100')
     expect(getLibrarySummary).toHaveBeenCalledWith('100')
-    expect(onAccountOpen.mock.invocationCallOrder[0]).toBeLessThan(getLibrarySummary.mock.invocationCallOrder[0])
+    recovery.resolve()
+    await expect(opened).resolves.toEqual({ accountMid: '100', revision: 1 })
+  })
+
+  it('coalesces repeated account opens into one in-flight recovery', async () => {
+    const ipcMain = new FakeIpcMain()
+    const recovery = deferred<void>()
+    const onAccountOpen = vi.fn().mockReturnValue(recovery.promise)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary } as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), onAccountOpen
+    })
+
+    await Promise.all([
+      ipcMain.invoke('favorite-repository:open-account', 7, '100'),
+      ipcMain.invoke('favorite-repository:open-account', 7, '100')
+    ])
+
+    expect(onAccountOpen).toHaveBeenCalledOnce()
+    recovery.resolve()
   })
 
   it('keeps the local library readable when optional account-open reconciliation is unavailable', async () => {
@@ -353,29 +405,32 @@ describe('registerFavoriteRepositoryIpc', () => {
 
   it('returns a compact account and workspace summary rather than repository videos or memberships', async () => {
     const ipcMain = new FakeIpcMain()
+    const summary = {
+      version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-19T00:00:00.000Z',
+      videoCount: 30_000, folderCount: 1,
+      folders: [{ id: 'folder-a', title: 'A', kind: 'local', syncState: 'local-only' }],
+      folderCounts: { 'folder-a': 30_000 }, scopeCounts: { all: 30_000, pending: 2, protected: 0, unsynced: 0 },
+      physicalShardCount: 0, syncRecordCount: 0,
+      syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 2,
+      remoteReconciliations: [],
+      workspace: { id: 'workspace-1', status: 'previewing', baselineRevision: 1, continuationCount: 2 }
+    }
     const service = {
-      getSnapshot: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-19T00:00:00.000Z',
-        videos: Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => [String(index + 1), { aid: index + 1 }])),
-        memberships: { 'folder-a': Array.from({ length: 30_000 }, (_, index) => index + 1) },
-        folders: [{ id: 'folder-a', title: 'A', kind: 'local', syncState: 'local-only' }],
-        physicalShards: [], syncRecords: [],
-        workspace: { id: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 1, continuationAids: [1, 2] }
-      })
+      getLibrarySummary: vi.fn().mockResolvedValue(summary)
     }
     registerFavoriteRepositoryIpc({
       ipcMain, service: service as never, isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
-    const summary = await ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')
+    const result = await ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')
 
-    expect(summary).toEqual(expect.objectContaining({
+    expect(result).toEqual(expect.objectContaining({
       version: 1, accountMid: '100', revision: 2, videoCount: 30_000, folderCount: 1,
       workspace: { id: 'workspace-1', status: 'previewing', baselineRevision: 1, continuationCount: 2 }
     }))
-    expect(summary).not.toHaveProperty('videos')
-    expect(summary).not.toHaveProperty('memberships')
+    expect(result).not.toHaveProperty('videos')
+    expect(result).not.toHaveProperty('memberships')
   })
 
   it('publishes bounded revision invalidations only to exact live subscriptions', async () => {
@@ -409,6 +464,42 @@ describe('registerFavoriteRepositoryIpc', () => {
       affectedAidCount: 2, pageInvalidated: true
     })
     expect(send.mock.calls.flat().join(',')).not.toContain('1,2')
+  })
+
+  it('invalidates a folder page when affected aids can change shared row data', async () => {
+    const ipcMain = new FakeIpcMain()
+    const send = vi.fn()
+    let changed: ((result: { accountMid: string; revision: number; affectedFolderIds: string[]; affectedAids: number[] }) => void) | undefined
+    const service = { onChanged: vi.fn((listener) => { changed = listener }), commit: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), send
+    })
+    await ipcMain.invoke('favorite-repository:subscribe', 7, '100', 'folder-b')
+
+    changed?.({ accountMid: '100', revision: 2, affectedFolderIds: ['folder-a'], affectedAids: [1] })
+
+    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({
+      revision: 2, pageInvalidated: true
+    }))
+  })
+
+  it('keeps an unrelated folder page valid for an aid-free structural change', async () => {
+    const ipcMain = new FakeIpcMain()
+    const send = vi.fn()
+    let changed: ((result: { accountMid: string; revision: number; affectedFolderIds: string[]; affectedAids: number[] }) => void) | undefined
+    const service = { onChanged: vi.fn((listener) => { changed = listener }), commit: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), send
+    })
+    await ipcMain.invoke('favorite-repository:subscribe', 7, '100', 'folder-b')
+
+    changed?.({ accountMid: '100', revision: 2, affectedFolderIds: ['folder-a'], affectedAids: [] })
+
+    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({
+      revision: 2, pageInvalidated: false
+    }))
   })
 
   it('removes every subscription owned by a destroyed renderer', async () => {
@@ -516,7 +607,7 @@ describe('registerFavoriteRepositoryIpc', () => {
       })
   })
 
-  it('forwards validated global library query, filter, and sort options to the main repository reader', async () => {
+  it('forwards validated global library page, query, filter, and sort options to the main repository reader', async () => {
     const ipcMain = new FakeIpcMain()
     const getLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [] })
     registerFavoriteRepositoryIpc({
@@ -525,12 +616,31 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
 
     await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
-      limit: 50, query: '  later page  ', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sort: 'title-asc'
     })
 
     expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
-      limit: 50, query: 'later page', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sort: 'title-asc'
     })
+  })
+
+  it('normalizes a transcription filter selection before forwarding the global library query', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibraryPage } as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, transcriptionFilters: ['running', 'completed', 'running']
+    })
+    expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
+      limit: 50, transcriptionFilters: ['completed', 'running']
+    })
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, transcriptionFilters: ['unknown']
+    })).rejects.toThrow('Favorite library page options are invalid.')
   })
 
   it('publishes changes committed by a main-process sync service without a renderer command', async () => {

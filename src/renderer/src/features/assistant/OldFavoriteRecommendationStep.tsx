@@ -54,7 +54,7 @@ export function OldFavoriteRecommendationStep({
 
   return <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
     <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
-    <p className="favorite-ledger-panel__step-note">勾选候选后由主进程重新归类当前分段；确认执行后才会同步为 B 站收藏夹。</p>
+    <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
     {snapshot.recommendations.candidates.length === 0 ? <p>本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。</p> : null}
     {groups.map((group, index) => {

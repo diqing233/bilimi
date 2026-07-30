@@ -19,7 +19,7 @@ const account = (updatedAt = '2026-07-24T00:00:00.000Z') => ({
   }, { generatedAt: updatedAt }),
   archives: [{ id: 'archive-1', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, versions: [{ id: 'version-1', createdAt: updatedAt, plainTranscript: '', summaryText: '', note: { id: 'account:100:aid:1:cid:11', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: 'memo', starred: true, createdAt: updatedAt, updatedAt } }], createdAt: updatedAt, updatedAt }],
   auditEvents: [],
-  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], updatedAt },
+  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], transcriptionModelId: 'faster-whisper-large-v3-turbo', updatedAt },
   workspaces: [{ id: 'work-1', accountMid: '100', status: 'running', updatedAt }],
   transcription: [{ id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, status: 'running', createdAt: updatedAt, updatedAt }],
   remoteOperations: [{ id: 'remote-1', accountMid: '100', status: 'result-unknown', updatedAt }]
@@ -319,7 +319,7 @@ describe('local data migration v1', () => {
     ]))
     expect((restored.workspaces as unknown[])).toHaveLength(6)
     expect((restored.workspaces as Array<Record<string, unknown>>).every((workspace) => workspace.status === 'draft' && workspace.resumable === true)).toBe(true)
-    expect((restored.transcription as unknown[])[0]).toMatchObject({ status: 'waiting-restart' })
+    expect((restored.transcription as unknown[])[0]).toMatchObject({ status: 'waiting-restart', transcriptionModelId: 'whisper-small' })
     expect((restored.remoteOperations as unknown[])[0]).toMatchObject({ status: 'reconciliation-required', autoRetry: false })
     const restoredRepository = validateFavoriteRepositoryArchiveExport(restored.repository)
     expect(restoredRepository.recovery).toMatchObject({
@@ -340,6 +340,15 @@ describe('local data migration v1', () => {
     for (const candidate of [unknownWorkspace, unknownTranscription, malformedArchive]) {
       expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': candidate } })).toThrow('invalid')
     }
+  })
+
+  it('rejects archive timings that are not finite numbers before creating a portable archive', () => {
+    const malformed = account()
+    ;(malformed.archives as any[])[0].versions[0].note.transcript = [{ start: Number.POSITIVE_INFINITY, end: 12, text: 'invalid timing' }]
+
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': malformed }
+    })).toThrow('archives')
   })
 
   it('rejects portable source records that try to carry physical remote identifiers', () => {

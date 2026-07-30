@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryDrawer } from './FavoriteLibraryDrawer'
 
@@ -9,6 +9,112 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryDrawer integration', () => {
+  it('keeps its rendered view while reopening and performs one background validation', async () => {
+    const getFavoriteRepositoryLibraryPage = vi.fn().mockResolvedValue({
+      version: 1, accountMid: '100', revision: 1,
+      items: [{ video: { aid: 1, title: 'Cached reopen row', tags: [], updatedAt: '2026-07-27T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+    })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+    const view = render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    await screen.findByText('Cached reopen row')
+    view.rerender(<FavoriteLibraryDrawer open={false} collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    view.rerender(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    expect(screen.getByText('Cached reopen row')).toBeInTheDocument()
+    await act(async () => { await Promise.resolve() })
+    expect(getFavoriteRepositoryLibraryPage).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains the cached folder search, sort, page, scroll, selection, and detail without refreshing on reopen', async () => {
+    let resolveReopenPage: ((value: Record<string, unknown>) => void) | undefined
+    let reopening = false
+    const pageItems = (page: number) => Array.from({ length: 20 }, (_, index) => {
+      const aid = (page - 1) * 20 + index + 1
+      return {
+        video: { aid, title: `Cached result ${aid}`, tags: [], updatedAt: '2026-07-27T00:00:00.000Z' },
+        folderIds: ['cached-folder'],
+        pendingStates: []
+      }
+    })
+    const getFavoriteRepositoryLibraryPage = vi.fn((_accountMid: string, scope: { kind: string }, options: { page?: number }) => {
+      if (reopening) return new Promise((resolve) => { resolveReopenPage = resolve })
+      const page = options.page ?? 1
+      return Promise.resolve({
+        version: 1 as const,
+        accountMid: '100',
+        revision: 1,
+        page,
+        pageCount: 2,
+        totalCount: 40,
+        items: scope.kind === 'folder' ? pageItems(page) : pageItems(1)
+      })
+    })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-27T00:00:00.000Z', videoCount: 40, folderCount: 1,
+        folders: [{ id: 'cached-folder', title: 'Cached folder', kind: 'bilimi-logical', logicalLedgerId: 'cached-folder', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage,
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn((accountMid: string, aid: number) => Promise.resolve({
+        version: 1 as const,
+        accountMid,
+        revision: 1,
+        video: { aid, title: `Cached result ${aid}`, description: 'Cached detail', tags: [], updatedAt: '2026-07-27T00:00:00.000Z' },
+        folderIds: ['cached-folder'],
+        pendingStates: [],
+        mirror: { status: 'synced' },
+        transcription: { status: '未转写' },
+        archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      })),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    const view = render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    await screen.findByText('Cached result 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Cached folder' }))
+    await screen.findByText('Cached result 1')
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: 'cached query' } })
+    await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'cached-folder' }, {
+      limit: 50, page: 1, query: 'cached query'
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '标题排序' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '标题 A-Z' }))
+    await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'cached-folder' }, {
+      limit: 50, page: 1, query: 'cached query', sort: 'title-asc'
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await screen.findByText('Cached result 21')
+    const list = screen.getByRole('list', { name: '收藏库视频列表' })
+    list.scrollTop = 120
+    fireEvent.scroll(list)
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Cached result 21' }))
+    fireEvent.click(screen.getByText('Cached result 21'))
+    expect(await screen.findByRole('complementary', { name: '视频详情' })).toHaveTextContent('Cached result 21')
+
+    view.rerender(<FavoriteLibraryDrawer open={false} collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+    await act(async () => { await Promise.resolve() })
+    const callsBeforeReopen = getFavoriteRepositoryLibraryPage.mock.calls.length
+    reopening = true
+    view.rerender(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+
+    expect(within(list).getByText('Cached result 21')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: '搜索收藏库' })).toHaveValue('cached query')
+    expect(screen.getByText('视频名称（标题 A-Z）')).toBeInTheDocument()
+    expect(screen.getByText('第 2 页')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 Cached result 21' })).toBeChecked()
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('Cached result 21')
+    expect(list.scrollTop).toBe(120)
+    expect(screen.queryByRole('status', { name: '正在刷新收藏库' })).not.toBeInTheDocument()
+    expect(getFavoriteRepositoryLibraryPage).toHaveBeenCalledTimes(callsBeforeReopen)
+    expect(resolveReopenPage).toBeUndefined()
+  })
+
   it('surfaces an active old-favorite scan from the account-scoped repository summary', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -26,7 +132,7 @@ describe('FavoriteLibraryDrawer integration', () => {
 
     render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
 
-    expect(await screen.findByText('正在扫描旧藏')).toBeInTheDocument()
+    expect(await screen.findByText('正在扫描已有收藏')).toBeInTheDocument()
   })
 
   it('surfaces account-scoped transcription failures in the drawer header', async () => {
@@ -191,12 +297,12 @@ describe('FavoriteLibraryDrawer integration', () => {
 
     currentAccountMid = '200'
     act(() => { onAccountChanged?.() })
-    await screen.findByLabelText('当前账号：UID：200')
+    await screen.findByText('（UID：200）')
     expect(screen.queryByText('本次转写成功 1 项')).not.toBeInTheDocument()
 
     currentAccountMid = '100'
     act(() => { onAccountChanged?.() })
-    await screen.findByLabelText('当前账号：UID：100')
+    await screen.findByText('（UID：100）')
     expect(screen.queryByText('本次转写成功 1 项')).not.toBeInTheDocument()
   })
 
@@ -227,16 +333,16 @@ describe('FavoriteLibraryDrawer integration', () => {
     expect(header).toHaveTextContent('1个视频同步失败')
     expect(header).toHaveTextContent('另有1条')
     expect(screen.queryByText('远程操作待处理')).not.toBeInTheDocument()
-    expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(3)
+    expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(4)
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
     expect(screen.getByTestId('favorite-library-drawer').querySelector('.favorite-library__row-columns')).toHaveTextContent('视频名称')
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '不相关的搜索' } })
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, query: '不相关的搜索' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, query: '不相关的搜索' }))
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, query: '不相关的搜索', filter: 'unsynced' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, query: '不相关的搜索', filter: 'unsynced' }))
     fireEvent.click(screen.getByRole('button', { name: '查看' }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50, page: 1 }))
   })
 })

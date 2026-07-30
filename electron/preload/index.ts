@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  AssistantPreferencePatchMeta,
   AssistantPreferences,
   DeepSeekConnectionTestResult,
   DeepSeekGenerateRequest,
@@ -9,6 +10,7 @@ import type {
   DeepSeekKeyStatus,
   DeepSeekArchiveMode,
   FavoriteLedger,
+  FavoriteLedgerEnabledPatch,
   FavoriteLedgerSaveOptions,
   StartupDiagnosticReport,
   PendingFavoriteQueueItem,
@@ -17,8 +19,13 @@ import type {
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
+  TranscriptionModelId,
+  TranscriptionModelInstallation,
+  TranscriptionModelInstallProgress,
+  TranscriptionGpuProbe,
   VideoNote,
-  VideoNoteArchiveEntry
+  VideoNoteArchiveEntry,
+  VideoNoteSourceMetadata
 } from '../../src/shared/types'
 import type {
   AssistantRuntimeRequest,
@@ -55,6 +62,22 @@ import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from 
 import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
 import type { FavoriteLibraryOperationSource } from '../../src/shared/favoriteLibraryOperations'
+import type {
+  VideoNoteBatchExportPreview,
+  VideoNoteBatchExportProgress,
+  VideoNoteBatchExportRequest,
+  VideoNoteBatchExportResult,
+  VideoNoteBatchExportStartRequest,
+  VideoNoteBatchFolderRequest
+} from '../../src/shared/videoNoteBatchExport'
+
+type FavoriteLibraryOperationSelection = number[] | {
+  kind: 'scope'
+  scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
+  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'> }
+  excludedAids: number[]
+}
+type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -62,8 +85,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
+  getMainWindowPresentationState: () => ipcRenderer.invoke('main-window:presentation-state') as Promise<{ visible: boolean; minimized: boolean }>,
   openFavoriteLibrary: () => ipcRenderer.invoke('favorite-library:open') as Promise<void>,
-  controlFavoriteLibraryWindow: (action: 'minimize' | 'toggle-maximize') => ipcRenderer.invoke('favorite-library:window-control', action) as Promise<void>,
+  controlFavoriteLibraryWindow: (action: 'minimize' | 'expand-and-maximize') => ipcRenderer.invoke('favorite-library:window-control', action) as Promise<void>,
   getFavoriteLibraryUiPreferences: (accountMid: string) => ipcRenderer.invoke('favorite-library:get-ui-preferences', accountMid) as Promise<Record<string, boolean>>,
   saveFavoriteLibraryUiPreferences: (accountMid: string, collapsedGroups: Record<string, boolean>) => ipcRenderer.invoke('favorite-library:save-ui-preferences', accountMid, collapsedGroups) as Promise<Record<string, boolean>>,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
@@ -189,14 +213,21 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
-  copyFavoriteLibrarySelection: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
-    ipcRenderer.invoke('favorite-library-operations:copy', accountMid, aids, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
-  moveFavoriteLibrarySelection: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
-    ipcRenderer.invoke('favorite-library-operations:move', accountMid, aids, sourceFolderId, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
-  deleteFavoriteLibrarySelection: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
-    ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, aids, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
-  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
-    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, aids, expectedRevision, source) as Promise<unknown>,
+  onFavoriteRepositoryAccountDataCleared: (callback: (accountMid: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, accountMid: unknown) => {
+      if (typeof accountMid === 'string') callback(accountMid)
+    }
+    ipcRenderer.on('favorite-library:account-data-cleared', listener)
+    return () => ipcRenderer.removeListener('favorite-library:account-data-cleared', listener)
+  },
+  copyFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibraryOperationSelection, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:copy', accountMid, selection, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  moveFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibraryOperationSelection, sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:move', accountMid, selection, sourceFolderId, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  deleteFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, selection, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
+  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, selection, expectedRevision, source) as Promise<unknown>,
   confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>
     ipcRenderer.invoke('favorite-library-operations:confirm-unfavorite', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
   executeFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string, confirmationToken: string) =>
@@ -205,6 +236,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:reconcile-unfavorite', accountMid, operationId) as Promise<unknown>,
   previewFavoriteLibraryManagedFolderDelete: (accountMid: string, folderId: string) =>
     ipcRenderer.invoke('favorite-library-operations:preview-managed-folder-delete', accountMid, folderId) as Promise<unknown>,
+  previewFavoriteLibraryManagedFolderGroupDelete: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-managed-folder-group-delete', accountMid) as Promise<unknown>,
   deleteFavoriteLibraryManagedFolderLocal: (accountMid: string, executionToken: string) =>
     ipcRenderer.invoke('favorite-library-operations:delete-managed-folder-local', accountMid, executionToken) as Promise<unknown>,
   confirmFavoriteLibraryManagedFolderRemoteDelete: (accountMid: string, executionToken: string) =>
@@ -213,7 +246,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:execute-managed-folder-remote-delete', accountMid, executionToken, confirmationToken) as Promise<unknown>,
   reconcileFavoriteLibraryManagedFolderDelete: (accountMid: string, operationId: string) =>
     ipcRenderer.invoke('favorite-library-operations:reconcile-managed-folder-delete', accountMid, operationId) as Promise<unknown>,
-  syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection) =>
+  syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
     ipcRenderer.invoke('favorite-library:set-local-placements', accountMid, placements, expectedRevision, synchronize) as Promise<FavoriteLibraryCommandResult>,
@@ -250,8 +283,14 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:archive-reconcile-restore', accountMid, plan, executionToken) as Promise<unknown>,
   enqueueFavoriteLibraryTranscription: (
     accountMid: string,
-    input: { aids: number[]; summarizeWithDeepSeek?: boolean }
+    input: { aids: number[]; summarizeWithDeepSeek?: boolean } | { targets: Array<{ aid: number; cid?: number }>; summarizeWithDeepSeek?: boolean } | (Exclude<FavoriteLibraryOperationSelection, number[]> & { summarizeWithDeepSeek?: boolean })
   ) => ipcRenderer.invoke('favorite-library:enqueue-transcription', accountMid, input) as Promise<FavoriteLibraryCommandResult>,
+  cancelFavoriteLibraryWaitingTranscription: (
+    accountMid: string,
+    input: { aids: number[] } | { targets: Array<{ aid: number; cid?: number }> } | FavoriteLibraryOperationSelection
+  ) => ipcRenderer.invoke('favorite-library:cancel-waiting-transcription', accountMid, input) as Promise<FavoriteLibraryCommandResult>,
+  resolveFavoriteLibraryDocumentExportSelection: (accountMid: string, selection: FavoriteLibraryDocumentExportSelection) =>
+    ipcRenderer.invoke('favorite-library:resolve-document-export-selection', accountMid, selection) as Promise<{ selections: Array<{ archiveId: string; versionId: string }>; skippedAids: number[] }>,
   commitFavoriteRepositoryCommand: (accountMid: string, command: FavoriteRepositoryCommand) =>
     ipcRenderer.invoke('favorite-repository:commit-command', accountMid, command) as Promise<FavoriteRepositoryCommandResult>,
   subscribeFavoriteRepository: (
@@ -329,6 +368,16 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('assistant:open', listener)
     }
   },
+  onAssistantPreferencePatchChanged: (callback: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => callback(patch, meta)
+    ipcRenderer.on('assistant:preferences-patch-changed', listener)
+    return () => ipcRenderer.removeListener('assistant:preferences-patch-changed', listener)
+  },
+  onFavoriteLedgerEnabledChanged: (callback: (patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => callback(patch, meta)
+    ipcRenderer.on('assistant:favorite-ledger-enabled-changed', listener)
+    return () => ipcRenderer.removeListener('assistant:favorite-ledger-enabled-changed', listener)
+  },
   onOpenFavoriteLibraryDrawer: (callback: (command: FavoriteLibraryDrawerCommand) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, command: FavoriteLibraryDrawerCommand) => callback(command)
     ipcRenderer.on('favorite-library:drawer-command', listener)
@@ -356,6 +405,23 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     return () => {
       ipcRenderer.removeListener('browser:open-in-tab', listener)
     }
+  },
+  openVideoNoteArchiveSource: (source: VideoNoteSourceMetadata, seconds?: number) =>
+    ipcRenderer.invoke('video-note-archives:open-source', source, seconds) as Promise<void>,
+  onOpenVideoNoteArchiveSource: (callback: (request: { url: string; seconds?: number; aid?: number; cid?: number }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: { url?: unknown; seconds?: unknown; aid?: unknown; cid?: unknown }) => {
+      if (typeof request?.url !== 'string') return
+      callback({
+        url: request.url,
+        ...(typeof request.seconds === 'number' && Number.isFinite(request.seconds) && request.seconds >= 0
+          ? { seconds: request.seconds }
+          : {}),
+        ...(typeof request.aid === 'number' && Number.isSafeInteger(request.aid) ? { aid: request.aid } : {}),
+        ...(typeof request.cid === 'number' && Number.isSafeInteger(request.cid) ? { cid: request.cid } : {})
+      })
+    }
+    ipcRenderer.on('video-note-archives:open-source', listener)
+    return () => ipcRenderer.removeListener('video-note-archives:open-source', listener)
   },
   onRunAssistantAction: (callback: (payload: { action: AssistantAction }) => void) => {
     const listener = (
@@ -426,6 +492,29 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ) as Promise<VideoAudioTranscriptionQueueSnapshot | null>,
   transcribeCurrentVideoAudio: (request: VideoAudioTranscriptionRequest) =>
     ipcRenderer.invoke('video-audio:transcribe-current', request) as Promise<VideoAudioTranscriptionResult>,
+  loadTranscriptionModels: () =>
+    ipcRenderer.invoke('video-audio:transcription-models-list') as Promise<TranscriptionModelInstallation[]>,
+  loadCurrentTranscriptionModelInstallProgress: () =>
+    ipcRenderer.invoke('video-audio:transcription-model-progress-current') as Promise<TranscriptionModelInstallProgress | undefined>,
+  probeTranscriptionModelGpu: (id: TranscriptionModelId) =>
+    ipcRenderer.invoke('video-audio:transcription-model-gpu-probe', id) as Promise<TranscriptionGpuProbe>,
+  installTranscriptionModel: (id: TranscriptionModelId, options?: { restart?: boolean }) =>
+    ipcRenderer.invoke('video-audio:transcription-model-install', id, options) as Promise<TranscriptionModelInstallation[]>,
+  cancelTranscriptionModelInstall: (id: TranscriptionModelId) =>
+    ipcRenderer.invoke('video-audio:transcription-model-install-cancel', id) as Promise<TranscriptionModelInstallation[]>,
+  importTranscriptionModel: (id: TranscriptionModelId) =>
+    ipcRenderer.invoke('video-audio:transcription-model-import', id) as Promise<TranscriptionModelInstallation[]>,
+  migrateLegacyWhisperSmall: () =>
+    ipcRenderer.invoke('video-audio:transcription-model-migrate-legacy-whisper') as Promise<TranscriptionModelInstallation[]>,
+  revalidateTranscriptionModel: (id: TranscriptionModelId) =>
+    ipcRenderer.invoke('video-audio:transcription-model-revalidate', id) as Promise<TranscriptionModelInstallation[]>,
+  deleteTranscriptionModel: (id: TranscriptionModelId) =>
+    ipcRenderer.invoke('video-audio:transcription-model-delete', id) as Promise<TranscriptionModelInstallation[]>,
+  onTranscriptionModelInstallProgress: (callback: (value: TranscriptionModelInstallProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: TranscriptionModelInstallProgress) => callback(value)
+    ipcRenderer.on('video-audio:transcription-model-progress', listener)
+    return () => ipcRenderer.removeListener('video-audio:transcription-model-progress', listener)
+  },
   loadVideoAudioTranscriptionQueue: () =>
     ipcRenderer.invoke('video-audio:transcription-queue-load') as Promise<VideoAudioTranscriptionQueueSnapshot>,
   enqueueVideoAudioTranscription: (request: VideoAudioTranscriptionRequest) =>
@@ -435,8 +524,26 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ) as Promise<VideoAudioTranscriptionQueueSnapshot>,
   cancelVideoAudioTranscription: (id: string) =>
     ipcRenderer.invoke('video-audio:transcription-queue-cancel', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  cancelVideoAudioTranscriptionSummary: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-cancel-summary', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
   retryVideoAudioTranscription: (id: string) =>
     ipcRenderer.invoke('video-audio:transcription-queue-retry', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  retryVideoAudioTranscriptionOnCpu: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-retry-cpu', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  retryVideoAudioArchiveRegistration: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-retry-archive-registration', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  retryVideoAudioSummary: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-retry-summary', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  cancelWaitingVideoAudioTranscriptions: (ids: string[]) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-batch-cancel-waiting', ids) as Promise<import('../main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>,
+  retryVideoAudioTranscriptions: (ids: string[]) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-batch-retry', ids) as Promise<import('../main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>,
+  removeVideoAudioTranscriptions: (ids: string[]) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-batch-remove', ids) as Promise<import('../main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>,
+  previewStopVideoAudioTranscriptions: (ids: string[]) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-batch-stop-preview', ids) as Promise<{ confirmationToken: string; runningCount: number }>,
+  stopVideoAudioTranscriptions: (ids: string[], confirmationToken: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-batch-stop', ids, confirmationToken) as Promise<import('../main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>,
   onVideoAudioTranscriptionQueueChanged: (
     callback: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
   ) => {
@@ -470,20 +577,49 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
 
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
-  patchPreferences: (patch: Partial<AssistantPreferences>) =>
-    ipcRenderer.invoke('assistant:patch-preferences', patch) as Promise<AssistantPreferences>,
+  patchPreferences: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
+    ipcRenderer.invoke('assistant:patch-preferences', patch, meta) as Promise<AssistantPreferences>,
+  writePreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
+    ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
+  writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) =>
+    ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta) as Promise<FavoriteLedgerEnabledPatch>,
+  previewPreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
+    ipcRenderer.send('assistant:preview-preference-patch', patch, meta),
   restoreDefaultLayoutSize: () =>
     ipcRenderer.invoke('layout:restore-default-size') as Promise<void>,
   saveDeepSeekApiKey: (apiKey: string) =>
     ipcRenderer.invoke('deepseek:save-key', apiKey) as Promise<DeepSeekKeyStatus>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
-  saveVideoNoteArchiveVersion: (note: VideoNote, summaryText?: string) =>
+  saveVerifiedVideoNoteArchiveVersion: (note: VideoNote, summaryText?: string) =>
     ipcRenderer.invoke(
-      'video-note-archives:save-version',
+      'video-note-archives:save-version-verified',
       note,
       summaryText
-    ) as Promise<VideoNoteArchiveEntry[]>,
+    ) as Promise<{ archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string }>,
+  saveVideoNoteArchiveSummary: (
+    archiveId: string,
+    versionId: string,
+    note: VideoNote,
+    summaryText: string
+  ) => ipcRenderer.invoke(
+    'video-note-archives:save-summary',
+    archiveId,
+    versionId,
+    note,
+    summaryText
+  ) as Promise<{ archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string }>,
+  previewVideoNoteArchiveBatch: (request: VideoNoteBatchExportRequest) =>
+    ipcRenderer.invoke('video-note-archives:batch-preview', request) as Promise<VideoNoteBatchExportPreview>,
+  startVideoNoteArchiveBatch: (request: VideoNoteBatchExportStartRequest) =>
+    ipcRenderer.invoke('video-note-archives:batch-start', request) as Promise<VideoNoteBatchExportResult | undefined>,
+  cancelVideoNoteArchiveBatch: (input: { batchId: string; accountMid: string }) => ipcRenderer.invoke('video-note-archives:batch-cancel', input) as Promise<boolean>,
+  openVideoNoteArchiveBatchFolder: (input: VideoNoteBatchFolderRequest) => ipcRenderer.invoke('video-note-archives:batch-open-folder', input) as Promise<string>,
+  onVideoNoteArchiveBatchProgress: (callback: (value: VideoNoteBatchExportProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: VideoNoteBatchExportProgress) => callback(value)
+    ipcRenderer.on('video-note-archives:batch-progress', listener)
+    return () => ipcRenderer.removeListener('video-note-archives:batch-progress', listener)
+  },
   updateVideoNoteArchiveVersion: (
     archiveId: string,
     versionId: string,

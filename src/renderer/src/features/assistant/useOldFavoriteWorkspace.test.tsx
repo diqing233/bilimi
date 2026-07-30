@@ -125,7 +125,7 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
   })
 
-  it('keeps polling a previewing workspace while tag enrichment is running without blocking interaction', async () => {
+  it('uses a low-frequency visible fallback while tag enrichment is running without blocking interaction', async () => {
     vi.useFakeTimers()
     const polling = deferred<ReturnType<typeof workspace>>()
     const enrichingWorkspace = {
@@ -143,7 +143,9 @@ describe('useOldFavoriteWorkspace', () => {
     await act(async () => { await vi.runOnlyPendingTimersAsync() })
     expect(result.current.loading).toBe(false)
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_999) })
+    expect(open).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(open).toHaveBeenCalledTimes(2)
     expect(result.current.loading).toBe(false)
     expect(result.current.backgroundRefreshing).toBe(true)
@@ -167,7 +169,7 @@ describe('useOldFavoriteWorkspace', () => {
     let pendingCommand!: Promise<unknown>
     act(() => { pendingCommand = result.current.startScan() })
     expect(result.current.loading).toBe(true)
-    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
     commandResult.resolve(workspace('100'))
     await act(async () => { await pendingCommand })
 
@@ -502,7 +504,7 @@ describe('useOldFavoriteWorkspace', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(true))
     await waitFor(() => expect(open).toHaveBeenCalled())
-    pending.resolve({ ...workspace('100'), status: 'completed' as const, scan: { phase: 'complete' as const, failureCount: 0 } })
+    pending.resolve({ ...workspace('100'), status: 'completed' as const, scan: { phase: 'complete' as const, failureCount: 0 }, currentSegment: null } as never)
     await act(async () => { await execution })
     expect(result.current.loading).toBe(false)
   })

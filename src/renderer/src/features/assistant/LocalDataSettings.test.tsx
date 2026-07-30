@@ -1,8 +1,17 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { LocalDataSettings } from './LocalDataSettings'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 describe('LocalDataSettings', () => {
+  it('uses the shared blue dashed divider between its primary data sections', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+    expect(styles).toContain('--bilimi-divider: 1px dashed rgba(31, 99, 181, .28);')
+    expect(styles).toContain('.local-data-settings__section { display: grid; gap: 9px; padding-top: 10px; border-top: var(--bilimi-divider); }')
+  })
+
   it('groups local storage, migration, and destructive controls without exposing every account by default', () => {
     render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} />)
 
@@ -62,12 +71,14 @@ describe('LocalDataSettings', () => {
   it('retains an import preview token until the user explicitly chooses merge or overwrite', async () => {
     const onImport = vi.fn().mockResolvedValue({ token: 'preview-1', accounts: [{ uid: '100', action: 'merge' }, { uid: '200', action: 'new' }] })
     const onApplyImport = vi.fn().mockResolvedValue(undefined)
-    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onImport={onImport} onApplyImport={onApplyImport} />)
+    const onDataChanged = vi.fn().mockResolvedValue(undefined)
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onImport={onImport} onApplyImport={onApplyImport} onDataChanged={onDataChanged} />)
 
     fireEvent.click(screen.getByRole('button', { name: '导入并预览' }))
     expect(await screen.findByRole('list', { name: '导入预览' })).toHaveTextContent('200：new')
     fireEvent.click(screen.getByRole('button', { name: '按 UID 合并并保留较新记录' }))
     expect(onApplyImport).toHaveBeenCalledWith('preview-1', 'merge')
+    await waitFor(() => expect(onDataChanged).toHaveBeenCalledOnce())
     expect(await screen.findByRole('status')).toHaveTextContent('导入完成')
     expect(screen.queryByRole('list', { name: '导入预览' })).not.toBeInTheDocument()
   })

@@ -19,7 +19,7 @@ import {
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
-import type { VideoAudioTranscriptionQueueItem } from '../../src/shared/types'
+import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
 
 type PersistedRepository = {
   version: 1
@@ -48,6 +48,15 @@ type CachedRepository = {
   repository: PersistedRepository
   manifest?: RepositoryManifest
   libraryIndex?: FavoriteRepositoryLibraryIndex
+  libraryQueryCache?: {
+    repositoryRevision: number
+    entries: Map<string, readonly number[]>
+  }
+  pendingStateCache?: {
+    repositoryRevision: number
+    transcriptionRevision: number
+    statesByAid: Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>
+  }
 }
 
 type FavoriteRepositoryCommandReceipt = {
@@ -63,7 +72,7 @@ type FavoriteRepositoryCommandReceipt = {
 type FavoriteRepositoryLibraryIndex = {
   revision: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
-  folderConflicts: Array<{ title: string; folderIds: string[] }>
+  folderConflicts: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   allAids: number[]
   folderAidsByFolderId: Map<string, number[]>
   folderIdsByAid: Map<number, string[]>
@@ -108,6 +117,7 @@ type EventJournalEntry = {
 
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 export type FavoriteRepositoryLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
+export type FavoriteRepositoryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
 
 type FolderPageOptions = {
   limit: number
@@ -115,9 +125,11 @@ type FolderPageOptions = {
 }
 
 export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
+  page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
   sort?: FavoriteRepositoryLibrarySort
+  transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
 }
 
 function clone<T>(value: T): T {
@@ -296,8 +308,12 @@ export type FavoriteRepositoryLibrarySummary = {
   folderCount: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
   folderCounts: Record<string, number>
+  /** Distinct videos across valid Bilimi logical work folders, not a sum of folder counts. */
+  workspaceVideoCount?: number
+  /** Distinct videos across non-workspace, non-inbox favorite folders. */
+  otherFavoriteVideoCount?: number
   scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
-  folderConflicts?: Array<{ title: string; folderIds: string[] }>
+  folderConflicts?: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
@@ -363,7 +379,10 @@ export class FavoriteRepositoryService {
   constructor(private readonly options: {
     root: string
     now?: () => string
+    getTranscriptionRevision?: () => number
+    getTranscriptionArchiveRevision?: () => number
     getTranscriptionItems?: () => readonly VideoAudioTranscriptionQueueItem[]
+    getTranscriptionArchives?: () => readonly VideoNoteArchiveEntry[]
   }) {}
 
   async getSnapshot(accountMid: string): Promise<AccountFavoriteRepositorySnapshot> {
@@ -389,6 +408,16 @@ export class FavoriteRepositoryService {
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
+    const workspaceVideoCount = new Set(
+      index.folders
+        .filter((folder) => folder.kind === 'bilimi-logical')
+        .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
+    ).size
+    const otherFavoriteVideoCount = new Set(
+      index.folders
+        .filter((folder) => folder.kind !== 'bilimi-logical' && folder.id !== 'local:inbox')
+        .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
+    ).size
     const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
       [...index.pendingStatesByAid].filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(state)).length
     return {
@@ -400,9 +429,12 @@ export class FavoriteRepositoryService {
       folderCount: index.folders.length,
       folders: index.folders.map((folder) => ({ ...folder })),
       folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
+      workspaceVideoCount,
+      otherFavoriteVideoCount,
       scopeCounts: { all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'), unsynced: stateCount('unsynced') },
       ...(index.folderConflicts.length ? { folderConflicts: index.folderConflicts.map((conflict) => ({
-        title: conflict.title, folderIds: [...conflict.folderIds]
+        title: conflict.title, folderIds: [...conflict.folderIds], reason: conflict.reason,
+        candidates: conflict.candidates.map((candidate) => ({ ...candidate }))
       })) } : {}),
       physicalShardCount: snapshot.physicalShards.length,
       syncRecordCount: snapshot.syncRecords.length,
@@ -814,8 +846,10 @@ export class FavoriteRepositoryService {
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
     const index = this.libraryIndex(cached, snapshot)
-    const scopedAids = this.filteredAndSortedLibraryAids(snapshot, this.libraryAids(snapshot, scope, index), index, options)
-    const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
+    const scopedAids = this.cachedLibraryAids(cached, snapshot, scope, index, options)
+    const page = options.page ?? 1
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Favorite repository page number is invalid.')
+    const start = options.page ? (page - 1) * limit : options.cursor ? Number(options.cursor) : 0
     if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
     const selected = scopedAids.slice(start, start + limit)
     const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
@@ -823,6 +857,7 @@ export class FavoriteRepositoryService {
       version: 1,
       accountMid: account,
       totalCount: scopedAids.length,
+      ...(options.page ? { page, pageCount: Math.ceil(scopedAids.length / limit) } : {}),
       items: selected.flatMap((aid) => {
         const video = snapshot.videos[String(aid)]
         if (!video) return []
@@ -835,6 +870,22 @@ export class FavoriteRepositoryService {
       ...(start + limit < scopedAids.length ? { nextCursor: String(start + limit) } : {}),
       revision: snapshot.revision
     }
+  }
+
+  /** Resolves an all-results selection beside the repository index, not in the renderer. */
+  async resolveLibrarySelection(
+    accountMid: string,
+    scope: FavoriteRepositoryLibraryPageScope,
+    options: Omit<FavoriteRepositoryLibraryPageOptions, 'cursor' | 'limit' | 'page'>,
+    excludedAids: number[] = []
+  ) {
+    const account = normalizeAccountMid(accountMid)
+    const cached = await this.load(account)
+    const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
+    const index = this.libraryIndex(cached, snapshot)
+    const excluded = new Set(excludedAids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))
+    return this.cachedLibraryAids(cached, snapshot, scope, index, options)
+      .filter((aid) => !excluded.has(aid))
   }
 
   async getLibraryDetail(accountMid: string, aid: number): Promise<FavoriteRepositoryLibraryDetail | null> {
@@ -884,7 +935,11 @@ export class FavoriteRepositoryService {
       state.commandIds.add(commandId)
       state.records.set(record.id, clone(record))
       const cached = this.cache.get(account)
-      if (cached) cached.libraryIndex = undefined
+      if (cached) {
+        cached.libraryIndex = undefined
+        cached.pendingStateCache = undefined
+        cached.libraryQueryCache = undefined
+      }
     }).finally(() => { this.pendingWriteCount-- })
   }
 
@@ -1133,9 +1188,20 @@ export class FavoriteRepositoryService {
   private libraryIndex(cached: CachedRepository, snapshot: AccountFavoriteRepositorySnapshot) {
     if (!cached.libraryIndex || cached.libraryIndex.revision !== snapshot.revision) {
       cached.libraryIndex = this.createLibraryIndex(snapshot)
+      cached.libraryQueryCache = undefined
     }
     if (!this.options.getTranscriptionItems) return cached.libraryIndex
-    return { ...cached.libraryIndex, pendingStatesByAid: this.pendingStatesByAid(snapshot) }
+    const transcriptionRevision = this.options.getTranscriptionRevision?.() ?? Number.NaN
+    if (!cached.pendingStateCache ||
+      cached.pendingStateCache.repositoryRevision !== snapshot.revision ||
+      cached.pendingStateCache.transcriptionRevision !== transcriptionRevision) {
+      cached.pendingStateCache = {
+        repositoryRevision: snapshot.revision,
+        transcriptionRevision,
+        statesByAid: this.pendingStatesByAid(snapshot)
+      }
+    }
+    return { ...cached.libraryIndex, pendingStatesByAid: cached.pendingStateCache.statesByAid }
   }
 
   private createLibraryIndex(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibraryIndex {
@@ -1159,6 +1225,13 @@ export class FavoriteRepositoryService {
         if (remote) canonicalIdByRawId.set(remote.id, logical.id)
       }
     }
+    // Old local-only saves used local:<ledger> even when that logical ledger already existed.
+    // Treat those records as the same local intent without mutating or deleting repository history.
+    for (const folder of snapshot.folders) {
+      if (folder.kind !== 'local' || !folder.id.startsWith('local:') || folder.id === 'local:inbox') continue
+      const logical = logicalFolders.get(folder.id.slice('local:'.length))
+      if (logical) canonicalIdByRawId.set(folder.id, logical.id)
+    }
     const folders = snapshot.folders.filter((folder) => canonicalIdByRawId.get(folder.id) === folder.id)
     const foldersByTitle = new Map<string, typeof folders>()
     for (const folder of folders) {
@@ -1166,13 +1239,20 @@ export class FavoriteRepositoryService {
       foldersByTitle.set(title, [...(foldersByTitle.get(title) ?? []), folder])
     }
     const titleConflicts = [...foldersByTitle.entries()]
-      .filter(([title, matches]) => title && matches.length > 1)
-      .map(([title, matches]) => ({ title, folderIds: matches.map((folder) => folder.id).sort() }))
+      .filter(([title, matches]) => title && matches.length > 1 && matches.filter((folder) => folder.kind !== 'local').length > 1)
+      .map(([title, matches]) => ({
+        title,
+        folderIds: matches.map((folder) => folder.id).sort(),
+        reason: '同名收藏夹无法证明属于同一个逻辑工作夹。',
+        candidates: matches.map((folder) => ({ id: folder.id, title: folder.title })).sort((left, right) => left.id.localeCompare(right.id))
+      }))
     const bindingConflicts = [...logicalIdsByRemoteFolderId.entries()]
       .filter(([, logicalIds]) => logicalIds.size > 1)
       .map(([remoteFolderId, logicalIds]) => ({
         title: snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === remoteFolderId)?.title ?? remoteFolderId,
-        folderIds: [...logicalIds].map((logicalId) => `bilimi-logical:${logicalId}`).sort()
+        folderIds: [...logicalIds].map((logicalId) => `bilimi-logical:${logicalId}`).sort(),
+        reason: '同一远端收藏夹被多个逻辑工作夹声明，无法安全自动选择。',
+        candidates: [...logicalIds].sort().map((logicalId) => ({ id: `bilimi-logical:${logicalId}`, title: logicalFolders.get(logicalId)?.title ?? logicalId }))
       }))
     const folderConflicts = [...titleConflicts, ...bindingConflicts]
       .sort((left, right) => left.title.localeCompare(right.title) || left.folderIds.join().localeCompare(right.folderIds.join()))
@@ -1275,7 +1355,9 @@ export class FavoriteRepositoryService {
     }
     if (scope.kind === 'protected' || scope.kind === 'unsynced') {
       return [...index.pendingStatesByAid]
-        .filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(scope.kind))
+        .filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && (scope.kind === 'protected'
+          ? states.has('protected')
+          : states.has('unsynced') || states.has('failed') || states.has('result-unknown')))
         .map(([aid]) => aid).sort((left, right) => left - right)
     }
     return index.allAids
@@ -1285,13 +1367,17 @@ export class FavoriteRepositoryService {
     snapshot: AccountFavoriteRepositorySnapshot,
     aids: number[],
     index: FavoriteRepositoryLibraryIndex,
-    options: FavoriteRepositoryLibraryPageOptions
+    options: Omit<FavoriteRepositoryLibraryPageOptions, 'cursor' | 'limit' | 'page'>
   ) {
     const query = options.query?.trim().toLocaleLowerCase()
     const filter = options.filter ?? 'all'
     const sort = options.sort ?? 'updated-desc'
+    const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
+    const transcriptionStatesByAid = transcriptionFilters.size > 0
+      ? this.transcriptionStatesByAid(snapshot)
+      : undefined
     // Callers without a library sort retain the legacy bounded aid-read path.
-    if (!query && filter === 'all' && options.sort === undefined) return aids
+    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) return aids
     return aids.filter((aid) => {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
@@ -1299,6 +1385,8 @@ export class FavoriteRepositoryService {
       const matchesQuery = !query || [video.title, video.author ?? '', video.description ?? '', ...video.tags]
         .some((value) => value.toLocaleLowerCase().includes(query))
       if (!matchesQuery) return false
+      if (transcriptionFilters.size > 0 && ![...(transcriptionStatesByAid?.get(aid) ?? [])]
+        .some((state) => transcriptionFilters.has(state))) return false
       if (filter === 'protected') return states.has('protected')
       if (filter === 'pending') return [...states].some((state) => state !== 'protected')
       return filter !== 'unsynced' || states.has('unsynced') || states.has('failed') || states.has('result-unknown')
@@ -1310,6 +1398,92 @@ export class FavoriteRepositoryService {
       const difference = Date.parse(left.updatedAt) - Date.parse(right.updatedAt)
       return (sort === 'updated-asc' ? difference : -difference) || leftAid - rightAid
     })
+  }
+
+  private cachedLibraryAids(
+    cached: CachedRepository,
+    snapshot: AccountFavoriteRepositorySnapshot,
+    scope: FavoriteRepositoryLibraryPageScope,
+    index: FavoriteRepositoryLibraryIndex,
+    options: Omit<FavoriteRepositoryLibraryPageOptions, 'cursor' | 'limit' | 'page'>
+  ) {
+    const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
+    const dependsOnQueue = Boolean(this.options.getTranscriptionItems) &&
+      (options.filter === 'pending' || ['none', 'pending', 'running', 'failed'].some((state) => transcriptionFilters.has(state as FavoriteRepositoryTranscriptionFilter)))
+    const dependsOnArchives = Boolean(this.options.getTranscriptionArchives) &&
+      (transcriptionFilters.has('completed') || transcriptionFilters.has('none'))
+    const transcriptionQueueRevision = this.options.getTranscriptionRevision?.() ?? Number.NaN
+    const transcriptionArchiveRevision = this.options.getTranscriptionArchiveRevision?.() ?? Number.NaN
+    const canCache = (!dependsOnQueue || Number.isSafeInteger(transcriptionQueueRevision)) &&
+      (!dependsOnArchives || Number.isSafeInteger(transcriptionArchiveRevision))
+    if (!canCache) {
+      return this.filteredAndSortedLibraryAids(snapshot, this.libraryAids(snapshot, scope, index), index, options)
+    }
+    const normalizedQueueRevision = Number.isSafeInteger(transcriptionQueueRevision) ? transcriptionQueueRevision : -1
+    const normalizedArchiveRevision = Number.isSafeInteger(transcriptionArchiveRevision) ? transcriptionArchiveRevision : -1
+    if (!cached.libraryQueryCache ||
+      cached.libraryQueryCache.repositoryRevision !== snapshot.revision) {
+      cached.libraryQueryCache = {
+        repositoryRevision: snapshot.revision,
+        entries: new Map()
+      }
+    }
+    const key = JSON.stringify({
+      scope: scope.kind === 'folder' ? [scope.kind, scope.folderId] : [scope.kind],
+      query: options.query?.trim().toLocaleLowerCase() ?? '',
+      filter: options.filter ?? 'all',
+      sort: options.sort ?? '',
+      transcriptionFilters: [...transcriptionFilters].sort(),
+      ...(dependsOnQueue ? { transcriptionQueueRevision: normalizedQueueRevision } : {}),
+      ...(dependsOnArchives ? { transcriptionArchiveRevision: normalizedArchiveRevision } : {})
+    })
+    const existing = cached.libraryQueryCache.entries.get(key)
+    if (existing) {
+      cached.libraryQueryCache.entries.delete(key)
+      cached.libraryQueryCache.entries.set(key, existing)
+      return existing
+    }
+    const aids = this.filteredAndSortedLibraryAids(snapshot, this.libraryAids(snapshot, scope, index), index, options)
+    cached.libraryQueryCache.entries.set(key, aids)
+    if (cached.libraryQueryCache.entries.size > 16) {
+      cached.libraryQueryCache.entries.delete(cached.libraryQueryCache.entries.keys().next().value!)
+    }
+    return aids
+  }
+
+  private transcriptionStatesByAid(snapshot: AccountFavoriteRepositorySnapshot) {
+    const statesByAid = new Map<number, Set<FavoriteRepositoryTranscriptionFilter>>()
+    const addState = (aid: number, state: FavoriteRepositoryTranscriptionFilter) => {
+      const states = statesByAid.get(aid) ?? new Set<FavoriteRepositoryTranscriptionFilter>()
+      states.add(state)
+      statesByAid.set(aid, states)
+    }
+    const videos = Object.values(snapshot.videos)
+    // Part-specific rows and legacy/single-part rows intentionally use distinct keys.
+    const aidsByIdentity = new Map(videos.map((video) => [`${video.aid}:${video.cid ?? ''}`, video.aid]))
+    const matchingAid = (identity: { accountMid?: string; aid?: number | string; cid?: number | string }) => {
+      if (identity.accountMid !== snapshot.accountMid) return undefined
+      return aidsByIdentity.get(`${Number(identity.aid)}:${identity.cid === undefined ? '' : Number(identity.cid)}`)
+    }
+
+    for (const archive of this.options.getTranscriptionArchives?.() ?? []) {
+      for (const version of archive.versions) {
+        const aid = matchingAid(version.note.source)
+        if (aid !== undefined) addState(aid, 'completed')
+      }
+    }
+    for (const item of this.options.getTranscriptionItems?.() ?? []) {
+      const state = item.status === 'pending' || item.status === 'running' || item.status === 'failed'
+        ? item.status
+        : undefined
+      if (!state) continue
+      const aid = matchingAid(item)
+      if (aid !== undefined) addState(aid, state)
+    }
+    for (const video of videos) {
+      if (!statesByAid.has(video.aid)) addState(video.aid, 'none')
+    }
+    return statesByAid
   }
 
   private duplicateSyncResult(

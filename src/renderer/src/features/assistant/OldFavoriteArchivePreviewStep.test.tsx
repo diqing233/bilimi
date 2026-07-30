@@ -32,7 +32,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(heading).toHaveClass('favorite-ledger-panel__step-title')
     expect(heading.closest('.favorite-ledger-panel__preview-topbar')).not.toBeNull()
     expect(region).toHaveClass('favorite-ledger-panel__preview')
-    expect(region.querySelector(':scope > p.favorite-ledger-panel__step-note')).toHaveTextContent('当前分段 1 条；可调整分类和暂存，预览中的修改不会立即操作 B 站。')
+    expect(region.querySelector(':scope > p.favorite-ledger-panel__step-note')).toHaveTextContent('检查分类结果，可手动调整或使用 DeepSeek 辅助整理。')
     expect(region.querySelector('.favorite-ledger-panel__preview-new-ledger')).toBeNull()
     expect(region.querySelector('.favorite-ledger-panel__preview-toolbar')).toBeNull()
     expect(region.querySelector('.favorite-ledger-panel__preview-tools .favorite-ledger-panel__archive-tool-card')).not.toBeNull()

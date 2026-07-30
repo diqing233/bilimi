@@ -19,4 +19,13 @@ describe('formatDeepSeekErrorMessage', () => {
     )
     expect(formatDeepSeekErrorMessage(null, '生成失败。')).toBe('生成失败。')
   })
+
+  it('turns a bounded provider timeout into an actionable retry message', () => {
+    expect(
+      formatDeepSeekErrorMessage(
+        new Error('DeepSeek request timed out after 90 seconds.'),
+        'DeepSeek 总结生成失败。'
+      )
+    ).toBe('DeepSeek 请求超时，请检查服务地址或网络后重试。')
+  })
 })

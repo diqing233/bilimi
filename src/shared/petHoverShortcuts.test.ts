@@ -3,6 +3,7 @@ import {
   DEFAULT_PET_HOVER_SHORTCUTS,
   normalizePetHoverShortcuts,
   PET_HOVER_SHORTCUT_LIMIT,
+  PET_HOVER_SHORTCUTS,
   PET_SORTABLE_HOVER_SHORTCUTS
 } from './petHoverShortcuts'
 
@@ -47,5 +48,12 @@ describe('pet hover shortcuts', () => {
         'favorite'
       ])
     ).toEqual(['favorite'])
+  })
+
+  it('uses the current organize-favorites name for the preserved workspace shortcut', () => {
+    expect(PET_HOVER_SHORTCUTS.find((shortcut) => shortcut.id === 'organize-old-favorites')).toMatchObject({
+      title: '整理收藏',
+      description: '打开掌库，开始整理收藏'
+    })
   })
 })

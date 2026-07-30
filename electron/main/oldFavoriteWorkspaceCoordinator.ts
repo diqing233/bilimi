@@ -311,6 +311,108 @@ function isStagingBilimiFolder(title: string) {
   return /\u5f85\u5206\u7c7b|\u6682\u5b58/u.test(title)
 }
 
+type RecoverableManagedFolder = {
+  logicalLedgerId: string
+  logicalTitle: string
+  shardNumber: number
+  remoteFolderId: string
+  remoteTitle: string
+  memberAids: number[]
+  bindingState: 'bound' | 'pending-reconcile'
+  knownRemoteFolderIds?: string[]
+}
+
+function recoveredCustomLedgerId(remoteFolderId: string) {
+  let hash = 2166136261
+  for (const character of remoteFolderId.trim()) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `custom-${(hash >>> 0).toString(36)}`
+}
+
+function normalizedRecoveredCustomTitle(title: string) {
+  return title.trim().normalize('NFKC').replace(/\s+/gu, ' ').toLocaleLowerCase('zh-Hans-CN')
+}
+
+/**
+ * A reset loses device-local bindings. Reconstruct only a complete, unique
+ * remote work folder; incomplete reads remain pending for confirmation.
+ */
+function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'], managedMembers: Record<string, number[]>) {
+  const defaults = createDefaultFavoriteLedgers()
+  const candidates: RecoverableManagedFolder[] = []
+  for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+    const title = folder.title.trim()
+    const memberAids = [...new Set(managedMembers[folder.id] ?? [])].sort((left, right) => left - right)
+    let recovered = false
+    for (const ledger of defaults) {
+      const baseTitle = ledger.displayName.trim()
+      const suffix = title.startsWith(baseTitle) ? title.slice(baseTitle.length) : ''
+      const shardNumber = title === baseTitle ? 1 : /^·(\d+)$/u.test(suffix) ? Number(suffix.slice(1)) : 0
+      if (!shardNumber || (shardNumber === 1 && title !== baseTitle)) continue
+      candidates.push({
+        logicalLedgerId: ledger.id,
+        logicalTitle: baseTitle,
+        shardNumber,
+        remoteFolderId: folder.id,
+        remoteTitle: title,
+        memberAids,
+        bindingState: memberAids.length === folder.itemCount ? 'bound' : 'pending-reconcile',
+        ...(memberAids.length === folder.itemCount ? {} : { knownRemoteFolderIds: [folder.id] })
+      })
+      recovered = true
+      break
+    }
+    if (!recovered) {
+      candidates.push({
+        logicalLedgerId: recoveredCustomLedgerId(folder.id),
+        logicalTitle: title,
+        shardNumber: 1,
+        remoteFolderId: folder.id,
+        remoteTitle: title,
+        memberAids,
+        bindingState: memberAids.length === folder.itemCount ? 'bound' : 'pending-reconcile',
+        ...(memberAids.length === folder.itemCount ? {} : { knownRemoteFolderIds: [folder.id] })
+      })
+    }
+  }
+  const customCandidatesByTitle = new Map<string, RecoverableManagedFolder[]>()
+  for (const candidate of candidates.filter((candidate) => candidate.logicalLedgerId.startsWith('custom-'))) {
+    const key = normalizedRecoveredCustomTitle(candidate.logicalTitle)
+    customCandidatesByTitle.set(key, [...(customCandidatesByTitle.get(key) ?? []), candidate])
+  }
+  const resolvedCandidates = candidates.flatMap((candidate) => {
+    if (!candidate.logicalLedgerId.startsWith('custom-')) return [candidate]
+    const titleKey = normalizedRecoveredCustomTitle(candidate.logicalTitle)
+    const matches = customCandidatesByTitle.get(titleKey) ?? []
+    if (matches.length === 1) return [candidate]
+    if (matches[0] !== candidate) return []
+    return [{
+      ...candidate,
+      logicalLedgerId: recoveredCustomLedgerId(`title:${titleKey}`),
+      memberAids: [],
+      bindingState: 'pending-reconcile' as const,
+      knownRemoteFolderIds: matches.map((match) => match.remoteFolderId).sort()
+    }]
+  })
+  const byTarget = new Map<string, RecoverableManagedFolder[]>()
+  for (const candidate of resolvedCandidates) {
+    const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
+    byTarget.set(target, [...(byTarget.get(target) ?? []), candidate])
+  }
+  return [...byTarget.values()].map((matches) => {
+    if (matches.length === 1) return matches[0]
+    const [first] = matches
+    return {
+      ...first,
+      memberAids: [],
+      bindingState: 'pending-reconcile' as const,
+      knownRemoteFolderIds: matches.map((candidate) => candidate.remoteFolderId).sort()
+    }
+  })
+}
+
 /**
  * Owns the main-process old-favorite mirror while keeping its large baseline
  * and high-frequency edits in OldFavoriteWorkspaceStore. The repository only
@@ -349,6 +451,7 @@ export class OldFavoriteWorkspaceCoordinator {
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[], accountMid: string) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
+    saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
@@ -363,6 +466,194 @@ export class OldFavoriteWorkspaceCoordinator {
 
   async open(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null> {
     return this.queue(() => this.openUnsafe(accountMid))
+  }
+
+  /** Restores only complete, uniquely identifiable Bilimi folders from an existing scan. */
+  async recoverPersistedManagedBindings(accountMid: string) {
+    // Serialize only restoration: the expensive persisted-member read and
+    // revision-guarded repair remain outside the interactive command FIFO.
+    const workspace = await this.open(accountMid)
+    if (!workspace || isRecoveryRequired(workspace)) return { recoveredCount: 0, pendingCount: 0 }
+    const overview = this.scanOverviews.get(workspace.accountMid)
+    if (workspace.status === 'scanning' || overview?.scan.phase !== 'complete' ||
+      !overview.sourceFolders.some((folder) => folder.isBilimiWorkFolder)) {
+      return { recoveredCount: 0, pendingCount: 0 }
+    }
+    const storedManagedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
+    let committedRecoveredCount = 0
+    let committedPendingCount = 0
+    let repairBatchNumber = 0
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+      if (snapshot.workspace?.id !== workspace.id || snapshot.workspace.status !== workspace.status) {
+        return { recoveredCount: 0, pendingCount: 0 }
+      }
+      const memberAidsByFolderId = Object.fromEntries(overview.sourceFolders.map((folder) => {
+        const stored = storedManagedMembers[folder.id]
+        // Completed legacy workspaces retained their canonical mirror, not the
+        // temporary scan chunks. Reuse it only when it proves the full count.
+        const mirrored = snapshot.memberships[`bilibili:${folder.id}`] ?? []
+        return [folder.id, folder.isBilimiWorkFolder && stored?.length === folder.itemCount ? stored : mirrored]
+      }))
+      const candidates = recoverableManagedFolders(overview.sourceFolders, memberAidsByFolderId)
+      const persistedCustomCandidates = snapshot.physicalShards.flatMap((shard): RecoverableManagedFolder[] => {
+        if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
+        const folder = overview.sourceFolders.find((candidate) => candidate.id === shard.remoteFolderId)
+        if (!folder?.isBilimiWorkFolder) return []
+        return [{
+          logicalLedgerId: shard.logicalLedgerId,
+          logicalTitle: folder.title,
+          shardNumber: shard.shardNumber,
+          remoteFolderId: shard.remoteFolderId,
+          remoteTitle: shard.remoteTitle,
+          memberAids: snapshot.memberships[shard.folderId] ?? [],
+          bindingState: 'bound'
+        }]
+      })
+      const recoveredCustomDrafts = [...new Map([...candidates, ...persistedCustomCandidates]
+        .filter((candidate) => candidate.bindingState === 'bound' && candidate.remoteFolderId && candidate.logicalLedgerId.startsWith('custom-'))
+        .map((candidate) => [candidate.logicalLedgerId, candidate])).values()]
+        .map((candidate, index): FavoriteLedger => ({
+          id: candidate.logicalLedgerId,
+          displayName: candidate.logicalTitle.replace(/^bilimi[\u00b7.\s_-]*/i, '').trim() || candidate.logicalTitle,
+          keywords: [],
+          ruleType: 'keyword',
+          enabled: false,
+          priority: 20_000 + index,
+          bilibiliFolderId: candidate.remoteFolderId,
+          syncState: 'local-draft',
+          isDefault: false
+        }))
+      if (recoveredCustomDrafts.length) {
+        await this.options.saveRecoveredLedgerDrafts?.(workspace.accountMid, recoveredCustomDrafts)
+      }
+      const boundRemoteIds = new Set(snapshot.physicalShards.flatMap((shard) => shard.remoteFolderId ? [shard.remoteFolderId] : []))
+      const boundTargets = new Set(snapshot.physicalShards.map((shard) => `${shard.logicalLedgerId}:${shard.shardNumber}`))
+      const bindings = [] as Array<{
+        logicalLedgerId: string
+        logicalTitle: string
+        shardNumber: number
+        memberAids: number[]
+        remoteTitle: string
+        bindingState: 'bound' | 'pending-reconcile'
+        remoteFolderId?: string
+        knownRemoteFolderIds?: string[]
+        remoteMemberCount: number
+      }>
+      for (const candidate of candidates) {
+        const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
+        const remoteIds = candidate.bindingState === 'bound'
+          ? [candidate.remoteFolderId]
+          : candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId]
+        if (remoteIds.some((remoteFolderId) => boundRemoteIds.has(remoteFolderId)) || boundTargets.has(target)) continue
+        bindings.push({
+          logicalLedgerId: candidate.logicalLedgerId,
+          logicalTitle: candidate.logicalTitle,
+          shardNumber: candidate.shardNumber,
+          memberAids: candidate.bindingState === 'bound' ? candidate.memberAids : [],
+          remoteTitle: candidate.remoteTitle,
+          bindingState: candidate.bindingState,
+          ...(candidate.bindingState === 'bound'
+            ? { remoteFolderId: candidate.remoteFolderId }
+            : { knownRemoteFolderIds: candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId] }),
+          remoteMemberCount: candidate.memberAids.length
+        })
+        for (const remoteFolderId of remoteIds) boundRemoteIds.add(remoteFolderId)
+        boundTargets.add(target)
+      }
+      const logicalIdsByRemoteFolderId = new Map<string, Set<string>>()
+      for (const shard of snapshot.physicalShards) {
+        if (shard.bindingState === 'bound' && shard.remoteFolderId) {
+          const logicalIds = logicalIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
+          logicalIds.add(`bilimi-logical:${shard.logicalLedgerId}`)
+          logicalIdsByRemoteFolderId.set(shard.remoteFolderId, logicalIds)
+        }
+      }
+      for (const binding of bindings) {
+        if (binding.bindingState !== 'bound' || !binding.remoteFolderId) continue
+        logicalIdsByRemoteFolderId.set(binding.remoteFolderId, new Set([`bilimi-logical:${binding.logicalLedgerId}`]))
+      }
+      const recoveredObservations = new Map<number, Set<string>>()
+      for (const folder of snapshot.folders.filter((candidate) => candidate.kind === 'bilibili' && candidate.remoteFolderId)) {
+        for (const aid of snapshot.memberships[folder.id] ?? []) {
+          const observed = recoveredObservations.get(aid) ?? new Set<string>()
+          observed.add(folder.remoteFolderId!)
+          recoveredObservations.set(aid, observed)
+        }
+      }
+      const placements = [...recoveredObservations.keys()].sort((left, right) => left - right).slice(0, 500).flatMap((aid) => {
+        const existing = snapshot.positions[`${workspace.accountMid}:${aid}`]
+        const remoteObservedPhysicalFolderIds = [...(recoveredObservations.get(aid) ?? new Set<string>())].sort()
+        const bindingConflict = remoteObservedPhysicalFolderIds.some((folderId) =>
+          (logicalIdsByRemoteFolderId.get(folderId)?.size ?? 0) > 1)
+        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds.flatMap((folderId) => {
+          const logicalIds = logicalIdsByRemoteFolderId.get(folderId)
+          return logicalIds?.size === 1 ? [...logicalIds] : []
+        }))].sort()
+        const unchanged = existing &&
+          JSON.stringify(existing.remoteObservedPhysicalFolderIds) === JSON.stringify(remoteObservedPhysicalFolderIds) &&
+          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds) &&
+          (!bindingConflict || (existing.positionState === 'needs-review' && existing.reason === 'binding-conflict'))
+        if (unchanged) return []
+        return [{
+          aid,
+          localDesiredFolderIds: existing?.localDesiredFolderIds ?? [],
+          remoteObservedPhysicalFolderIds,
+          remoteObservedLogicalFolderIds,
+          observedAt: this.now(),
+          ...(bindingConflict ? { positionState: 'needs-review' as const, reason: 'binding-conflict' } : {}),
+          updatedAt: this.now()
+        }]
+      })
+      if (!bindings.length && !placements.length) {
+        if (recoveredObservations.size > 500) {
+          await this.commitRemoteObservationRepair(workspace.accountMid,
+            `old-favorite-workspace:recover-persisted-observation:${workspace.id}`, recoveredObservations, false, undefined, undefined,
+            { id: workspace.id, status: workspace.status })
+        }
+        return { recoveredCount: committedRecoveredCount, pendingCount: committedPendingCount }
+      }
+      try {
+        for (let start = 0; start < Math.max(bindings.length, 1); start += 100) {
+          const bindingBatch = bindings.slice(start, start + 100)
+          let committed = false
+          for (let batchAttempt = 0; batchAttempt < 2 && !committed; batchAttempt++) {
+            const current = start === 0 && batchAttempt === 0 ? snapshot : await this.options.repository.getSnapshot(workspace.accountMid)
+            if (current.workspace?.id !== workspace.id || current.workspace.status !== workspace.status) {
+              return { recoveredCount: committedRecoveredCount, pendingCount: committedPendingCount }
+            }
+            const placementBatch = start === 0 ? placements.map((placement) => ({
+              ...placement,
+              localDesiredFolderIds: current.positions[`${workspace.accountMid}:${placement.aid}`]?.localDesiredFolderIds ?? []
+            })) : []
+            try {
+              await this.options.repository.commit(workspace.accountMid, {
+                id: `old-favorite-workspace:recover-persisted-bindings:${workspace.id}:${++repairBatchNumber}`,
+                accountMid: workspace.accountMid,
+                issuedAt: this.now(),
+                expectedRevision: current.revision,
+                type: 'repair-persisted-managed-bindings',
+                payload: { workspaceId: workspace.id, workspaceStatus: workspace.status, bindings: bindingBatch, placements: placementBatch }
+              })
+              committed = true
+            } catch (error) {
+              if (!(error instanceof Error) || error.message !== 'Favorite repository revision mismatch.' || batchAttempt === 1) throw error
+            }
+          }
+          committedRecoveredCount += bindingBatch.filter((binding) => binding.bindingState === 'bound').length
+          committedPendingCount += bindingBatch.filter((binding) => binding.bindingState === 'pending-reconcile').length
+        }
+        if (recoveredObservations.size > 500) {
+          await this.commitRemoteObservationRepair(workspace.accountMid,
+            `old-favorite-workspace:recover-persisted-observation:${workspace.id}`, recoveredObservations, false, undefined, undefined,
+            { id: workspace.id, status: workspace.status })
+        }
+        return { recoveredCount: committedRecoveredCount, pendingCount: committedPendingCount }
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'Favorite repository revision mismatch.' || attempt === 1) throw error
+      }
+    }
+    return { recoveredCount: 0, pendingCount: 0 }
   }
 
   async getSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null> {
@@ -409,6 +700,18 @@ export class OldFavoriteWorkspaceCoordinator {
         this.forgetWorkspace(restored.accountMid)
         workspace = await this.createScanningWorkspace(restored.accountMid, mode)
       }
+      const recovery = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
+      if (!('recovery' in recovery) && recovery.recoveryDecision?.choice === 'rescan') {
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:discard-recovery-rescan:${workspace.id}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'abandon-workspace',
+          payload: { workspaceId: workspace.id }
+        })
+        this.forgetWorkspace(workspace.accountMid)
+        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
+      }
       const persistedWorkspace = (await this.options.repository.getSnapshot(workspace.accountMid)).workspace
       const abandonFrozenPlan = mode === 'full' && Boolean(persistedWorkspace?.frozenSyncPlan) &&
         persistedWorkspace?.status !== 'completed'
@@ -430,7 +733,7 @@ export class OldFavoriteWorkspaceCoordinator {
           accountMid: workspace.accountMid,
           issuedAt: this.now(),
           type: 'clear-local-repository',
-          payload: {}
+          payload: { preserveTombstones: true }
         })
         await this.persistMarker(workspace)
         await this.options.repository.commit(workspace.accountMid, {
@@ -481,7 +784,7 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceFolders,
         scan: {
           phase: 'inventory', failureCount: 0, mode,
-          totalItemCount: sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).reduce((count, folder) => count + folder.itemCount, 0),
+          totalItemCount: sourceFolders.reduce((count, folder) => count + folder.itemCount, 0),
           scannedItemCount: 0, taggedItemCount: 0, untaggedItemCount: 0
         }
       }
@@ -747,6 +1050,82 @@ export class OldFavoriteWorkspaceCoordinator {
           ]
         }
       })
+      // Rebuild only deterministic remote bindings after local data was
+      // cleared. Duplicate titles stay ordinary mirrors; incomplete reads are
+      // pending rather than silently attaching partial membership.
+      const mirroredAfterScan = await this.options.repository.getSnapshot(workspace.accountMid)
+      const remoteBindingCounts = new Map<string, number>()
+      const targetBindingCounts = new Map<string, number>()
+      for (const shard of mirroredAfterScan.physicalShards) {
+        if (!shard.remoteFolderId) continue
+        remoteBindingCounts.set(shard.remoteFolderId, (remoteBindingCounts.get(shard.remoteFolderId) ?? 0) + 1)
+        const target = `${shard.logicalLedgerId}:${shard.shardNumber}`
+        targetBindingCounts.set(target, (targetBindingCounts.get(target) ?? 0) + 1)
+      }
+      const recoveredBindings = [] as Array<{
+        logicalLedgerId: string
+        logicalTitle: string
+        shardNumber: number
+        memberAids: number[]
+        remoteTitle: string
+        bindingState: 'bound' | 'pending-reconcile'
+        remoteFolderId?: string
+        knownRemoteFolderIds?: string[]
+        remoteMemberCount: number
+      }>
+      for (const candidate of recoverableManagedFolders(sourceFolders, managedMembers)) {
+        const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
+        const candidateRemoteFolderIds = candidate.bindingState === 'bound'
+          ? [candidate.remoteFolderId]
+          : candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId]
+        if (candidateRemoteFolderIds.some((folderId) => remoteBindingCounts.has(folderId)) || targetBindingCounts.has(target)) continue
+        recoveredBindings.push({
+          logicalLedgerId: candidate.logicalLedgerId,
+          logicalTitle: candidate.logicalTitle,
+          shardNumber: candidate.shardNumber,
+          memberAids: candidate.bindingState === 'bound' ? candidate.memberAids : [],
+          remoteTitle: candidate.remoteTitle,
+          bindingState: candidate.bindingState,
+          ...(candidate.bindingState === 'bound'
+            ? { remoteFolderId: candidate.remoteFolderId }
+            : { knownRemoteFolderIds: candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId] }),
+          remoteMemberCount: candidate.memberAids.length
+        })
+        for (const folderId of candidateRemoteFolderIds) remoteBindingCounts.set(folderId, 1)
+        targetBindingCounts.set(target, 1)
+      }
+      for (let start = 0; start < recoveredBindings.length; start += 100) {
+        const current = await this.options.repository.getSnapshot(workspace.accountMid)
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:recover-managed-bindings:${workspace.id}:${start / 100 + 1}`,
+          accountMid: workspace.accountMid,
+          issuedAt: mirrorUpdatedAt,
+          expectedRevision: current.revision,
+          type: 'repair-persisted-managed-bindings',
+          payload: {
+            workspaceId: workspace.id,
+            workspaceStatus: workspace.status,
+            bindings: recoveredBindings.slice(start, start + 100),
+            placements: []
+          }
+        })
+      }
+      const recoveredCustomDrafts = recoveredBindings
+        .filter((binding) => binding.bindingState === 'bound' && binding.remoteFolderId && binding.logicalLedgerId.startsWith('custom-'))
+        .map((binding, index): FavoriteLedger => ({
+          id: binding.logicalLedgerId,
+          displayName: binding.logicalTitle.replace(/^bilimi[\u00b7.\s_-]*/i, '').trim() || binding.logicalTitle,
+          keywords: [],
+          ruleType: 'keyword',
+          enabled: false,
+          priority: 20_000 + index,
+          bilibiliFolderId: binding.remoteFolderId,
+          syncState: 'local-draft',
+          isDefault: false
+        }))
+      if (recoveredCustomDrafts.length) {
+        await this.options.saveRecommendedLedgers?.(workspace.accountMid, recoveredCustomDrafts)
+      }
       // A scan records remote facts only. Local placement remains the user's intent
       // until an explicit adopt/sync command changes it.
       const mirroredSnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
@@ -767,39 +1146,10 @@ export class OldFavoriteWorkspaceCoordinator {
       for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
         for (const aid of managedMembers[folder.id] ?? []) recordObservedFolders(aid, [folder.id])
       }
-      const managedRemoteFolderIds = new Set(sourceFolders
-        .filter((folder) => folder.isBilimiWorkFolder)
-        .map((folder) => folder.id))
-      for (const [aid, observedPhysicalFolderIds] of observedPhysicalFolderIdsByAid) {
-        const existing = mirroredSnapshot.positions[`${workspace.accountMid}:${aid}`]
-        const remoteObservedPhysicalFolderIds = [...observedPhysicalFolderIds].sort()
-        if (!existing && !remoteObservedPhysicalFolderIds.some((folderId) => managedRemoteFolderIds.has(folderId))) continue
-        const bindingConflict = remoteObservedPhysicalFolderIds.some((folderId) =>
-          (logicalLedgerIdsByRemoteFolderId.get(folderId)?.size ?? 0) > 1)
-        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds.flatMap((folderId) => {
-          const logicalIds = logicalLedgerIdsByRemoteFolderId.get(folderId)
-          return logicalIds?.size === 1 ? [...logicalIds] : []
-        }))].sort()
-        const unchangedObservedFolders = existing &&
-          JSON.stringify(existing.remoteObservedPhysicalFolderIds) === JSON.stringify(remoteObservedPhysicalFolderIds) &&
-          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds)
-        if (unchangedObservedFolders && (!bindingConflict || (existing.positionState === 'needs-review' && existing.reason === 'binding-conflict'))) continue
-        await this.options.repository.commit(workspace.accountMid, {
-          id: `old-favorite-workspace:observed:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}:${aid}`,
-          accountMid: workspace.accountMid,
-          issuedAt: mirrorUpdatedAt,
-          type: 'set-favorite-placement',
-          payload: {
-            aid,
-            localDesiredFolderIds: existing?.localDesiredFolderIds ?? [],
-            remoteObservedPhysicalFolderIds,
-            remoteObservedLogicalFolderIds,
-            observedAt: mirrorUpdatedAt,
-            ...(bindingConflict ? { positionState: 'needs-review' as const, reason: 'binding-conflict' } : {}),
-            updatedAt: mirrorUpdatedAt
-          }
-        })
-      }
+      await this.commitRemoteObservationRepair(workspace.accountMid,
+        `old-favorite-workspace:observed:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}`,
+        observedPhysicalFolderIdsByAid, false, undefined, mirrorUpdatedAt, undefined,
+        workspace.mode === 'full', true)
       const formalManagedFolderIds = new Set(sourceFolders
         .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
         .map((folder) => folder.id))
@@ -849,15 +1199,18 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const recommendations = buildAuthorRecommendations(itemsByAid.values())
       const readiness = this.calculatePlanReadinessFromItems(completed, itemsByAid.values(), sourceFolders)
-      const totalItemCount = sourceFolders.filter((folder) => !folder.isBilimiWorkFolder)
-        .reduce((count, folder) => count + folder.itemCount, 0)
+      const discoveredAids = new Set([
+        ...itemsByAid.keys(),
+        ...Object.values(managedMembers).flat()
+      ])
+      const totalItemCount = discoveredAids.size
       const taggedItemCount = [...itemsByAid.values()].filter((item) => Boolean(item.tags?.length)).length
       const completedScan = {
         phase: 'complete' as const,
         failureCount: 0,
         mode: completed.mode,
         totalItemCount,
-        scannedItemCount: itemsByAid.size,
+        scannedItemCount: discoveredAids.size,
         taggedItemCount,
         untaggedItemCount: itemsByAid.size - taggedItemCount
       }
@@ -1208,6 +1561,17 @@ export class OldFavoriteWorkspaceCoordinator {
     const marker = snapshot.workspace
     if (!marker) return null
     if (marker.status === 'draft') {
+      if (marker.resumable === true) {
+        return {
+          accountMid: snapshot.accountMid,
+          workspaceId: marker.id,
+          status: 'draft',
+          currentStep: 'draft',
+          baselineChangeEvidence: recoveryBaselineChangeEvidence(marker.workspaceRef.baselineRevision, snapshot.revision, undefined, snapshot,
+            await this.options.resolveRecoveryConfiguration?.(snapshot.accountMid)),
+          recoveryChoices: ['view', 'rescan']
+        }
+      }
       return {
         accountMid: snapshot.accountMid,
         workspaceId: marker.id,
@@ -1509,11 +1873,19 @@ export class OldFavoriteWorkspaceCoordinator {
         .sort((left, right) => left - right)
       if (!selectedAids.length) throw new Error('Old favorite workspace selected plan is empty.')
       const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
+      const existingLogicalFolderIds = new Set(repository.folders
+        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+        .map((folder) => folder.logicalLedgerId!))
+      const localFolderIdForLedger = (logicalLedgerId: string) => logicalLedgerId === 'inbox'
+        ? 'local:inbox'
+        : existingLogicalFolderIds.has(logicalLedgerId)
+          ? `bilimi-logical:${logicalLedgerId}`
+          : `local:${logicalLedgerId}`
       const memberAidsByFolderId: Record<string, number[]> = {}
       for (const aid of selectedAids) {
         const targets = assignmentsByAid.get(aid)?.targetLedgerIds ?? ['inbox']
         for (const logicalLedgerId of targets) {
-          const folderId = `local:${logicalLedgerId}`
+          const folderId = localFolderIdForLedger(logicalLedgerId)
           memberAidsByFolderId[folderId] = [...new Set([
             ...(memberAidsByFolderId[folderId] ?? []),
             aid
@@ -1557,7 +1929,7 @@ export class OldFavoriteWorkspaceCoordinator {
               updatedAt: this.now()
             }]
           }),
-          folders: Object.keys(memberAidsByFolderId).map((folderId) => ({
+          folders: Object.keys(memberAidsByFolderId).filter((folderId) => folderId.startsWith('local:')).map((folderId) => ({
             id: folderId,
             title: localFolderTitles.get(folderId)!,
             kind: 'local' as const,
@@ -1566,7 +1938,7 @@ export class OldFavoriteWorkspaceCoordinator {
           organizationRecords: selectedAssignments.filter((assignment) => assignment.targetLedgerIds.some((id) => id !== 'inbox')).map((assignment) => ({
             accountMid: workspace.accountMid,
             aid: assignment.aid,
-            targetFolderIds: assignment.targetLedgerIds.filter((id) => id !== 'inbox').map((logicalLedgerId) => `local:${logicalLedgerId}`),
+            targetFolderIds: assignment.targetLedgerIds.filter((id) => id !== 'inbox').map(localFolderIdForLedger),
             completedAt: this.now()
           })),
           workspace: marker
@@ -2650,6 +3022,100 @@ export class OldFavoriteWorkspaceCoordinator {
     return workspace.id === marker.id && marker.workspaceRef.workspaceId === marker.id &&
       workspace.accountMid === marker.accountMid &&
       workspace.status === marker.status && (workspace.baseline?.revision ?? 0) === marker.baselineRevision
+  }
+
+  /**
+   * Observations are derived from a completed scan outside the repository write
+   * queue. Re-read before each bounded commit so a user move always keeps the
+   * latest local desired folders while remote facts are repaired.
+   */
+  private async commitRemoteObservationRepair(
+    accountMid: string,
+    commandPrefix: string,
+    observedPhysicalFolderIdsByAid: ReadonlyMap<number, ReadonlySet<string>>,
+    preserveExistingObservations: boolean,
+    managedRemoteFolderIds?: ReadonlySet<string>,
+    timestamp = this.now(),
+    expectedWorkspace?: Pick<OldFavoriteWorkspace, 'id' | 'status'>,
+    adoptUniqueObservedPlacementWhenLocalEmpty = false,
+    repairPersistedMembershipProjection = false
+  ) {
+    const aids = [...observedPhysicalFolderIdsByAid.keys()].sort((left, right) => left - right)
+    for (let start = 0; start < aids.length; start += 500) {
+      let committed = false
+      for (let attempt = 0; attempt < 2 && !committed; attempt++) {
+        const snapshot = await this.options.repository.getSnapshot(accountMid)
+        if (expectedWorkspace && (snapshot.workspace?.id !== expectedWorkspace.id || snapshot.workspace.status !== expectedWorkspace.status)) return
+        const logicalIdsByRemoteFolderId = new Map<string, Set<string>>()
+        for (const shard of snapshot.physicalShards) {
+          if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+          const logicalIds = logicalIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
+          logicalIds.add(`bilimi-logical:${shard.logicalLedgerId}`)
+          logicalIdsByRemoteFolderId.set(shard.remoteFolderId, logicalIds)
+        }
+        const placements = aids.slice(start, start + 500).flatMap((aid) => {
+        const existing = snapshot.positions[`${accountMid}:${aid}`]
+        const observed = observedPhysicalFolderIdsByAid.get(aid) ?? new Set<string>()
+        const remoteObservedPhysicalFolderIds = [...new Set([
+          ...(preserveExistingObservations ? existing?.remoteObservedPhysicalFolderIds ?? [] : []), ...observed
+        ])].sort()
+        if (!existing && managedRemoteFolderIds && !remoteObservedPhysicalFolderIds.some((folderId) => managedRemoteFolderIds.has(folderId))) return []
+        const bindingConflict = remoteObservedPhysicalFolderIds.some((folderId) =>
+          (logicalIdsByRemoteFolderId.get(folderId)?.size ?? 0) > 1)
+        const remoteObservedLogicalFolderIds = [...new Set(remoteObservedPhysicalFolderIds.flatMap((folderId) => {
+          const logicalIds = logicalIdsByRemoteFolderId.get(folderId)
+          return logicalIds?.size === 1 ? [...logicalIds] : []
+        }))].sort()
+        const matchingLogicalMemberships = remoteObservedLogicalFolderIds.filter((folderId) =>
+          (snapshot.memberships[folderId] ?? []).includes(aid))
+        // A prior local save can leave the durable logical membership intact
+        // while its placement projection is empty. Repair that duplicated
+        // projection only when one observed bound folder proves the intent.
+        const uniquelyPersistedLocalPlacement = matchingLogicalMemberships.length === 1
+          ? matchingLogicalMemberships
+          : []
+        const localDesiredFolderIds = adoptUniqueObservedPlacementWhenLocalEmpty &&
+          !bindingConflict && (existing?.localDesiredFolderIds.length ?? 0) === 0
+          ? remoteObservedLogicalFolderIds
+          : repairPersistedMembershipProjection && (existing?.localDesiredFolderIds.length ?? 0) === 0 && !bindingConflict && uniquelyPersistedLocalPlacement.length
+            ? uniquelyPersistedLocalPlacement
+            : existing?.localDesiredFolderIds ?? []
+        const unchanged = existing &&
+          JSON.stringify(existing.localDesiredFolderIds) === JSON.stringify(localDesiredFolderIds) &&
+          JSON.stringify(existing.remoteObservedPhysicalFolderIds) === JSON.stringify(remoteObservedPhysicalFolderIds) &&
+          JSON.stringify(existing.remoteObservedLogicalFolderIds) === JSON.stringify(remoteObservedLogicalFolderIds) &&
+          (!bindingConflict || (existing.positionState === 'needs-review' && existing.reason === 'binding-conflict'))
+        if (unchanged) return []
+        return [{
+          aid,
+          // Take the current snapshot's intent at the commit boundary.
+          localDesiredFolderIds,
+          remoteObservedPhysicalFolderIds,
+          remoteObservedLogicalFolderIds,
+          observedAt: timestamp,
+          ...(bindingConflict ? { positionState: 'needs-review' as const, reason: 'binding-conflict' } : {}),
+          updatedAt: timestamp
+        }]
+        })
+        if (!placements.length) {
+          committed = true
+          continue
+        }
+        try {
+          await this.options.repository.commit(accountMid, {
+            id: `${commandPrefix}:${start / 500 + 1}`,
+            accountMid,
+            issuedAt: timestamp,
+            expectedRevision: snapshot.revision,
+            type: 'set-favorite-placements',
+            payload: { placements }
+          })
+          committed = true
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'Favorite repository revision mismatch.' || attempt === 1) throw error
+        }
+      }
+    }
   }
 
   private queue<T>(operation: () => Promise<T>) {

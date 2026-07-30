@@ -49,7 +49,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const applyImport = async (mode: 'merge' | 'overwrite') => {
     if (!importPreview?.token) return
     setMigrationProgress('正在导入')
-    try { await onApplyImport?.(importPreview.token, mode); setImportPreview(null); setMigrationProgress('导入完成') } catch { setMigrationProgress('导入失败') }
+    try { await onApplyImport?.(importPreview.token, mode); await onDataChanged?.(); setImportPreview(null); setMigrationProgress('导入完成') } catch { setMigrationProgress('导入失败') }
   }
   const previewCleanup = async (level: Extract<CleanupLevel, 'cache' | 'current-account-temp'>, uid?: string) => {
     setCleanupPreview('正在生成清理预览'); setApprovedCleanup(null)

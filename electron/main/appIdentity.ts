@@ -1,5 +1,5 @@
 import { APP_TITLE } from '../../src/shared/constants'
-import { win32 } from 'node:path'
+import { isAbsolute, win32 } from 'node:path'
 
 type AppIdentityTarget = {
   setAppUserModelId: (id: string) => void
@@ -20,9 +20,15 @@ type UserDataTarget = {
 
 export function configureDevelopmentUserData(
   app: UserDataTarget,
-  options: { isPackaged: boolean }
+  options: { isPackaged: boolean; userDataOverride?: string }
 ) {
   if (options.isPackaged) {
+    return
+  }
+
+  const override = options.userDataOverride?.trim()
+  if (override && isAbsolute(override)) {
+    app.setPath('userData', override)
     return
   }
 
@@ -30,4 +36,20 @@ export function configureDevelopmentUserData(
   const parent = win32.dirname(currentPath)
   const directory = win32.basename(currentPath)
   app.setPath('userData', win32.join(parent, `${directory}-dev`))
+}
+
+type RuntimeSwitchTarget = {
+  commandLine: { appendSwitch: (name: string, value?: string) => void }
+}
+
+/** Keeps manual accessibility checks isolated from the production launch path. */
+export function configureDevelopmentRuntimeSwitches(
+  app: RuntimeSwitchTarget,
+  options: { isPackaged: boolean; deviceScaleFactor?: string; reducedMotion?: boolean }
+) {
+  if (options.isPackaged) return
+  if (options.deviceScaleFactor === '1' || options.deviceScaleFactor === '1.25' || options.deviceScaleFactor === '1.5') {
+    app.commandLine.appendSwitch('force-device-scale-factor', options.deviceScaleFactor)
+  }
+  if (options.reducedMotion) app.commandLine.appendSwitch('force-prefers-reduced-motion', 'reduce')
 }

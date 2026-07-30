@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import type { FloatingAssistantWorkspaceRequest } from './assistantRuntimeTypes'
+import type { AssistantPreferencePatchMeta } from '@shared/types'
+import { createAssistantPreferenceOriginId } from '@shared/assistantPreferencePatchMeta'
 import {
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
   clampAssistantSidebarWidthPx,
@@ -18,6 +20,7 @@ type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 
 type AssistantSidebarProps = {
   onOpenInTab?: (url: string) => void
+  onResizeActiveChange?: (active: boolean) => void
 }
 
 export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
@@ -29,9 +32,45 @@ type SidebarDragState = {
   target: HTMLDivElement | null
 }
 
-export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
+const SIDEBAR_WIDTH_SAVE_DELAY_MS = 200
+
+type SidebarWorkspaceProps = {
+  activeTab: AssistantSidebarTab
+  onActiveTabChange: (tab: AssistantSidebarTab) => void
+  onRequestCollapse: () => void
+  onOpenInTab?: (url: string) => void
+  workspaceRequest: (Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites'> & { requestId: number }) | undefined
+}
+
+const SidebarWorkspace = memo(function SidebarWorkspace({
+  activeTab,
+  onActiveTabChange,
+  onRequestCollapse,
+  onOpenInTab,
+  workspaceRequest
+}: SidebarWorkspaceProps) {
+  return (
+    <FloatingAssistantApp
+      mode="sidebar"
+      activeTab={activeTab}
+      onActiveTabChange={onActiveTabChange}
+      onRequestCollapse={onRequestCollapse}
+      onOpenInTab={onOpenInTab}
+      workspaceRequestsEnabled={false}
+      workspaceRequest={workspaceRequest}
+    />
+  )
+})
+
+export function AssistantSidebar({ onOpenInTab, onResizeActiveChange }: AssistantSidebarProps = {}) {
   const dragState = useRef<SidebarDragState | null>(null)
   const latestSidebarWidthPx = useRef<number | null>(null)
+  const sidebarShell = useRef<HTMLDivElement | null>(null)
+  const sidebarPanel = useRef<HTMLElement | null>(null)
+  const pendingWidthSave = useRef<number | null | undefined>(undefined)
+  const preferenceOriginId = useRef(createAssistantPreferenceOriginId())
+  const latestIssuedMutationId = useRef(0)
+  const widthSaveTimer = useRef<number | null>(null)
   const closeTimer = useRef<number | null>(null)
   const openingFrame = useRef<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
@@ -41,26 +80,49 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
   const workspaceRequestVersion = useRef(0)
-  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'openNoteArchive' | 'organizeOldFavorites'> & { requestId: number }) | undefined>()
+  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites'> & { requestId: number }) | undefined>()
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
   async function persistSidebarWidth(widthPx: number | null) {
-    const currentPreferences = await window.bilimiDesktop?.loadPreferences?.()
-
-    if (!currentPreferences || (!window.bilimiDesktop?.patchPreferences && !window.bilimiDesktop?.savePreferences)) {
+    const desktop = window.bilimiDesktop
+    if (desktop?.patchPreferences) {
+      const meta: AssistantPreferencePatchMeta = {
+        originId: preferenceOriginId.current,
+        mutationId: ++latestIssuedMutationId.current
+      }
+      try {
+        await desktop.patchPreferences({ assistantSidebarWidthPx: widthPx }, meta)
+      } catch {
+        // Width remains locally applied; a later drag can issue the next mutation.
+      }
       return
     }
 
-    if (window.bilimiDesktop.patchPreferences) {
-      await window.bilimiDesktop.patchPreferences({ assistantSidebarWidthPx: widthPx })
-      return
-    }
-
-    await window.bilimiDesktop.savePreferences({ ...currentPreferences, assistantSidebarWidthPx: widthPx })
+    const currentPreferences = await desktop?.loadPreferences?.()
+    if (!currentPreferences || !desktop?.savePreferences) return
+    await desktop.savePreferences({ ...currentPreferences, assistantSidebarWidthPx: widthPx })
   }
 
-  function collapseSidebar() {
+  function applySidebarWidth(widthPx: number | null) {
+    latestSidebarWidthPx.current = widthPx
+    const value = widthPx === null ? '' : `${widthPx}px`
+    sidebarShell.current?.style.setProperty('--assistant-sidebar-width', value)
+    sidebarPanel.current?.style.setProperty('--assistant-sidebar-width', value)
+  }
+
+  function scheduleSidebarWidthSave(widthPx: number | null) {
+    pendingWidthSave.current = widthPx
+    if (widthSaveTimer.current !== null) window.clearTimeout(widthSaveTimer.current)
+    widthSaveTimer.current = window.setTimeout(() => {
+      widthSaveTimer.current = null
+      const pendingWidth = pendingWidthSave.current
+      pendingWidthSave.current = undefined
+      if (pendingWidth !== undefined) void persistSidebarWidth(pendingWidth)
+    }, SIDEBAR_WIDTH_SAVE_DELAY_MS)
+  }
+
+  const collapseSidebar = useCallback(() => {
     if (openingFrame.current !== null) {
       window.cancelAnimationFrame(openingFrame.current)
       openingFrame.current = null
@@ -76,9 +138,9 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       closeTimer.current = null
       setClosing(false)
     }, closeDurationFor(panelMotionTuning(), 'sidebar-collapse'))
-  }
+  }, [])
 
-  function expandSidebar() {
+  const expandSidebar = useCallback(() => {
     if (closeTimer.current !== null) {
       window.clearTimeout(closeTimer.current)
       closeTimer.current = null
@@ -95,7 +157,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       tone: 'hint',
       message: PET_EXPAND_GREETING_LINE
     })
-  }
+  }, [])
 
   useEffect(() => {
     return window.bilimiDesktop?.onOpenAssistant?.(() => {
@@ -110,6 +172,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     setWorkspaceRequest({
       tab: payload.tab,
       ledgerId: payload.ledgerId,
+      createLedger: payload.createLedger,
       openNoteArchive: payload.openNoteArchive,
       organizeOldFavorites: payload.organizeOldFavorites,
       requestId: ++workspaceRequestVersion.current
@@ -119,6 +182,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   useEffect(() => () => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
     if (openingFrame.current !== null) window.cancelAnimationFrame(openingFrame.current)
+    if (widthSaveTimer.current !== null) window.clearTimeout(widthSaveTimer.current)
   }, [])
 
   useEffect(() => {
@@ -141,11 +205,25 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((preferences) => {
-      setSidebarWidthPx(
-        preferences.assistantSidebarWidthPx === null
-          ? null
-          : clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth)
-      )
+      const nextWidth = preferences.assistantSidebarWidthPx === null
+        ? null
+        : clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth)
+      if (nextWidth === latestSidebarWidthPx.current) return
+      setSidebarWidthPx(nextWidth)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch, meta) => {
+      if (patch.assistantSidebarWidthPx === undefined) return
+      if (meta?.originId === preferenceOriginId.current) {
+        if (meta.mutationId <= latestIssuedMutationId.current) return
+      }
+      const nextWidth = patch.assistantSidebarWidthPx === null
+        ? null
+        : clampAssistantSidebarWidthPx(patch.assistantSidebarWidthPx, window.innerWidth)
+      if (nextWidth === latestSidebarWidthPx.current) return
+      setSidebarWidthPx(nextWidth)
     })
   }, [])
 
@@ -168,21 +246,26 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }, [sidebarWidthPx])
 
   useEffect(() => {
-    function finishDrag() {
+    function finishDrag(event?: Event) {
       const currentDrag = dragState.current
 
       if (!currentDrag) {
         return
       }
+      if (event && 'pointerId' in event && event.pointerId !== currentDrag.pointerId) {
+        return
+      }
 
       dragState.current = null
       setResizing(false)
+      onResizeActiveChange?.(false)
       try {
         currentDrag.target?.releasePointerCapture?.(currentDrag.pointerId)
       } catch {
         // Some runtimes throw if capture was already released.
       }
-      void persistSidebarWidth(latestSidebarWidthPx.current)
+      setSidebarWidthPx(latestSidebarWidthPx.current)
+      scheduleSidebarWidthSave(latestSidebarWidthPx.current)
     }
 
     function moveDrag(event: globalThis.PointerEvent) {
@@ -191,21 +274,26 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       if (!currentDrag) {
         return
       }
+      if (event.pointerId !== currentDrag.pointerId) {
+        return
+      }
 
       if ((event.buttons & 1) !== 1) {
         dragState.current = null
         setResizing(false)
+        onResizeActiveChange?.(false)
         try {
           currentDrag.target?.releasePointerCapture?.(currentDrag.pointerId)
         } catch {
           // Some runtimes throw if capture was already released.
         }
-        void persistSidebarWidth(latestSidebarWidthPx.current)
+        setSidebarWidthPx(latestSidebarWidthPx.current)
+        scheduleSidebarWidthSave(latestSidebarWidthPx.current)
         return
       }
 
       const widthDelta = currentDrag.startClientX - event.clientX
-      setSidebarWidthPx(
+      applySidebarWidth(
         clampAssistantSidebarWidthPx(currentDrag.startWidth + widthDelta, window.innerWidth)
       )
     }
@@ -213,13 +301,17 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     window.addEventListener('pointermove', moveDrag)
     window.addEventListener('pointerup', finishDrag)
     window.addEventListener('pointercancel', finishDrag)
+    window.addEventListener('lostpointercapture', finishDrag)
+    window.addEventListener('blur', finishDrag)
 
     return () => {
       window.removeEventListener('pointermove', moveDrag)
       window.removeEventListener('pointerup', finishDrag)
       window.removeEventListener('pointercancel', finishDrag)
+      window.removeEventListener('lostpointercapture', finishDrag)
+      window.removeEventListener('blur', finishDrag)
     }
-  }, [])
+  }, [onResizeActiveChange])
 
   function beginSidebarResize(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) {
@@ -242,8 +334,9 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     } catch {
       // Pointer capture is a best-effort guard; the resize shield still protects webviews.
     }
-    setSidebarWidthPx(startWidth)
+    applySidebarWidth(startWidth)
     setResizing(true)
+    onResizeActiveChange?.(true)
   }
 
   const sidebarStyle =
@@ -255,6 +348,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
   return (
     <div
+      ref={sidebarShell}
       className="assistant-sidebar-shell"
       data-collapsed={collapsed ? 'true' : 'false'}
       data-closing={closing || undefined}
@@ -262,6 +356,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       style={sidebarStyle}
     >
     <aside
+      ref={sidebarPanel}
       className="assistant-sidebar"
       aria-label="bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
@@ -276,20 +371,20 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
         aria-orientation="vertical"
         onPointerDown={beginSidebarResize}
         onDoubleClick={() => {
+          if (dragState.current) onResizeActiveChange?.(false)
           dragState.current = null
+          applySidebarWidth(null)
           setSidebarWidthPx(null)
-          void persistSidebarWidth(null)
+          scheduleSidebarWidthSave(null)
         }}
       />
       {resizing ? <div className="assistant-sidebar__resize-shield" aria-hidden="true" /> : null}
       <div className="assistant-sidebar__workspace" hidden={collapsed && !closing}>
-        <FloatingAssistantApp
-          mode="sidebar"
+        <SidebarWorkspace
           activeTab={activeTab}
           onActiveTabChange={setActiveTab}
           onRequestCollapse={collapseSidebar}
           onOpenInTab={onOpenInTab}
-          workspaceRequestsEnabled={false}
           workspaceRequest={workspaceRequest}
         />
       </div>

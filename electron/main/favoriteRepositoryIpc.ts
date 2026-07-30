@@ -13,6 +13,7 @@ import type {
   FavoriteRepositoryLibraryDetail,
   FavoriteRepositoryLibraryFilter,
   FavoriteRepositoryLibrarySort,
+  FavoriteRepositoryTranscriptionFilter,
   FavoriteRepositoryService
 } from './favoriteRepositoryService'
 import type { FavoriteLibraryCommandService, FavoriteLibraryCommandResult, FavoriteLibraryPlacementInput } from './favoriteLibraryCommands'
@@ -34,9 +35,11 @@ type IpcMain = {
 
 type FolderPageOptions = { limit: number; cursor?: string }
 export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
+  page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
   sort?: FavoriteRepositoryLibrarySort
+  transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
 }
 type Subscription = { id: string; accountMid: string; folderId?: string }
 type LibraryPageScope =
@@ -74,8 +77,10 @@ export type FavoriteRepositorySnapshotSummary = {
   folderCount: number
   folders: FavoriteRepositoryFolder[]
   folderCounts: Record<string, number>
+  workspaceVideoCount?: number
+  otherFavoriteVideoCount?: number
   scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
-  folderConflicts?: Array<{ title: string; folderIds: string[] }>
+  folderConflicts?: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
@@ -169,7 +174,8 @@ function pageOptions(value: unknown): FolderPageOptions {
 
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
-  const candidate = value as { query?: unknown; filter?: unknown; sort?: unknown }
+  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+  if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
     throw new Error('Favorite library page options are invalid.')
@@ -177,12 +183,21 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
   if (candidate.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(candidate.sort as string)) {
     throw new Error('Favorite library page options are invalid.')
   }
+  if (candidate.transcriptionFilters !== undefined && (!Array.isArray(candidate.transcriptionFilters) ||
+    candidate.transcriptionFilters.length > 5 || candidate.transcriptionFilters.some((filter) =>
+      !['completed', 'none', 'pending', 'running', 'failed'].includes(filter as string)))) {
+    throw new Error('Favorite library page options are invalid.')
+  }
   const query = candidate.query?.trim()
+  const transcriptionFilters = candidate.transcriptionFilters === undefined ? undefined :
+    [...new Set(candidate.transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort()
   return {
     ...base,
+    ...(candidate.page ? { page: candidate.page as number } : {}),
     ...(query ? { query } : {}),
     ...(candidate.filter ? { filter: candidate.filter as FavoriteRepositoryLibraryFilter } : {}),
-    ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {})
+    ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
+    ...(transcriptionFilters?.length ? { transcriptionFilters } : {})
   }
 }
 
@@ -325,40 +340,6 @@ function commandForAccount(value: unknown, accountMid: string): FavoriteReposito
   return value as FavoriteRepositoryCommand
 }
 
-function createSummary(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositorySnapshotSummary {
-  const syncCounts: FavoriteRepositorySnapshotSummary['syncCounts'] = {
-    pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
-  }
-  for (const record of snapshot.syncRecords) syncCounts[record.status]++
-  const pendingAids = new Set<number>(snapshot.workspace?.continuationAids ?? [])
-  for (const record of snapshot.syncRecords) {
-    if (record.status === 'pending' || record.status === 'failed' || record.status === 'result-unknown') {
-      for (const aid of record.affectedAids) pendingAids.add(aid)
-    }
-  }
-  return {
-    version: 1,
-    accountMid: snapshot.accountMid,
-    revision: snapshot.revision,
-    updatedAt: snapshot.updatedAt,
-    videoCount: Object.keys(snapshot.videos).length,
-    folderCount: snapshot.folders.length,
-    folders: snapshot.folders.map((folder) => ({ ...folder })),
-    physicalShardCount: snapshot.physicalShards.length,
-    syncRecordCount: snapshot.syncRecords.length,
-    syncCounts,
-    pendingAidCount: pendingAids.size,
-    ...(snapshot.workspace ? {
-      workspace: {
-        id: snapshot.workspace.id,
-        status: snapshot.workspace.status,
-        baselineRevision: snapshot.workspace.baselineRevision,
-        continuationCount: snapshot.workspace.continuationAids.length
-      }
-    } : {})
-  }
-}
-
 function searchPage(
   snapshot: AccountFavoriteRepositorySnapshot,
   query: unknown,
@@ -405,6 +386,7 @@ export function registerFavoriteRepositoryIpc(options: {
   archiveRestoreTokenTtlMs?: number
   remoteUnfavoriteTokenTtlMs?: number
 }) {
+  const accountOpenRecoveries = new Map<string, Promise<void>>()
   const subscriptions = new Map<number, Map<string, Subscription>>()
   const restoreExecutionTokens = new Map<string, ArchiveRestorePreviewToken>()
   const restoreFullConfirmationTokens = new Map<string, ArchiveRestorePreviewToken>()
@@ -444,7 +426,8 @@ export function registerFavoriteRepositoryIpc(options: {
     for (const [senderId, records] of subscriptions) {
       for (const subscription of records.values()) {
         if (subscription.accountMid !== result.accountMid) continue
-        const pageInvalidated = !subscription.folderId || result.affectedFolderIds.includes(subscription.folderId)
+        const pageInvalidated = !subscription.folderId || result.affectedAids.length > 0 ||
+          result.affectedFolderIds.includes(subscription.folderId)
         options.send?.(senderId, 'favorite-repository:revision-changed', {
           subscriptionId: subscription.id,
           accountMid: result.accountMid,
@@ -542,20 +525,28 @@ export function registerFavoriteRepositoryIpc(options: {
   const servicePublishesChanges = typeof options.service.onChanged === 'function'
   options.service.onChanged?.(publish)
 
+  const recoverAccountInBackground = (accountMid: string) => {
+    if (!options.onAccountOpen || accountOpenRecoveries.has(accountMid)) return
+    const recovery = options.onAccountOpen(accountMid).catch(() => undefined).finally(() => {
+      accountOpenRecoveries.delete(accountMid)
+    })
+    accountOpenRecoveries.set(accountMid, recovery)
+  }
+
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     // Reconciliation enriches the local projection but must not block reading
     // an already usable library when the page runtime is unavailable.
-    await options.onAccountOpen?.(accountMid).catch(() => undefined)
+    recoverAccountInBackground(accountMid)
     return options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    return createSummary(await options.service.getSnapshot(accountMid))
+    return options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions

@@ -209,9 +209,48 @@ describe('FavoriteLibraryCommandService', () => {
       accountMid: '100', aid: 1, bvid: 'BV1xx', cid: 70, title: '已刷新标题', metadataRevision: 5, summarizeWithDeepSeek: true
     }))
   })
+
+  it('does not let one part suppress another part of the same account video', async () => {
+    const { repository, refreshVideo } = createService()
+    const enqueue = vi.fn()
+    refreshVideo.mockResolvedValueOnce({ aid: 1, title: 'New part', bvid: 'BV1xx', cid: 71, tags: [], updatedAt: now() })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never,
+      refreshVideo,
+      transcriptionQueue: {
+        enqueue,
+        getSnapshot: () => ({ items: [{ accountMid: '100', aid: 1, cid: 70, status: 'pending' }] })
+      },
+      now
+    })
+
+    await service.enqueueTranscription('100', [1])
+
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ accountMid: '100', aid: 1, cid: 71 }))
+  })
 })
 
 describe('registerFavoriteLibraryCommandsIpc', () => {
+  it('preserves the complete filtered scope when resolving a batch document-export selection', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const resolveSelection = vi.fn().mockResolvedValue([7, 9])
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: { syncSelection: vi.fn(), enqueueTranscription: vi.fn() } as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection })
+    await expect(handlers.get('favorite-library:resolve-document-export-selection')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'all' }, options: { query: 'needle', filter: 'unsynced', transcriptionFilters: ['failed'] }, excludedAids: [3]
+    } as never)).resolves.toEqual({ aids: [7, 9] })
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({ options: expect.objectContaining({ query: 'needle', filter: 'unsynced', transcriptionFilters: ['failed'] }), excludedAids: [3] }))
+  })
+  it('maps explicit document-export aids through the main-process identity resolver', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const resolveDocumentExportSelection = vi.fn().mockResolvedValue({ selections: [{ archiveId: 'archive-1', versionId: 'version-1' }], skippedAids: [2] })
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: { syncSelection: vi.fn(), enqueueTranscription: vi.fn() } as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveDocumentExportSelection })
+
+    await expect(handlers.get('favorite-library:resolve-document-export-selection')?.({ sender: { id: 8 } }, '100', { kind: 'aids', aids: [2, 1, 1] } as never))
+      .resolves.toEqual({ selections: [{ archiveId: 'archive-1', versionId: 'version-1' }], skippedAids: [2] })
+    expect(resolveDocumentExportSelection).toHaveBeenCalledWith('100', [1, 2])
+  })
   it('exposes only account-scoped local refresh and transcription commands', async () => {
     const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
     const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
@@ -224,5 +263,103 @@ describe('registerFavoriteLibraryCommandsIpc', () => {
     expect(handlers.has('favorite-library:retry-sync')).toBe(false)
     expect(handlers.has('favorite-library:bind-sync-page')).toBe(false)
     expect(handlers.has('favorite-library:get-pending-sync-runs')).toBe(false)
+  })
+
+  it('keeps an all-results refresh selection in the main process', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const commands = { syncSelection: vi.fn().mockResolvedValue({ status: 'succeeded' }), enqueueTranscription: vi.fn(), cancelWaitingTranscription: vi.fn() }
+    const resolveSelection = vi.fn().mockResolvedValue([1, 3])
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: commands as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection })
+
+    await handlers.get('favorite-library:sync-selection')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:music' }, options: { query: 'needle', filter: 'unsynced', sort: 'title-asc', transcriptionFilters: ['running', 'failed', 'running'] }, excludedAids: [2]
+    } as never)
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({ kind: 'scope', options: expect.objectContaining({ transcriptionFilters: ['failed', 'running'] }), excludedAids: [2] }))
+    expect(commands.syncSelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1, 3] })
+
+    await handlers.get('favorite-library:enqueue-transcription')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:music' }, options: { transcriptionFilters: ['none', 'running', 'none'] }, excludedAids: []
+    } as never)
+    expect(resolveSelection).toHaveBeenLastCalledWith('100', expect.objectContaining({
+      options: expect.objectContaining({ transcriptionFilters: ['none', 'running'] })
+    }))
+    expect(commands.enqueueTranscription).toHaveBeenCalledWith('100', [1, 3], false)
+
+    await handlers.get('favorite-library:cancel-waiting-transcription')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'all' }, options: { transcriptionFilters: ['failed'] }, excludedAids: [2]
+    } as never)
+    expect(resolveSelection).toHaveBeenLastCalledWith('100', expect.objectContaining({
+      options: expect.objectContaining({ transcriptionFilters: ['failed'] }), excludedAids: [2]
+    }))
+    expect(commands.cancelWaitingTranscription).toHaveBeenCalledWith('100', [1, 3])
+  })
+
+  it('rejects a scope action when the account changes while main-process selection resolution is pending', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    let accountMid = '100'
+    let resolveSelection: ((aids: number[]) => void) | undefined
+    const commands = { syncSelection: vi.fn(), enqueueTranscription: vi.fn() }
+    registerFavoriteLibraryCommandsIpc({
+      ipcMain, commands: commands as never, isTrustedLibrarySender: () => true,
+      getCurrentAccountMid: async () => accountMid,
+      resolveSelection: vi.fn(() => new Promise<number[]>((resolve) => { resolveSelection = resolve }))
+    })
+
+    const pending = handlers.get('favorite-library:sync-selection')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'all' }, options: {}, excludedAids: []
+    } as never)
+    await vi.waitFor(() => expect(resolveSelection).toBeDefined())
+    accountMid = '200'
+    resolveSelection?.([1])
+    await expect(pending).rejects.toThrow('当前账号已切换')
+    expect(commands.syncSelection).not.toHaveBeenCalled()
+  })
+
+  it('rejects more than 500 explicit transcription targets at the IPC boundary', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: { enqueueTranscription: vi.fn() } as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: async () => '100' })
+    await expect(handlers.get('favorite-library:enqueue-transcription')?.({ sender: { id: 8 } }, '100', {
+      targets: Array.from({ length: 501 }, (_, index) => ({ aid: index + 1 }))
+    } as never)).rejects.toThrow('invalid')
+  })
+
+  it('passes an explicit video-part transcription target through the trusted IPC boundary', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const commands = { syncSelection: vi.fn(), enqueueTranscription: vi.fn().mockResolvedValue({ status: 'queued' }), cancelWaitingTranscription: vi.fn() }
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: commands as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100') })
+
+    await handlers.get('favorite-library:enqueue-transcription')?.({ sender: { id: 8 } }, '100', {
+      targets: [{ aid: 1, cid: 70 }], summarizeWithDeepSeek: true
+    } as never)
+
+    expect(commands.enqueueTranscription).toHaveBeenCalledWith('100', [{ aid: 1, cid: 70 }], true)
+  })
+
+  it('skips already queued library videos and cancels waiting work without stopping running work', async () => {
+    const { repository, refreshVideo } = createService()
+    const enqueue = vi.fn()
+    const cancelWaitingForVideos = vi.fn().mockReturnValue({ affected: 1, skipped: 1 })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never,
+      refreshVideo,
+      transcriptionQueue: {
+        enqueue,
+        getSnapshot: () => ({ items: [
+          { accountMid: '100', aid: 1, status: 'pending' },
+          { accountMid: '100', aid: 2, status: 'running' }
+        ] }),
+        cancelWaitingForVideos
+      },
+      now
+    })
+
+    await expect(service.enqueueTranscription('100', [1, 2])).resolves.toMatchObject({ completedOperationCount: 0 })
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(service.cancelWaitingTranscription('100', [1, 2])).toMatchObject({ completedOperationCount: 1 })
+    expect(cancelWaitingForVideos).toHaveBeenCalledWith('100', [{ aid: 1 }, { aid: 2 }])
   })
 })

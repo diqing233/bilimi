@@ -240,6 +240,16 @@ describe('LocalDataService', () => {
     await expect(access(join(root, 'local-repository.json'))).rejects.toThrow()
   })
 
+  it('removes account-scoped favorite tombstones with every account during a full user-data clear', async () => {
+    const { accounts, service } = await makeService()
+    const repository = accounts['100'].repository as { recovery: { tombstones?: unknown[] } }
+    repository.recovery.tombstones = [{ accountMid: '100', aid: 7, deletedAt: '2026-07-26T00:00:00.000Z', allowRediscovery: false }]
+
+    await service.applyCleanup({ level: 'all-user-data', confirmation: '全部清除' })
+
+    expect(accounts).toEqual({})
+  })
+
   it('waits for active work to settle before removing durable state during a full clear', async () => {
     const { accounts, persistence, service } = await makeService()
     let allowShutdownToFinish: (() => void) | undefined

@@ -28,6 +28,7 @@ import {
 } from './features/recommendation/videoClassifier'
 import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
 import {
+  applyImmediatePreferencePatch,
   createInitialAssistantPreferences,
   effectiveFavoriteLedgersForAccount,
   favoriteLedgersForAccount,
@@ -55,6 +56,10 @@ import {
 import { createLocalVideoNoteDraft } from './features/notes/videoNoteSummarizer'
 import { parseManualTranscript } from './features/notes/transcriptNormalizer'
 import { recordAssistantPreferenceFeedback } from './features/state/assistantState'
+import {
+  applyIndexedFavoriteLedgerEnabledPatch,
+  createFavoriteLedgerEnabledIndex
+} from './features/state/favoriteLedgerEnabledPatch'
 import type {
   AssistantRuntimeRequest,
   AssistantSnapshot,
@@ -62,7 +67,7 @@ import type {
   FavoriteRepositoryPageTarget
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
-import { FavoriteLibraryDrawer } from './features/favorites/FavoriteLibraryDrawer'
+import { FavoriteLibraryDrawer, type FavoriteLibraryDrawerHandle } from './features/favorites/FavoriteLibraryDrawer'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
@@ -512,11 +517,15 @@ export default function App() {
   ])
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
   const [favoriteLibraryOpen, setFavoriteLibraryOpen] = useState(false)
-  const [favoriteLibraryCollapsed, setFavoriteLibraryCollapsed] = useState(false)
   const [favoriteLibraryResizing, setFavoriteLibraryResizing] = useState(false)
+  const [assistantSidebarResizing, setAssistantSidebarResizing] = useState(false)
+  const favoriteLibraryDrawerRef = useRef<FavoriteLibraryDrawerHandle>(null)
+  const favoriteLibraryOpenRef = useRef(favoriteLibraryOpen)
+  favoriteLibraryOpenRef.current = favoriteLibraryOpen
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
+  const [archiveSeekByTabId, setArchiveSeekByTabId] = useState<Record<string, { seconds: number; aid?: number; cid?: number }>>({})
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const favoriteRepositoryPageTargetRef = useRef<ReturnType<typeof createFavoriteRepositoryPageTarget> | null>(null)
   const favoriteRepositoryTargetStates = useRef(new Map<number, FavoriteRepositoryPageTarget>())
@@ -529,6 +538,12 @@ export default function App() {
     videoContentContext: VideoContentContext
     videoContextUrl?: string
   }>({ accountMid: '', favoriteLedgerStatus: null, videoContentContext: {} })
+  const favoriteLedgerStatusCacheRef = useRef<{
+    accountMid: string
+    ledgerSignature: string
+    checkedAt: number
+    status: FavoriteLedgerStatus
+  } | null>(null)
   const favoriteLedgerEnsurePromisesRef = useRef(new Map<string, Promise<AssistantAutomationResult>>())
   const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
@@ -538,6 +553,14 @@ export default function App() {
       IS_TEST_RUNTIME ? { permissionOnboardingCompleted: true } : undefined
     )
   )
+  const preferencesRef = useRef(preferences)
+  const favoriteLedgerEnabledIndexRef = useRef(createFavoriteLedgerEnabledIndex(preferences))
+  const renderedPreferencesRef = useRef(preferences)
+  if (renderedPreferencesRef.current !== preferences) {
+    renderedPreferencesRef.current = preferences
+    preferencesRef.current = preferences
+    favoriteLedgerEnabledIndexRef.current = createFavoriteLedgerEnabledIndex(preferences)
+  }
   const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
@@ -547,14 +570,14 @@ export default function App() {
 
   useEffect(() => {
     return window.bilimiDesktop?.onOpenFavoriteLibraryDrawer?.((command) => {
-      if (command === 'toggle' && favoriteLibraryOpen && !favoriteLibraryCollapsed) {
+      if (command === 'toggle' && favoriteLibraryOpenRef.current && !favoriteLibraryDrawerRef.current?.isCollapsed()) {
         setFavoriteLibraryOpen(false)
         return
       }
-      setFavoriteLibraryCollapsed(false)
+      favoriteLibraryDrawerRef.current?.expand()
       setFavoriteLibraryOpen(true)
     })
-  }, [favoriteLibraryCollapsed, favoriteLibraryOpen])
+  }, [])
 
   const commitTabs = useCallback(
     (updater: (currentTabs: BrowserTabModel[]) => BrowserTabModel[]) => {
@@ -622,7 +645,27 @@ export default function App() {
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
-      setPreferences(createInitialAssistantPreferences(nextPreferences))
+      const normalized = createInitialAssistantPreferences(nextPreferences)
+      preferencesRef.current = normalized
+      favoriteLedgerStatusCacheRef.current = null
+      setPreferences(normalized)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch) => {
+      if (patch.favoriteLedgers !== undefined || patch.favoriteAccountPreferences !== undefined) {
+        favoriteLedgerStatusCacheRef.current = null
+      }
+      const next = applyImmediatePreferencePatch(preferencesRef.current, patch)
+      preferencesRef.current = next
+      setPreferences(next)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onFavoriteLedgerEnabledChanged?.((patch) => {
+      applyIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch)
     })
   }, [])
 
@@ -747,12 +790,13 @@ export default function App() {
     const nextUrl = url.trim()
 
     if (!nextUrl) {
-      return
+      return undefined
     }
 
+    const nextTabId = createTabId()
     commitTabs((currentTabs) => {
       const nextTab = {
-        id: createTabId(),
+        id: nextTabId,
         title: createTabTitle(nextUrl),
         url: nextUrl
       }
@@ -760,6 +804,7 @@ export default function App() {
       selectActiveTab(nextTab.id)
       return [...currentTabs, nextTab]
     })
+    return nextTabId
   }, [commitTabs, selectActiveTab])
 
   const closeInternalTab = useCallback(
@@ -800,6 +845,20 @@ export default function App() {
   useEffect(() => {
     return window.bilimiDesktop?.onOpenInTab?.(openInternalTab)
   }, [openInternalTab])
+
+  useEffect(() => window.bilimiDesktop?.onOpenVideoNoteArchiveSource?.(({ url, seconds, aid, cid }) => {
+    const videoKey = readBilibiliVideoKey(url)
+    const activeTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current)
+    const matchingTab = videoKey
+      ? (activeTab && readBilibiliVideoKey(activeTab.url) === videoKey
+          ? activeTab
+          : tabsRef.current.find((tab) => readBilibiliVideoKey(tab.url) === videoKey))
+      : undefined
+    const tabId = matchingTab?.id ?? openInternalTab(url)
+    if (!tabId || seconds === undefined) return
+    if (matchingTab) selectActiveTab(tabId)
+    setArchiveSeekByTabId((current) => ({ ...current, [tabId]: { seconds, ...(aid === undefined ? {} : { aid }), ...(cid === undefined ? {} : { cid }) } }))
+  }), [openInternalTab, selectActiveTab])
 
   useEffect(() => {
     if (!activeTabChangeMounted.current) {
@@ -870,6 +929,10 @@ export default function App() {
     },
     [commitTabs, notifyAssistantSnapshotChanged]
   )
+  const handlePageInteractionHint = useCallback((message: string) => {
+    if (Date.now() < suppressPageInteractionHintsUntilRef.current) return
+    window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
+  }, [])
 
   function getCurrentActiveWebview() {
     return (
@@ -1114,7 +1177,8 @@ export default function App() {
   }
 
   function favoriteLedgersForActiveAccount(accountMid: string): FavoriteLedger[] {
-    return accountMid ? favoriteLedgersForAccount(preferences, accountMid) : preferences.favoriteLedgers
+    const currentPreferences = preferencesRef.current
+    return accountMid ? favoriteLedgersForAccount(currentPreferences, accountMid) : currentPreferences.favoriteLedgers
   }
 
   function preferencesWithFavoriteLedgers(
@@ -1127,24 +1191,62 @@ export default function App() {
       : { ...currentPreferences, favoriteLedgers }
   }
 
-  async function readFavoriteLedgerStatus(): Promise<FavoriteLedgerStatus> {
-    const accountMid = assistantSnapshotCacheRef.current.accountMid || await readBilibiliAccountMid()
+  async function readFavoriteLedgerStatus(
+    accountMid = assistantSnapshotCacheRef.current.accountMid,
+    options: { force?: boolean } = {}
+  ): Promise<FavoriteLedgerStatus> {
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const ledgerSignature = JSON.stringify(favoriteLedgers.map((ledger) => ({
+      id: ledger.id,
+      displayName: ledger.displayName,
+      enabled: ledger.enabled,
+      syncState: ledger.syncState,
+      bilibiliFolderId: ledger.bilibiliFolderId
+    })))
+    const cached = favoriteLedgerStatusCacheRef.current
+    if (!options.force && cached?.accountMid === accountMid && Date.now() - cached.checkedAt < 30_000) {
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
+      return cached.status
+    }
     const status = await runScript(
       buildFavoriteLedgerStatusScript(favoriteLedgers)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = status as FavoriteLedgerStatus
-      setPreferences((currentPreferences) =>
-        createInitialAssistantPreferences({
-          ...preferencesWithFavoriteLedgers(
-            currentPreferences,
-            accountMid,
-            status.ledgers ?? favoriteLedgers
-          )
-        })
-      )
+      const recoveredLedgers = status.ledgers ?? favoriteLedgers
+      const bindingsChanged = JSON.stringify(recoveredLedgers) !== JSON.stringify(favoriteLedgers)
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, recoveredLedgers)
+      })
+      preferencesRef.current = nextPreferences
+      setPreferences(nextPreferences)
+
+      if (bindingsChanged && window.bilimiDesktop?.savePreferences) {
+        const saved = window.bilimiDesktop.patchPreferences
+          ? await window.bilimiDesktop.patchPreferences(
+              accountMid
+                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
+                : { favoriteLedgers: recoveredLedgers }
+            )
+          : await window.bilimiDesktop.savePreferences(nextPreferences)
+        const savedPreferences = createInitialAssistantPreferences(saved)
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
+      }
+
+      favoriteLedgerStatusCacheRef.current = {
+        accountMid,
+        ledgerSignature: JSON.stringify(recoveredLedgers.map((ledger) => ({
+          id: ledger.id,
+          displayName: ledger.displayName,
+          enabled: ledger.enabled,
+          syncState: ledger.syncState,
+          bilibiliFolderId: ledger.bilibiliFolderId
+        }))),
+        checkedAt: Date.now(),
+        status: status as FavoriteLedgerStatus
+      }
 
       return status as FavoriteLedgerStatus
     }
@@ -1156,6 +1258,12 @@ export default function App() {
       message: status.message
     }
     assistantSnapshotCacheRef.current.favoriteLedgerStatus = fallbackStatus
+    favoriteLedgerStatusCacheRef.current = {
+      accountMid,
+      ledgerSignature,
+      checkedAt: Date.now(),
+      status: fallbackStatus
+    }
     return fallbackStatus
   }
 
@@ -1482,7 +1590,9 @@ export default function App() {
     await window.bilimiDesktop?.saveVideoNote?.(note)
   }
 
-  function createAssistantSnapshot(): AssistantSnapshot {
+  function createAssistantSnapshot(
+    favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
+  ): AssistantSnapshot {
     const activeTabSnapshot = getActiveTabSnapshot()
     const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTabSnapshot)
     const cachedContext = assistantSnapshotCacheRef.current.videoContextUrl === activeTabSnapshot?.url
@@ -1494,8 +1604,8 @@ export default function App() {
 
     return {
       accountMid: assistantSnapshotCacheRef.current.accountMid,
-      preferences,
-      favoriteLedgerStatus: assistantSnapshotCacheRef.current.favoriteLedgerStatus,
+      preferences: preferencesRef.current,
+      favoriteLedgerStatus,
       videoContentContext,
       activeTabUrl: activeTabSnapshot?.url,
       runtimeFeedback: assistantRuntimeFeedbackRef.current?.message,
@@ -1974,7 +2084,11 @@ export default function App() {
       return null
     }
 
+    const accountMid = await readBilibiliAccountMid()
+    if (!accountMid) return null
+
     return window.bilimiDesktop.enqueueVideoAudioTranscription({
+      accountMid,
       url: extraction.source.url,
       title: extraction.source.title,
       author: extraction.source.author,
@@ -1992,7 +2106,11 @@ export default function App() {
       switch (request.type) {
         case 'snapshot':
           if (window.bilimiDesktop?.readBilibiliAccountMid) await readBilibiliAccountMid()
-          return createAssistantSnapshot()
+          return createAssistantSnapshot(
+            assistantSnapshotCacheRef.current.accountMid
+              ? await readFavoriteLedgerStatus(assistantSnapshotCacheRef.current.accountMid).catch(() => null)
+              : null
+          )
         case 'run-action':
           return runAssistantRuntimeAction(request.action, request.options)
         case 'generate-video-note':
@@ -2134,16 +2252,14 @@ export default function App() {
               active={tab.id === activeTabId}
               tabId={tab.id}
               url={tab.url}
+              seekSeconds={archiveSeekByTabId[tab.id]?.seconds}
+              seekAid={archiveSeekByTabId[tab.id]?.aid}
+              seekCid={archiveSeekByTabId[tab.id]?.cid}
               onLocationChange={updateTabUrl}
               onOpenInTab={openInternalTab}
               onHtmlFullscreenChange={handleHtmlFullscreenChange}
-              onPageInteractionHint={(message) => {
-                if (Date.now() < suppressPageInteractionHintsUntilRef.current) {
-                  return
-                }
-                window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
-              }}
-              hostResizePaused={favoriteLibraryResizing}
+              onPageInteractionHint={handlePageInteractionHint}
+              hostResizePaused={favoriteLibraryResizing || assistantSidebarResizing}
               onReady={handleWebviewReady}
               onTargetState={handleFavoriteRepositoryTargetState}
               onTitleChange={updateTabTitle}
@@ -2151,15 +2267,17 @@ export default function App() {
           ))}
         </div>
         <FavoriteLibraryDrawer
+          ref={favoriteLibraryDrawerRef}
           open={favoriteLibraryOpen}
-          collapsed={favoriteLibraryCollapsed}
           onClose={() => setFavoriteLibraryOpen(false)}
-          onCollapsedChange={setFavoriteLibraryCollapsed}
           onResizeActiveChange={setFavoriteLibraryResizing}
         />
         </div>
       </div>
-      <AssistantSidebar onOpenInTab={openInternalTab} />
+      <AssistantSidebar
+        onOpenInTab={openInternalTab}
+        onResizeActiveChange={setAssistantSidebarResizing}
+      />
     </div>
   )
 }

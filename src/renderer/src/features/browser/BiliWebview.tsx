@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createBrowserSurfaceModel } from './browserSurfaceModel'
 import { buildDanmakuSeekRepaintScript } from './danmakuSeekRepaint'
 import { buildOpenLinksInAppScript } from './linkCaptureScript'
+import { buildSeekVideoTimeScript } from '../notes/videoNoteTimeAutomation'
+import {
+  buildSelectArchivedVideoPartScript,
+  hasArchivedVideoPartIdentity,
+  type ArchivedVideoPartSelectionResult
+} from './archivedVideoPartNavigation'
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
@@ -24,6 +30,11 @@ type BiliWebviewProps = {
     instanceId: string
     navigationEpoch: number
   }) => void
+  /** A one-shot timestamp supplied when an archived video opens in a new tab. */
+  seekSeconds?: number
+  /** The archived source identity used to select the correct multi-part video before seeking. */
+  seekAid?: number
+  seekCid?: number
 }
 
 type WebviewUrlEvent = Event & {
@@ -110,7 +121,7 @@ function buildVideoRepaintAfterHostResizeScript(): string {
   `
 }
 
-export function BiliWebview({
+export const BiliWebview = memo(function BiliWebview({
   active,
   tabId,
   url,
@@ -121,17 +132,78 @@ export function BiliWebview({
   onPageInteractionHint,
   onReady,
   onTitleChange,
-  onTargetState
+  onTargetState,
+  seekSeconds,
+  seekAid,
+  seekCid
 }: BiliWebviewProps) {
   const ref = useRef<Electron.WebviewTag | null>(null)
   const instanceId = useRef(`bili-webview-${crypto.randomUUID()}`)
   const navigationEpoch = useRef(0)
   const initialUrl = useRef(url)
   const latestUrl = useRef(url)
+  const hasFinishedInitialLoad = useRef(false)
+  const completedArchiveSeek = useRef<string | undefined>(undefined)
+  const archiveSeekKey = `${seekAid ?? ''}:${seekCid ?? ''}:${seekSeconds ?? ''}`
+  const latestArchiveSeekKey = useRef(archiveSeekKey)
+  latestArchiveSeekKey.current = archiveSeekKey
+  const hostResizePausedRef = useRef(hostResizePaused)
+  hostResizePausedRef.current = hostResizePaused
+  const hostCallbacks = useRef({
+    onHtmlFullscreenChange,
+    onLocationChange,
+    onOpenInTab,
+    onPageInteractionHint,
+    onReady,
+    onTargetState,
+    onTitleChange
+  })
+  hostCallbacks.current = {
+    onHtmlFullscreenChange,
+    onLocationChange,
+    onOpenInTab,
+    onPageInteractionHint,
+    onReady,
+    onTargetState,
+    onTitleChange
+  }
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
   const [proxyConnectionFailed, setProxyConnectionFailed] = useState(false)
   const [directRetrying, setDirectRetrying] = useState(false)
   const [directRetryError, setDirectRetryError] = useState('')
+
+  const seekArchivedTimestamp = useCallback(() => {
+    const webview = ref.current
+    if (!Number.isFinite(seekSeconds) || seekSeconds === undefined || !webview?.executeJavaScript) return
+    const seekKey = archiveSeekKey
+    if (completedArchiveSeek.current === seekKey) return
+    completedArchiveSeek.current = seekKey
+
+    void (async () => {
+      if (hasArchivedVideoPartIdentity(seekAid, seekCid)) {
+        const result = await webview.executeJavaScript(
+          buildSelectArchivedVideoPartScript(seekAid, seekCid),
+          true
+        ) as ArchivedVideoPartSelectionResult
+        if (result?.status !== 'ready') {
+          completedArchiveSeek.current = undefined
+          return
+        }
+      }
+
+      if (latestArchiveSeekKey.current !== seekKey) return
+      await webview.executeJavaScript(buildSeekVideoTimeScript(seekSeconds), true)
+    })().catch(() => {
+      completedArchiveSeek.current = undefined
+    })
+  }, [archiveSeekKey, seekAid, seekCid, seekSeconds])
+  const seekArchivedTimestampRef = useRef(seekArchivedTimestamp)
+  seekArchivedTimestampRef.current = seekArchivedTimestamp
+
+  useEffect(() => {
+    completedArchiveSeek.current = undefined
+    if (hasFinishedInitialLoad.current) seekArchivedTimestamp()
+  }, [seekArchivedTimestamp])
 
   useEffect(() => {
     const webview = ref.current
@@ -140,12 +212,12 @@ export function BiliWebview({
       return
     }
 
-    onReady?.(tabId, webview)
+    hostCallbacks.current.onReady?.(tabId, webview)
 
     const reportTargetState = () => {
       const webContentsId = webview.getWebContentsId?.()
       if (typeof webContentsId !== 'number') return
-      onTargetState?.(tabId, {
+      hostCallbacks.current.onTargetState?.(tabId, {
         webview,
         webContentsId,
         instanceId: instanceId.current,
@@ -182,7 +254,7 @@ export function BiliWebview({
       }
 
       event.preventDefault()
-      onOpenInTab?.(urlToOpen)
+      hostCallbacks.current.onOpenInTab?.(urlToOpen)
     }
 
     const handleLocationChange = (event: Event) => {
@@ -190,7 +262,7 @@ export function BiliWebview({
 
       if (nextUrl) {
         latestUrl.current = nextUrl
-        onLocationChange?.(tabId, nextUrl)
+        hostCallbacks.current.onLocationChange?.(tabId, nextUrl)
       }
     }
 
@@ -202,11 +274,11 @@ export function BiliWebview({
     }
 
     const handleEnterHtmlFullscreen = () => {
-      onHtmlFullscreenChange?.(tabId, true)
+      hostCallbacks.current.onHtmlFullscreenChange?.(tabId, true)
     }
 
     const handleLeaveHtmlFullscreen = () => {
-      onHtmlFullscreenChange?.(tabId, false)
+      hostCallbacks.current.onHtmlFullscreenChange?.(tabId, false)
     }
 
     const handleTitleChange = (event: Event) => {
@@ -219,18 +291,18 @@ export function BiliWebview({
       const urlToOpen = readOpenInTabTitleSignal(nextTitle)
 
       if (urlToOpen) {
-        onOpenInTab?.(urlToOpen)
+        hostCallbacks.current.onOpenInTab?.(urlToOpen)
         return
       }
 
       const petHint = readPetHintTitleSignal(nextTitle)
 
       if (petHint) {
-        onPageInteractionHint?.(petHint)
+        hostCallbacks.current.onPageInteractionHint?.(petHint)
         return
       }
 
-      onTitleChange?.(tabId, nextTitle)
+      hostCallbacks.current.onTitleChange?.(tabId, nextTitle)
     }
 
     const handleLoadFailure = (event: Event) => {
@@ -242,6 +314,7 @@ export function BiliWebview({
     }
 
     const handleLoadSuccess = () => {
+      hasFinishedInitialLoad.current = true
       setProxyConnectionFailed(false)
       setDirectRetryError('')
     }
@@ -254,6 +327,8 @@ export function BiliWebview({
     webview.addEventListener('dom-ready', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
+    const handleArchivedTimestamp = () => seekArchivedTimestampRef.current()
+    webview.addEventListener('did-finish-load', handleArchivedTimestamp)
     webview.addEventListener('did-fail-load', handleLoadFailure)
     webview.addEventListener('did-start-navigation', handleNavigationStart)
     webview.addEventListener('did-navigate', handleLocationChange)
@@ -272,6 +347,7 @@ export function BiliWebview({
       webview.removeEventListener('dom-ready', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
+      webview.removeEventListener('did-finish-load', handleArchivedTimestamp)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
       webview.removeEventListener('did-start-navigation', handleNavigationStart)
       webview.removeEventListener('did-navigate', handleLocationChange)
@@ -280,7 +356,7 @@ export function BiliWebview({
       webview.removeEventListener('leave-html-full-screen', handleLeaveHtmlFullscreen)
       webview.removeEventListener('page-title-updated', handleTitleChange)
     }
-  }, [onHtmlFullscreenChange, onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTargetState, onTitleChange, tabId])
+  }, [tabId])
 
   useEffect(() => {
     const webview = ref.current
@@ -292,9 +368,10 @@ export function BiliWebview({
     let repaintTimeout: number | undefined
 
     const scheduleVideoRepaint = () => {
+      if (hostResizePausedRef.current) return
       window.clearTimeout(repaintTimeout)
       repaintTimeout = window.setTimeout(() => {
-        if (!webview.executeJavaScript || webview.getAttribute('data-active') !== 'true') {
+        if (hostResizePausedRef.current || !webview.executeJavaScript || webview.getAttribute('data-active') !== 'true') {
           return
         }
 
@@ -375,4 +452,4 @@ export function BiliWebview({
       </section>
     ) : null}
   </>)
-}
+})

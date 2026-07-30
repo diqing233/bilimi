@@ -21,11 +21,12 @@ describe('video note time automation', () => {
     )
   })
 
-  it('seeks the active page video element and tries to play', async () => {
+  it('seeks a playing video and resumes it', async () => {
     document.body.innerHTML = '<video></video>'
     const video = document.querySelector('video') as HTMLVideoElement
     const play = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(video, 'currentTime', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(video, 'paused', { value: false, configurable: true })
     Object.defineProperty(video, 'play', { value: play, configurable: true })
 
     await expect(window.eval(buildSeekVideoTimeScript(95))).resolves.toBe(true)
@@ -33,11 +34,26 @@ describe('video note time automation', () => {
     expect(play).toHaveBeenCalled()
   })
 
-  it('still completes seek when playback resume is blocked', async () => {
+  it('seeks a paused video and starts playback', async () => {
+    document.body.innerHTML = '<video></video>'
+    const video = document.querySelector('video') as HTMLVideoElement
+    const play = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(video, 'currentTime', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(video, 'paused', { value: true, configurable: true })
+    Object.defineProperty(video, 'play', { value: play, configurable: true })
+
+    await expect(window.eval(buildSeekVideoTimeScript(95))).resolves.toBe(true)
+
+    expect(video.currentTime).toBe(95)
+    expect(play).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the completed seek when playback is blocked', async () => {
     document.body.innerHTML = '<video></video>'
     const video = document.querySelector('video') as HTMLVideoElement
     const play = vi.fn().mockRejectedValue(new Error('play blocked'))
     Object.defineProperty(video, 'currentTime', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(video, 'paused', { value: false, configurable: true })
     Object.defineProperty(video, 'play', { value: play, configurable: true })
 
     await expect(window.eval(buildSeekVideoTimeScript(42))).resolves.toBe(true)
@@ -50,6 +66,7 @@ describe('video note time automation', () => {
     const video = document.querySelector('video') as HTMLVideoElement
     const play = vi.fn().mockReturnValue(new Promise(() => undefined))
     Object.defineProperty(video, 'currentTime', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(video, 'paused', { value: false, configurable: true })
     Object.defineProperty(video, 'play', { value: play, configurable: true })
 
     const result = await Promise.race([

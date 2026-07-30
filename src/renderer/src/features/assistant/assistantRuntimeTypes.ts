@@ -41,6 +41,8 @@ export type FloatingAssistantWorkspaceRequest = {
   organizeOldFavorites?: boolean
   /** Stable local ledger identity requested by the Favorite Library. */
   ledgerId?: string
+  /** Opens a new local ledger editor. */
+  createLedger?: boolean
 }
 
 export type AssistantRuntimeRequest =

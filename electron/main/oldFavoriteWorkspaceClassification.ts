@@ -6,6 +6,7 @@ export function classifierLedgersForAccount(
   defaultFavoriteSystemEnabled: boolean
 ) {
   return savedLedgers
+    .filter((ledger) => ledger.syncState !== 'local-draft' || !ledger.bilibiliFolderId)
     .filter((ledger) => defaultFavoriteSystemEnabled || !ledger.isDefault || ledger.id === 'inbox')
     .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
 }

@@ -3,6 +3,7 @@ import {
   MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS,
   installMainWindowControlReactions
 } from './mainWindowControlReactions'
+import { getMainWindowPresentationState } from './mainWindowPresentationState'
 import type { AssistantPetHint } from '../../src/renderer/src/features/assistant/petState'
 
 type WindowEventName = 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close'
@@ -25,6 +26,10 @@ function createTestWindow() {
 }
 
 describe('installMainWindowControlReactions', () => {
+  it('reports whether the main window is visibly open for passive pet-hint suppression', () => {
+    expect(getMainWindowPresentationState({ isVisible: () => true, isMinimized: () => false })).toEqual({ visible: true, minimized: false })
+    expect(getMainWindowPresentationState(null)).toEqual({ visible: false, minimized: false })
+  })
   it('lets XiaoMi say goodbye when the native minimize button is used', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()

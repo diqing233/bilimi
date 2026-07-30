@@ -14,6 +14,8 @@ import {
   webContents
 } from 'electron'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,18 +35,32 @@ import {
   upsertPendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus,
   saveVideoAudioTranscriptionQueue,
-  saveVideoNoteArchiveVersion,
+  saveVideoNoteArchiveVersionWithIdentity,
+  saveVideoNoteArchiveSummaryWithIdentity,
   updateVideoNoteArchiveVersion,
   saveAssistantPreferences,
   patchAssistantPreferences,
+  normalizeAssistantPreferencePatch,
+  writeAssistantPreferencePatch,
+  writeFavoriteLedgerEnabled,
   saveFavoriteAccountPreferences,
   dismissFavoriteLibraryRemoteFolder,
   isFavoriteLibraryRemoteFolderDismissed,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
+  loadNoteProcessingCheckpoints,
+  saveNoteProcessingCheckpoint,
+  deleteNoteProcessingCheckpoint,
   type AssistantPreferences
 } from './store'
+import {
+  assertCurrentAccountOwnsArchiveEntry,
+  assertCurrentAccountOwnsArchiveVersion,
+  assertArchiveVersionMatchesReplacementNote,
+  assertCurrentAccountOwnsVerifiedArchiveNote,
+  filterVideoNoteArchivesForAccount
+} from './videoNoteArchiveIdentityGuard'
 import {
   installAssistantRuntimeReadinessLifecycle,
   requestAssistantRuntimeWhenReady
@@ -61,6 +77,7 @@ import {
   installMainWindowControlReactions
 } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
+import { getMainWindowPresentationState } from './mainWindowPresentationState'
 import { handleFavoriteLibraryEntry } from './favoriteLibraryEntryFlow'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
@@ -76,7 +93,7 @@ import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanServi
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
-import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, mergeRecoveredLedgerDrafts, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
@@ -92,7 +109,7 @@ import {
   createFavoriteLibraryArchiveSummary,
   createFavoriteLibraryTranscriptionSummary
 } from './favoriteLibrarySummaries'
-import { registerFavoriteLibraryBridgeIpc, type FavoriteLibraryAccount } from './favoriteLibraryBridge'
+import { archiveNavigationForVideo, registerFavoriteLibraryBridgeIpc, type FavoriteLibraryAccount } from './favoriteLibraryBridge'
 import { LocalDataService } from './localDataService'
 import { registerLocalDataIpc } from './localDataIpc'
 import { createLocalDataPersistenceAdapter } from './localDataPersistenceAdapter'
@@ -114,10 +131,22 @@ import {
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import type { FloatingAssistantSide } from './floatingSealGeometry'
+
+// Registered with the assistant IPC handlers, but cleared by account/session lifecycle handlers.
+let videoNoteBatchExportIpc: {
+  clearAll(): void
+  clearCompletedFoldersForAccount(accountMid: string): void
+} | undefined
 import { createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
-import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
+import { createTranscriptionProviderResolver } from './transcriptionProviderResolver'
+import { disposeDefaultFasterWhisperGpuSessions, disposeDefaultFasterWhisperHelperSessions } from './fasterWhisperTranscription'
+import { createTranscriptionModelManager } from './transcriptionModelManager'
+import { registerTranscriptionModelIpc } from './transcriptionModelIpc'
+import { validateTranscriptionModelRuntime } from './transcriptionModelRuntimeValidation'
+import { createVideoTranscriptionQueue, type VideoTranscriptionQueueBatchResult } from './videoTranscriptionQueue'
+import { assertCurrentAccountOwnsTranscriptionQueueItems, assertCurrentAccountOwnsTranscriptionRequest, filterTranscriptionQueueSnapshotForAccount } from './transcriptionQueueAccountGuard'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
 import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
@@ -125,16 +154,24 @@ import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import { classifyVideoContent } from '../../src/shared/recommendation/videoClassifier'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
-import { configureAppIdentity, configureDevelopmentUserData } from './appIdentity'
+import { normalizeAssistantPreferencePatchMeta } from '../../src/shared/assistantPreferencePatchMeta'
+import {
+  exportVideoNoteArchiveBatch
+} from './videoNoteExportService'
+import { registerVideoNoteBatchExportIpc } from './videoNoteExportIpc'
+import { configureAppIdentity, configureDevelopmentRuntimeSwitches, configureDevelopmentUserData } from './appIdentity'
 import { installSingleInstanceGuard } from './singleInstance'
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  AssistantPreferencePatchMeta,
   DeepSeekGenerateRequest,
   FavoriteLedger,
+  FavoriteLedgerEnabledPatch,
   FavoriteLedgerSaveOptions,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
+  TranscriptionModelId,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoNote
@@ -198,13 +235,12 @@ function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' {
 }
 
 function readBilibiliConnectionMode() {
-  return normalizeBilibiliConnectionMode(
-    (getDesktopStore() as unknown as { get: (key: string) => unknown }).get('bilibiliConnectionMode')
-  )
+  return normalizeBilibiliConnectionMode(loadAssistantPreferences(getDesktopStore()).bilibiliConnectionMode)
 }
 
 function writeBilibiliConnectionMode(mode: 'auto' | 'direct') {
-  ;(getDesktopStore() as unknown as { set: (key: string, value: unknown) => void }).set('bilibiliConnectionMode', mode)
+  const store = getDesktopStore()
+  saveAssistantPreferences(store, { ...loadAssistantPreferences(store), bilibiliConnectionMode: mode })
 }
 
 function withBilibiliConnectionMode(preferences: AssistantPreferences) {
@@ -332,7 +368,7 @@ function createFloatingSealWindow() {
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  setFloatingSealMouseTransparency(seal, true)
+  setFloatingSealMouseTransparency(seal, false)
   seal.removeMenu()
 
   // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
@@ -506,8 +542,30 @@ function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
     .includes(senderId)
 }
 
+function sendAssistantPreferencePatchChanged(patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) {
+  const normalizedMeta = normalizeAssistantPreferencePatchMeta(meta)
+  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+  for (const target of targets) {
+    if (!target || target.isDestroyed()) continue
+    target.webContents.send('assistant:preferences-patch-changed', patch, normalizedMeta)
+  }
+}
+
+function sendFavoriteLedgerEnabledChanged(patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) {
+  const normalizedMeta = normalizeAssistantPreferencePatchMeta(meta)
+  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+  for (const target of targets) {
+    if (!target || target.isDestroyed()) continue
+    target.webContents.send('assistant:favorite-ledger-enabled-changed', patch, normalizedMeta)
+  }
+}
+
+function isTrustedOldFavoriteAssistantSender(event: { sender: { id: number } }) {
+  return isTrustedOldFavoriteSessionSender(event.sender.id)
+}
+
 function assertTrustedOldFavoriteAssistantSender(event: { sender: { id: number } }) {
-  if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+  if (!isTrustedOldFavoriteAssistantSender(event)) {
     throw new Error('Old favorite assistant request came from an untrusted renderer.')
   }
 }
@@ -663,6 +721,7 @@ function wakeAssistantPetWindow() {
   }
 
   resetFloatingSealWindowBounds()
+  setFloatingSealWindowMouseTransparent(false)
   floatingSealWindow.show()
   floatingSealWindow.focus()
 }
@@ -690,6 +749,7 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
 
   closeFloatingMenuWindow()
   resetFloatingSealWindowBounds()
+  setFloatingSealWindowMouseTransparent(false)
   floatingSealDragController.start({ x: screenX, y: screenY })
 }
 
@@ -708,6 +768,7 @@ function resizeFloatingSealByStep(step: number) {
   closeFloatingAssistantWindow()
   floatingSealDragController.finish()
   resetFloatingSealWindowBounds()
+  setFloatingSealWindowMouseTransparent(false)
 }
 
 function moveFloatingSealTo(screenX: number, screenY: number) {
@@ -726,6 +787,7 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 
 function finishFloatingSealDrag() {
   floatingSealDragController.finish()
+  setFloatingSealWindowMouseTransparent(false)
   recompositeFloatingSealWindow?.()
 
   const assistant = floatingAssistantController.getWindow()
@@ -747,6 +809,35 @@ let assistantRuntimeRequestIndex = 0
 let videoTranscriptionQueue:
   | ReturnType<typeof createVideoTranscriptionQueue>
   | null = null
+const transcriptionModelManager = createTranscriptionModelManager({
+  legacyWhisperModelPath: () => {
+    try {
+      return resolveMediaToolPaths().whisperModelPath
+    } catch {
+      return null
+    }
+  },
+  developmentFasterWhisperHelperPath: () => {
+    if (app.isPackaged) return null
+    const helperPath = join(process.cwd(), 'tools', 'faster-whisper-runtime', 'bilimi-faster-whisper.exe')
+    return existsSync(helperPath) ? helperPath : null
+  },
+  developmentFasterWhisperPython: () => {
+    if (app.isPackaged) return null
+    const scriptPath = join(process.cwd(), 'tools', 'transcribe_faster_whisper.py')
+    return existsSync(scriptPath)
+      ? { command: process.env.BILIMI_PYTHON_PATH?.trim() || 'python', scriptPath }
+      : null
+  },
+  validateRuntime: validateTranscriptionModelRuntime
+})
+
+async function resolveVerifiedFasterWhisperRuntime(id: Extract<TranscriptionModelId, `faster-whisper-${string}`>) {
+  const probe = await transcriptionModelManager.probeFasterWhisperGpu(id)
+  return probe.status === 'available'
+    ? { device: 'cuda' as const, computeType: probe.computeType }
+    : { device: 'cpu' as const, computeType: 'int8' as const, fallbackMessage: `GPU unavailable; using CPU. ${probe.reason}` }
+}
 
 async function testDeepSeekConnectionForPreferences(preferences: AssistantPreferences) {
   let responseModel: string | undefined
@@ -892,17 +983,52 @@ function createMainWindow() {
   return win
 }
 
-function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot) {
-  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+const QUEUE_PROGRESS_EVENT_THROTTLE_MS = 100
+let lastPublishedQueueSnapshot: VideoAudioTranscriptionQueueSnapshot | undefined
+let pendingQueueSnapshot: VideoAudioTranscriptionQueueSnapshot | undefined
+let pendingQueueSnapshotTimer: NodeJS.Timeout | undefined
+let queuePublishGeneration = 0
 
-  for (const target of targets) {
-    if (!target || target.isDestroyed()) {
-      continue
+function queueLifecycleSignature(snapshot: VideoAudioTranscriptionQueueSnapshot) {
+  return `${snapshot.activeItemId ?? ''}:${snapshot.sessionCompletedCount}:${snapshot.items.map((item) => `${item.id}:${item.status}:${item.archiveRegistrationStatus ?? ''}`).join('|')}`
+}
+
+function publishVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot, notifyFavoriteLibrary: boolean) {
+  const generation = ++queuePublishGeneration
+  void readCurrentBilibiliAccountMid().then((accountMid) => {
+    // Account reads and throttled progress publications are asynchronous.  A
+    // delayed old snapshot must never overwrite a newer account-scoped one.
+    if (generation !== queuePublishGeneration) return
+    const scopedSnapshot = filterTranscriptionQueueSnapshotForAccount(snapshot, accountMid)
+    const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+
+    for (const target of targets) {
+      if (!target || target.isDestroyed()) continue
+      target.webContents.send('video-audio:transcription-queue-changed', scopedSnapshot)
+      if (notifyFavoriteLibrary && target === mainWindow) target.webContents.send('favorite-library:transcription-changed')
     }
+  })
+}
 
-    target.webContents.send('video-audio:transcription-queue-changed', snapshot)
-    if (target === mainWindow) target.webContents.send('favorite-library:transcription-changed')
+function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot) {
+  const isLifecycleChange = !lastPublishedQueueSnapshot ||
+    queueLifecycleSignature(lastPublishedQueueSnapshot) !== queueLifecycleSignature(snapshot)
+  pendingQueueSnapshot = snapshot
+  if (isLifecycleChange) {
+    if (pendingQueueSnapshotTimer) clearTimeout(pendingQueueSnapshotTimer)
+    pendingQueueSnapshotTimer = undefined
+    lastPublishedQueueSnapshot = snapshot
+    publishVideoAudioTranscriptionQueueChanged(snapshot, true)
+    return
   }
+  if (pendingQueueSnapshotTimer) return
+  pendingQueueSnapshotTimer = setTimeout(() => {
+    pendingQueueSnapshotTimer = undefined
+    const latest = pendingQueueSnapshot
+    if (!latest) return
+    lastPublishedQueueSnapshot = latest
+    publishVideoAudioTranscriptionQueueChanged(latest, false)
+  }, QUEUE_PROGRESS_EVENT_THROTTLE_MS)
 }
 
 function getVideoTranscriptionQueue() {
@@ -917,18 +1043,44 @@ function getVideoTranscriptionQueue() {
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
         const preferences = loadAssistantPreferences(getDesktopStore())
 
-        return transcribeCurrentVideoAudio({
+        try {
+          return await transcribeCurrentVideoAudio({
           request,
           session: sourceSession,
           tempDir,
           progress,
           threadLimit: preferences.videoAudioTranscriptionThreadLimit,
-          signal
-        })
+          resolveTranscriber: createTranscriptionProviderResolver({
+            resolveSenseVoicePaths: () => transcriptionModelManager.resolveSenseVoicePaths(),
+            resolveWhisperModelPath: () => transcriptionModelManager.resolveWhisperSmallPath(),
+            resolveFasterWhisperPaths: (id) => transcriptionModelManager.resolveFasterWhisperPaths(id),
+            resolveFasterWhisperRuntime: request.transcriptionDeviceOverride === 'cpu'
+              ? async () => ({ device: 'cpu' as const, computeType: 'int8' as const })
+              : resolveVerifiedFasterWhisperRuntime
+          }),
+            signal
+          })
+        } finally {
+          disposeDefaultFasterWhisperGpuSessions()
+        }
       },
-      summarizeNote: async (note, signal) => {
+      modelForRequest: (request) => request.accountMid
+        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? 'whisper-small'
+        : 'whisper-small',
+      summarizeNote: async (note, signal, reportProgress) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
         assertDeepSeekRequestEnabled(preferences, 'note-poster')
+        const accountMid = note.source.accountMid ?? 'local'
+        const identity = {
+          accountMid,
+          videoId: note.id,
+          transcriptHash: createHash('sha256').update(note.transcript.map((segment) => `${segment.start}:${segment.end}:${segment.text}`).join('\n')).digest('hex'),
+          promptVersion: 'faithful-v1',
+          model: preferences.deepseekModel
+        }
+        const checkpoint = loadNoteProcessingCheckpoints(getDesktopStore())[
+          [identity.accountMid, identity.videoId, identity.transcriptHash, identity.promptVersion, identity.model].join(':')
+        ]
         const result = await generateDeepSeekResult({
           config: {
             enabled: preferences.deepseekEnabled,
@@ -937,22 +1089,68 @@ function getVideoTranscriptionQueue() {
             baseUrl: preferences.deepseekBaseUrl
           },
           request: { kind: 'note-poster', note },
-          signal
+          signal,
+          ...(checkpoint
+            ? { notePosterCheckpoint: {
+              proofreadingCompleted: checkpoint.proofreadingCompleted === true,
+              polishedTranscriptText: checkpoint.polishedTranscriptText,
+              completedBatchIds: checkpoint.completedBatchIds,
+              polishedTextBySegmentId: checkpoint.polishedTextBySegmentId,
+              corrections: checkpoint.corrections,
+              reviewItems: checkpoint.reviewItems
+            } }
+            : {}),
+          onNotePosterProgress: (progress) => {
+            reportProgress?.({
+              step: 'summarizing-deepseek',
+              message: progress.stage === 'proofreading-batch'
+                ? `正在保真校对 ${progress.batchIndex}/${progress.batchCount}`
+                : '正在生成内容总结'
+            })
+          },
+          onNotePosterCheckpoint: (partial) => {
+            saveNoteProcessingCheckpoint(getDesktopStore(), {
+              ...identity,
+              ...partial,
+              updatedAt: new Date().toISOString()
+            })
+          }
         })
 
         if (result.kind !== 'note-poster') {
           throw new Error('DeepSeek summary failed.')
         }
 
+        deleteNoteProcessingCheckpoint(getDesktopStore(), identity)
+
         return createNotePosterText(result.poster)
       },
-      saveArchiveVersion: (note, summaryText) =>
-        saveVideoNoteArchiveVersion(getDesktopStore(), note, undefined, summaryText),
+      saveArchiveVersion: (note, summaryText) => {
+        const saved = saveVideoNoteArchiveVersionWithIdentity(getDesktopStore(), note, undefined, summaryText)
+        return { archiveId: saved.archiveId, versionId: saved.versionId }
+      },
+      loadArchiveVersion: (archiveId, versionId) => loadVideoNoteArchives(getDesktopStore())
+        .find((archive) => archive.id === archiveId)?.versions
+        .find((version) => version.id === versionId)?.note,
+      saveArchiveSummary: (archiveId, versionId, note, summaryText) => {
+        saveVideoNoteArchiveSummaryWithIdentity(getDesktopStore(), archiveId, versionId, note, summaryText)
+      },
+      isAccountStillCurrent: async (accountMid) => Boolean(accountMid && accountMid === await readCurrentBilibiliAccountMid()),
       onSnapshot: sendVideoAudioTranscriptionQueueChanged
     })
   }
 
   return videoTranscriptionQueue
+}
+
+async function getCurrentAccountTranscriptionQueue(ids: string[]) {
+  const queue = getVideoTranscriptionQueue()
+  assertCurrentAccountOwnsTranscriptionQueueItems(
+    await readCurrentBilibiliAccountMid(),
+    queue.getSnapshot().items,
+    ids
+  )
+  return queue
 }
 
 function registerAssistantPreferenceHandlers() {
@@ -974,7 +1172,9 @@ function registerAssistantPreferenceHandlers() {
       return snapshot
     })
   })
-  ipcMain.handle('assistant:load-preferences', () => withBilibiliConnectionMode(loadAssistantPreferences()))
+  ipcMain.handle('assistant:load-preferences', () =>
+    withBilibiliConnectionMode(loadAssistantPreferences(getDesktopStore(), safeStorage))
+  )
   ipcMain.handle('clipboard:write-text', (_event, text: string) => {
     clipboard.writeText(text)
   })
@@ -992,7 +1192,7 @@ function registerAssistantPreferenceHandlers() {
     if (connectionModeChanged) requestBilibiliWebviewReload()
     return next
   })
-  ipcMain.handle('assistant:patch-preferences', async (_event, patch: Partial<AssistantPreferences>) => {
+  ipcMain.handle('assistant:patch-preferences', async (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
     const { bilibiliConnectionMode, ...assistantPatch } = patch
     const connectionModeChanged = bilibiliConnectionMode !== undefined &&
       normalizeBilibiliConnectionMode(bilibiliConnectionMode) !== readBilibiliConnectionMode()
@@ -1001,17 +1201,38 @@ function registerAssistantPreferenceHandlers() {
       await favoriteRepositoryRemoteOperations.runExclusive(() => bilibiliSessionProxy.applyPreference(mode))
       writeBilibiliConnectionMode(mode)
     }
+    const normalizedAssistantPatch = normalizeAssistantPreferencePatch(assistantPatch)
     const saved = patchAssistantPreferences(getDesktopStore(), assistantPatch)
     const next = withBilibiliConnectionMode(saved)
-    sendAssistantPreferencesChanged(next)
+    if (normalizedAssistantPatch && !connectionModeChanged) {
+      sendAssistantPreferencePatchChanged(normalizedAssistantPatch, meta)
+    } else {
+      sendAssistantPreferencesChanged(next)
+    }
     if (connectionModeChanged) requestBilibiliWebviewReload()
     return next
+  })
+  ipcMain.handle('assistant:write-preference-patch', (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
+    const written = writeAssistantPreferencePatch(getDesktopStore(), patch)
+    if (!written) throw new Error('This preference patch requires the full save path.')
+    sendAssistantPreferencePatchChanged(written, meta)
+    return written
+  })
+  ipcMain.handle('assistant:write-favorite-ledger-enabled', async (event, accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
+    sendFavoriteLedgerEnabledChanged(patch, meta)
+    return patch
+  })
+  ipcMain.on('assistant:preview-preference-patch', (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
+    const normalizedPatch = normalizeAssistantPreferencePatch(patch)
+    if (normalizedPatch) sendAssistantPreferencePatchChanged(normalizedPatch, meta)
   })
   ipcMain.handle('layout:restore-default-size', () => {
     const win = ensureMainWindowForAssistantRuntime()
     const display = screen.getDisplayMatching(win.getBounds())
 
-    restoreMainWindowDefaultLayoutSize(win, display.workAreaSize)
+    restoreMainWindowDefaultLayoutSize(win, display.workArea)
   })
   ipcMain.handle('startup:diagnose', () =>
     runStartupDiagnostics({
@@ -1064,54 +1285,199 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
   )
-  ipcMain.handle('video-note-archives:load', () => loadVideoNoteArchives(getDesktopStore()))
-  ipcMain.handle('video-note-archives:save-version', (_event, note: VideoNote, summaryText = '') =>
-    saveVideoNoteArchiveVersion(getDesktopStore(), note, undefined, summaryText)
+  ipcMain.handle('video-note-archives:load', async (event) => {
+    if (!isTrustedOldFavoriteAssistantSender(event)) throw new Error('Archive load request was not sent by a trusted renderer.')
+    return filterVideoNoteArchivesForAccount(loadVideoNoteArchives(getDesktopStore()), await readCurrentBilibiliAccountMid())
+  })
+  ipcMain.handle('video-note-archives:open-source', (event, source: VideoNote['source'], seconds?: unknown) => {
+    if (!isTrustedOldFavoriteAssistantSender(event) || !source || typeof source.url !== 'string') {
+      throw new Error('Video note source is unavailable.')
+    }
+    const url = source.url.trim()
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error('Video note source URL is invalid.')
+    }
+    if (parsed.protocol !== 'https:' || !/(^|\.)bilibili\.com$/u.test(parsed.hostname)) {
+      throw new Error('Video note source URL is not a Bilibili video.')
+    }
+    const target = ensureMainWindowForAssistantRuntime()
+    target.webContents.send('video-note-archives:open-source', {
+      url,
+      ...(typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? { seconds } : {}),
+      ...(Number.isSafeInteger(source.aid) ? { aid: source.aid } : {}),
+      ...(Number.isSafeInteger(source.cid) ? { cid: source.cid } : {})
+    })
+  })
+  ipcMain.handle('video-note-archives:save-version-verified', async (event, note: VideoNote, summaryText = '') => {
+    if (!isTrustedOldFavoriteAssistantSender(event)) {
+      throw new Error('Archive save request was not sent by a trusted renderer.')
+    }
+    assertCurrentAccountOwnsVerifiedArchiveNote(await readCurrentBilibiliAccountMid(), note)
+    return saveVideoNoteArchiveVersionWithIdentity(getDesktopStore(), note, undefined, summaryText)
+  })
+  ipcMain.handle(
+    'video-note-archives:save-summary',
+    async (event, archiveId: string, versionId: string, note: VideoNote, summaryText: string) => {
+      if (!isTrustedOldFavoriteAssistantSender(event)) {
+        throw new Error('Archive summary save request was not sent by a trusted renderer.')
+      }
+      const archives = loadVideoNoteArchives(getDesktopStore())
+      const existingVersion = assertCurrentAccountOwnsArchiveVersion(
+        archives,
+        await readCurrentBilibiliAccountMid(),
+        archiveId,
+        versionId
+      )
+      const sourceNote = existingVersion.note
+      const summaryNote = {
+        ...sourceNote,
+        overview: note.overview,
+        updatedAt: note.updatedAt
+      }
+      return saveVideoNoteArchiveSummaryWithIdentity(
+        getDesktopStore(),
+        archiveId,
+        versionId,
+        summaryNote,
+        summaryText
+      )
+    }
   )
   ipcMain.handle(
     'video-note-archives:update-version',
-    (_event, archiveId: string, versionId: string, note: VideoNote, summaryText?: string) =>
-      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note, summaryText)
+    async (event, archiveId: string, versionId: string, note: VideoNote, summaryText?: string) => {
+      if (!isTrustedOldFavoriteAssistantSender(event)) throw new Error('Archive update request was not sent by a trusted renderer.')
+      const accountMid = await readCurrentBilibiliAccountMid()
+      const existingVersion = assertCurrentAccountOwnsArchiveVersion(loadVideoNoteArchives(getDesktopStore()), accountMid, archiveId, versionId)
+      assertCurrentAccountOwnsVerifiedArchiveNote(accountMid, note)
+      assertArchiveVersionMatchesReplacementNote(existingVersion, note)
+      return updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note, summaryText)
+    }
   )
-  ipcMain.handle('video-note-archives:delete-entry', (_event, archiveId: string) =>
-    deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)
-  )
+  ipcMain.handle('video-note-archives:delete-entry', async (event, archiveId: string) => {
+    if (!isTrustedOldFavoriteAssistantSender(event)) throw new Error('Archive delete request was not sent by a trusted renderer.')
+    assertCurrentAccountOwnsArchiveEntry(loadVideoNoteArchives(getDesktopStore()), await readCurrentBilibiliAccountMid(), archiveId)
+    return deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)
+  })
   ipcMain.handle(
     'video-note-archives:delete-version',
-    (_event, archiveId: string, versionId: string) =>
-      deleteVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId)
+    async (event, archiveId: string, versionId: string) => {
+      if (!isTrustedOldFavoriteAssistantSender(event)) throw new Error('Archive delete request was not sent by a trusted renderer.')
+      assertCurrentAccountOwnsArchiveVersion(loadVideoNoteArchives(getDesktopStore()), await readCurrentBilibiliAccountMid(), archiveId, versionId)
+      return deleteVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId)
+    }
   )
+  videoNoteBatchExportIpc = registerVideoNoteBatchExportIpc({
+    ipcMain,
+    isTrustedSender: (senderId) => isTrustedOldFavoriteAssistantSender({ sender: { id: senderId } } as never),
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    archives: () => loadVideoNoteArchives(getDesktopStore()),
+    chooseParentDirectory: async () => {
+      const result = await dialog.showOpenDialog({ title: '选择文稿导出目录', properties: ['openDirectory', 'createDirectory'] })
+      return result.canceled ? undefined : result.filePaths[0]
+    },
+    start: exportVideoNoteArchiveBatch,
+    openFolder: (path) => shell.openPath(path),
+    send: (senderId, channel, value) => webContents.fromId(senderId)?.send(channel, value)
+  })
   ipcMain.handle(
     'video-audio:transcribe-current',
     async (event, request: VideoAudioTranscriptionRequest) => {
+      assertCurrentAccountOwnsTranscriptionRequest(await readCurrentBilibiliAccountMid(), request)
       const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
       const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
       const preferences = loadAssistantPreferences(getDesktopStore())
+      const transcriptionModelId = request.transcriptionModelId ?? (request.accountMid
+        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? 'whisper-small'
+        : 'whisper-small')
 
-      return transcribeCurrentVideoAudio({
-        request,
+      try {
+        return await transcribeCurrentVideoAudio({
+        request: { ...request, transcriptionModelId },
         session: sourceSession,
         tempDir,
         threadLimit: preferences.videoAudioTranscriptionThreadLimit,
+        resolveTranscriber: createTranscriptionProviderResolver({
+          resolveSenseVoicePaths: () => transcriptionModelManager.resolveSenseVoicePaths(),
+          resolveWhisperModelPath: () => transcriptionModelManager.resolveWhisperSmallPath(),
+          resolveFasterWhisperPaths: (id) => transcriptionModelManager.resolveFasterWhisperPaths(id),
+          resolveFasterWhisperRuntime: request.transcriptionDeviceOverride === 'cpu'
+            ? async () => ({ device: 'cpu' as const, computeType: 'int8' as const })
+            : resolveVerifiedFasterWhisperRuntime
+        }),
         progress: (progress) => {
           event.sender.send('video-audio:transcription-progress', progress)
-        }
-      })
+          }
+        })
+      } finally {
+        disposeDefaultFasterWhisperGpuSessions()
+      }
     }
   )
-  ipcMain.handle('video-audio:transcription-queue-load', () =>
-    getVideoTranscriptionQueue().getSnapshot()
+  ipcMain.handle('video-audio:transcription-queue-load', async () =>
+    filterTranscriptionQueueSnapshotForAccount(
+      getVideoTranscriptionQueue().getSnapshot(),
+      await readCurrentBilibiliAccountMid()
+    )
   )
+  ipcMain.handle('video-audio:transcription-models-list', () => transcriptionModelManager.list())
+  ipcMain.handle('video-audio:transcription-model-gpu-probe', (_event, id: TranscriptionModelId) =>
+    transcriptionModelManager.probeFasterWhisperGpu(id)
+  )
+  registerTranscriptionModelIpc({
+    ipcMain,
+    manager: transcriptionModelManager,
+    send: (senderId, channel, value) => webContents.fromId(senderId)?.send(channel, value),
+    selectDirectory: async () => {
+      const selection = await dialog.showOpenDialog({
+        title: '导入已校验的转写模型文件夹',
+        properties: ['openDirectory']
+      })
+      return selection.canceled ? undefined : selection.filePaths[0]
+    }
+  })
+  ipcMain.handle('video-audio:transcription-model-delete', async (_event, id) => {
+    const preferences = loadAssistantPreferences(getDesktopStore())
+    const currentModelIsReferenced = Object.values(preferences.favoriteAccountPreferences ?? {})
+      .some((account) => account.transcriptionModelId === id)
+    if (currentModelIsReferenced) throw new Error('The current transcription model cannot be removed.')
+    await transcriptionModelManager.remove(id, (modelId) => getVideoTranscriptionQueue().getSnapshot().items
+      .some((item) => ['pending', 'running', 'waiting-restart'].includes(item.status) && item.transcriptionModelId === modelId))
+    return transcriptionModelManager.list()
+  })
   ipcMain.handle(
     'video-audio:transcription-queue-enqueue',
-    (_event, request: VideoAudioTranscriptionRequest) =>
-      getVideoTranscriptionQueue().enqueue(request)
+    async (_event, request: VideoAudioTranscriptionRequest) => {
+      const currentAccountMid = await readCurrentBilibiliAccountMid()
+      if (!request.accountMid || request.accountMid !== currentAccountMid) {
+        throw new Error('当前账号已切换，无法创建原账号的转写任务。')
+      }
+      return getVideoTranscriptionQueue().enqueue(request)
+    }
   )
-  ipcMain.handle('video-audio:transcription-queue-cancel', (_event, id: string) =>
-    getVideoTranscriptionQueue().cancel(id)
+  ipcMain.handle('video-audio:transcription-queue-cancel', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).cancel(id))
+  ipcMain.handle('video-audio:transcription-queue-cancel-summary', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).cancelSummary(id))
+  ipcMain.handle('video-audio:transcription-queue-retry', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).retry(id))
+  ipcMain.handle('video-audio:transcription-queue-retry-cpu', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).retryOnCpu(id))
+  ipcMain.handle('video-audio:transcription-queue-retry-archive-registration', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).retryArchiveRegistration(id))
+  ipcMain.handle('video-audio:transcription-queue-retry-summary', async (_event, id: string) => (await getCurrentAccountTranscriptionQueue([id])).retrySummary(id))
+  ipcMain.handle('video-audio:transcription-queue-batch-cancel-waiting', async (_event, ids: string[]) =>
+    (await getCurrentAccountTranscriptionQueue(ids)).cancelWaitingBatch(ids)
   )
-  ipcMain.handle('video-audio:transcription-queue-retry', (_event, id: string) =>
-    getVideoTranscriptionQueue().retry(id)
+  ipcMain.handle('video-audio:transcription-queue-batch-retry', async (_event, ids: string[]) =>
+    (await getCurrentAccountTranscriptionQueue(ids)).retryBatch(ids)
+  )
+  ipcMain.handle('video-audio:transcription-queue-batch-remove', async (_event, ids: string[]) =>
+    (await getCurrentAccountTranscriptionQueue(ids)).removeBatch(ids)
+  )
+  ipcMain.handle('video-audio:transcription-queue-batch-stop-preview', async (_event, ids: string[]) =>
+    (await getCurrentAccountTranscriptionQueue(ids)).createRunningStopConfirmation(ids)
+  )
+  ipcMain.handle('video-audio:transcription-queue-batch-stop', async (_event, ids: string[], confirmationToken: string): Promise<VideoTranscriptionQueueBatchResult> =>
+    (await getCurrentAccountTranscriptionQueue(ids)).stopRunningBatch(ids, confirmationToken)
   )
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
@@ -1119,6 +1485,7 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.on('assistant-pet:close', () => {
     closeAssistantPetWindow()
   })
+  ipcMain.handle('main-window:presentation-state', () => getMainWindowPresentationState(mainWindow))
   ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
     setAssistantPetState(state)
   })
@@ -1247,7 +1614,17 @@ function registerAssistantPreferenceHandlers() {
   })
 }
 
-configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
+configureDevelopmentUserData(app, {
+  isPackaged: app.isPackaged,
+  // E2E runs can opt into a disposable absolute profile; normal development
+  // and every packaged build retain their existing user-data locations.
+  userDataOverride: process.env.BILIMI_TEST_USER_DATA
+})
+configureDevelopmentRuntimeSwitches(app, {
+  isPackaged: app.isPackaged,
+  deviceScaleFactor: process.env.BILIMI_TEST_DEVICE_SCALE_FACTOR,
+  reducedMotion: process.env.BILIMI_TEST_REDUCED_MOTION === '1'
+})
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
@@ -1305,7 +1682,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
-    getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items
+    getTranscriptionRevision: () => queuePublishGeneration,
+    getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
+    getTranscriptionArchives: () => loadVideoNoteArchives(getDesktopStore())
   })
   const recoveredPortableImport = await favoriteRepositoryService.recoverPortableImportTransaction()
   if (recoveredPortableImport) {
@@ -1432,6 +1811,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
             saveFavoriteAccountPreferences(getDesktopStore(), uid, {
               defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
               favoriteLedgers: candidate.favoriteLedgers,
+              ...(candidate.transcriptionModelId ? { transcriptionModelId: candidate.transcriptionModelId } : {}),
               ...(typeof candidate.updatedAt === 'string' ? { updatedAt: candidate.updatedAt } : {}),
               ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
                 ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
@@ -1487,6 +1867,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
             accountPreferences[uid] = {
               defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled,
               favoriteLedgers: candidate.favoriteLedgers,
+              ...(candidate.transcriptionModelId ? { transcriptionModelId: candidate.transcriptionModelId } : {}),
               ...(typeof candidate.updatedAt === 'string' ? { updatedAt: candidate.updatedAt } : {}),
               ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
                 ? { favoriteLibraryCollapsedGroups: candidate.favoriteLibraryCollapsedGroups } : {})
@@ -1639,6 +2020,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       })
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
+    saveRecoveredLedgerDrafts: async (accountMid, ledgers) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const favoriteLedgers = mergeRecoveredLedgerDrafts(current.favoriteLedgers, ledgers)
+      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+        ...current,
+        favoriteLedgers
+      })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    },
     removeRecommendedLedgers: async (accountMid, ledgerIds) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
@@ -1714,6 +2105,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
     onAccountOpen: async (accountMid) => {
+      // A previous complete scan already contains the full remote inventory.
+      // Restore only its unique, complete Bilimi bindings before the drawer
+      // projects folders, so old managed folders do not reappear as ordinary.
+      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
         .find((candidate) => candidate.id === 'inbox' && candidate.bilibiliFolderId?.trim())
       if (!ledger?.bilibiliFolderId) return
@@ -1740,7 +2135,31 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ipcMain,
     commands: favoriteLibraryCommandService,
     isTrustedLibrarySender: isTrustedFavoriteLibraryReader,
-    getCurrentAccountMid: readCurrentBilibiliAccountMid
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    resolveSelection: (accountMid, selection) => favoriteRepositoryService.resolveLibrarySelection(
+      accountMid, selection.scope, selection.options, selection.excludedAids
+    ),
+    async resolveDocumentExportSelection(accountMid, aids) {
+      const snapshot = await favoriteRepositoryService.getSnapshot(accountMid)
+      const archives = loadVideoNoteArchives(getDesktopStore())
+      const selections = new Map<string, { archiveId: string; versionId: string }>()
+      const skippedAids: number[] = []
+      for (const aid of aids) {
+        const video = snapshot.videos[String(aid)]
+        if (!video) {
+          skippedAids.push(aid)
+          continue
+        }
+        try {
+          const selection = archiveNavigationForVideo(archives, accountMid, aid, video.cid)
+          selections.set(`${selection.archiveId}:${selection.versionId}`, selection)
+        } catch {
+          // A video can be filtered by completed queue state while its archive is still unavailable.
+          skippedAids.push(aid)
+        }
+      }
+      return { selections: [...selections.values()], skippedAids }
+    }
   })
   registerFavoriteLibraryOperationsIpc({
     ipcMain,
@@ -1748,6 +2167,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     managed: favoriteRepositoryManagedFolderService,
     isTrustedSender: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    async resolveSelection(accountMid, selection) {
+      return favoriteRepositoryService!.resolveLibrarySelection(accountMid, selection.scope, selection.options, selection.excludedAids)
+    },
     async resolveSourceScope(accountMid, source, requestedAids) {
       const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
       if (source.kind === 'folder') {
@@ -1775,7 +2197,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     getSnapshot: (accountMid) => favoriteRepositoryService!.getSnapshot(accountMid),
     loadArchives: () => loadVideoNoteArchives(getDesktopStore()),
-    updateArchiveVersion: (archiveId, versionId, note) => {
+    updateArchiveVersion: async (archiveId, versionId, note) => {
+      const accountMid = await readCurrentBilibiliAccountMid()
+      const existingVersion = assertCurrentAccountOwnsArchiveVersion(loadVideoNoteArchives(getDesktopStore()), accountMid, archiveId, versionId)
+      assertCurrentAccountOwnsVerifiedArchiveNote(accountMid, note)
+      assertArchiveVersionMatchesReplacementNote(existingVersion, note)
       const archives = updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note)
       sendAssistantSnapshotChangedToTargets([mainWindow, floatingAssistantController.getWindow()])
       return archives
@@ -1808,12 +2234,21 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'bilimi migration', extensions: ['json'] }] })
       return result.canceled ? undefined : result.filePaths[0]
     },
-    openUserDataPath: async () => { await shell.openPath(app.getPath('userData')) }
+    openUserDataPath: async () => { await shell.openPath(app.getPath('userData')) },
+    onAccountDataCleared: (accountMid) => {
+      videoNoteBatchExportIpc?.clearCompletedFoldersForAccount(accountMid)
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('favorite-library:account-data-cleared', accountMid)
+    }
   })
   ipcMain.handle('favorite-library:window-control', (event, action: unknown) => {
     if (!isTrustedFavoriteLibraryReader(event.sender.id) || !mainWindow) throw new Error('Favorite library window control is unavailable.')
     if (action === 'minimize') return mainWindow.minimize()
-    if (action === 'toggle-maximize') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
+    if (action === 'expand-and-maximize') {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isMaximized()) mainWindow.maximize()
+      return
+    }
     throw new Error('Favorite library window action is invalid.')
   })
   ipcMain.handle('favorite-library:get-ui-preferences', async (event, requestedAccountMid: unknown) => {
@@ -1826,12 +2261,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     return saveFavoriteAccountPreferences(getDesktopStore(), requestedAccountMid, { ...current, favoriteLibraryCollapsedGroups: collapsedGroups as Record<string, boolean> }).favoriteLibraryCollapsedGroups ?? {}
   })
   let accountChangeTimer: NodeJS.Timeout | undefined
+  let lastBilibiliAccountMid = await readCurrentBilibiliAccountMid()
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
       clearTimeout(accountChangeTimer)
       accountChangeTimer = setTimeout(() => {
-        notifyFloatingAssistantSnapshotChanged()
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bilibili:account-changed')
+        void readCurrentBilibiliAccountMid().then((nextAccountMid) => {
+           if (nextAccountMid !== lastBilibiliAccountMid) videoNoteBatchExportIpc?.clearAll()
+           lastBilibiliAccountMid = nextAccountMid
+           // Clear/provide the account-scoped queue immediately even when no
+           // transcription state changes after the account switch.
+           publishVideoAudioTranscriptionQueueChanged(getVideoTranscriptionQueue().getSnapshot(), false)
+           notifyFloatingAssistantSnapshotChanged()
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bilibili:account-changed')
+        })
       }, 150)
     }
   })
@@ -1854,6 +2297,7 @@ const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
   quit: () => app.quit()
 })
 app.on('before-quit', favoriteRepositoryQuitBarrier)
+app.on('before-quit', disposeDefaultFasterWhisperHelperSessions)
 
 app.on('window-all-closed', () => {
   if (appQuitting && process.platform !== 'darwin') app.quit()

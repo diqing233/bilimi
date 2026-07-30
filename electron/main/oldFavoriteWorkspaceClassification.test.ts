@@ -30,6 +30,15 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     ])
   })
 
+  it('excludes recovered local drafts from automatic classification', () => {
+    expect(classifierLedgersForAccount([
+      { id: 'knowledge', displayName: '知识', keywords: ['教程'], enabled: true, priority: 10, isDefault: true },
+      { id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: false, priority: 20, isDefault: false, bilibiliFolderId: '42', syncState: 'local-draft' }
+    ], true)).toEqual([
+      expect.objectContaining({ id: 'knowledge' })
+    ])
+  })
+
   it('adds adopted recommendations as enabled author ledgers ahead of duplicate saved rules', () => {
     expect(mergeOldFavoriteWorkspaceLedgers([
       { id: 'music', displayName: 'Music', keywords: ['music'], enabled: true, priority: 3, isDefault: false },

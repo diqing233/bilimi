@@ -8,6 +8,7 @@ import type {
   DeepSeekArchiveMode,
   AssistantPreferences,
   FavoriteLedger,
+  FavoriteLedgerEnabledPatch,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   StartupDiagnosticReport,
@@ -17,8 +18,13 @@ import type {
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
+  TranscriptionModelId,
+  TranscriptionModelInstallation,
+  TranscriptionModelInstallProgress,
+  TranscriptionGpuProbe,
   VideoNote,
-  VideoNoteArchiveEntry
+  VideoNoteArchiveEntry,
+  VideoNoteSourceMetadata
 } from '@shared/types'
 import type {
   AssistantRuntimeRequest,
@@ -42,9 +48,25 @@ import type {
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
 import type { FavoriteLibraryOperationSource } from '../../shared/favoriteLibraryOperations'
+import type {
+  VideoNoteBatchExportPreview,
+  VideoNoteBatchExportProgress,
+  VideoNoteBatchExportRequest,
+  VideoNoteBatchExportResult,
+  VideoNoteBatchExportStartRequest,
+  VideoNoteBatchFolderRequest
+} from '@shared/videoNoteBatchExport'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
 import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+
+type FavoriteLibraryOperationSelection = number[] | {
+  kind: 'scope'
+  scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
+  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'> }
+  excludedAids: number[]
+}
+type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
 
 type BilimiDesktopApi = {
   version: string
@@ -52,7 +74,7 @@ type BilimiDesktopApi = {
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   openFavoriteLibrary?: () => Promise<void>
-  controlFavoriteLibraryWindow?: (action: 'minimize' | 'toggle-maximize') => Promise<void>
+  controlFavoriteLibraryWindow?: (action: 'minimize' | 'expand-and-maximize') => Promise<void>
   getFavoriteLibraryUiPreferences?: (accountMid: string) => Promise<Record<string, boolean>>
   saveFavoriteLibraryUiPreferences?: (accountMid: string, collapsedGroups: Record<string, boolean>) => Promise<Record<string, boolean>>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
@@ -140,19 +162,21 @@ type BilimiDesktopApi = {
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
-  copyFavoriteLibrarySelection?: (accountMid: string, aids: number[], targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
-  moveFavoriteLibrarySelection?: (accountMid: string, aids: number[], sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
-  deleteFavoriteLibrarySelection?: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
-  previewFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, aids: number[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<unknown>
+  onFavoriteRepositoryAccountDataCleared?: (callback: (accountMid: string) => void) => () => void
+  copyFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  moveFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  deleteFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
+  previewFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<unknown>
   confirmFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, operationId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderDelete?: (accountMid: string, folderId: string) => Promise<unknown>
+  previewFavoriteLibraryManagedFolderGroupDelete?: (accountMid: string) => Promise<unknown>
   deleteFavoriteLibraryManagedFolderLocal?: (accountMid: string, executionToken: string) => Promise<unknown>
   confirmFavoriteLibraryManagedFolderRemoteDelete?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryManagedFolderRemoteDelete?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryManagedFolderDelete?: (accountMid: string, operationId: string) => Promise<unknown>
-  syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
+  syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) => Promise<FavoriteLibraryCommandResult>
   setFavoriteLibraryLocalPlacements?: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize?: boolean) => Promise<FavoriteLibraryCommandResult>
   adoptFavoriteLibraryRemotePlacement?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
@@ -178,8 +202,13 @@ type BilimiDesktopApi = {
   ) => Promise<unknown>
   enqueueFavoriteLibraryTranscription?: (
     accountMid: string,
-    input: { aids: number[]; summarizeWithDeepSeek?: boolean }
+    input: { aids: number[]; summarizeWithDeepSeek?: boolean } | { targets: Array<{ aid: number; cid?: number }>; summarizeWithDeepSeek?: boolean } | (Exclude<FavoriteLibraryOperationSelection, number[]> & { summarizeWithDeepSeek?: boolean })
   ) => Promise<FavoriteLibraryCommandResult>
+  cancelFavoriteLibraryWaitingTranscription?: (
+    accountMid: string,
+    input: { aids: number[] } | { targets: Array<{ aid: number; cid?: number }> } | FavoriteLibraryOperationSelection
+  ) => Promise<FavoriteLibraryCommandResult>
+  resolveFavoriteLibraryDocumentExportSelection?: (accountMid: string, selection: FavoriteLibraryDocumentExportSelection) => Promise<{ selections: Array<{ archiveId: string; versionId: string }>; skippedAids: number[] }>
   commitFavoriteRepositoryCommand?: (
     accountMid: string,
     command: FavoriteRepositoryCommand
@@ -190,8 +219,11 @@ type BilimiDesktopApi = {
     callback: (change: FavoriteRepositoryRevisionChange) => void
   ) => () => void
   onAssistantPreferencesChanged?: (callback: (preferences: AssistantPreferences) => void) => () => void
+  onAssistantPreferencePatchChanged?: (callback: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void) => () => void
+  onFavoriteLedgerEnabledChanged?: (callback: (patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => void) => () => void
   onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantPetHintChanged?: (callback: (hint: AssistantPetHint) => void) => () => void
+  getMainWindowPresentationState?: () => Promise<{ visible: boolean; minimized: boolean }>
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
@@ -200,6 +232,8 @@ type BilimiDesktopApi = {
     callback: (payload: FloatingAssistantWorkspaceRequest) => void
   ) => () => void
   onOpenInTab?: (callback: (url: string) => void) => () => void
+  openVideoNoteArchiveSource?: (source: VideoNoteSourceMetadata, seconds?: number) => Promise<void>
+  onOpenVideoNoteArchiveSource?: (callback: (request: { url: string; seconds?: number; aid?: number; cid?: number }) => void) => () => void
   openBilibiliFavorites?: () => Promise<AssistantAutomationResult>
   onRunAssistantAction?: (callback: (payload: { action: AssistantAction }) => void) => () => void
   onVideoAudioTranscriptionProgress?: (
@@ -234,14 +268,28 @@ type BilimiDesktopApi = {
     options?: FavoriteLedgerSaveOptions
   ) => Promise<AssistantAutomationResult>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
-  patchPreferences?: (patch: Partial<AssistantPreferences>) => Promise<AssistantPreferences>
+  patchPreferences?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<AssistantPreferences>
+  writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
+  writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => Promise<FavoriteLedgerEnabledPatch>
+  previewPreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void
   restoreDefaultLayoutSize?: () => Promise<void>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
-  saveVideoNoteArchiveVersion?: (
+  saveVerifiedVideoNoteArchiveVersion?: (
     note: VideoNote,
     summaryText?: string
-  ) => Promise<VideoNoteArchiveEntry[]>
+  ) => Promise<{ archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string }>
+  saveVideoNoteArchiveSummary?: (
+    archiveId: string,
+    versionId: string,
+    note: VideoNote,
+    summaryText: string
+  ) => Promise<{ archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string }>
+  previewVideoNoteArchiveBatch?: (request: VideoNoteBatchExportRequest) => Promise<VideoNoteBatchExportPreview>
+  startVideoNoteArchiveBatch?: (request: VideoNoteBatchExportStartRequest) => Promise<VideoNoteBatchExportResult | undefined>
+  cancelVideoNoteArchiveBatch?: (input: { batchId: string; accountMid: string }) => Promise<boolean>
+  openVideoNoteArchiveBatchFolder?: (input: VideoNoteBatchFolderRequest) => Promise<string>
+  onVideoNoteArchiveBatchProgress?: (callback: (value: VideoNoteBatchExportProgress) => void) => () => void
   updateVideoNoteArchiveVersion?: (
     archiveId: string,
     versionId: string,
@@ -266,12 +314,31 @@ type BilimiDesktopApi = {
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest
   ) => Promise<VideoAudioTranscriptionResult>
+  loadTranscriptionModels?: () => Promise<TranscriptionModelInstallation[]>
+  loadCurrentTranscriptionModelInstallProgress?: () => Promise<TranscriptionModelInstallProgress | undefined>
+  probeTranscriptionModelGpu?: (id: TranscriptionModelId) => Promise<TranscriptionGpuProbe>
+  installTranscriptionModel?: (id: TranscriptionModelId, options?: { restart?: boolean }) => Promise<TranscriptionModelInstallation[]>
+  cancelTranscriptionModelInstall?: (id: TranscriptionModelId) => Promise<TranscriptionModelInstallation[]>
+  importTranscriptionModel?: (id: TranscriptionModelId) => Promise<TranscriptionModelInstallation[]>
+  migrateLegacyWhisperSmall?: () => Promise<TranscriptionModelInstallation[]>
+  revalidateTranscriptionModel?: (id: TranscriptionModelId) => Promise<TranscriptionModelInstallation[]>
+  deleteTranscriptionModel?: (id: TranscriptionModelId) => Promise<TranscriptionModelInstallation[]>
+  onTranscriptionModelInstallProgress?: (callback: (value: TranscriptionModelInstallProgress) => void) => () => void
   loadVideoAudioTranscriptionQueue?: () => Promise<VideoAudioTranscriptionQueueSnapshot>
   enqueueVideoAudioTranscription?: (
     request: VideoAudioTranscriptionRequest
   ) => Promise<VideoAudioTranscriptionQueueSnapshot>
   cancelVideoAudioTranscription?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  cancelVideoAudioTranscriptionSummary?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
   retryVideoAudioTranscription?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  retryVideoAudioTranscriptionOnCpu?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  retryVideoAudioArchiveRegistration?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  retryVideoAudioSummary?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  cancelWaitingVideoAudioTranscriptions?: (ids: string[]) => Promise<import('../../../electron/main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>
+  retryVideoAudioTranscriptions?: (ids: string[]) => Promise<import('../../../electron/main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>
+  removeVideoAudioTranscriptions?: (ids: string[]) => Promise<import('../../../electron/main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>
+  previewStopVideoAudioTranscriptions?: (ids: string[]) => Promise<{ confirmationToken: string; runningCount: number }>
+  stopVideoAudioTranscriptions?: (ids: string[], confirmationToken: string) => Promise<import('../../../electron/main/videoTranscriptionQueue').VideoTranscriptionQueueBatchResult>
   onVideoAudioTranscriptionQueueChanged?: (
     callback: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
   ) => () => void

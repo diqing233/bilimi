@@ -24,6 +24,7 @@ export function registerLocalDataIpc(options: {
   chooseExportPath: () => Promise<string | undefined>
   chooseImportPath: () => Promise<string | undefined>
   openUserDataPath: () => Promise<void>
+  onAccountDataCleared?: (accountMid: string) => void
 }) {
   const trusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) throw new Error('Local data request came from an untrusted renderer.')
@@ -73,6 +74,8 @@ export function registerLocalDataIpc(options: {
     trusted(event)
     const parsed = cleanup(level)
     const uid = parsed === 'cache' || parsed === 'all-user-data' ? undefined : requestedUid === undefined ? await current() : account(requestedUid)
-    return options.service.applyCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+    const result = await options.service.applyCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+    if (parsed === 'current-account-data' && uid) options.onAccountDataCleared?.(uid)
+    return result
   })
 }

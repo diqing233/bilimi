@@ -240,4 +240,68 @@ describe('audio download', () => {
       })
     ).rejects.toThrow('Audio download failed')
   })
+
+  it('retries transient TLS failures and returns the later successful download', async () => {
+    const runProcess = vi.fn()
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: 'Unable to download webpage: EOF occurred in violation of protocol (_ssl.c:1007)',
+        exitCode: 1
+      })
+      .mockResolvedValueOnce({ stdout: 'C:/tmp/audio.m4a\n', stderr: '', exitCode: 0 })
+    const retryDelay = vi.fn().mockResolvedValue(undefined)
+
+    await expect(downloadVideoAudio({
+      ytdlpPath: 'C:/tools/yt-dlp.exe',
+      url: 'https://www.bilibili.com/video/BV1demo',
+      cookiePath: 'C:/tmp/cookies.txt',
+      outputTemplate: 'C:/tmp/audio.%(ext)s',
+      runProcess,
+      statFile: vi.fn().mockResolvedValue({ size: 1024 }),
+      retryDelay
+    })).resolves.toEqual({ audioPath: 'C:/tmp/audio.m4a' })
+
+    expect(runProcess).toHaveBeenCalledTimes(2)
+    expect(retryDelay).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry permanent yt-dlp failures', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      stdout: '',
+      stderr: 'ERROR: This video is unavailable',
+      exitCode: 1
+    })
+    const retryDelay = vi.fn().mockResolvedValue(undefined)
+
+    await expect(downloadVideoAudio({
+      ytdlpPath: 'C:/tools/yt-dlp.exe',
+      url: 'https://www.bilibili.com/video/BV1demo',
+      cookiePath: 'C:/tmp/cookies.txt',
+      outputTemplate: 'C:/tmp/audio.%(ext)s',
+      runProcess,
+      retryDelay
+    })).rejects.toThrow('Audio download failed')
+
+    expect(runProcess).toHaveBeenCalledTimes(1)
+    expect(retryDelay).not.toHaveBeenCalled()
+  })
+
+  it('does not retry a canceled yt-dlp process', async () => {
+    const abortError = new Error('Process canceled.')
+    abortError.name = 'AbortError'
+    const runProcess = vi.fn().mockRejectedValue(abortError)
+    const retryDelay = vi.fn().mockResolvedValue(undefined)
+
+    await expect(downloadVideoAudio({
+      ytdlpPath: 'C:/tools/yt-dlp.exe',
+      url: 'https://www.bilibili.com/video/BV1demo',
+      cookiePath: 'C:/tmp/cookies.txt',
+      outputTemplate: 'C:/tmp/audio.%(ext)s',
+      runProcess,
+      retryDelay
+    })).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(runProcess).toHaveBeenCalledTimes(1)
+    expect(retryDelay).not.toHaveBeenCalled()
+  })
 })

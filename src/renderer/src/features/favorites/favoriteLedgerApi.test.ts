@@ -532,6 +532,72 @@ describe('favorite ledger API scripts', () => {
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
   })
 
+  it('recognizes one existing bilimi-prefixed folder for a saved custom rule without the prefix', async () => {
+    installCookies()
+    const ledgers: FavoriteLedger[] = [{
+      id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: true,
+      priority: 90, isDefault: false
+    }]
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·原神' }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
+
+    expect(result.missingLedgerIds).toEqual([])
+    expect(result.backupConflictLedgerIds).toEqual([])
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({ id: 'custom-genshin', displayName: '原神', bilibiliFolderId: '42' })
+    ])
+  })
+
+  it('does not guess when multiple folders normalize to the same custom rule name', async () => {
+    installCookies()
+    const ledgers: FavoriteLedger[] = [{
+      id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: true,
+      priority: 90, isDefault: false
+    }]
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 42, title: '原神' },
+          { id: 43, title: 'bilimi·原神' }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
+
+    expect(result.missingLedgerIds).toEqual(['custom-genshin'])
+    expect(result.backupConflictLedgerIds).toEqual(['custom-genshin'])
+    expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
+  })
+
+  it('reuses the unique bilimi-prefixed custom folder during ensure without creating another folder', async () => {
+    installCookies()
+    const ledgers: FavoriteLedger[] = [{
+      id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: true,
+      priority: 90, isDefault: false
+    }]
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·原神' }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderId: '42' })])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/folder/add'))).toBe(false)
+  })
+
   it('creates only missing enabled ledgers', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2)

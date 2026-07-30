@@ -9,7 +9,7 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
-import { useEffect, useState, type SyntheticEvent } from 'react'
+import { useEffect, useState, type ComponentProps, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -23,6 +23,8 @@ type VideoNoteTranscriptionOptions = {
   summarizeWithDeepSeek?: boolean
 }
 
+type VideoNotesPanelProps = ComponentProps<typeof VideoNotesPanel>
+
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
@@ -35,7 +37,11 @@ type MemorialPanelProps = {
   onPreferenceChange?: (patch: Partial<AssistantPreferences>) => void
   videoNotesResultTab?: VideoNotesResultTab | null
   onVideoNotesResultTabChange?: (tab: VideoNotesResultTab | null) => void
+  onSeekCurrentVideoTime?: (seconds: number) => void | Promise<void>
+  onSeekVideoNoteSource?: (source: VideoNote['source'], seconds: number) => void | Promise<void>
+  onVideoNotesCopyFeedback?: VideoNotesPanelProps['onCopyFeedback']
   videoCategory?: string
+  currentAccountMid?: string
   videoTitle: string
   videoAuthor?: string
   hasCurrentVideo?: boolean
@@ -49,7 +55,12 @@ type MemorialPanelProps = {
     options?: VideoNoteTranscriptionOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
+  onCancelQueuedVideoSummary?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
+  onRetryQueuedVideoAudioOnCpu?: (id: string) => void
+  onRetryQueuedArchiveRegistration?: (id: string) => void
+  onRetryQueuedVideoSummary?: (id: string) => void
+  onBulkQueueAction?: VideoNotesPanelProps['onBulkQueueAction']
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (
     note: VideoNote,
@@ -179,7 +190,11 @@ export function MemorialPanel({
   onPreferenceChange,
   videoNotesResultTab,
   onVideoNotesResultTabChange,
+  onSeekCurrentVideoTime,
+  onSeekVideoNoteSource,
+  onVideoNotesCopyFeedback,
   videoCategory = '解闷小品',
+  currentAccountMid,
   videoTitle,
   videoAuthor,
   hasCurrentVideo = true,
@@ -189,7 +204,12 @@ export function MemorialPanel({
   onTranscribeVideoAudio,
   onEnqueueVideoAudioTranscription,
   onCancelQueuedVideoAudioTranscription,
+  onCancelQueuedVideoSummary,
   onRetryQueuedVideoAudioTranscription,
+  onRetryQueuedVideoAudioOnCpu,
+  onRetryQueuedArchiveRegistration,
+  onRetryQueuedVideoSummary,
+  onBulkQueueAction,
   onGeneratePoster,
   onArchivePosterSummary,
   onSaveVideoNote,
@@ -340,6 +360,7 @@ export function MemorialPanel({
         ) : (
           <VideoNotesPanel
             note={videoNote}
+            accountMid={currentAccountMid}
             currentVideoTitle={videoTitle}
             currentVideoAuthor={videoAuthor}
             isLoading={videoNoteLoading}
@@ -347,7 +368,12 @@ export function MemorialPanel({
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
             onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+            onCancelQueuedVideoSummary={onCancelQueuedVideoSummary}
             onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
+            onRetryQueuedVideoAudioOnCpu={onRetryQueuedVideoAudioOnCpu}
+            onRetryQueuedArchiveRegistration={onRetryQueuedArchiveRegistration}
+            onRetryQueuedVideoSummary={onRetryQueuedVideoSummary}
+            onBulkQueueAction={onBulkQueueAction}
             onGeneratePoster={onGeneratePoster}
             onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}
@@ -358,10 +384,12 @@ export function MemorialPanel({
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             deepSeekSummaryGenerating={deepSeekSummaryGenerating}
-            transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
             activeResultTab={videoNotesResultTab}
             onActiveResultTabChange={onVideoNotesResultTabChange}
+            onSeekCurrentVideoTime={onSeekCurrentVideoTime}
+            onSeekSource={onSeekVideoNoteSource}
+            onCopyFeedback={onVideoNotesCopyFeedback}
           />
         )}
         {feedback ? (

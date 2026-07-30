@@ -6,9 +6,10 @@ import {
   buildFolderLibraryRows,
   buildLibrarySearchRows,
   buildPendingLibraryRows,
-  createFavoriteLibraryPageCursor
+  createFavoriteLibraryPageCursor,
+  createFavoriteLibraryViewCache
   , formatFavoriteLibraryMirrorStatus, formatFavoriteLibraryOrganizationStatus
-  , formatFavoriteLibraryMetadataStatus, formatFavoriteLibraryPositionStatus
+  , formatFavoriteLibraryMetadataStatus, formatFavoriteLibraryPositionStatus, formatFavoriteLibraryPositionSyncStatus
 } from './favoriteLibraryModel'
 
 const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => ({
@@ -19,6 +20,17 @@ const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => 
 })
 
 describe('favoriteLibraryModel', () => {
+  it('keeps cached views isolated by account while a known account refreshes', () => {
+    const cache = createFavoriteLibraryViewCache<{ revision: number }, { items: number[] }, { scopeId: string }>()
+    cache.setReady('100', { revision: 7 }, { items: [1] }, { scopeId: 'pending' })
+
+    expect(cache.read('100')).toEqual({
+      accountMid: '100', status: 'ready', summary: { revision: 7 }, page: { items: [1] }, uiState: { scopeId: 'pending' }
+    })
+    expect(cache.beginRefresh('100')).toEqual(expect.objectContaining({ accountMid: '100', status: 'refreshing', page: { items: [1] } }))
+    expect(cache.read('200')).toEqual({ accountMid: '200', status: 'loading' })
+  })
+
   it('translates repository mirror states into user-facing Chinese labels', () => {
     expect(formatFavoriteLibraryMirrorStatus(['unsynced'])).toBe('未同步')
     expect(formatFavoriteLibraryMirrorStatus(['failed'])).toBe('同步失败')
@@ -29,7 +41,7 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMirrorStatus(['result-unknown'])).toMatch(/确认/)
     expect(formatFavoriteLibraryMirrorStatus(['continuation'])).toMatch(/等待/)
     expect(formatFavoriteLibraryMirrorStatus(['failed'])).not.toContain('failed')
-    expect(formatFavoriteLibraryMirrorStatus(['protected'])).toBe('已保护')
+    expect(formatFavoriteLibraryMirrorStatus(['protected'])).toBe('已同步')
   })
 
   it('keeps organization protection from hiding an outstanding information refresh', () => {
@@ -55,6 +67,17 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMetadataStatus('failed', false)).toBe('资料刷新失败')
     expect(formatFavoriteLibraryPositionStatus('failed')).toBe('同步失败')
     expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('位置一致')
+    expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('收藏库与B站位置不同')
+  })
+
+  it('does not describe an unobserved Bilibili mapping as aligned', () => {
+    expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('尚未扫描B站位置')
+  })
+
+  it('derives the detail sync label from position state instead of pending work', () => {
+    expect(formatFavoriteLibraryPositionSyncStatus('aligned')).toBe('已同步')
+    expect(formatFavoriteLibraryPositionSyncStatus('local-only-change')).toBe('未同步')
+    expect(formatFavoriteLibraryPositionSyncStatus('result-unknown')).toBe('同步状态待确认')
   })
 
   it('returns one global-search row per aid and retains every folder membership', () => {

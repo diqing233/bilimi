@@ -23,6 +23,50 @@ export type FavoriteLibraryPendingRow = {
   states: FavoriteLibraryPendingState[]
 }
 
+/** Keeps the last fully rendered view per account while its revision refreshes. */
+export type FavoriteLibraryViewStatus = 'loading' | 'ready' | 'refreshing'
+
+export type FavoriteLibraryCachedView<Summary, Page, UiState> = {
+  accountMid: string
+  status: FavoriteLibraryViewStatus
+  summary?: Summary
+  page?: Page
+  uiState?: UiState
+}
+
+export function createFavoriteLibraryViewCache<Summary, Page, UiState>() {
+  const views = new Map<string, FavoriteLibraryCachedView<Summary, Page, UiState>>()
+  const normalizedAccountMid = (accountMid: string) => accountMid.trim()
+
+  const read = (accountMid: string): FavoriteLibraryCachedView<Summary, Page, UiState> => {
+    const normalized = normalizedAccountMid(accountMid)
+    return views.get(normalized) ?? { accountMid: normalized, status: 'loading' }
+  }
+
+  return {
+    read,
+    beginRefresh(accountMid: string) {
+      const current = read(accountMid)
+      const next: FavoriteLibraryCachedView<Summary, Page, UiState> = {
+        ...current,
+        status: current.summary && current.page ? 'refreshing' : 'loading'
+      }
+      views.set(next.accountMid, next)
+      return next
+    },
+    setReady(accountMid: string, summary: Summary, page: Page, uiState: UiState) {
+      const next: FavoriteLibraryCachedView<Summary, Page, UiState> = {
+        accountMid: normalizedAccountMid(accountMid), status: 'ready', summary, page, uiState
+      }
+      views.set(next.accountMid, next)
+      return next
+    },
+    invalidate(accountMid: string) {
+      views.delete(normalizedAccountMid(accountMid))
+    }
+  }
+}
+
 export type FavoriteLibraryNavigationItem =
   | { id: 'all'; kind: 'all'; title: string }
   | { id: 'pending'; kind: 'pending'; title: string; count: number }
@@ -53,14 +97,12 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
 export function formatFavoriteLibraryMirrorStatus(states: readonly FavoriteLibraryPendingState[]): string {
-  if (states.includes('protected') && states.some((state) => state !== 'protected')) {
-    return formatFavoriteLibraryMirrorStatus(states.filter((state) => state !== 'protected'))
-  }
-  if (states.includes('protected')) return '已保护'
-  if (states.includes('failed')) return '同步失败'
-  if (states.includes('result-unknown')) return '同步状态待确认'
-  if (states.includes('unsynced')) return '未同步'
-  if (states.includes('continuation')) return '等待处理'
+  // Protection describes local retention policy, not the Bilibili mirror state.
+  const syncStates = states.filter((state) => state !== 'protected')
+  if (syncStates.includes('failed')) return '同步失败'
+  if (syncStates.includes('result-unknown')) return '同步状态待确认'
+  if (syncStates.includes('unsynced')) return '未同步'
+  if (syncStates.includes('continuation')) return '等待处理'
   return '已同步'
 }
 
@@ -74,10 +116,11 @@ export function formatFavoriteLibraryMetadataStatus(status: string | undefined, 
   return status === 'failed' ? '资料刷新失败' : '资料已刷新'
 }
 
-export function formatFavoriteLibraryPositionStatus(state: string | undefined) {
+export function formatFavoriteLibraryPositionStatus(state: string | undefined, hasRemoteMapping = true) {
+  if (!hasRemoteMapping) return '尚未扫描B站位置'
   switch (state) {
     case 'aligned': return '位置一致'
-    case 'local-only-change': return '仅本地调整'
+    case 'local-only-change': return '收藏库与B站位置不同'
     case 'syncing': return '同步中'
     case 'failed': return '同步失败'
     case 'result-unknown':
@@ -85,6 +128,21 @@ export function formatFavoriteLibraryPositionStatus(state: string | undefined) {
     case 'remote-removed': return 'B站已移除'
     case 'target-missing': return '目标不存在'
     default: return '尚未扫描B站位置'
+  }
+}
+
+/** Position reconciliation is the source of truth for the detail sync dimension. */
+export function formatFavoriteLibraryPositionSyncStatus(state: string | undefined) {
+  switch (state) {
+    case 'aligned': return '已同步'
+    case 'syncing': return '同步中'
+    case 'failed': return '同步失败'
+    case 'result-unknown':
+    case 'needs-review': return '同步状态待确认'
+    case 'local-only-change':
+    case 'remote-removed':
+    case 'target-missing': return '未同步'
+    default: return '尚未扫描同步状态'
   }
 }
 

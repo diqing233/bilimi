@@ -114,17 +114,17 @@ export function OldFavoriteGuide({
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
 
-  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
+  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导">
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
-          <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title"
-            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理旧藏`}
+          <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
+            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理收藏`}
             aria-expanded={guideHintExpanded}
-            title="扫描旧藏，确认后整理到 bilimi 收藏夹里。"
-            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理旧藏</h3><Chevron /></button>
+            title={'扫描已有收藏：读取可整理的收藏内容。\n检查建议：确认推荐收藏夹与分类结果。\n确认执行：核对后再同步到 bilimi 收藏夹。'}
+            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
       </div>
-      {guideHintExpanded ? <p className="favorite-ledger-panel__guide-hint">扫描旧藏后，按扫描概览、推荐收藏夹、归档预览和确认执行依次完成本轮整理。</p> : null}
-      <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
+      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint"><p>扫描已有收藏：读取可整理的收藏内容。</p><p>检查建议：确认推荐收藏夹与分类结果。</p><p>确认执行：核对后再同步到 bilimi 收藏夹。</p></div> : null}
+      <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => onStepChange(item.id)}>{item.label}</button>)}
       </nav>

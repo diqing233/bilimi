@@ -15,10 +15,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }
     const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} openOrganizationRequestVersion={0} />)
 
-    expect(screen.queryByLabelText('整理旧藏向导')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('整理收藏向导')).not.toBeInTheDocument()
     rerender(<ControlledFavoriteLedgerPanel {...props} openOrganizationRequestVersion={1} />)
 
-    expect(await screen.findByLabelText('整理旧藏向导')).toBeInTheDocument()
+    expect(await screen.findByLabelText('整理收藏向导')).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
   })
 
@@ -73,7 +73,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const toolbar = panel.querySelector('.favorite-ledger-panel__topbar .favorite-ledger-panel__toolbar')
     expect(toolbar).not.toBeNull()
     expect(within(toolbar as HTMLElement).getAllByRole('button').map((button) => button.getAttribute('aria-label')))
-      .toEqual(['备册', '整理旧藏', '收藏库'])
+      .toEqual(['备册', '整理收藏', '收藏库'])
     expect(screen.getByRole('region', { name: '收藏夹' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '全部重新整理' })).not.toBeInTheDocument()
   })
@@ -144,10 +144,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onSaveLedgers={vi.fn()}
     />)
 
-    expect(await screen.findByRole('button', { name: '整理旧藏' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '整理收藏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收藏库' })).toBeInTheDocument()
     expect(screen.queryByText('bilimi:知识学习')).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
 
   it('keeps the ledger overview, organize entry, and library entry in a stable order', async () => {
@@ -186,7 +186,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' }))
     expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
-    expect(within(checklist as HTMLElement).getByText(/自定义你的 bilimi 收藏夹/)).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByText('自定义收藏夹：点击收藏夹名称可以编辑。')).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByText('同步到 B 站：修改完成后点击“同步”。')).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByText('停止同步：取消勾选不会删除已有收藏夹。')).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByText(/分类依据：关键词、UP 名称和标签用于本地识别/)).toBeInTheDocument()
   })
 
   it('keeps the legacy organize-guide help arrow in the title row and expands its explanation', async () => {
@@ -203,14 +206,15 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
-    const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
-    const help = within(guide).getByRole('button', { name: '展开整理旧藏' })
+    const guide = await screen.findByRole('region', { name: '整理收藏向导' })
+    const help = within(guide).getByRole('button', { name: '展开整理收藏' })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
+    expect(help).toHaveClass('favorite-ledger-panel__guide-title-toggle')
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
-    expect(within(guide).getByRole('button', { name: '收起整理旧藏' })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(guide).getByRole('button', { name: '收起整理收藏' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('keeps the legacy folder help arrow in the checklist title row', () => {
@@ -256,13 +260,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理收藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
 
-    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理收藏' })
     expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
     expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '整理旧藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
+    expect(screen.getByRole('region', { name: '整理收藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
   })
 
   it('closes the guide when the user dismisses a resume decision', async () => {
@@ -280,10 +284,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '取消' }))
 
-    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
 
   it('closes the guide when the user cancels a full reorganization reset', async () => {
@@ -301,12 +305,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
 
-    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
 
   it('closes the guide after abandoning the current preview round', async () => {
@@ -328,7 +332,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '放弃本轮整理' }))
 
-    await waitFor(() => expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument())
   })
 
   it('offers full reorganization for an interrupted remote execution after explaining its local-only reset', async () => {
@@ -347,9 +351,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
-    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理收藏' })
     expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
     expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
     fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
@@ -369,7 +373,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
     expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
@@ -500,7 +504,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    const organizeEntry = await screen.findByRole('button', { name: '整理旧藏' })
+    const organizeEntry = await screen.findByRole('button', { name: '整理收藏' })
     const libraryEntry = screen.getByRole('button', { name: '收藏库' })
     expect(organizeEntry.closest('.favorite-ledger-panel__toolbar')).toBeTruthy()
     expect(libraryEntry.closest('.favorite-ledger-panel__toolbar')).toBe(organizeEntry.closest('.favorite-ledger-panel__toolbar'))
@@ -545,9 +549,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
-    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收藏库' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
 
@@ -581,12 +585,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
 
-    expect(await screen.findByText('尚未开始扫描，请点击“整理旧藏”后扫描。')).toBeInTheDocument()
+    expect(await screen.findByText('尚未开始扫描，请点击“整理收藏”后扫描。')).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
     await act(async () => { resolveOpen?.(reconciling) })
-    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理收藏' })
     expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeEnabled()
     expect(command).not.toHaveBeenCalled()
   })
@@ -611,7 +615,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     expect(await screen.findByRole('button', { name: '扫描概览' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
@@ -640,10 +644,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    expect(screen.getByRole('navigation', { name: '整理旧藏步骤' })).toBeInTheDocument()
+    await screen.findByRole('region', { name: '整理收藏向导' })
+    expect(screen.getByRole('navigation', { name: '整理收藏步骤' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('progressbar', { name: '旧藏扫描进度' })).toHaveValue(0)
+    expect(screen.getByRole('progressbar', { name: '收藏扫描进度' })).toHaveValue(0)
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
@@ -672,10 +676,69 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '按原草稿继续' }))
 
     await waitFor(() => expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'resume-scan' }))
+  })
+
+  it('rebuilds a corrupt workspace before starting the recovery rescan', async () => {
+    const rebuildRequired = {
+      recovery: 'rebuild-required' as const, preserveCompletedLocalResults: true,
+      accountMid: '100', workspaceId: 'workspace-100'
+    }
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-101', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(scanning)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(rebuildRequired),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '重建工作镜像并重新扫描' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'rebuild-corrupt-workspace' }))
+    expect(command).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render a recovery acknowledgement as a scan snapshot before rescanning', async () => {
+    const reportSnapshot = vi.fn()
+    let resolveScan: (() => void) | undefined
+    const command = vi.fn()
+      .mockResolvedValueOnce({
+        accountMid: '100', workspaceId: 'workspace-100', choice: 'rescan',
+        manualClassificationsRemainAuthoritative: true, requiresFullWorkspaceLoad: false, requiresExplicitScan: true
+      })
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveScan = resolve }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      getOldFavoriteWorkspaceRecoverySummaryV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', status: 'draft', currentStep: 'draft',
+        baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+        recoveryChoices: ['view', 'rescan']
+      }),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onOrganizationSnapshotChange={reportSnapshot} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '重新扫描' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
+    expect(command).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ type: 'select-recovery-decision', choice: 'rescan' }))
+    expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'start-scan', mode: 'incremental' })
+    await waitFor(() => expect(reportSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({ choice: 'rescan' })))
+    resolveScan?.()
   })
 
   it('shows an explicit recovery choice before loading an unfinished persisted workspace', async () => {
@@ -701,7 +764,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     expect(await screen.findByText('检测到未完成的整理草稿')).toBeInTheDocument()
     expect(screen.getByText('本轮计划 26，已分类 3，未匹配 23。')).toBeInTheDocument()
@@ -734,11 +797,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '放弃本轮整理' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'abandon-current-workspace' }))
-    expect(screen.queryByRole('dialog', { name: '整理旧藏' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '整理收藏' })).not.toBeInTheDocument()
   })
 
   it('locks the old favorite guide while a new scan replaces an existing preview', async () => {
@@ -764,9 +827,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     await waitFor(() => expect(window.bilimiDesktop.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    await screen.findByRole('region', { name: '整理收藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
     fireEvent.click(screen.getByRole('button', { name: '全部重新整理' }))
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
 
@@ -808,7 +871,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onSaveLedgers={vi.fn()}
     />)
 
-    const organize = screen.getByRole('button', { name: '整理旧藏' })
+    const organize = screen.getByRole('button', { name: '整理收藏' })
     await waitFor(() => expect(organize).toBeEnabled())
     fireEvent.click(organize)
 
@@ -840,7 +903,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择来源 My source' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-source-folders', folderIds: []
@@ -932,7 +995,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
@@ -941,15 +1004,15 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
     expect(open).toHaveBeenCalledTimes(2)
 
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
     expect(command).not.toHaveBeenCalled()
-    expect(await screen.findByRole('dialog', { name: '整理旧藏' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: '整理收藏' })).toBeInTheDocument()
   })
 
   it('restores a persisted frozen snapshot at confirmation on remount', async () => {
@@ -969,7 +1032,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
@@ -978,7 +1041,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
     expect(command).not.toHaveBeenCalled()
   })
@@ -1007,8 +1070,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理收藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '确认重置' }))
 
@@ -1036,8 +1099,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     expect(screen.getByRole('alertdialog', { name: '确认全部重新整理？' })).toBeInTheDocument()
 
@@ -1062,7 +1125,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('扫描启动失败')
     expect(screen.getByRole('alert')).toHaveTextContent('current Bilibili account is unavailable')
@@ -1095,7 +1158,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'start-scan', mode: 'incremental'
@@ -1120,7 +1183,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法确认当前 B站页面，请保持已登录的 B站页面打开后重新扫描')
     expect(screen.queryByText('target-unavailable')).not.toBeInTheDocument()
@@ -1175,9 +1238,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
-    expect((await screen.findAllByLabelText('旧藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
+    expect((await screen.findAllByLabelText('收藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
     expect(screen.getByText('40 / 243 条')).toBeInTheDocument()
     expect(screen.getByText('已获取标签 31 / 40 条')).toBeInTheDocument()
     expect(screen.getByText('9 条尚未取得标签')).toBeInTheDocument()
@@ -1230,7 +1293,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '继续上次整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
     expect(await screen.findByText('标签补取已完成：已处理 2 / 2 条。')).toBeInTheDocument()
@@ -1258,7 +1321,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法读取当前 B站页面，请保持已登录的 B站页面打开并等待页面加载完成后重新扫描')
     expect(screen.queryByText('page-execution-failed')).not.toBeInTheDocument()
@@ -1404,7 +1467,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
 
     rerender(<ControlledFavoriteLedgerPanel
@@ -1469,12 +1532,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     const fullReorganize = await screen.findByRole('button', { name: '全部重新整理' })
     fireEvent.click(fullReorganize)
     fireEvent.click(await screen.findByRole('button', { name: '确认重置' }))
 
-    expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
     expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
@@ -1506,7 +1569,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
     expect(screen.getByRole('region', { name: '归档预览' })).toBeInTheDocument()
 
@@ -1966,7 +2029,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('本轮已完成同步到 B 站')
     expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '好的' }))
-    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
 
   it('refreshes the surrounding repository projection after reconciliation settles', async () => {
@@ -2030,7 +2093,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'start-scan', mode: 'incremental'
@@ -2038,6 +2101,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
   })
 
   it('keeps scan overview selected when a background refresh reports scan completion', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
     const scanning = {
         version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
         mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -2059,14 +2124,18 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    await screen.findByRole('region', { name: '整理旧藏向导' })
+    await screen.findByRole('region', { name: '整理收藏向导' })
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
     persisted = previewing
-    await waitFor(() => expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled(), { timeout: 1500 })
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
+    await waitFor(() => expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled())
 
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('region', { name: '扫描概览' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('locks source selection after classifications have been persisted', async () => {

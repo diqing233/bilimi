@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, mergeRecoveredLedgerDrafts, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 
 describe('old favorite workspace recommendation persistence', () => {
   const defaults = [
@@ -34,5 +34,41 @@ describe('old favorite workspace recommendation persistence', () => {
       { ...recommendation, syncState: 'local-draft' },
       { ...recommendation, id: 'custom-author-remote', bilibiliFolderId: '42' }
     ])
+  })
+
+  it('downgrades a legacy empty remote rule to a recovered draft while preserving configured rules', () => {
+    const recovered = {
+      ...recommendation,
+      id: 'custom-genshin',
+      displayName: '原神',
+      keywords: [],
+      enabled: false,
+      bilibiliFolderId: '42',
+      syncState: 'local-draft' as const
+    }
+
+    expect(mergeRecoveredLedgerDrafts([
+      { ...recovered, syncState: undefined },
+      { ...recommendation, id: 'custom-saved', keywords: ['攻略'], enabled: true, bilibiliFolderId: '43' }
+    ], [recovered, { ...recovered, id: 'custom-saved', bilibiliFolderId: '43' }])).toEqual([
+      recovered,
+      { ...recommendation, id: 'custom-saved', keywords: ['攻略'], enabled: true, bilibiliFolderId: '43' }
+    ])
+  })
+
+  it('restores the remote folder id on an existing recovered draft with the same logical id', () => {
+    const recovered = {
+      ...recommendation,
+      id: 'custom-genshin',
+      displayName: '原神',
+      keywords: [],
+      enabled: false,
+      bilibiliFolderId: '42',
+      syncState: 'local-draft' as const
+    }
+
+    expect(mergeRecoveredLedgerDrafts([
+      { ...recovered, bilibiliFolderId: undefined }
+    ], [recovered])).toEqual([recovered])
   })
 })

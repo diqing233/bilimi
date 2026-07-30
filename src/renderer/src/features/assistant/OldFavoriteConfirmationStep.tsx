@@ -95,7 +95,7 @@ export function OldFavoriteConfirmationStep({
 
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
     <h4>确认执行</h4>
-    <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
+    <p>确认本轮分类结果，并选择保存到收藏库或同步到 B 站。</p>
     <p className="favorite-ledger-panel__action-explanation">确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。</p>
     {readinessText ? <p>{readinessText}</p> : null}
     {preparationStatus ? <p role="status">{preparationStatus}</p> : null}

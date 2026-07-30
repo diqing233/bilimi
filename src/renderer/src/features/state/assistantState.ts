@@ -90,7 +90,13 @@ function normalizeFavoriteAccountPreferenceMap(
 
       return [[accountMid, {
         defaultFavoriteSystemEnabled: accountPreferences.defaultFavoriteSystemEnabled !== false,
-        favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers)
+        favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers),
+        ...(accountPreferences.transcriptionModelId === 'sensevoice-small' ||
+        accountPreferences.transcriptionModelId === 'whisper-small' ||
+        accountPreferences.transcriptionModelId === 'faster-whisper-large-v3-turbo' ||
+        accountPreferences.transcriptionModelId === 'faster-whisper-large-v3'
+          ? { transcriptionModelId: accountPreferences.transcriptionModelId }
+          : {})
       }]]
     })
   )
@@ -236,6 +242,39 @@ export function createInitialAssistantPreferences(
   }
 }
 
+/** Interactive controls already provide typed values; preserve heavy branches until persistence validates them. */
+export function applyImmediatePreferencePatch(
+  preferences: AssistantPreferences,
+  patch: Partial<AssistantPreferences>
+): AssistantPreferences {
+  const entries = Object.entries(patch) as Array<[
+    keyof AssistantPreferences,
+    AssistantPreferences[keyof AssistantPreferences]
+  ]>
+  if (entries.every(([key, value]) => Object.is(preferences[key], value))) return preferences
+  return { ...preferences, ...patch }
+}
+
+export function applyFavoriteLedgerEnabledPatch(
+  preferences: AssistantPreferences,
+  patch: { accountMid: string; ledgerId: string; enabled: boolean }
+): AssistantPreferences {
+  const account = preferences.favoriteAccountPreferences?.[patch.accountMid]
+  const currentLedgers = account?.favoriteLedgers ?? preferences.favoriteLedgers
+  const index = currentLedgers.findIndex((ledger) => ledger.id === patch.ledgerId)
+  if (index < 0 || currentLedgers[index]?.enabled === patch.enabled) return preferences
+  const favoriteLedgers = currentLedgers.slice()
+  favoriteLedgers[index] = { ...favoriteLedgers[index]!, enabled: patch.enabled }
+  if (!account) return { ...preferences, favoriteLedgers }
+  return {
+    ...preferences,
+    favoriteAccountPreferences: {
+      ...preferences.favoriteAccountPreferences,
+      [patch.accountMid]: { ...account, favoriteLedgers }
+    }
+  }
+}
+
 export function favoriteLedgersForAccount(
   preferences: AssistantPreferences,
   accountMid: string
@@ -268,6 +307,7 @@ export function withFavoriteLedgersForAccount(
     favoriteAccountPreferences: {
       ...(preferences.favoriteAccountPreferences ?? {}),
       [accountMid]: {
+        ...currentAccount,
         defaultFavoriteSystemEnabled: currentAccount?.defaultFavoriteSystemEnabled ?? true,
         favoriteLedgers
       }

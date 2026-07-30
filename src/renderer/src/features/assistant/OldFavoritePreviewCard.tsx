@@ -109,7 +109,7 @@ export function OldFavoritePreviewCard({
           if (menuOpen) closeMenu()
           else setMenuOpen(true)
         }}>
-        转移 <span aria-hidden="true">▾</span>
+        转移 <span className="disclosure-arrow" aria-hidden="true">▾</span>
       </button>
       {menuOpen ? createPortal(<div ref={menuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating"
         style={{ top: menuPosition.top, left: menuPosition.left }} role="menu" aria-label={`转移 ${title}`}>

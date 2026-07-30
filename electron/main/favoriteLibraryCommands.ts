@@ -2,12 +2,20 @@ import { randomUUID } from 'node:crypto'
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryVideo } from '../../src/shared/favoriteRepository'
 import type { VideoAudioTranscriptionRequest } from '../../src/shared/types'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
 
 const MAX_SELECTION_AIDS = 500
 
 export type FavoriteLibrarySyncSelection =
   | { kind: 'aids'; aids: number[] }
   | { kind: 'folder'; folderId: string }
+
+type FavoriteLibraryScopeSelection = {
+  kind: 'scope'
+  scope: FavoriteRepositoryLibraryPageScope
+  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[] }
+  excludedAids: number[]
+}
 
 export type FavoriteLibraryCommandResult = {
   status: 'succeeded' | 'failed' | 'queued' | 'result-unknown'
@@ -18,6 +26,7 @@ export type FavoriteLibraryCommandResult = {
 }
 
 export type FavoriteLibraryPlacementInput = { aid: number; folderIds: string[] }
+export type FavoriteLibraryTranscriptionTarget = { aid: number; cid?: number }
 
 export type FavoriteLibraryPlacementSync = {
   synchronizePlacements(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
@@ -41,7 +50,11 @@ type RemoteOperationQueue = {
   enqueue<T>(accountMid: string, options: { priority: 'user-single'; videoKey: string }, operation: () => Promise<T>): Promise<T>
 }
 
-type TranscriptionQueue = { enqueue(request: VideoAudioTranscriptionRequest): unknown }
+type TranscriptionQueue = {
+  enqueue(request: VideoAudioTranscriptionRequest): unknown
+  getSnapshot?: () => { items: Array<{ accountMid?: string; aid?: number | string; cid?: number | string; status: string }> }
+  cancelWaitingForVideos?: (accountMid: string, targets: Array<number | FavoriteLibraryTranscriptionTarget>) => { affected: number; skipped: number }
+}
 type RefreshedVideo = FavoriteRepositoryVideo
 type RefreshVideo = (accountMid: string, aid: number) => Promise<RefreshedVideo>
 
@@ -58,6 +71,18 @@ function uniquePositiveAids(value: unknown) {
   const aids = [...new Set(value)].sort((left, right) => left - right)
   if (!aids.length || aids.length > MAX_SELECTION_AIDS) throw new Error('所选视频无效。')
   return aids
+}
+
+function uniqueTranscriptionTargets(value: Array<number | FavoriteLibraryTranscriptionTarget>): FavoriteLibraryTranscriptionTarget[] {
+  if (!Array.isArray(value)) throw new Error('Transcription request is invalid.')
+  const targets = value.map((target) => typeof target === 'number' ? { aid: target } : target)
+  if (!targets.length || targets.some((target) => !target || !Number.isSafeInteger(target.aid) || target.aid <= 0 ||
+    (target.cid !== undefined && (!Number.isSafeInteger(target.cid) || target.cid <= 0)))) {
+    throw new Error('Transcription request is invalid.')
+  }
+  const unique = [...new Map(targets.map((target) => [`${target.aid}:${target.cid ?? ''}`, target])).values()]
+  if (unique.length > MAX_SELECTION_AIDS) throw new Error('Transcription request is invalid.')
+  return unique
 }
 
 function isKnownRemoteRejection(error: unknown) {
@@ -266,25 +291,48 @@ export class FavoriteLibraryCommandService {
     return { status: 'succeeded', completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
   }
 
-  async enqueueTranscription(accountMid: string, requestedAids: number[], summarizeWithDeepSeek = false): Promise<FavoriteLibraryCommandResult> {
+  async enqueueTranscription(accountMid: string, requestedTargets: Array<number | FavoriteLibraryTranscriptionTarget>, summarizeWithDeepSeek = false): Promise<FavoriteLibraryCommandResult> {
     const account = normalizeAccountMid(accountMid)
-    const aids = uniquePositiveAids(requestedAids)
-    for (const aid of aids) {
-      const persisted = await this.refreshAndPersist(account, aid)
+    const targets = uniqueTranscriptionTargets(requestedTargets)
+    const existing = this.options.transcriptionQueue.getSnapshot?.().items ?? []
+    const queuedAids: number[] = []
+    for (const target of targets) {
+      if (target.cid === undefined && existing.some((item) => item.accountMid === account && item.aid === target.aid && item.cid === undefined &&
+        ['pending', 'running', 'completed'].includes(item.status))) continue
+      const persisted = await this.refreshAndPersist(account, target.aid)
       const video = persisted.video
+      const cid = target.cid ?? video.cid
+      const alreadyQueued = existing.some((item) => item.accountMid === account && item.aid === target.aid && item.cid === cid &&
+        ['pending', 'running', 'completed'].includes(item.status))
+      if (alreadyQueued) continue
       this.options.transcriptionQueue.enqueue({
         accountMid: account,
-        url: `https://www.bilibili.com/video/av${aid}`,
+        url: `https://www.bilibili.com/video/av${target.aid}`,
         title: video.title,
         ...(video.author ? { author: video.author } : {}),
         ...(video.bvid ? { bvid: video.bvid } : {}),
-        aid,
-        ...(video.cid ? { cid: video.cid } : {}),
+        aid: target.aid,
+        ...(cid ? { cid } : {}),
         metadataRevision: persisted.metadataRevision,
         ...(summarizeWithDeepSeek ? { summarizeWithDeepSeek: true } : {})
       })
+      queuedAids.push(target.aid)
     }
-    return { status: 'queued', completedOperationCount: aids.length, totalOperationCount: aids.length, affectedAids: aids }
+    return {
+      status: 'queued', completedOperationCount: queuedAids.length, totalOperationCount: targets.length, affectedAids: [...new Set(queuedAids)],
+      ...(queuedAids.length !== targets.length ? { reason: `Added ${queuedAids.length}; skipped ${targets.length - queuedAids.length}.` } : {})
+    }
+  }
+
+  cancelWaitingTranscription(accountMid: string, requestedTargets: Array<number | FavoriteLibraryTranscriptionTarget>): FavoriteLibraryCommandResult {
+    const account = normalizeAccountMid(accountMid)
+    const targets = uniqueTranscriptionTargets(requestedTargets)
+    if (!this.options.transcriptionQueue.cancelWaitingForVideos) throw new Error('Transcription queue is unavailable.')
+    const result = this.options.transcriptionQueue.cancelWaitingForVideos(account, targets)
+    return {
+      status: 'succeeded', completedOperationCount: result.affected, totalOperationCount: targets.length,
+      affectedAids: [...new Set(targets.map((target) => target.aid))], ...(result.skipped ? { reason: `Canceled ${result.affected}; skipped ${result.skipped}.` } : {})
+    }
   }
 
   private async refreshAndPersist(accountMid: string, aid: number) {
@@ -320,17 +368,55 @@ export class FavoriteLibraryCommandService {
 type IpcEvent = { sender: { id: number } }
 type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
 
-function librarySelection(value: unknown): FavoriteLibrarySyncSelection {
+function librarySelection(value: unknown): FavoriteLibrarySyncSelection | FavoriteLibraryScopeSelection {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('所选视频无效。')
-  const candidate = value as { kind?: unknown; aids?: unknown; folderId?: unknown }
+  const candidate = value as Record<string, unknown>
   if (candidate.kind === 'aids' && Object.keys(candidate).length === 2) return { kind: 'aids', aids: uniquePositiveAids(candidate.aids) }
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && Object.keys(candidate).length === 2) return { kind: 'folder', folderId: candidate.folderId.trim() }
+  if (candidate.kind === 'scope' && Object.keys(candidate).length === 4 && candidate.scope && typeof candidate.scope === 'object' && candidate.options && typeof candidate.options === 'object' && Array.isArray(candidate.excludedAids)) {
+    const scope = candidate.scope as { kind?: unknown; folderId?: unknown }
+    const options = candidate.options as { query?: unknown; filter?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+    const transcriptionFilters = options.transcriptionFilters
+    if (transcriptionFilters !== undefined && (!Array.isArray(transcriptionFilters) || transcriptionFilters.length > 5 || transcriptionFilters.some((filter) =>
+      !['completed', 'none', 'pending', 'running', 'failed'].includes(String(filter))))) throw new Error('Selected videos are invalid.')
+    const validScope = scope.kind === 'all' || scope.kind === 'pending' || scope.kind === 'protected' || scope.kind === 'unsynced' ||
+      scope.kind === 'folder' && typeof scope.folderId === 'string' && !!scope.folderId.trim()
+    if (!validScope || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||
+      (options.query !== undefined && typeof options.query !== 'string') ||
+      (options.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(String(options.filter))) ||
+      (options.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(String(options.sort)))) throw new Error('所选视频无效。')
+    return {
+      kind: 'scope', scope: scope.kind === 'folder'
+        ? { kind: 'folder', folderId: (scope.folderId as string).trim() }
+        : { kind: scope.kind as Exclude<FavoriteRepositoryLibraryPageScope['kind'], 'folder'> },
+      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}) },
+      excludedAids: [...new Set(candidate.excludedAids as number[])].sort((left, right) => left - right)
+    }
+  }
   throw new Error('所选视频无效。')
 }
 
-function transcriptionInput(value: unknown) {
+function transcriptionInput(value: unknown): { aids?: number[]; targets?: FavoriteLibraryTranscriptionTarget[]; scope?: FavoriteLibraryScopeSelection; summarizeWithDeepSeek: boolean } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('转写请求无效。')
-  const candidate = value as { aids?: unknown; summarizeWithDeepSeek?: unknown }
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind === 'scope') {
+    const { scope, options, excludedAids, summarizeWithDeepSeek } = candidate as Record<string, unknown>
+    if (summarizeWithDeepSeek !== undefined && typeof summarizeWithDeepSeek !== 'boolean') throw new Error('转写请求无效。')
+    const parsed = librarySelection({ kind: 'scope', scope, options, excludedAids })
+    if (parsed.kind !== 'scope') throw new Error('转写请求无效。')
+    return { scope: parsed, summarizeWithDeepSeek: summarizeWithDeepSeek === true }
+  }
+  if (candidate.targets !== undefined) {
+    if (candidate.aids !== undefined || !Array.isArray(candidate.targets) ||
+      Object.keys(candidate).some((key) => key !== 'targets' && key !== 'summarizeWithDeepSeek') ||
+      (candidate.summarizeWithDeepSeek !== undefined && typeof candidate.summarizeWithDeepSeek !== 'boolean')) {
+      throw new Error('Transcription request is invalid.')
+    }
+    return {
+      targets: uniqueTranscriptionTargets(candidate.targets as FavoriteLibraryTranscriptionTarget[]),
+      summarizeWithDeepSeek: candidate.summarizeWithDeepSeek === true
+    }
+  }
   if (Object.keys(candidate).some((key) => key !== 'aids' && key !== 'summarizeWithDeepSeek') ||
     (candidate.summarizeWithDeepSeek !== undefined && typeof candidate.summarizeWithDeepSeek !== 'boolean')) throw new Error('转写请求无效。')
   return { aids: uniquePositiveAids(candidate.aids), summarizeWithDeepSeek: candidate.summarizeWithDeepSeek === true }
@@ -338,9 +424,12 @@ function transcriptionInput(value: unknown) {
 
 export function registerFavoriteLibraryCommandsIpc(options: {
   ipcMain: IpcMain
-  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'enqueueTranscription'>
+  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'enqueueTranscription' | 'cancelWaitingTranscription'>
   isTrustedLibrarySender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
+  /** Resolves a renderer selection in the main process before the batch exporter sees it. */
+  resolveDocumentExportSelection?: (accountMid: string, aids: number[]) => Promise<unknown>
 }) {
   const assertLibrary = (event: IpcEvent) => {
     if (!options.isTrustedLibrarySender(event.sender.id)) throw new Error('收藏库请求来自不受信任的窗口。')
@@ -353,11 +442,46 @@ export function registerFavoriteLibraryCommandsIpc(options: {
   }
   options.ipcMain.handle('favorite-library:sync-selection', async (event, requestedAccountMid: string, selection: unknown) => {
     assertLibrary(event)
-    return options.commands.syncSelection(await assertCurrentAccount(requestedAccountMid), librarySelection(selection))
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const parsed = librarySelection(selection)
+    const resolved = parsed.kind === 'scope'
+      ? { kind: 'aids' as const, aids: await options.resolveSelection?.(accountMid, parsed) ?? (() => { throw new Error('所选视频无效。') })() }
+      : parsed
+    await assertCurrentAccount(accountMid)
+    return options.commands.syncSelection(accountMid, resolved)
   })
   options.ipcMain.handle('favorite-library:enqueue-transcription', async (event, requestedAccountMid: string, input: unknown) => {
     assertLibrary(event)
     const parsed = transcriptionInput(input)
-    return options.commands.enqueueTranscription(await assertCurrentAccount(requestedAccountMid), parsed.aids, parsed.summarizeWithDeepSeek)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const targets = parsed.scope
+      ? await options.resolveSelection?.(accountMid, parsed.scope) ?? (() => { throw new Error('转写请求无效。') })()
+      : parsed.targets ?? parsed.aids
+    await assertCurrentAccount(accountMid)
+    return options.commands.enqueueTranscription(accountMid, targets!, parsed.summarizeWithDeepSeek)
+  })
+  options.ipcMain.handle('favorite-library:cancel-waiting-transcription', async (event, requestedAccountMid: string, input: unknown) => {
+    assertLibrary(event)
+    const parsed = transcriptionInput(input)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const targets = parsed.scope
+      ? await options.resolveSelection?.(accountMid, parsed.scope) ?? (() => { throw new Error('Transcription request is invalid.') })()
+      : parsed.targets ?? parsed.aids
+    await assertCurrentAccount(accountMid)
+    return options.commands.cancelWaitingTranscription(accountMid, targets!)
+  })
+  options.ipcMain.handle('favorite-library:resolve-document-export-selection', async (event, requestedAccountMid: string, selection: unknown) => {
+    assertLibrary(event)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const parsed = librarySelection(selection)
+    if (parsed.kind === 'folder') throw new Error('Selected videos are invalid.')
+    const aids = parsed.kind === 'scope'
+      ? await options.resolveSelection?.(accountMid, parsed) ?? (() => { throw new Error('Selected videos are invalid.') })()
+      : parsed.aids
+    await assertCurrentAccount(accountMid)
+    if (!options.resolveDocumentExportSelection) return { aids }
+    const resolved = await options.resolveDocumentExportSelection(accountMid, aids)
+    await assertCurrentAccount(accountMid)
+    return resolved
   })
 }

@@ -76,18 +76,18 @@ export function OldFavoriteScanOverviewStep({
     : snapshot?.scan.phase === 'failed'
       ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
       : unstarted
-        ? '尚未开始扫描，请点击“整理旧藏”后扫描。'
+        ? '尚未开始扫描，请点击“整理收藏”后扫描。'
         : scanning
         ? '扫描概览：扫描中'
-        : '扫描概览已完成，请选择下一步继续整理。'
+        : '扫描概览已完成，请从左向右依次完成本轮整理。'
 
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <h4>扫描概览</h4>
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
-    <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
+    <div className="favorite-ledger-panel__scan-progress" aria-label="收藏扫描进度">
       <div>
         <span>扫描进度</span>
-        <progress aria-label="旧藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? 0 : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
+        <progress aria-label="收藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? 0 : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
         <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>

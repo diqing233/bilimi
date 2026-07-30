@@ -7,79 +7,10 @@
   "author": "diqing",
   "type": "module",
   "main": "out/main/index.js",
-  "scripts": {
-    "dev": "electron-vite dev",
-    "generate:app-icon": "node scripts/generate-app-icon.mjs",
-    "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "setup:media-tools": "node scripts/setup-media-tools.mjs",
-    "setup:electron": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& install-electron --no",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "dist": "npm ci && npm run build && electron-builder",
-    "dist:win": "npm ci && npm run build && npm run setup:electron && npm run setup:media-tools && set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --win nsis --publish never"
-  },
   "dependencies": {
     "electron-store": "^10.1.0",
     "opencc-js": "^1.3.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
-  },
-  "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.3.0",
-    "@types/node": "^22.15.3",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
-    "@vitejs/plugin-react": "^4.4.1",
-    "electron": "^42.5.1",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^3.0.0",
-    "jsdom": "^26.1.0",
-    "typescript": "^5.8.3",
-    "vite": "^6.3.5",
-    "vitest": "^3.1.2"
-  },
-  "build": {
-    "appId": "cn.diqing.bilimi",
-    "productName": "bilimi",
-    "executableName": "bilimi",
-    "artifactName": "bilimi.Setup.${version}.${ext}",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "electronDist": "node_modules/electron/dist",
-    "files": [
-      "out/**",
-      "package.json",
-      "build/icon.ico"
-    ],
-    "extraResources": [
-      {
-        "from": "tools/win32",
-        "to": "tools/win32"
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico",
-      "executableName": "bilimi"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": false,
-      "include": "electron/installer/installer.nsh",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "bilimi"
-    }
   }
 }

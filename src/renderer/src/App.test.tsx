@@ -7,12 +7,27 @@ import type {
   DeepSeekGenerateResult
 } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import App, { VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS } from './App'
 import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
 } from './features/assistant/assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from './features/favorites/favoriteLedgerPreview'
+
+const biliWebviewRenderProbe = vi.hoisted(() => ({ count: 0, hostResizePaused: false }))
+vi.mock('./features/browser/BiliWebview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./features/browser/BiliWebview')>()
+  return {
+    ...actual,
+    BiliWebview: (props: React.ComponentProps<typeof actual.BiliWebview>) => {
+      biliWebviewRenderProbe.count += 1
+      biliWebviewRenderProbe.hostResizePaused = props.hostResizePaused ?? false
+      return <actual.BiliWebview {...props} />
+    }
+  }
+})
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
 const LEDGER_SAVE_SCRIPT_MARKER = '/x/v3/fav/folder/add'
@@ -76,6 +91,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     | ((request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>)
     | undefined
   let preferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+  let favoriteLedgerEnabledChanged: ((patch: { accountMid: string; ledgerId: string; enabled: boolean }) => void) | undefined
   const registerAssistantRuntime = vi.fn(
     (handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>) => {
       runtimeHandler = handler
@@ -88,6 +104,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     notifyAssistantSnapshotChanged: vi.fn(),
     onAssistantPreferencesChanged: vi.fn((callback: (preferences: AssistantPreferences) => void) => {
       preferencesChanged = callback
+      return vi.fn()
+    }),
+    onFavoriteLedgerEnabledChanged: vi.fn((callback) => {
+      favoriteLedgerEnabledChanged = callback
       return vi.fn()
     }),
     setAssistantPetHint: vi.fn(),
@@ -115,6 +135,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
         preferencesChanged?.(preferences)
       })
     },
+    notifyFavoriteLedgerEnabledChanged: (patch: { accountMid: string; ledgerId: string; enabled: boolean }) => {
+      if (!favoriteLedgerEnabledChanged) throw new Error('Favorite ledger enabled listener was not registered.')
+      act(() => favoriteLedgerEnabledChanged?.(patch))
+    },
     requestRuntime: async (request: AssistantRuntimeRequest) => {
       if (!runtimeHandler) {
         throw new Error('Assistant runtime was not registered.')
@@ -139,6 +163,89 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('handles ledger-enabled broadcasts through the prebuilt index without invalidating remote status', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const effect = source.slice(
+      source.indexOf('return window.bilimiDesktop?.onFavoriteLedgerEnabledChanged'),
+      source.indexOf('}, [])', source.indexOf('return window.bilimiDesktop?.onFavoriteLedgerEnabledChanged'))
+    )
+
+    expect(effect).toContain('applyIndexedFavoriteLedgerEnabledPatch')
+    expect(effect).not.toContain('applyFavoriteLedgerEnabledPatch')
+    expect(effect).not.toContain('favoriteLedgerStatusCacheRef.current = null')
+    expect(effect).not.toContain('setPreferences')
+  })
+
+  it('updates a 30k-ledger runtime ref in constant work without rerendering the browser tree', async () => {
+    let enabledReads = 0
+    const ledgers = Array.from({ length: 30_000 }, (_, index) => {
+      let enabled = true
+      return {
+        id: `ledger-${index}`,
+        displayName: `Ledger ${index}`,
+        keywords: [],
+        priority: index,
+        isDefault: false,
+        get enabled() {
+          enabledReads += 1
+          return enabled
+        },
+        set enabled(next: boolean) {
+          enabled = next
+        }
+      }
+    })
+    const target = ledgers[29_999]
+    const accountMid = '100'
+    const preferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: ledgers.map((ledger) => ({ ...ledger })),
+          transcriptionModelId: 'whisper-small'
+        }
+      }
+    })
+    const { notifyFavoriteLedgerEnabledChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('')
+    })
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(window.bilimiDesktop.onFavoriteLedgerEnabledChanged).toHaveBeenCalled())
+    const rendersBefore = biliWebviewRenderProbe.count
+    enabledReads = 0
+
+    notifyFavoriteLedgerEnabledChanged({ accountMid, ledgerId: target.id, enabled: !target.enabled })
+
+    expect(biliWebviewRenderProbe.count).toBe(rendersBefore)
+    expect(enabledReads).toBeLessThanOrEqual(2)
+    const snapshot = await requestRuntime({ id: 'snapshot-ledger-enabled', type: 'snapshot' })
+    expect(snapshot).toMatchObject({
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.arrayContaining([
+              expect.objectContaining({ id: target.id, enabled: !target.enabled })
+            ])
+          }
+        }
+      }
+    })
+  })
+
+  it('pauses browser host resize repaint for the sidebar drag session', async () => {
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({ assistantSidebarWidthPx: 360 }))
+    })
+    const resizeHandle = await screen.findByRole('separator', { name: '调整侧边栏宽度' })
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 91 })
+    expect(biliWebviewRenderProbe.hostResizePaused).toBe(true)
+
+    fireEvent.pointerUp(window, { clientX: 100, pointerId: 91 })
+    expect(biliWebviewRenderProbe.hostResizePaused).toBe(false)
+  })
+
   it('opens the favorite library drawer inside the browser workspace without moving the assistant sidebar', async () => {
     let openDrawer: ((command: 'toggle' | 'reveal') => void) | undefined
     renderAppWithRuntimeBridge({
@@ -171,7 +278,7 @@ describe('App runtime integration', () => {
     expect(drawer).toHaveAttribute('data-collapsed', 'false')
 
     fireEvent.click(screen.getByRole('button', { name: '收起收藏库' }))
-    expect(drawer).toHaveAttribute('data-collapsed', 'true')
+    await waitFor(() => expect(drawer).toHaveAttribute('data-collapsed', 'true'))
 
     act(() => commandDrawer?.('reveal'))
     expect(drawer).toHaveAttribute('data-collapsed', 'false')
@@ -182,6 +289,39 @@ describe('App runtime integration', () => {
     act(() => commandDrawer?.('toggle'))
     expect(drawer).toBeVisible()
     expect(drawer).toHaveAttribute('data-collapsed', 'false')
+  })
+
+  it('keeps the real browser webview render boundary stable through drawer collapse transitions', async () => {
+    let commandDrawer: ((command: 'toggle' | 'reveal') => void) | undefined
+    try {
+      renderAppWithRuntimeBridge({
+        onOpenFavoriteLibraryDrawer: vi.fn((callback: (command: 'toggle' | 'reveal') => void) => {
+          commandDrawer = callback
+          return vi.fn()
+        })
+      })
+      act(() => commandDrawer?.('reveal'))
+      await screen.findByTestId('favorite-library-drawer')
+      const browserRendersBeforeCollapse = biliWebviewRenderProbe.count
+      vi.useFakeTimers()
+
+      fireEvent.click(screen.getByRole('button', { name: '\u6536\u8d77\u6536\u85cf\u5e93' }))
+      expect(biliWebviewRenderProbe.count).toBe(browserRendersBeforeCollapse)
+      act(() => { vi.advanceTimersByTime(220) })
+      expect(biliWebviewRenderProbe.count).toBe(browserRendersBeforeCollapse)
+
+      fireEvent.click(screen.getByRole('button', { name: '\u5c55\u5f00\u6536\u85cf\u5e93' }))
+      expect(biliWebviewRenderProbe.count).toBe(browserRendersBeforeCollapse)
+      act(() => { vi.advanceTimersByTime(16) })
+      expect(biliWebviewRenderProbe.count).toBe(browserRendersBeforeCollapse)
+
+      fireEvent.click(screen.getByRole('button', { name: '\u6536\u8d77\u6536\u85cf\u5e93' }))
+      fireEvent.click(screen.getByRole('button', { name: '\u6536\u8d77\u6536\u85cf\u5e93' }))
+      act(() => { vi.advanceTimersByTime(220) })
+      expect(biliWebviewRenderProbe.count).toBe(browserRendersBeforeCollapse)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('returns an explicit target descriptor only when binding the active Bilibili page', async () => {
@@ -365,8 +505,10 @@ describe('App runtime integration', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('returns the active tab snapshot without reading the webview', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge()
+  it('returns the active tab snapshot without reading video content from the webview', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('')
+    })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -712,6 +854,116 @@ describe('App runtime integration', () => {
         })
       })
     }))
+  })
+
+  it('refreshes and persists unique existing Bilibili folder bindings when an assistant snapshot is requested', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 2)
+    const recoveredLedgers = ledgers.map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9001 + index)
+    }))
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: ledgers
+        }
+      }
+    })
+    const patchPreferences = vi.fn(async (patch: Partial<AssistantPreferences>) =>
+      createAppPreferences({
+        ...initialPreferences,
+        ...patch
+      })
+    )
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      patchPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          return {
+            ok: true,
+            ledgers: recoveredLedgers,
+            missingLedgerIds: [],
+            backupConflictLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-with-bindings', type: 'snapshot' })
+
+    expect(patchPreferences).toHaveBeenCalledWith({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: recoveredLedgers[0].id, bilibiliFolderId: '9001' }),
+            expect.objectContaining({ id: recoveredLedgers[1].id, bilibiliFolderId: '9002' })
+          ])
+        })
+      })
+    })
+    expect(snapshot).toMatchObject({
+      favoriteLedgerStatus: { ok: true, missingLedgerIds: [] },
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.arrayContaining([
+              expect.objectContaining({ id: recoveredLedgers[0].id, bilibiliFolderId: '9001' }),
+              expect.objectContaining({ id: recoveredLedgers[1].id, bilibiliFolderId: '9002' })
+            ])
+          }
+        }
+      }
+    })
+  })
+
+  it('reuses a recent read-only ledger status instead of rerunning the page script for repeated snapshots', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+    const preferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: ledgers
+        }
+      }
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: true,
+          ledgers,
+          missingLedgerIds: [],
+          backupConflictLedgerIds: [],
+          message: '册目查验已毕。'
+        }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'snapshot-status-1', type: 'snapshot' })
+    executeJavaScript.mockClear()
+    await requestRuntime({ id: 'snapshot-status-2', type: 'snapshot' })
+
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
   it('shares an in-flight backup for concurrent requests from the same account', async () => {
@@ -2933,6 +3185,7 @@ describe('App runtime integration', () => {
       })
     })
     desktopApi.enqueueVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
+    desktopApi.readBilibiliAccountMid = vi.fn().mockResolvedValue('100')
 
     await requestRuntime({
       id: 'queue-audio-1',
@@ -2945,12 +3198,13 @@ describe('App runtime integration', () => {
         url: 'https://www.bilibili.com/video/BV1queue',
         title: 'Queued audio demo',
         bvid: 'BV1queue',
+        accountMid: '100',
         summarizeWithDeepSeek: true
       })
     )
   })
 
-  it('enqueues audio transcription without requiring Bilibili login', async () => {
+  it('does not enqueue audio transcription before the Bilibili account is available', async () => {
     const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -2978,16 +3232,9 @@ describe('App runtime integration', () => {
       summarizeWithDeepSeek: true
     })
 
-    expect(result).toEqual({ items: [] })
+    expect(result).toBeNull()
     expect(desktopApi.setAssistantPetHint).not.toHaveBeenCalled()
-    expect(desktopApi.enqueueVideoAudioTranscription).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: 'https://www.bilibili.com/video/BV1queue',
-        title: 'Queued audio demo',
-        bvid: 'BV1queue',
-        summarizeWithDeepSeek: true
-      })
-    )
+    expect(desktopApi.enqueueVideoAudioTranscription).not.toHaveBeenCalled()
   })
 
   it('generates a video note from audio without requiring Bilibili login', async () => {
@@ -3066,6 +3313,80 @@ describe('App runtime integration', () => {
         transcript: [{ start: 1, end: null, text: 'pasted transcript text' }]
       })
     )
+  })
+
+  it('opens an archived timeline source in a selected tab, selects its CID before seeking, and starts playback', async () => {
+    let openArchiveSource:
+      | ((request: { url: string; seconds?: number; aid?: number; cid?: number }) => void)
+      | undefined
+    renderAppWithRuntimeBridge({
+      onOpenVideoNoteArchiveSource: vi.fn((callback) => {
+        openArchiveSource = callback
+        return vi.fn()
+      })
+    })
+
+    act(() => {
+      openArchiveSource?.({
+        url: 'https://www.bilibili.com/video/BV1archive',
+        seconds: 95,
+        aid: 123,
+        cid: 456
+      })
+    })
+
+    expect(screen.getByRole('tab', { name: /BV1archive/ })).toHaveAttribute('aria-selected', 'true')
+    const archiveWebview = document.querySelector('webview[data-tab-id]:not([data-tab-id="home"])') as Electron.WebviewTag
+    const executeJavaScript = vi.fn((script: string) => Promise.resolve(
+      script.includes('__bilimiSelectArchivedVideoPart') ? { status: 'ready' } : true
+    ))
+    Object.assign(archiveWebview, { executeJavaScript })
+
+    act(() => archiveWebview.dispatchEvent(new Event('did-finish-load')))
+
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('__bilimiSelectArchivedVideoPart'),
+      true
+    ))
+    const scripts = executeJavaScript.mock.calls.map(([script]) => String(script))
+    const partSelectionIndex = scripts.findIndex((script) => script.includes('__bilimiSelectArchivedVideoPart'))
+    const timestampSeekIndex = scripts.findIndex((script) => script.includes('currentTime = 95'))
+
+    expect(timestampSeekIndex).toBeGreaterThan(partSelectionIndex)
+    expect(scripts[timestampSeekIndex]).toContain('const playResult = video.play?.()')
+    expect(scripts[timestampSeekIndex]).not.toContain('const wasPaused = video.paused')
+  })
+
+  it('reuses one loaded internal video tab and seeks each archived timeline timestamp', async () => {
+    let openArchiveSource:
+      | ((request: { url: string; seconds?: number; aid?: number; cid?: number }) => void)
+      | undefined
+    renderAppWithRuntimeBridge({
+      onOpenVideoNoteArchiveSource: vi.fn((callback) => {
+        openArchiveSource = callback
+        return vi.fn()
+      })
+    })
+
+    act(() => {
+      openArchiveSource?.({ url: 'https://www.bilibili.com/video/BV1reuse?p=1', seconds: 12, aid: 7, cid: 71 })
+    })
+
+    const archiveWebview = document.querySelector('webview[data-tab-id]:not([data-tab-id="home"])') as Electron.WebviewTag
+    const executeJavaScript = vi.fn((script: string) => Promise.resolve(
+      script.includes('__bilimiSelectArchivedVideoPart') ? { status: 'ready' } : true
+    ))
+    Object.assign(archiveWebview, { executeJavaScript })
+    act(() => archiveWebview.dispatchEvent(new Event('did-finish-load')))
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('currentTime = 12'), true))
+
+    act(() => {
+      openArchiveSource?.({ url: 'https://www.bilibili.com/video/BV1reuse?p=2', seconds: 48, aid: 7, cid: 72 })
+    })
+
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('currentTime = 48'), true))
+    expect(document.querySelectorAll('webview[data-tab-id]:not([data-tab-id="home"])')).toHaveLength(1)
+    expect(screen.getAllByRole('tab', { name: /BV1reuse/ })).toHaveLength(1)
   })
 
   it('opens webview popup URLs as internal browser tabs', async () => {

@@ -20,9 +20,53 @@ function managedSnapshot(): AccountFavoriteRepositorySnapshot {
 describe('FavoriteRepositoryManagedFolderService', () => {
   it('includes diagnostics in preview and never permits unmatched deletion', async () => {
     let current = managedSnapshot()
-    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn() } })
+    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() } })
     await expect(service.preview('100', 'bilimi-logical:work')).resolves.toMatchObject({ localMemberCount: 2, unmatchedFallbackCount: 2, remoteBinding: { remoteFolderId: '99' }, remoteOnlyMemberCount: 1, currentRevision: 4 })
     await expect(service.preview('100', 'local:inbox')).rejects.toThrow('unmatched')
+  })
+
+  it('previews every logical workspace except inbox and blocks remote group deletion for an ambiguous binding', async () => {
+    const current = {
+      ...managedSnapshot(),
+      folders: [...managedSnapshot().folders, { id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical' as const, logicalLedgerId: 'ideas', syncState: 'pending-reconcile' as const }],
+      physicalShards: [...managedSnapshot().physicalShards, { logicalLedgerId: 'ideas', folderId: 'bilimi:ideas:001', shardNumber: 1, bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: ['41', '42'] }]
+    }
+    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() } })
+
+    await expect(service.previewAll('100')).resolves.toMatchObject({
+      folderCount: 2,
+      affectedVideoCount: 2,
+      remoteAllowed: false,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ logicalFolderId: 'bilimi-logical:work', remoteAllowed: true }),
+        expect.objectContaining({ logicalFolderId: 'bilimi-logical:ideas', remoteAllowed: false })
+      ])
+    })
+  })
+
+  it('deduplicates the affected group videos from one repository revision', async () => {
+    const current = {
+      ...managedSnapshot(),
+      folders: [
+        ...managedSnapshot().folders,
+        { id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical' as const, logicalLedgerId: 'ideas', syncState: 'bound' as const }
+      ],
+      memberships: {
+        ...managedSnapshot().memberships,
+        'bilimi-logical:ideas': [2, 4],
+        'bilimi:ideas:001': [2, 4],
+        'bilibili:ideas': [2, 4]
+      },
+      physicalShards: [
+        ...managedSnapshot().physicalShards,
+        { logicalLedgerId: 'ideas', folderId: 'bilimi:ideas:001', shardNumber: 1, remoteFolderId: '42', remoteTitle: 'Ideas', bindingState: 'bound' as const, remoteMemberCount: 2 }
+      ]
+    }
+    const getSnapshot = vi.fn(async () => current)
+    const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot, commit: vi.fn(), commitWithAudit: vi.fn() } })
+
+    await expect(service.previewAll('100')).resolves.toMatchObject({ folderCount: 2, affectedVideoCount: 3 })
+    expect(getSnapshot).toHaveBeenCalledOnce()
   })
 
   it('requires preview, confirmation, and unchanged baseline for remote deletion; unknown results need reconciliation without retry', async () => {
@@ -32,7 +76,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     const removeRemoteFolder = vi.fn(async () => { throw new Error('connection dropped') })
     const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot, commit, commitWithAudit: vi.fn() }, remote: { removeRemoteFolder }, now: () => '2026-07-24T01:00:00.000Z' })
     const preview = await service.preview('100', 'bilimi-logical:work')
-    const confirmation = service.confirm(preview.executionToken)
+    const confirmation = service.confirm('100', preview.executionToken)
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'result-unknown' })
     expect(removeRemoteFolder).toHaveBeenCalledTimes(1)
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).rejects.toThrow('confirmation')
@@ -48,8 +92,8 @@ describe('FavoriteRepositoryManagedFolderService', () => {
       remoteObserver: { remoteFolderExists: vi.fn(async () => 'absent' as const) }
     } as never)
     const preview = await first.preview('100', 'bilimi-logical:work')
-    await first.executeRemote('100', preview.executionToken, first.confirm(preview.executionToken))
-    const recorded = commit.mock.calls.find((call) => call[1].type === 'record-sync-result')![1].payload
+    await first.executeRemote('100', preview.executionToken, first.confirm('100', preview.executionToken))
+    const recorded = commit.mock.calls.find((call) => call[1].type === 'record-sync-result')![1].payload as { targetFolderIds: string[] }
     expect(recorded.targetFolderIds).toEqual(['bilimi-logical:work'])
     const restarted = new FavoriteRepositoryManagedFolderService({
       repository: { getSnapshot: vi.fn(async () => ({ ...current, syncRecords: [recorded] })), commit, commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })) },
@@ -77,7 +121,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
     const preview = await restarted.preview('100', 'bilimi-logical:work')
 
-    await expect(restarted.executeRemote('100', preview.executionToken, restarted.confirm(preview.executionToken)))
+    await expect(restarted.executeRemote('100', preview.executionToken, restarted.confirm('100', preview.executionToken)))
       .resolves.toMatchObject({ status: 'result-unknown' })
     expect(removeRemoteFolder).not.toHaveBeenCalled()
   })
@@ -176,11 +220,11 @@ describe('FavoriteRepositoryManagedFolderService', () => {
       remote: { removeRemoteFolder }, remoteObserver: { remoteFolderExists: vi.fn(async () => 'present' as const) }
     })
     const first = await service.preview('100', 'bilimi-logical:work')
-    await service.executeRemote('100', first.executionToken, service.confirm(first.executionToken))
+    await service.executeRemote('100', first.executionToken, service.confirm('100', first.executionToken))
     await expect(service.reconcile('100', first.operationId)).resolves.toMatchObject({ status: 'failed' })
     const retry = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', retry.executionToken, service.confirm(retry.executionToken))).resolves.toMatchObject({ status: 'result-unknown' })
+    await expect(service.executeRemote('100', retry.executionToken, service.confirm('100', retry.executionToken))).resolves.toMatchObject({ status: 'result-unknown' })
     expect(removeRemoteFolder).toHaveBeenCalledTimes(2)
   })
 
@@ -204,7 +248,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken))).rejects.toThrow('another logical ledger')
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken))).rejects.toThrow('another logical ledger')
     expect(removeRemoteFolder).not.toHaveBeenCalled()
   })
 
@@ -217,7 +261,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken))).resolves.toMatchObject({ status: 'result-unknown', auditStatus: 'recorded' })
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken))).resolves.toMatchObject({ status: 'result-unknown', auditStatus: 'recorded' })
     expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-sync-result', payload: expect.objectContaining({ status: 'result-unknown' }) }))
   })
 
@@ -229,7 +273,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken)))
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
       .resolves.toMatchObject({ status: 'failed', auditStatus: 'failed' })
   })
 
@@ -245,7 +289,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', preview.executionToken, service.confirm(preview.executionToken)))
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
       .resolves.toMatchObject({ status: 'result-unknown', auditStatus: 'failed' })
   })
 
@@ -289,7 +333,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
 
     const preview = await service.preview('100', 'bilimi-logical:work')
-    const confirmation = service.confirm(preview.executionToken)
+    const confirmation = service.confirm('100', preview.executionToken)
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({
       status: 'succeeded', auditStatus: 'recorded'
     })
@@ -304,7 +348,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
       repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })) }, remote: { removeRemoteFolder: vi.fn(async () => undefined) }
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
-    const confirmation = service.confirm(preview.executionToken)
+    const confirmation = service.confirm('100', preview.executionToken)
 
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'succeeded' })
     expect(commit).not.toHaveBeenCalled()
@@ -316,7 +360,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     const removeRemoteFolder = vi.fn(async () => { throw Object.assign(new Error('request rejected'), { code: 'REMOTE_REJECTED' }) })
     const service = new FavoriteRepositoryManagedFolderService({ repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn() }, remote: { removeRemoteFolder } })
     const preview = await service.preview('100', 'bilimi-logical:work')
-    const confirmation = service.confirm(preview.executionToken)
+    const confirmation = service.confirm('100', preview.executionToken)
 
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'failed' })
     await expect(service.reconcile('100', preview.operationId)).resolves.toMatchObject({ status: 'failed' })
@@ -335,10 +379,10 @@ describe('FavoriteRepositoryManagedFolderService', () => {
       }, remote: { removeRemoteFolder }
     })
     const first = await service.preview('100', 'bilimi-logical:work')
-    await expect(service.executeRemote('100', first.executionToken, service.confirm(first.executionToken))).resolves.toMatchObject({ status: 'failed' })
+    await expect(service.executeRemote('100', first.executionToken, service.confirm('100', first.executionToken))).resolves.toMatchObject({ status: 'failed' })
     const second = await service.preview('100', 'bilimi-logical:work')
 
-    await expect(service.executeRemote('100', second.executionToken, service.confirm(second.executionToken))).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(service.executeRemote('100', second.executionToken, service.confirm('100', second.executionToken))).resolves.toMatchObject({ status: 'succeeded' })
     expect(removeRemoteFolder).toHaveBeenCalledTimes(2)
   })
 
@@ -357,8 +401,8 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     } as never)
     const first = await service.preview('100', 'bilimi-logical:work')
     const second = await service.preview('100', 'bilimi-logical:work')
-    const firstRun = service.executeRemote('100', first.executionToken, service.confirm(first.executionToken))
-    const secondRun = service.executeRemote('100', second.executionToken, service.confirm(second.executionToken))
+    const firstRun = service.executeRemote('100', first.executionToken, service.confirm('100', first.executionToken))
+    const secondRun = service.executeRemote('100', second.executionToken, service.confirm('100', second.executionToken))
     await Promise.resolve()
     expect(removeRemoteFolder).toHaveBeenCalledTimes(1)
     release()
