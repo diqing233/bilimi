@@ -5269,6 +5269,15 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__old-favorites-guide[data-busy="true"] {
   cursor: progress;
 }
+.favorite-ledger-panel__old-favorites-guide[data-preview-preparing="true"] {
+  cursor: progress;
+}
+.favorite-ledger-panel__preview-preparation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .favorite-ledger-panel__recommendation-status,
 .favorite-ledger-panel__recommendation-error {
   margin: 0;

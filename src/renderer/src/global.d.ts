@@ -93,6 +93,12 @@ type BilimiDesktopApi = {
     successfulVideoCount: number
     failedVideoCount: number
   }) => void) => () => void
+  onOldFavoriteWorkspacePreviewPreparationProgress?: (callback: (progress: {
+    accountMid: string
+    workspaceId: string
+    completedItemCount: number
+    totalItemCount: number
+  }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>

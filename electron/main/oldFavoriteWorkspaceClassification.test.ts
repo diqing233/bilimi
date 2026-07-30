@@ -17,6 +17,50 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     expect(result).toHaveLength(items.length)
   })
 
+  it('reports cumulative progress after every completed classification batch', async () => {
+    const onBatchComplete = vi.fn()
+    const items = Array.from({ length: 5 }, (_, index) => ({ aid: index + 1 }))
+
+    await classifyOldFavoriteItemsCooperatively(items, (batch) => batch, {
+      batchSize: 2,
+      yieldToEventLoop: vi.fn().mockResolvedValue(undefined),
+      onBatchComplete
+    })
+
+    expect(onBatchComplete.mock.calls).toEqual([[2, 5], [4, 5], [5, 5]])
+  })
+
+  it('cancels before starting the next cooperative batch', async () => {
+    let canceled = false
+    const classifyBatch = vi.fn((batch: Array<{ aid: number }>) => {
+      canceled = true
+      return batch
+    })
+
+    await expect(classifyOldFavoriteItemsCooperatively(
+      [{ aid: 1 }, { aid: 2 }, { aid: 3 }],
+      classifyBatch,
+      { batchSize: 2, shouldCancel: () => canceled }
+    )).rejects.toThrow('Old favorite preview preparation canceled.')
+    expect(classifyBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('observes cancellation delivered while yielding before the next batch', async () => {
+    let canceled = false
+    const classifyBatch = vi.fn((batch: Array<{ aid: number }>) => batch)
+
+    await expect(classifyOldFavoriteItemsCooperatively(
+      [{ aid: 1 }, { aid: 2 }, { aid: 3 }],
+      classifyBatch,
+      {
+        batchSize: 2,
+        yieldToEventLoop: async () => { canceled = true },
+        shouldCancel: () => canceled
+      }
+    )).rejects.toThrow('Old favorite preview preparation canceled.')
+    expect(classifyBatch).toHaveBeenCalledTimes(1)
+  })
+
   it('enables every default target for an organization round only when the default system is enabled', () => {
     const saved = [
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10, isDefault: true },

@@ -8,7 +8,12 @@ type OldFavoriteRecommendationStepProps = {
   adoptedCandidateIds?: string[]
   saving?: boolean
   error?: string | null
+  previewPreparationRunning?: boolean
+  previewPreparationProgress?: { completedItemCount: number; totalItemCount: number } | null
+  previewPreparationError?: string | null
+  onCancelPreviewPreparation?: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
+  onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
 }
 
 type CandidateGroup = {
@@ -31,7 +36,12 @@ export function OldFavoriteRecommendationStep({
   adoptedCandidateIds: controlledAdoptedCandidateIds,
   saving = false,
   error,
-  onSetRecommendedCandidates
+  previewPreparationRunning = false,
+  previewPreparationProgress,
+  previewPreparationError,
+  onCancelPreviewPreparation = () => undefined,
+  onSetRecommendedCandidates,
+  onUpdateRecommendedCandidates
 }: OldFavoriteRecommendationStepProps) {
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const adoptedCandidateIds = new Set(controlledAdoptedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)
@@ -50,6 +60,17 @@ export function OldFavoriteRecommendationStep({
   ]
 
   const setGroupSelected = (candidates: OldFavoriteWorkspaceRecommendationCandidate[], selected: boolean) => {
+    if (onUpdateRecommendedCandidates) {
+      onUpdateRecommendedCandidates((currentIds) => {
+        const next = new Set(currentIds)
+        for (const candidate of candidates) {
+          if (selected) next.add(candidate.id)
+          else next.delete(candidate.id)
+        }
+        return [...next]
+      })
+      return
+    }
     const next = new Set(adoptedCandidateIds)
     for (const candidate of candidates) {
       if (selected) next.add(candidate.id)
@@ -64,6 +85,11 @@ export function OldFavoriteRecommendationStep({
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
     {saving ? <p role="status" className="favorite-ledger-panel__recommendation-status">正在更新推荐收藏夹，仍可继续调整选择。</p> : null}
     {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
+    {previewPreparationRunning ? <div className="favorite-ledger-panel__preview-preparation" role="status">
+      <p>正在准备归档预览：{previewPreparationProgress?.completedItemCount ?? 0} / {previewPreparationProgress?.totalItemCount ?? 0}</p>
+      <button type="button" onClick={onCancelPreviewPreparation}>取消准备</button>
+    </div> : null}
+    {previewPreparationError ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{previewPreparationError}</p> : null}
     {snapshot.recommendations.candidates.length === 0 ? <p>本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。</p> : null}
     {groups.map((group, index) => {
       const allSelected = group.candidates.length > 0 && group.candidates.every((candidate) => adoptedCandidateIds.has(candidate.id))
@@ -85,6 +111,16 @@ export function OldFavoriteRecommendationStep({
               <label>
                 <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading}
                   onChange={(event) => {
+                    if (onUpdateRecommendedCandidates) {
+                      const selected = event.currentTarget.checked
+                      onUpdateRecommendedCandidates((currentIds) => {
+                        const next = new Set(currentIds)
+                        if (selected) next.add(candidate.id)
+                        else next.delete(candidate.id)
+                        return [...next]
+                      })
+                      return
+                    }
                     const next = new Set(adoptedCandidateIds)
                     if (event.currentTarget.checked) next.add(candidate.id)
                     else next.delete(candidate.id)

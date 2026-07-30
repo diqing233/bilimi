@@ -42,6 +42,133 @@ const recommendationWorkspace = (adoptedCandidateIds: string[] = []) => ({
 })
 
 describe('useOldFavoriteWorkspace', () => {
+  it('prepares the current recommendation draft with progress before returning a preview snapshot', async () => {
+    let publishProgress: ((progress: { accountMid: string; workspaceId: string; completedItemCount: number; totalItemCount: number }) => void) | undefined
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((_, value: { type?: string }) => value.type === 'prepare-recommendation-preview'
+      ? pending.promise
+      : Promise.resolve(recommendationWorkspace(['author-a'])))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command,
+      onOldFavoriteWorkspacePreviewPreparationProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
+
+    let preparation!: Promise<unknown>
+    act(() => { preparation = result.current.prepareRecommendationPreview() })
+    await waitFor(() => expect(result.current.previewPreparationRunning).toBe(true))
+    act(() => publishProgress?.({ accountMid: '100', workspaceId: 'workspace-100', completedItemCount: 128, totalItemCount: 2_000 }))
+    expect(result.current.previewPreparationProgress).toEqual({ completedItemCount: 128, totalItemCount: 2_000 })
+    await act(async () => pending.resolve(recommendationWorkspace(['author-a'])))
+    await act(async () => { await preparation })
+    expect(command).toHaveBeenLastCalledWith('100', {
+      type: 'prepare-recommendation-preview', candidateIds: ['author-a']
+    })
+    expect(result.current.previewPreparationRunning).toBe(false)
+  })
+
+  it('cancels and stales an active preview preparation when the recommendation draft changes', async () => {
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((_, value: { type?: string }) => value.type === 'prepare-recommendation-preview'
+      ? pending.promise
+      : Promise.resolve(recommendationWorkspace(value.type === 'set-recommended-candidates' ? ['author-b'] : [])))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace(['author-a'])),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.recommendedCandidateIds).toEqual(['author-a']))
+
+    let preparation!: Promise<unknown>
+    act(() => { preparation = result.current.prepareRecommendationPreview() })
+    await waitFor(() => expect(result.current.previewPreparationRunning).toBe(true))
+    act(() => result.current.setRecommendedCandidates(['author-b']))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'cancel-recommendation-preview-preparation' }))
+    await act(async () => pending.resolve(recommendationWorkspace(['author-a'])))
+    await act(async () => { await preparation })
+    expect(result.current.recommendedCandidateIds).toEqual(['author-b'])
+  })
+
+  it('cancels an active preview preparation when the account changes', async () => {
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((accountMid: string, value: { type?: string }) =>
+      value.type === 'prepare-recommendation-preview'
+        ? pending.promise
+        : Promise.resolve({ ...recommendationWorkspace(), accountMid, workspaceId: `workspace-${accountMid}` }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve({
+        ...recommendationWorkspace(), accountMid, workspaceId: `workspace-${accountMid}`
+      })),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
+      initialProps: { accountMid: '100' }
+    })
+    await waitFor(() => expect(result.current.snapshot?.workspaceId).toBe('workspace-100'))
+    act(() => { void result.current.prepareRecommendationPreview() })
+    await waitFor(() => expect(result.current.previewPreparationRunning).toBe(true))
+
+    rerender({ accountMid: '200' })
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'cancel-recommendation-preview-preparation'
+    }))
+    await act(async () => pending.resolve(recommendationWorkspace()))
+  })
+
+  it('does not start a stale preview preparation after the account changes while recommendation saving is pending', async () => {
+    const save = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((accountMid: string, value: { type?: string }) =>
+      value.type === 'set-recommended-candidates'
+        ? save.promise
+        : Promise.resolve({ ...recommendationWorkspace(), accountMid, workspaceId: `workspace-${accountMid}` }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve({
+        ...recommendationWorkspace(), accountMid, workspaceId: `workspace-${accountMid}`
+      })),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
+      initialProps: { accountMid: '100' }
+    })
+    await waitFor(() => expect(result.current.snapshot?.workspaceId).toBe('workspace-100'))
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+    act(() => { void result.current.prepareRecommendationPreview() })
+
+    rerender({ accountMid: '200' })
+    await waitFor(() => expect(result.current.snapshot?.workspaceId).toBe('workspace-200'))
+
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'prepare-recommendation-preview' }))
+    await act(async () => save.resolve(recommendationWorkspace(['author-a'])))
+  })
+
+  it('accumulates functional recommendation changes from the latest optimistic draft', async () => {
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn().mockReturnValue(pending.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    act(() => {
+      result.current.updateRecommendedCandidates((current) => [...current, 'author-a'])
+      result.current.updateRecommendedCandidates((current) => [...current, 'author-b'])
+      result.current.updateRecommendedCandidates((current) => [...current, 'tag-c'])
+    })
+
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a', 'author-b', 'tag-c'])
+    expect(command).toHaveBeenCalledTimes(1)
+  })
+
   it('publishes recommendation choices immediately and coalesces rapid changes to the latest set', async () => {
     const first = deferred<ReturnType<typeof recommendationWorkspace>>()
     const second = deferred<ReturnType<typeof recommendationWorkspace>>()

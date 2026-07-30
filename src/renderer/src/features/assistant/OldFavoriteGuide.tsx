@@ -29,9 +29,14 @@ type OldFavoriteGuideProps = {
   onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
+  onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
   recommendedCandidateIds?: string[]
   recommendationSaving?: boolean
   recommendationError?: string | null
+  previewPreparationRunning?: boolean
+  previewPreparationProgress?: { completedItemCount: number; totalItemCount: number } | null
+  previewPreparationError?: string | null
+  onCancelPreviewPreparation?: () => void
   ledgers: FavoriteLedger[]
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
@@ -81,9 +86,14 @@ export function OldFavoriteGuide({
   onRetryFailedTagEnrichment,
   onAcceptCurrentTags,
   onSetRecommendedCandidates,
+  onUpdateRecommendedCandidates,
   recommendedCandidateIds,
   recommendationSaving = false,
   recommendationError,
+  previewPreparationRunning = false,
+  previewPreparationProgress,
+  previewPreparationError,
+  onCancelPreviewPreparation = () => undefined,
   ledgers,
   deepSeekAvailable,
   deepSeekFeedback,
@@ -121,7 +131,7 @@ export function OldFavoriteGuide({
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
 
-  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || undefined}>
+  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || previewPreparationRunning || undefined} data-preview-preparing={previewPreparationRunning || undefined}>
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
           <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
@@ -156,7 +166,12 @@ export function OldFavoriteGuide({
       adoptedCandidateIds={recommendedCandidateIds}
       saving={recommendationSaving}
       error={recommendationError}
+      previewPreparationRunning={previewPreparationRunning}
+      previewPreparationProgress={previewPreparationProgress}
+      previewPreparationError={previewPreparationError}
+      onCancelPreviewPreparation={onCancelPreviewPreparation}
       onSetRecommendedCandidates={onSetRecommendedCandidates}
+      onUpdateRecommendedCandidates={onUpdateRecommendedCandidates}
     /> : null}
     {!recovery && snapshot && step === 'preview' ? <OldFavoriteArchivePreviewStep
       snapshot={snapshot}

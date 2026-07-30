@@ -379,7 +379,15 @@ export function ControlledFavoriteLedgerPanel({
         scanStarting={scanStarting}
         scanStartFailure={scanStartFailure}
         step={step}
-        onStepChange={setStep}
+        onStepChange={(nextStep) => {
+          if (nextStep !== 'preview') {
+            setStep(nextStep)
+            return
+          }
+          void workspace.prepareRecommendationPreview().then((prepared) => {
+            if (prepared) setStep('preview')
+          })
+        }}
         onRetryScan={() => void startScan('incremental')}
         onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
@@ -389,9 +397,14 @@ export function ControlledFavoriteLedgerPanel({
         onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
         onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
+        onUpdateRecommendedCandidates={workspace.updateRecommendedCandidates}
         recommendedCandidateIds={workspace.recommendedCandidateIds}
         recommendationSaving={workspace.recommendationSaving}
         recommendationError={workspace.recommendationError}
+        previewPreparationRunning={workspace.previewPreparationRunning}
+        previewPreparationProgress={workspace.previewPreparationProgress}
+        previewPreparationError={workspace.previewPreparationError}
+        onCancelPreviewPreparation={() => void workspace.cancelRecommendationPreviewPreparation()}
 
         ledgers={ledgers}
         deepSeekAvailable={deepSeekArchiveAvailable}

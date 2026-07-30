@@ -2,6 +2,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 describe('ControlledFavoriteLedgerPanel', () => {
   it('opens the old-favorite guide for an external navigation request without starting a scan', async () => {
     const command = vi.fn()
@@ -1571,7 +1577,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
-    expect(screen.getByRole('region', { name: '归档预览' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '归档预览' })).toBeInTheDocument()
 
     rerender(<ControlledFavoriteLedgerPanel
       currentAccountMid="200" ledgers={[]} missingLedgerIds={[]}
@@ -1630,6 +1636,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    await screen.findByRole('region', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '只整理【未匹配到合适分类】' }))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -1726,6 +1733,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    await screen.findByRole('region', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '第 2 组' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
@@ -1784,6 +1792,76 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(stepButtons[2]).toBeEnabled())
     expect(stepButtons[3]).toBeEnabled()
+  })
+
+  it('keeps every candidate selected when several boxes are clicked before the first save returns', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [
+          { id: 'author-a', displayName: 'A', kind: 'author' as const, count: 2, reason: 'A' },
+          { id: 'author-b', displayName: 'B', kind: 'author' as const, count: 2, reason: 'B' },
+          { id: 'tag-c', displayName: 'C', kind: 'tag' as const, count: 2, reason: 'C' }
+        ],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const save = new Promise<typeof preview>(() => undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockReturnValue(save)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'A' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'B' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'C' }))
+
+    expect(screen.getByRole('checkbox', { name: 'A' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'B' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'C' })).toBeChecked()
+  })
+
+  it('stays on recommendations with progress until preview preparation completes', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] as string[] },
+      history: { cursor: 0, length: 0 }
+    }
+    const pending = deferred<typeof preview>()
+    let publishProgress: ((progress: { accountMid: string; workspaceId: string; completedItemCount: number; totalItemCount: number }) => void) | undefined
+    const command = vi.fn((_accountMid: string, input: { type: string }) => input.type === 'prepare-recommendation-preview'
+      ? pending.promise
+      : Promise.resolve(preview))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      onOldFavoriteWorkspacePreviewPreparationProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    await waitFor(() => expect(screen.getByText('正在准备归档预览：0 / 0')).toBeInTheDocument())
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+    act(() => publishProgress?.({ accountMid: '100', workspaceId: 'workspace-100', completedItemCount: 128, totalItemCount: 2_000 }))
+    expect(screen.getByText('正在准备归档预览：128 / 2000')).toBeInTheDocument()
+    await act(async () => pending.resolve(preview))
+    expect(await screen.findByRole('region', { name: '归档预览' })).toBeInTheDocument()
   })
 
   it('explains why no recommendations are available', async () => {

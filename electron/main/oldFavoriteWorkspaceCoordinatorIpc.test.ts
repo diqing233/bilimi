@@ -550,6 +550,40 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('prepares recommendation preview with progress and cancels it through an out-of-band command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      prepareRecommendationPreview: vi.fn(async (_accountMid, _candidateIds, onProgress) => {
+        onProgress({ completedItemCount: 128, totalItemCount: 2_000 })
+        return snapshot
+      }),
+      cancelRecommendationPreviewPreparation: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'prepare-recommendation-preview', candidateIds: ['custom-author-up-alpha']
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.prepareRecommendationPreview).toHaveBeenCalledWith(
+      '100', ['custom-author-up-alpha'], expect.any(Function)
+    )
+    expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:preview-preparation-progress', {
+      accountMid: '100', workspaceId: 'workspace-1', completedItemCount: 128, totalItemCount: 2_000
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'cancel-recommendation-preview-preparation'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.cancelRecommendationPreviewPreparation).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'prepare-recommendation-preview', candidateIds: ['custom-author-up-alpha'], classifications: []
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes execution only after the main-process frozen plan exists', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

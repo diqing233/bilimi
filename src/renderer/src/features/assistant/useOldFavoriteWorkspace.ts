@@ -76,6 +76,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [recommendedCandidateIds, setRecommendedCandidateIds] = useState<string[]>([])
   const [recommendationSaving, setRecommendationSaving] = useState(false)
   const [recommendationError, setRecommendationError] = useState<string | null>(null)
+  const [previewPreparationRunning, setPreviewPreparationRunning] = useState(false)
+  const [previewPreparationProgress, setPreviewPreparationProgress] = useState<{ completedItemCount: number; totalItemCount: number } | null>(null)
+  const [previewPreparationError, setPreviewPreparationError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
@@ -84,10 +87,22 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const foregroundRequestCount = useRef(0)
   const accountGeneration = useRef(0)
   const recommendationCommittedRef = useRef<string[]>([])
+  const recommendedCandidateIdsRef = useRef<string[]>([])
   const recommendationDesiredRef = useRef<string[] | null>(null)
   const recommendationQueueRunningRef = useRef(false)
+  const previewPreparationGenerationRef = useRef(0)
+  const activePreviewPreparationWorkspaceIdRef = useRef<string | null>(null)
+  const recommendationQueueIdleResolversRef = useRef<Array<() => void>>([])
+  const activeAccountMidRef = useRef(accountMid)
 
   useEffect(() => {
+    const previousAccountMid = activeAccountMidRef.current
+    if (previousAccountMid && previousAccountMid !== accountMid && activePreviewPreparationWorkspaceIdRef.current) {
+      void window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(previousAccountMid, {
+        type: 'cancel-recommendation-preview-preparation'
+      })
+    }
+    activeAccountMidRef.current = accountMid
     accountGeneration.current += 1
     foregroundRequestCount.current = 0
     setLoading(false)
@@ -96,11 +111,18 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setDeepSeekCancelRequested(false)
     setReconciling(false)
     recommendationCommittedRef.current = []
+    recommendedCandidateIdsRef.current = []
     recommendationDesiredRef.current = null
     recommendationQueueRunningRef.current = false
     setRecommendedCandidateIds([])
     setRecommendationSaving(false)
     setRecommendationError(null)
+    setPreviewPreparationRunning(false)
+    setPreviewPreparationProgress(null)
+    setPreviewPreparationError(null)
+    previewPreparationGenerationRef.current += 1
+    activePreviewPreparationWorkspaceIdRef.current = null
+    recommendationQueueIdleResolversRef.current.splice(0).forEach((resolve) => resolve())
     activeDeepSeekWorkspaceId.current = null
   }, [accountMid])
 
@@ -108,6 +130,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (recommendationQueueRunningRef.current || recommendationDesiredRef.current) return
     const authoritativeIds = snapshotCandidateIds(snapshot, accountMid)
     recommendationCommittedRef.current = authoritativeIds
+    recommendedCandidateIdsRef.current = authoritativeIds
     setRecommendedCandidateIds(authoritativeIds)
   }, [accountMid, snapshot])
 
@@ -218,6 +241,19 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
     }
+  }, [accountMid])
+
+  useEffect(() => {
+    const subscribe = window.bilimiDesktop?.onOldFavoriteWorkspacePreviewPreparationProgress
+    if (!accountMid || !subscribe) return
+    return subscribe((progress) => {
+      if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid) ||
+        progress.workspaceId !== activePreviewPreparationWorkspaceIdRef.current) return
+      setPreviewPreparationProgress({
+        completedItemCount: progress.completedItemCount,
+        totalItemCount: progress.totalItemCount
+      })
+    })
   }, [accountMid])
 
   const selectSourceFolders = useCallback(async (folderIds: string[]) => {
@@ -428,11 +464,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           recommendationCommittedRef.current = authoritativeIds
           setSnapshot(next)
           setRecommendationError(null)
-          if (!recommendationDesiredRef.current) setRecommendedCandidateIds(authoritativeIds)
+          if (!recommendationDesiredRef.current) {
+            recommendedCandidateIdsRef.current = authoritativeIds
+            setRecommendedCandidateIds(authoritativeIds)
+          }
         } catch {
           if (accountGeneration.current !== generation) return
           setRecommendationError('推荐收藏夹未能保存，请重试。')
           if (!recommendationDesiredRef.current) {
+            recommendedCandidateIdsRef.current = recommendationCommittedRef.current
             setRecommendedCandidateIds(recommendationCommittedRef.current)
           }
         }
@@ -441,16 +481,76 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (accountGeneration.current === generation) {
         setRecommendationSaving(false)
         recommendationQueueRunningRef.current = false
+        recommendationQueueIdleResolversRef.current.splice(0).forEach((resolve) => resolve())
       }
     }
   }, [accountMid])
+  const waitForRecommendationQueue = useCallback(() => {
+    if (!recommendationQueueRunningRef.current && !recommendationDesiredRef.current) return Promise.resolve()
+    return new Promise<void>((resolve) => recommendationQueueIdleResolversRef.current.push(resolve))
+  }, [])
+  const cancelRecommendationPreviewPreparation = useCallback(async () => {
+    previewPreparationGenerationRef.current += 1
+    activePreviewPreparationWorkspaceIdRef.current = null
+    setPreviewPreparationRunning(false)
+    setPreviewPreparationProgress(null)
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return false
+    try {
+      await command(accountMid, { type: 'cancel-recommendation-preview-preparation' })
+      return true
+    } catch {
+      return false
+    }
+  }, [accountMid])
   const setRecommendedCandidates = useCallback((candidateIds: string[]) => {
+    if (activePreviewPreparationWorkspaceIdRef.current) void cancelRecommendationPreviewPreparation()
     const normalized = normalizeCandidateIds(candidateIds)
+    recommendedCandidateIdsRef.current = normalized
     setRecommendedCandidateIds(normalized)
     setRecommendationError(null)
     recommendationDesiredRef.current = normalized
     void runRecommendationQueue()
-  }, [runRecommendationQueue])
+  }, [cancelRecommendationPreviewPreparation, runRecommendationQueue])
+  const updateRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
+    setRecommendedCandidates(update(recommendedCandidateIdsRef.current))
+  }, [setRecommendedCandidates])
+  const prepareRecommendationPreview = useCallback(async () => {
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    const workspaceId = snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : null
+    if (!accountMid || !command || !workspaceId) return null
+    const accountVersion = accountGeneration.current
+    await waitForRecommendationQueue()
+    if (accountGeneration.current !== accountVersion) return null
+    const generation = ++previewPreparationGenerationRef.current
+    const candidateIds = [...recommendedCandidateIdsRef.current]
+    const fingerprint = JSON.stringify(candidateIds)
+    activePreviewPreparationWorkspaceIdRef.current = workspaceId
+    setPreviewPreparationRunning(true)
+    setPreviewPreparationProgress({ completedItemCount: 0, totalItemCount: 0 })
+    setPreviewPreparationError(null)
+    try {
+      const next = await command(accountMid, { type: 'prepare-recommendation-preview', candidateIds })
+      const current = previewPreparationGenerationRef.current === generation &&
+        activePreviewPreparationWorkspaceIdRef.current === workspaceId &&
+        JSON.stringify(recommendedCandidateIdsRef.current) === fingerprint &&
+        next && !('recovery' in next) && next.workspaceId === workspaceId &&
+        normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
+      if (!current) return null
+      setSnapshot(next)
+      return next
+    } catch (error) {
+      if (previewPreparationGenerationRef.current === generation && !/preparation canceled/i.test(error instanceof Error ? error.message : '')) {
+        setPreviewPreparationError(error instanceof Error ? error.message : '归档预览准备失败，请重试。')
+      }
+      return null
+    } finally {
+      if (previewPreparationGenerationRef.current === generation) {
+        activePreviewPreparationWorkspaceIdRef.current = null
+        setPreviewPreparationRunning(false)
+      }
+    }
+  }, [accountMid, snapshot, waitForRecommendationQueue])
   const createLocalLedgerAndReclassify = useCallback((title: string) => {
     const normalized = title.trim()
     return normalized ? sendCommand({ type: 'create-local-ledger-and-reclassify', title: normalized }) : Promise.resolve(null)
@@ -489,10 +589,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, recommendedCandidateIds, recommendationSaving, recommendationError, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
-    rebuildCorruptWorkspace,
+    rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
   }
 }

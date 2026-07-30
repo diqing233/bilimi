@@ -1943,7 +1943,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
-    classifyCurrentItems: (items, recommendedLedgers = [], accountMid) => {
+    classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {
       // Capture the saved rules once per workspace command, then classify its segment in memory.
       const accountPreferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       const ledgers = mergeOldFavoriteWorkspaceLedgers(
@@ -1965,7 +1965,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           targetLedgerIds: [result.ledgerId],
           confidence: result.diagnostic?.confidence === 'high' ? 'high' as const : 'low' as const
         }
-      }))
+      }), options)
     },
     resolveLedgerTitle: async (accountMid, logicalLedgerId) =>
       resolveSavedOldFavoriteWorkspaceLedgerTitle(

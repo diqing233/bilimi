@@ -124,6 +124,21 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.on('old-favorite-workspace-v1:deepseek-progress', listener)
     return () => ipcRenderer.removeListener('old-favorite-workspace-v1:deepseek-progress', listener)
   },
+  onOldFavoriteWorkspacePreviewPreparationProgress: (callback: (progress: {
+    accountMid: string
+    workspaceId: string
+    completedItemCount: number
+    totalItemCount: number
+  }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: {
+      accountMid: string
+      workspaceId: string
+      completedItemCount: number
+      totalItemCount: number
+    }) => callback(progress)
+    ipcRenderer.on('old-favorite-workspace-v1:preview-preparation-progress', listener)
+    return () => ipcRenderer.removeListener('old-favorite-workspace-v1:preview-preparation-progress', listener)
+  },
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,

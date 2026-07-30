@@ -10,6 +10,23 @@ import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 const VIRTUAL_TRACK_THRESHOLD = 50
 const INITIAL_GROUP_ITEM_LIMIT = 6
 
+export function groupOldFavoritePreviewItems<Item extends { aid: number }>(
+  items: readonly Item[],
+  classifications: OldFavoriteWorkspaceSnapshot['classifications'],
+  knownLedgerIds: ReadonlySet<string>
+) {
+  const classified = new Map<string, Item[]>()
+  for (const item of items) {
+    const targetLedgerId = classifications[String(item.aid)]?.targetLedgerIds[0]
+    if (!targetLedgerId) continue
+    const groupId = targetLedgerId === 'inbox' || knownLedgerIds.has(targetLedgerId) ? targetLedgerId : 'other'
+    const bucket = classified.get(groupId)
+    if (bucket) bucket.push(item)
+    else classified.set(groupId, [item])
+  }
+  return classified
+}
+
 function deepSeekFailureMessage(message: string, affectedVideoCount: number) {
   if (/incomplete current-segment/i.test(message)) {
     return `返回结果不完整，${affectedVideoCount} 条未应用，可重试。`
@@ -115,15 +132,7 @@ export function OldFavoriteArchivePreviewStep({
     item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
   const previewGroups = (() => {
     const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
-    const classified = new Map<string, typeof items>()
-    for (const item of items) {
-      const targetLedgerId = snapshot.classifications[String(item.aid)]?.targetLedgerIds[0]
-      if (!targetLedgerId) continue
-      const groupId = targetLedgerId === 'inbox' || ledgers.some((ledger) => ledger.id === targetLedgerId)
-        ? targetLedgerId
-        : 'other'
-      classified.set(groupId, [...(classified.get(groupId) ?? []), item])
-    }
+    const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
     return [
       ...(unmatched.length ? [{ id: 'unclassified', title: '未匹配到合适分类', items: unmatched }] : []),
       ...[...classified.entries()].map(([id, groupedItems]) => ({

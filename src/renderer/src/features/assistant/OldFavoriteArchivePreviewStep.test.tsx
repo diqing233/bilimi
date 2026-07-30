@@ -1,8 +1,22 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
+import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('groups 2000 preview items once while preserving source order', () => {
+    const items = Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, sourceFolderIds: ['source'] }))
+    const classifications = Object.fromEntries(items.map((item) => [String(item.aid), {
+      aid: item.aid, targetLedgerIds: [item.aid % 2 ? 'music' : 'knowledge'], source: 'system-high' as const
+    }]))
+
+    const groups = groupOldFavoritePreviewItems(items, classifications, new Set(['music', 'knowledge']))
+
+    expect(groups.get('music')).toHaveLength(1_000)
+    expect(groups.get('knowledge')).toHaveLength(1_000)
+    expect(groups.get('music')?.slice(0, 3).map((item) => item.aid)).toEqual([1, 3, 5])
+    expect([...groups.values()].flat()).toHaveLength(2_000)
+  })
+
   it('uses the legacy preview title bar and content shell around current workspace data', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{

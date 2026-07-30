@@ -12,14 +12,16 @@ import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepS
 type IpcEvent = {
   sender: {
     id: number
-    send: (channel: 'old-favorite-workspace-v1:deepseek-progress', progress: {
+    send: (channel: 'old-favorite-workspace-v1:deepseek-progress' | 'old-favorite-workspace-v1:preview-preparation-progress', progress: {
       accountMid: string
       workspaceId: string
-      totalChunks: number
-      completedChunks: number
-      totalVideoCount: number
-      successfulVideoCount: number
-      failedVideoCount: number
+      totalChunks?: number
+      completedChunks?: number
+      totalVideoCount?: number
+      successfulVideoCount?: number
+      failedVideoCount?: number
+      completedItemCount?: number
+      totalItemCount?: number
     }) => void
   }
 }
@@ -44,6 +46,8 @@ type WorkspaceCommand =
   | { type: 'auto-classify-current-segment' }
   | { type: 'reclassify-favorite-configuration' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
+  | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
+  | { type: 'cancel-recommendation-preview-preparation' }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
@@ -126,6 +130,14 @@ function command(value: unknown): WorkspaceCommand {
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'candidateIds')) {
     return { type: 'set-recommended-candidates', candidateIds: [...new Set(candidate.candidateIds.map((id) => id.trim()))].sort() }
+  }
+  if (candidate.type === 'prepare-recommendation-preview' && Array.isArray(candidate.candidateIds) &&
+    candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'candidateIds')) {
+    return { type: 'prepare-recommendation-preview', candidateIds: [...new Set(candidate.candidateIds.map((id) => id.trim()))].sort() }
+  }
+  if (candidate.type === 'cancel-recommendation-preview-preparation' && Object.keys(candidate).length === 1) {
+    return { type: 'cancel-recommendation-preview-preparation' }
   }
   if (candidate.type === 'create-local-ledger-and-reclassify' && typeof candidate.title === 'string' &&
     candidate.title.trim().length > 0 && candidate.title.trim().length <= 128 && Object.keys(candidate).every((key) => key === 'type' || key === 'title')) {
@@ -272,6 +284,18 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)
     if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
+    if (requested.type === 'prepare-recommendation-preview') {
+      const workspace = await options.coordinator.getSnapshot(accountMid)
+      if (!workspace || 'recovery' in workspace) throw new Error('Old favorite workspace recommendations are not ready.')
+      return snapshot(await options.coordinator.prepareRecommendationPreview(accountMid, requested.candidateIds, (progress) => {
+        event.sender.send('old-favorite-workspace-v1:preview-preparation-progress', {
+          accountMid, workspaceId: workspace.workspaceId, ...progress
+        })
+      }))
+    }
+    if (requested.type === 'cancel-recommendation-preview-preparation') {
+      options.coordinator.cancelRecommendationPreviewPreparation(accountMid)
+    }
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
