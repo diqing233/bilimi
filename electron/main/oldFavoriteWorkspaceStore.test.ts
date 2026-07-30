@@ -173,7 +173,7 @@ describe('OldFavoriteWorkspaceStore', () => {
     const store = new OldFavoriteWorkspaceStore({ root })
     await store.create({
       accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
-      segments: [{ id: 'segment-1', aids: [1] }]
+      segments: [{ id: 'segment-1', aids: [1, 2] }]
     })
     const pending = store.appendOverlay('100', 'workspace-1', {
       currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }], history: []
@@ -307,6 +307,32 @@ describe('OldFavoriteWorkspaceStore', () => {
     })
   })
 
+  it('starts a fresh overlay journal when a scanning workspace becomes an immutable baseline', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '',
+      sourceFolders: [], segments: []
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: '', classifications: [], history: [], scanMetadata: { sourceFolders: [] }
+    })
+
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      sourceFolders: [{ id: 'source-1', title: '默认收藏夹', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: ['source-1'] }] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: []
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      baselineRevision: 1,
+      sourceFolders: [{ id: 'source-1', selected: true }]
+    })
+  })
+
   it('appends scan metadata without rewriting immutable baseline chunks', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -376,7 +402,7 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(store.readOverlayHistory('100', 'workspace-1')).rejects.toThrow('Old favorite workspace journal is corrupt.')
   })
 
-  it('ignores a valid journal tail that was appended before its manifest pointer committed', async () => {
+  it('discards a valid uncommitted journal tail before the next append', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })
     await store.create({
@@ -387,11 +413,19 @@ describe('OldFavoriteWorkspaceStore', () => {
       currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }], history: []
     })
     await store.appendUncommittedOverlayForTest('100', 'workspace-1', {
-      currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['game'], source: 'manual' }], history: []
+      currentSegmentId: 'segment-1', classifications: [{ aid: 2, targetLedgerIds: ['game'], source: 'manual' }], history: []
     })
 
     await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['music'] } }
+    })
+
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['knowledge'], source: 'manual' }], history: []
+    })
+    const recovered = await new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')
+    expect('recovery' in recovered ? recovered : recovered.classifications).toEqual({
+      '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'manual' }
     })
   })
 })

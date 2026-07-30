@@ -372,6 +372,92 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes strict draft-rule save and out-of-band cancel commands with scoped progress', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      saveDraftLedgerRule: vi.fn(async (_accountMid, _input, onProgress) => {
+        onProgress({ workspaceId: 'workspace-1', analysisId: 'analysis-local-music', completedItemCount: 128, totalItemCount: 2_000 })
+        return {}
+      }),
+      cancelDraftLedgerRuleAnalysis: vi.fn().mockReturnValue(true),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-draft-ledger-rule',
+      analysisId: 'analysis-local-music',
+      title: ' Music ',
+      keywords: [' 音乐 ', 'Music'],
+      ruleType: 'keyword'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.saveDraftLedgerRule).toHaveBeenCalledWith('100', {
+      analysisId: 'analysis-local-music',
+      title: 'Music',
+      keywords: ['音乐', 'Music'],
+      ruleType: 'keyword'
+    }, expect.any(Function))
+    expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:rule-analysis-progress', {
+      accountMid: '100',
+      workspaceId: 'workspace-1',
+      analysisId: 'analysis-local-music',
+      completedItemCount: 128,
+      totalItemCount: 2_000
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'cancel-draft-ledger-rule-analysis', analysisId: 'analysis-local-music'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.cancelDraftLedgerRuleAnalysis).toHaveBeenCalledWith('100', 'analysis-local-music')
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-draft-ledger-rule',
+      analysisId: 'analysis-local-music',
+      title: 'Music',
+      keywords: ['Music'],
+      ruleType: 'keyword',
+      matchedAidsBySegment: { 'segment-1': [1] }
+    })).rejects.toThrow('command is invalid')
+  })
+
+  it('hands a draft-rule save to the coordinator before awaiting any snapshot so immediate cancel can observe it', async () => {
+    const ipcMain = new FakeIpcMain()
+    let resolveSnapshot!: (value: typeof snapshot) => void
+    let resolveSave!: (value: object) => void
+    const pendingSnapshot = new Promise<typeof snapshot>((resolve) => { resolveSnapshot = resolve })
+    const pendingSave = new Promise<object>((resolve) => { resolveSave = resolve })
+    const coordinator = {
+      saveDraftLedgerRule: vi.fn(() => pendingSave),
+      cancelDraftLedgerRuleAnalysis: vi.fn().mockReturnValue(true),
+      getSnapshot: vi.fn(() => pendingSnapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    const saving = ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-draft-ledger-rule',
+      analysisId: 'analysis-immediate-ipc',
+      title: 'Immediate',
+      keywords: ['Immediate'],
+      ruleType: 'keyword'
+    }) as Promise<unknown>
+    await vi.waitFor(() => expect(
+      coordinator.saveDraftLedgerRule.mock.calls.length + coordinator.getSnapshot.mock.calls.length
+    ).toBeGreaterThan(0))
+    const saveWasHandedOffBeforeSnapshot = coordinator.saveDraftLedgerRule.mock.calls.length === 1 &&
+      coordinator.getSnapshot.mock.calls.length === 0
+
+    resolveSnapshot(snapshot)
+    resolveSave({})
+    await saving
+    expect(saveWasHandedOffBeforeSnapshot).toBe(true)
+  })
+
   it('routes only explicit undo and redo commands to the controlled coordinator', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

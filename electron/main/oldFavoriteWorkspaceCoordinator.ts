@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   applyWorkspaceClassificationBatch,
   completeWorkspaceScan,
@@ -25,6 +25,7 @@ import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
+import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
 
@@ -41,6 +42,7 @@ type ClassificationJournalEvent = {
   type: 'classification'
   entry: OldFavoriteWorkspaceHistoryEntry
   historyCursor: number
+  segmentId?: string
 }
 type CursorJournalEvent = { type: 'history-cursor'; historyCursor: number }
 type HistoryBaselineJournalEvent = { type: 'history-baseline'; historyCursor: number }
@@ -109,6 +111,43 @@ function decodeJournalEvent(value: { kind: string }): WorkspaceJournalEvent | un
 function isRecoveryRequired(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null):
 value is OldFavoriteWorkspaceRecoveryRequired {
   return value !== null && 'recovery' in value
+}
+
+function replayClassificationJournal(overlays: Array<{ currentSegmentId: string; history: Array<{ kind: string }> }>) {
+  const entriesBySegment = new Map<string, OldFavoriteWorkspaceHistoryEntry[]>()
+  const cursorBySegment = new Map<string, number>()
+  const baselineCursorBySegment = new Map<string, number>()
+  for (const overlay of overlays) {
+    for (const history of overlay.history) {
+      const event = decodeJournalEvent(history)
+      if (!event) continue
+      const segmentId = event.type === 'classification' && event.segmentId
+        ? event.segmentId
+        : overlay.currentSegmentId
+      if (event.type === 'classification') {
+        const entries = entriesBySegment.get(segmentId) ?? []
+        const next = entries.slice(0, Math.max(0, event.historyCursor - 1))
+        next.push(clone(event.entry))
+        entriesBySegment.set(segmentId, next)
+        cursorBySegment.set(segmentId, event.historyCursor)
+      } else if (event.type === 'history-cursor') {
+        cursorBySegment.set(segmentId, event.historyCursor)
+      } else if (event.type === 'history-baseline') {
+        baselineCursorBySegment.set(segmentId, event.historyCursor)
+      }
+    }
+  }
+  const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+  for (const [segmentId, entries] of entriesBySegment) {
+    const cursor = Math.min(cursorBySegment.get(segmentId) ?? entries.length, entries.length)
+    for (const entry of entries.slice(0, cursor)) {
+      for (const change of entry.changes) {
+        if (change.after) classifications.set(change.aid, clone(change.after))
+        else classifications.delete(change.aid)
+      }
+    }
+  }
+  return { entriesBySegment, cursorBySegment, baselineCursorBySegment, classifications }
 }
 
 function recoveryBaselineChangeEvidence(workspaceBaselineRevision: number, repositoryRevision: number, baseline?: {
@@ -456,6 +495,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
   private readonly recommendationPreviewGenerations = new Map<string, number>()
+  private readonly draftLedgerRuleAnalysisIds = new Map<string, string>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -1055,6 +1095,288 @@ export class OldFavoriteWorkspaceCoordinator {
 
   cancelRecommendationPreviewPreparation(accountMid: string) {
     this.recommendationPreviewGenerations.set(accountMid, (this.recommendationPreviewGenerations.get(accountMid) ?? 0) + 1)
+  }
+
+  cancelDraftLedgerRuleAnalysis(accountMid: string, analysisId: string) {
+    const normalizedAccount = String(accountMid).trim()
+    if (this.draftLedgerRuleAnalysisIds.get(normalizedAccount) !== analysisId) return false
+    this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
+    return true
+  }
+
+  async saveDraftLedgerRule(accountMid: string, input: {
+    analysisId: string
+    ledgerId?: string
+    title: string
+    keywords: string[]
+    ruleType: 'keyword' | 'author' | 'tag'
+  }, onProgress?: (progress: {
+    workspaceId: string
+    analysisId: string
+    completedItemCount: number
+    totalItemCount: number
+  }) => void) {
+    const normalizedAccount = String(accountMid).trim()
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(input.analysisId)) {
+      throw new Error('Old favorite workspace draft ledger rule is invalid.')
+    }
+    this.draftLedgerRuleAnalysisIds.set(normalizedAccount, input.analysisId)
+    const shouldCancel = () => this.draftLedgerRuleAnalysisIds.get(normalizedAccount) !== input.analysisId
+    const run = this.queue(async () => {
+      if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+      const workspace = await this.requireWorkspace(accountMid)
+      const title = input.title.trim()
+      const keywords = [...new Set(input.keywords.map((keyword) => keyword.trim()).filter(Boolean))]
+      if (workspace.status !== 'previewing' || !/^[a-zA-Z0-9_-]{8,128}$/.test(input.analysisId) ||
+        !title || title.length > 128 || !keywords.length || keywords.length > 64 ||
+        keywords.some((keyword) => keyword.length > 128) ||
+        !['keyword', 'author', 'tag'].includes(input.ruleType)) {
+        throw new Error('Old favorite workspace draft ledger rule is invalid.')
+      }
+      const id = input.ledgerId?.trim() || localLedgerId(title)
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
+        throw new Error('Old favorite workspace draft ledger rule is invalid.')
+      }
+      const state = await this.ensureRecommendations(workspace)
+      const existingCandidate = state.candidates.find((candidate) => candidate.id === id)
+      if (input.ledgerId && !existingCandidate) {
+        throw new Error('Old favorite workspace draft ledger rule is unavailable.')
+      }
+      if (!input.ledgerId && state.candidates.some((candidate) => candidate.id === id)) {
+        throw new Error('Old favorite workspace local ledger already exists.')
+      }
+
+      const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+      if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+      const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
+      const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+      const selectedSourceFolderIds = new Set(sourceFolders
+        .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
+      const hasSelectableSources = sourceFolders.some((folder) => !folder.isBilimiWorkFolder)
+      const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
+        workspace.segments.map((segment) => ({ id: segment.id, index: segment.index, itemCount: segment.aids.length }))
+      const selectedItemCountsBySegment = new Map<string, number>()
+      for (const segment of descriptors) {
+        if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+        const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
+        const selectedItemCount = (stored.items ?? []).filter((item) => !hasSelectableSources ||
+          item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).length
+        selectedItemCountsBySegment.set(segment.id, selectedItemCount)
+      }
+      const totalItemCount = [...selectedItemCountsBySegment.values()].reduce((count, itemCount) => count + itemCount, 0)
+      const fingerprint = createHash('sha256').update(JSON.stringify({
+        workspaceId: workspace.id,
+        baselineRevision: workspace.baseline?.revision ?? 0,
+        ledgerId: id,
+        title,
+        keywords,
+        ruleType: input.ruleType,
+        segments: descriptors,
+        selectedSourceFolderIds: [...selectedSourceFolderIds].sort(),
+        tagUpdates: recovered.tagUpdates
+      })).digest('hex')
+      const priorCheckpoint = recovered.ruleAnalysisCheckpoint?.fingerprint === fingerprint
+        ? recovered.ruleAnalysisCheckpoint
+        : undefined
+      const completedSegmentIds = new Set(priorCheckpoint?.completedSegmentIds ?? [])
+      const matchedAidsBySegment = clone(priorCheckpoint?.matchedAidsBySegment ?? {})
+      let completedItemCount = [...completedSegmentIds].reduce((count, segmentId) =>
+        count + (selectedItemCountsBySegment.get(segmentId) ?? 0), 0)
+      for (const segment of descriptors) {
+        if (completedSegmentIds.has(segment.id)) continue
+        const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
+        const items = (stored.items ?? [])
+          .map((item) => ({ ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {}) }))
+          .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        const completedBeforeSegment = completedItemCount
+        const matchedInSegment = await analyzeOldFavoriteLedgerRule([{
+          id: segment.id,
+          items
+        }], {
+          ruleType: input.ruleType,
+          keywords
+        }, {
+          shouldCancel,
+          onProgress: (segmentCompletedItemCount) => onProgress?.({
+            workspaceId: workspace.id,
+            analysisId: input.analysisId,
+            completedItemCount: Math.min(completedBeforeSegment + segmentCompletedItemCount, totalItemCount),
+            totalItemCount
+          })
+        })
+        if (matchedInSegment[segment.id]?.length) {
+          matchedAidsBySegment[segment.id] = [...matchedInSegment[segment.id]]
+        } else delete matchedAidsBySegment[segment.id]
+        completedSegmentIds.add(segment.id)
+        completedItemCount += items.length
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: this.currentSegment(workspace),
+          classifications: [],
+          history: [],
+          ruleAnalysisCheckpoint: {
+            fingerprint,
+            ledgerId: id,
+            completedSegmentIds: [...completedSegmentIds],
+            completedItemCount,
+            totalItemCount,
+            matchedAidsBySegment: clone(matchedAidsBySegment)
+          }
+        })
+        if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+      }
+      const candidate: StoredRecommendation = {
+        id,
+        displayName: `${BILIMI_LEDGER_PREFIX}${title}`,
+        kind: input.ruleType === 'author' ? 'author' : input.ruleType === 'tag' ? 'tag' : 'series',
+        sourceName: title,
+        keywords,
+        count: new Set(Object.values(matchedAidsBySegment).flat()).size,
+        matchedAidsBySegment,
+        reason: 'Created locally for this organization round.'
+      }
+      const candidates = existingCandidate
+        ? state.candidates.map((item) => item.id === id ? candidate : item)
+        : [...state.candidates, candidate]
+      const next: RecommendationState = {
+        initialized: true,
+        candidates,
+        adoptedCandidateIds: [...new Set([...state.adoptedCandidateIds, id])].sort()
+      }
+      const affectedAids = new Set([
+        ...Object.values(existingCandidate?.matchedAidsBySegment ?? {}).flat(),
+        ...Object.values(matchedAidsBySegment).flat()
+      ])
+      const affectedSegmentIds = new Set([
+        ...Object.keys(existingCandidate?.matchedAidsBySegment ?? {}),
+        ...Object.keys(matchedAidsBySegment)
+      ])
+      const itemsByAid = new Map<number, CurrentSegmentItem>()
+      const classificationSegments: OldFavoriteWorkspace['segments'] = []
+      for (const segment of descriptors) {
+        if (!affectedSegmentIds.has(segment.id)) continue
+        const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
+        const affectedSegmentAids = stored.aids.filter((aid) => affectedAids.has(aid))
+        classificationSegments.push({
+          id: segment.id,
+          index: segment.index,
+          aids: affectedSegmentAids,
+          status: this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing'
+        })
+        for (const item of stored.items ?? []) {
+          if (!affectedAids.has(item.aid)) continue
+          const withTags = { ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {}) }
+          if (!hasSelectableSources || withTags.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) {
+            itemsByAid.set(withTags.aid, withTags)
+          }
+        }
+      }
+      const journalState = replayClassificationJournal(recovered.overlayHistory)
+      let globalClassifications: OldFavoriteWorkspace['classifications'] = Object.fromEntries(
+        [...journalState.classifications].map(([aid, classification]) => [String(aid), clone(classification)]))
+      const classificationCandidates = [...affectedAids]
+        .map((aid) => itemsByAid.get(aid))
+        .filter((item): item is CurrentSegmentItem => Boolean(item))
+        .filter((item) => {
+          const existing = globalClassifications[String(item.aid)]
+          return existing?.source !== 'manual' && existing?.source !== 'deepseek'
+        })
+      const recommendedLedgers = next.candidates
+        .filter((item) => next.adoptedCandidateIds.includes(item.id))
+        .map((item, index) => asLocalRecommendedLedger(item, index))
+      if (classificationCandidates.length && !this.options.classifyCurrentItems && !this.options.classifyCurrentItem) {
+        throw new Error('Old favorite workspace automatic classification is unavailable.')
+      }
+      const classifications = classificationCandidates.length === 0
+        ? []
+        : this.options.classifyCurrentItems
+        ? await this.options.classifyCurrentItems(classificationCandidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
+            shouldCancel
+          })
+        : await Promise.all(classificationCandidates.map((item) => recommendedLedgers.length
+          ? this.options.classifyCurrentItem!(clone(item), clone(recommendedLedgers))
+          : this.options.classifyCurrentItem!(clone(item))))
+      if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+      if (classifications.length !== classificationCandidates.length) {
+        throw new Error('Old favorite workspace automatic classification result is invalid.')
+      }
+      const proposed = classificationCandidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
+      const newEntries: Array<{ segmentId: string; entry: OldFavoriteWorkspaceHistoryEntry; historyCursor: number }> = []
+      for (const segment of classificationSegments) {
+        let segmentWorkspace: OldFavoriteWorkspace = {
+          ...workspace,
+          baseline: { revision: workspace.baseline?.revision ?? recovered.baselineRevision, aids: [...segment.aids] },
+          plannedAids: [...segment.aids],
+          segments: [segment],
+          classifications: globalClassifications,
+          history: clone(journalState.entriesBySegment.get(segment.id) ?? []),
+          historyCursor: journalState.cursorBySegment.get(segment.id) ?? 0
+        }
+        for (const source of ['system-high', 'system-low'] as const) {
+          const assignments = proposed
+            .filter(({ aid, proposal }) => segment.aids.includes(aid) &&
+              proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
+            .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
+          if (!assignments.length) continue
+          const classified = applyWorkspaceClassificationBatch(segmentWorkspace, {
+            source,
+            assignments,
+            replaceExistingSystem: true
+          })
+          if (classified === segmentWorkspace) continue
+          newEntries.push({
+            segmentId: segment.id,
+            entry: clone(classified.history[classified.history.length - 1]!),
+            historyCursor: classified.historyCursor
+          })
+          globalClassifications = classified.classifications
+          segmentWorkspace = classified
+        }
+      }
+
+      const readiness = newEntries.flatMap(({ entry }) => entry.changes).reduce((current, change) => ({
+        selectedAidCount: current.selectedAidCount,
+        classifiedAidCount: current.classifiedAidCount +
+          (change.after?.targetLedgerIds.length ? 1 : 0) - (change.before?.targetLedgerIds.length ? 1 : 0)
+      }), clone(recovered.planReadiness))
+      if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+      this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace),
+        classifications: newEntries.flatMap(({ entry }) => entry.changes.flatMap((change) => change.after ? [{
+          aid: change.after.aid,
+          targetLedgerIds: [...change.after.targetLedgerIds],
+          source: change.after.source
+        }] : [])),
+        history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
+          type: 'classification', segmentId, entry: clone(entry), historyCursor
+        })),
+        recommendations: next,
+        planReadiness: readiness,
+        ruleAnalysisCheckpoint: null
+      })
+      const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
+      const visibleEntries = newEntries.filter(({ segmentId }) => segmentId === this.currentSegment(workspace)).map(({ entry }) => ({
+        ...clone(entry),
+        changes: entry.changes.filter((change) => visibleAidSet.has(change.aid)).map(clone)
+      })).filter((entry) => entry.changes.length > 0)
+      const visibleHistory = [...workspace.history.slice(0, workspace.historyCursor), ...visibleEntries]
+      const visibleUpdated: OldFavoriteWorkspace = {
+        ...workspace,
+        classifications: Object.fromEntries(Object.entries(globalClassifications)
+          .filter(([aid]) => visibleAidSet.has(Number(aid))).map(([aid, classification]) => [aid, clone(classification)])),
+        history: visibleHistory,
+        historyCursor: visibleHistory.length
+      }
+      this.recommendations.set(workspace.accountMid, clone(next))
+      this.planReadiness.set(workspace.accountMid, readiness)
+      this.workspaces.set(workspace.accountMid, visibleUpdated)
+      return clone(visibleUpdated)
+    })
+    return run.finally(() => {
+      if (this.draftLedgerRuleAnalysisIds.get(normalizedAccount) === input.analysisId) {
+        this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
+      }
+    })
   }
 
   /** Creates a repository-only logical target, then reapplies system suggestions for the current segment. */
@@ -2030,6 +2352,8 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
       const currentSegmentId = this.currentSegment(workspace)
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
+      const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
+        .map((candidate) => [candidate.id, candidate.sourceName] as const))
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const itemsByAid = new Map<number, CurrentSegmentItem>()
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
@@ -2072,10 +2396,12 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter((folder) => folder.kind === 'local')
         .map((folder) => [folder.id, folder.title]))
       const localFolderTitles = new Map(await Promise.all(Object.keys(memberAidsByFolderId).map(async (folderId) => {
-        const existingTitle = existingLocalTitles.get(folderId)
-        if (existingTitle) return [folderId, existingTitle] as const
         if (folderId === 'local:inbox') return [folderId, '暂存'] as const
         const logicalLedgerId = folderId.slice('local:'.length)
+        const recommendationTitle = recommendationTitles.get(logicalLedgerId)
+        if (recommendationTitle) return [folderId, recommendationTitle] as const
+        const existingTitle = existingLocalTitles.get(folderId)
+        if (existingTitle) return [folderId, existingTitle] as const
         return [folderId, await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ??
           defaultTitles.get(logicalLedgerId) ?? logicalLedgerId] as const
       })))
@@ -2687,21 +3013,18 @@ export class OldFavoriteWorkspaceCoordinator {
     this.currentSegmentItems.set(marker.accountMid, recovered.loadedSegmentItems.map(clone))
     const activeAidSet = new Set(loaded.aids)
     const frozenIds = new Set(events.flatMap((event) => event.type === 'freeze' ? [event.segmentId] : []))
-    const historyEvents = events.filter((event): event is ClassificationJournalEvent => event.type === 'classification')
-    const allHistory = historyEvents.map((event) => clone(event.entry))
-    const latestCursor = [...events].reverse().find((event): event is ClassificationJournalEvent | CursorJournalEvent =>
-      event.type === 'classification' || event.type === 'history-cursor')?.historyCursor ?? allHistory.length
+    const journalState = replayClassificationJournal(recovered.overlayHistory)
+    const allHistory = journalState.entriesBySegment.get(recovered.currentSegmentId) ?? []
+    const latestCursor = journalState.cursorBySegment.get(recovered.currentSegmentId) ?? allHistory.length
     const recoveredHistory = allHistory.map((entry) => ({
       ...entry,
       changes: entry.changes.filter((change) => activeAidSet.has(change.aid))
     })).filter((entry) => entry.changes.length > 0)
     const history = marker.status === 'completed' ? [] : recoveredHistory
     const historyCursor = marker.status === 'completed' ? 0 : Math.min(latestCursor, history.length)
-    const historyBaselineEvent = [...events].reverse().find((event): event is HistoryBaselineJournalEvent =>
-      event.type === 'history-baseline')
     const historyBaselineCursor = marker.status === 'completed'
       ? 0
-      : Math.min(historyBaselineEvent?.historyCursor ?? 0, history.length)
+      : Math.min(journalState.baselineCursorBySegment.get(recovered.currentSegmentId) ?? 0, history.length)
     const classifications: OldFavoriteWorkspace['classifications'] = {}
     for (const entry of history.slice(0, historyCursor)) {
       for (const change of entry.changes) {
@@ -2902,32 +3225,7 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Replays per-segment journal deltas only when compiling a one-confirmation remote plan. */
   private async loadSelectedClassificationsForFreeze(workspace: OldFavoriteWorkspace) {
     const overlays = await this.options.workspaceStore.readOverlayHistory(workspace.accountMid, workspace.id)
-    const entriesBySegment = new Map<string, OldFavoriteWorkspaceHistoryEntry[]>()
-    const cursorBySegment = new Map<string, number>()
-    for (const overlay of overlays) {
-      const entries = entriesBySegment.get(overlay.currentSegmentId) ?? []
-      for (const history of overlay.history) {
-        const event = decodeJournalEvent(history)
-        if (!event) continue
-        if (event.type === 'classification') {
-          const next = entries.slice(0, Math.max(0, event.historyCursor - 1))
-          next.push(clone(event.entry))
-          entriesBySegment.set(overlay.currentSegmentId, next)
-          cursorBySegment.set(overlay.currentSegmentId, event.historyCursor)
-        } else if (event.type === 'history-cursor') {
-          cursorBySegment.set(overlay.currentSegmentId, event.historyCursor)
-        }
-      }
-    }
-    const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
-    for (const [segmentId, entries] of entriesBySegment) {
-      for (const entry of entries.slice(0, Math.min(cursorBySegment.get(segmentId) ?? entries.length, entries.length))) {
-        for (const change of entry.changes) {
-          if (change.after) classifications.set(change.aid, clone(change.after))
-          else classifications.delete(change.aid)
-        }
-      }
-    }
+    const classifications = replayClassificationJournal(overlays).classifications
     const overview = this.scanOverviews.get(workspace.accountMid)
     if (!overview) return []
     const sourceFolders = overview.sourceFolders

@@ -2433,6 +2433,707 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('keeps the active draft unchanged until a saved local rule is fully analyzed and classified', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classification = deferred<Array<{ targetLedgerIds: string[]; confidence: 'high' | 'low' }>>()
+    const classifyCurrentItems = vi.fn(() => classification.promise)
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha series', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Manual choice', author: 'UP Beta', sourceFolderIds: ['source'] }
+      ]
+    })
+    const workspace = await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
+    })
+
+    const saving = coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-local-alpha',
+      title: 'Alpha',
+      keywords: ['Alpha'],
+      ruleType: 'keyword'
+    })
+    await vi.waitFor(() => expect(classifyCurrentItems).toHaveBeenCalledOnce())
+
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: { '2': { targetLedgerIds: ['manual'], source: 'manual' } }
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-alpha')).toBeUndefined()
+
+    classification.resolve([{ targetLedgerIds: ['local-alpha'], confidence: 'high' }])
+    await saving
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({
+          id: 'local-alpha', count: 1
+        })],
+        adoptedCandidateIds: ['local-alpha']
+      },
+      classifications: {
+        '1': { targetLedgerIds: ['local-alpha'], source: 'system-high' },
+        '2': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-alpha')).toBeUndefined()
+  })
+
+  it('cancels draft rule analysis out of band without committing partial rules or classifications', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn()
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    const workspace = await coordinator.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 129 }, (_, index) => index + 1)
+    })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const onProgress = vi.fn((progress: { analysisId: string }) => {
+      coordinator.cancelDraftLedgerRuleAnalysis('100', progress.analysisId)
+    })
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-cancel-local',
+      title: 'Canceled',
+      keywords: ['Canceled'],
+      ruleType: 'keyword'
+    }, onProgress)).rejects.toThrow('Old favorite ledger rule analysis canceled.')
+
+    expect(onProgress).toHaveBeenCalledTimes(1)
+    expect(classifyCurrentItems).not.toHaveBeenCalled()
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: { '1': { targetLedgerIds: ['manual'], source: 'manual' } }
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-canceled')).toBeUndefined()
+  })
+
+  it('registers a draft rule analysis before its queued work starts so immediate cancellation is not lost', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['local-immediate'], confidence: 'high' as const
+    })))
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    const workspace = await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    const saving = coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-immediate-cancel',
+      title: 'Immediate',
+      keywords: ['Video 1'],
+      ruleType: 'keyword'
+    })
+    expect(coordinator.cancelDraftLedgerRuleAnalysis('100', 'analysis-immediate-cancel')).toBe(true)
+
+    await expect(saving).rejects.toThrow('Old favorite ledger rule analysis canceled.')
+    expect(classifyCurrentItems).not.toHaveBeenCalled()
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: {}
+    })
+  })
+
+  it('stops accepting cancellation once the atomic draft publication has started', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+        targetLedgerIds: ['local-publication'], confidence: 'high' as const
+      }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Publication Match', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const publicationStarted = deferred<void>()
+    const releasePublication = deferred<void>()
+    const appendOverlay = workspaceStore.appendOverlay.bind(workspaceStore)
+    vi.spyOn(workspaceStore, 'appendOverlay').mockImplementation(async (accountMid, workspaceId, overlay) => {
+      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations?.candidates?.some((item) => item.id === 'local-publication')) {
+        publicationStarted.resolve(undefined)
+        await releasePublication.promise
+      }
+      return appendOverlay(accountMid, workspaceId, overlay)
+    })
+
+    const saving = coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-publication-boundary',
+      title: 'Publication',
+      keywords: ['Publication Match'],
+      ruleType: 'keyword'
+    })
+    await publicationStarted.promise
+    const canceled = coordinator.cancelDraftLedgerRuleAnalysis('100', 'analysis-publication-boundary')
+    releasePublication.resolve(undefined)
+    await saving
+
+    expect(canceled).toBe(false)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['local-publication'] }
+    })
+  })
+
+  it('reports and checkpoints progress against selected source items only', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+        targetLedgerIds: ['local-selected'], confidence: 'high' as const
+      }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'selected', title: 'Selected', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'deselected', title: 'Deselected', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'selected', page: 1,
+      items: [{ aid: 1, title: 'Selected Match', sourceFolderIds: ['selected'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'deselected', page: 1,
+      items: [{ aid: 2, title: 'Selected Match', sourceFolderIds: ['deselected'] }]
+    })
+    const workspace = await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['selected'])
+    const onProgress = vi.fn((progress: { analysisId: string; completedItemCount: number; totalItemCount: number }) => {
+      if (progress.completedItemCount === 1) coordinator.cancelDraftLedgerRuleAnalysis('100', progress.analysisId)
+    })
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-selected-progress',
+      title: 'Selected',
+      keywords: ['Selected Match'],
+      ruleType: 'keyword'
+    }, onProgress)).rejects.toThrow('Old favorite ledger rule analysis canceled.')
+
+    expect(onProgress.mock.calls.map(([progress]) => [progress.completedItemCount, progress.totalItemCount])).toEqual([[1, 1]])
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      ruleAnalysisCheckpoint: {
+        completedSegmentIds: ['segment-1'],
+        completedItemCount: 1,
+        totalItemCount: 1
+      },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }
+    })
+  })
+
+  it('keeps the prior draft active and retires the analysis id when rule classification fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn().mockRejectedValue(new Error('classifier unavailable')),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha series', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Manual choice', author: 'UP Beta', sourceFolderIds: ['source'] }
+      ]
+    })
+    const workspace = await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
+    })
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-failed-local',
+      title: 'Alpha',
+      keywords: ['Alpha'],
+      ruleType: 'keyword'
+    })).rejects.toThrow('classifier unavailable')
+
+    expect(coordinator.cancelDraftLedgerRuleAnalysis('100', 'analysis-failed-local')).toBe(false)
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: { '2': { targetLedgerIds: ['manual'], source: 'manual' } }
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-alpha')).toBeUndefined()
+  })
+
+  it('updates a saved rule by stable ledger id and creates its renamed folder only during final local save', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number; title?: string }>) => items.map((item) => item.title?.includes('Beta')
+        ? { targetLedgerIds: ['local-topic'], confidence: 'high' as const }
+        : { targetLedgerIds: [], confidence: 'low' as const })),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha entry', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Beta entry', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-create-topic',
+      title: 'Topic',
+      keywords: ['Alpha'],
+      ruleType: 'keyword'
+    })
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-rename-topic',
+      ledgerId: 'local-topic',
+      title: 'Renamed Topic',
+      keywords: ['Beta'],
+      ruleType: 'keyword'
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'local-topic', displayName: 'bilimi·Renamed Topic', count: 1 })],
+        adoptedCandidateIds: ['local-topic']
+      },
+      classifications: {
+        '2': { targetLedgerIds: ['local-topic'], source: 'system-high' }
+      }
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-topic')).toBeUndefined()
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'local:local-topic', title: 'Renamed Topic', kind: 'local', syncState: 'local-only' })
+      ])
+    })
+  })
+
+  it('does not leave a repository folder when atomic draft publication fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+        targetLedgerIds: ['local-failed-publication'], confidence: 'high' as const
+      }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Failed Publication Match', sourceFolderIds: ['source'] }]
+    })
+    const workspace = await coordinator.finishScan('100')
+    const appendOverlay = workspaceStore.appendOverlay.bind(workspaceStore)
+    vi.spyOn(workspaceStore, 'appendOverlay').mockImplementation(async (accountMid, workspaceId, overlay) => {
+      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations?.candidates?.some((item) => item.id === 'local-failed-publication')) {
+        throw new Error('final overlay failed')
+      }
+      return appendOverlay(accountMid, workspaceId, overlay)
+    })
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-failed-publication',
+      title: 'Failed Publication',
+      keywords: ['Failed Publication Match'],
+      ruleType: 'keyword'
+    })).rejects.toThrow('final overlay failed')
+
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-failed-publication')).toBeUndefined()
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: {}
+    })
+  })
+
+  it('resumes the same saved rule from a persisted completed-segment checkpoint', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items) => items.map(() => ({ targetLedgerIds: [], confidence: 'low' as const }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    const workspace = await coordinator.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
+    })
+    const firstProgress = vi.fn((progress: { analysisId: string; completedItemCount: number }) => {
+      if (progress.completedItemCount === 2_000) {
+        coordinator.cancelDraftLedgerRuleAnalysis('100', progress.analysisId)
+      }
+    })
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-checkpoint-first',
+      title: 'Checkpoint',
+      keywords: ['Checkpoint'],
+      ruleType: 'keyword'
+    }, firstProgress)).rejects.toThrow('Old favorite ledger rule analysis canceled.')
+
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      ruleAnalysisCheckpoint: {
+        ledgerId: 'local-checkpoint',
+        completedSegmentIds: ['segment-1'],
+        completedItemCount: 2_000,
+        totalItemCount: 2_001,
+        matchedAidsBySegment: {}
+      },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }
+    })
+
+    const resumedCoordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItems: vi.fn((items) => items.map(() => ({ targetLedgerIds: [], confidence: 'low' as const }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const resumedProgress = vi.fn()
+    await resumedCoordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-checkpoint-resume',
+      title: 'Checkpoint',
+      keywords: ['Checkpoint'],
+      ruleType: 'keyword'
+    }, resumedProgress)
+
+    expect(resumedProgress.mock.calls.map(([progress]) => [
+      progress.completedItemCount,
+      progress.totalItemCount
+    ])).toEqual([[2_001, 2_001]])
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
+      ruleAnalysisCheckpoint: undefined,
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'local-checkpoint', matchedAidsBySegment: {} })],
+        adoptedCandidateIds: ['local-checkpoint']
+      }
+    })
+  })
+
+  it('commits a saved rule classification outside the loaded segment after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_001, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 2_001; offset += 50) {
+      await first.recordScanPage('100', {
+        folderId: 'source', page: (offset / 50) + 1,
+        items: Array.from({ length: Math.min(50, 2_001 - offset) }, (_, index) => {
+          const aid = offset + index + 1
+          return { aid, title: aid === 2_001 ? 'Later Match' : `Video ${aid}`, sourceFolderIds: ['source'] }
+        })
+      })
+    }
+    const workspace = await first.finishScan('100')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['local-later'], confidence: 'high' as const
+    })))
+    const resumed = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await resumed.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-later-segment',
+      title: 'Later',
+      keywords: ['Later Match'],
+      ruleType: 'keyword'
+    })
+
+    expect(classifyCurrentItems).toHaveBeenCalledOnce()
+    expect(classifyCurrentItems.mock.calls[0]?.[0].map((item) => item.aid)).toEqual([2_001])
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['manual'], source: 'manual' },
+        '2001': { targetLedgerIds: ['local-later'], source: 'system-high' }
+      },
+      planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2 }
+    })
+    await expect(resumed.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-1' },
+      classifications: { '1': { targetLedgerIds: ['manual'], source: 'manual' } }
+    })
+    await resumed.selectSegment('100', 'segment-2')
+    await expect(resumed.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-2' },
+      classifications: { '2001': { targetLedgerIds: ['local-later'], source: 'system-high' } }
+    })
+  })
+
+  it('retains only sparse matched AIDs across segments for rule reclassification', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['local-sparse'], confidence: 'high' as const
+    })))
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_001, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 2_001; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: (offset / 50) + 1,
+        items: Array.from({ length: Math.min(50, 2_001 - offset) }, (_, index) => {
+          const aid = offset + index + 1
+          return {
+            aid,
+            title: aid === 1 || aid === 2_001 ? 'Sparse Match' : `Video ${aid}`,
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    const workspace = await coordinator.finishScan('100')
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-sparse-segments',
+      title: 'Sparse',
+      keywords: ['Sparse Match'],
+      ruleType: 'keyword'
+    })
+
+    expect(classifyCurrentItems).toHaveBeenCalledOnce()
+    expect(classifyCurrentItems.mock.calls[0]?.[0].map((item) => item.aid)).toEqual([1, 2_001])
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({
+          id: 'local-sparse',
+          matchedAidsBySegment: { 'segment-1': [1], 'segment-2': [2_001] }
+        })]
+      }
+    })
+  })
+
+  it('preserves manual and DeepSeek classifications from a later segment when saving a rule after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_002, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 2_002; offset += 50) {
+      await first.recordScanPage('100', {
+        folderId: 'source', page: (offset / 50) + 1,
+        items: Array.from({ length: Math.min(50, 2_002 - offset) }, (_, index) => {
+          const aid = offset + index + 1
+          return {
+            aid,
+            title: aid >= 2_001 ? 'Protected Match' : `Video ${aid}`,
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    const workspace = await first.finishScan('100')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['first-segment-manual'] }]
+    })
+    await first.selectSegment('100', 'segment-2')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['later-manual'] }]
+    })
+    const laterSnapshot = requireSnapshot(await first.getSnapshot('100'))
+    await first.applyDeepSeekClassificationBatch('100', [{ aid: 2_002, targetLedgerIds: ['later-deepseek'] }], {
+      workspaceId: laterSnapshot.workspaceId,
+      currentSegmentId: laterSnapshot.currentSegment!.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: { '2001': { targetLedgerIds: ['later-manual'], source: 'manual' } }
+    })
+    await first.selectSegment('100', 'segment-1')
+
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['local-protected'], confidence: 'high' as const
+    })))
+    const resumed = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await resumed.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-protected-segment',
+      title: 'Protected',
+      keywords: ['Protected Match'],
+      ruleType: 'keyword'
+    })
+
+    expect(classifyCurrentItems).not.toHaveBeenCalled()
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['first-segment-manual'], source: 'manual' },
+        '2001': { targetLedgerIds: ['later-manual'], source: 'manual' },
+        '2002': { targetLedgerIds: ['later-deepseek'], source: 'deepseek' }
+      },
+      planReadiness: { selectedAidCount: 2_002, classifiedAidCount: 3 }
+    })
+  })
+
+  it('replays the active undo branch before classifying a saved rule', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'First', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Branch Match', sourceFolderIds: ['source'] },
+        { aid: 3, title: 'Branch Match', sourceFolderIds: ['source'] }
+      ]
+    })
+    const workspace = await first.finishScan('100')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['first'] }]
+    })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['discarded-branch'] }]
+    })
+    await first.undoClassificationChange('100')
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 3, targetLedgerIds: ['active-branch'] }]
+    })
+
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['local-branch'], confidence: 'high' as const
+    })))
+    const resumed = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await resumed.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-active-branch',
+      title: 'Branch',
+      keywords: ['Branch Match'],
+      ruleType: 'keyword'
+    })
+
+    expect(classifyCurrentItems).toHaveBeenCalledOnce()
+    expect(classifyCurrentItems.mock.calls[0]?.[0].map((item) => item.aid)).toEqual([2])
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['first'], source: 'manual' },
+        '2': { targetLedgerIds: ['local-branch'], source: 'system-high' },
+        '3': { targetLedgerIds: ['active-branch'], source: 'manual' }
+      },
+      planReadiness: { selectedAidCount: 3, classifiedAidCount: 3 }
+    })
+  })
+
+  it('reports the standard unavailable error when a matching saved rule has no classifier', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Alpha Match', sourceFolderIds: ['source'] }]
+    })
+    const workspace = await coordinator.finishScan('100')
+
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-no-classifier',
+      title: 'Alpha',
+      keywords: ['Alpha Match'],
+      ruleType: 'keyword'
+    })).rejects.toThrow('Old favorite workspace automatic classification is unavailable.')
+
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: {}
+    })
+    expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-alpha')).toBeUndefined()
+  })
+
   it('restores adopted recommendations without leaking them across accounts', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceCoordinator({

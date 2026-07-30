@@ -12,9 +12,10 @@ import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepS
 type IpcEvent = {
   sender: {
     id: number
-    send: (channel: 'old-favorite-workspace-v1:deepseek-progress' | 'old-favorite-workspace-v1:preview-preparation-progress', progress: {
+    send: (channel: 'old-favorite-workspace-v1:deepseek-progress' | 'old-favorite-workspace-v1:preview-preparation-progress' | 'old-favorite-workspace-v1:rule-analysis-progress', progress: {
       accountMid: string
       workspaceId: string
+      analysisId?: string
       totalChunks?: number
       completedChunks?: number
       totalVideoCount?: number
@@ -49,6 +50,15 @@ type WorkspaceCommand =
   | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
   | { type: 'cancel-recommendation-preview-preparation' }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
+  | {
+      type: 'save-draft-ledger-rule'
+      analysisId: string
+      ledgerId?: string
+      title: string
+      keywords: string[]
+      ruleType: 'keyword' | 'author' | 'tag'
+    }
+  | { type: 'cancel-draft-ledger-rule-analysis'; analysisId: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
@@ -142,6 +152,27 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'create-local-ledger-and-reclassify' && typeof candidate.title === 'string' &&
     candidate.title.trim().length > 0 && candidate.title.trim().length <= 128 && Object.keys(candidate).every((key) => key === 'type' || key === 'title')) {
     return { type: 'create-local-ledger-and-reclassify', title: candidate.title.trim() }
+  }
+  if (candidate.type === 'save-draft-ledger-rule' &&
+    typeof candidate.analysisId === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(candidate.analysisId) &&
+    (candidate.ledgerId === undefined || (typeof candidate.ledgerId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(candidate.ledgerId.trim()))) &&
+    typeof candidate.title === 'string' && candidate.title.trim().length > 0 && candidate.title.trim().length <= 128 &&
+    Array.isArray(candidate.keywords) && candidate.keywords.length > 0 && candidate.keywords.length <= 64 &&
+    candidate.keywords.every((keyword) => typeof keyword === 'string' && keyword.trim().length > 0 && keyword.trim().length <= 128) &&
+    (candidate.ruleType === 'keyword' || candidate.ruleType === 'author' || candidate.ruleType === 'tag') &&
+    Object.keys(candidate).every((key) => ['type', 'analysisId', 'ledgerId', 'title', 'keywords', 'ruleType'].includes(key))) {
+    return {
+      type: 'save-draft-ledger-rule',
+      analysisId: candidate.analysisId,
+      ...(candidate.ledgerId ? { ledgerId: candidate.ledgerId.trim() } : {}),
+      title: candidate.title.trim(),
+      keywords: [...new Set(candidate.keywords.map((keyword) => keyword.trim()))],
+      ruleType: candidate.ruleType
+    }
+  }
+  if (candidate.type === 'cancel-draft-ledger-rule-analysis' && typeof candidate.analysisId === 'string' &&
+    /^[a-zA-Z0-9_-]{8,128}$/.test(candidate.analysisId) && Object.keys(candidate).length === 2) {
+    return { type: 'cancel-draft-ledger-rule-analysis', analysisId: candidate.analysisId }
   }
   if (candidate.type === 'freeze-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'freeze-segment', segmentId: candidate.segmentId.trim() }
@@ -297,6 +328,23 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       options.coordinator.cancelRecommendationPreviewPreparation(accountMid)
     }
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
+    if (requested.type === 'save-draft-ledger-rule') {
+      await options.coordinator.saveDraftLedgerRule(accountMid, {
+        analysisId: requested.analysisId,
+        ...(requested.ledgerId ? { ledgerId: requested.ledgerId } : {}),
+        title: requested.title,
+        keywords: requested.keywords,
+        ruleType: requested.ruleType
+      }, (progress) => {
+        event.sender.send('old-favorite-workspace-v1:rule-analysis-progress', {
+          accountMid,
+          ...progress
+        })
+      })
+    }
+    if (requested.type === 'cancel-draft-ledger-rule-analysis') {
+      options.coordinator.cancelDraftLedgerRuleAnalysis(accountMid, requested.analysisId)
+    }
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
     if (requested.type === 'select-recovery-decision') {

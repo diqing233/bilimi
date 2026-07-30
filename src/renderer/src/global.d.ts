@@ -99,6 +99,13 @@ type BilimiDesktopApi = {
     completedItemCount: number
     totalItemCount: number
   }) => void) => () => void
+  onOldFavoriteWorkspaceRuleAnalysisProgress?: (callback: (progress: {
+    accountMid: string
+    workspaceId: string
+    analysisId: string
+    completedItemCount: number
+    totalItemCount: number
+  }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
