@@ -86,14 +86,14 @@ Expected: the ignore rule is committed locally and evidence remains available un
 **Files:**
 - Inspect: repository status and recent local commits
 
-- [ ] **Step 1: Check the final worktree**
+- [x] **Step 1: Check the final worktree**
 
 Run: `git status --short`
 
-Expected: no unexplained source, test, document, or artifact paths remain.
+Result: `git status --short` returned no paths. The ignored `.codex-artifacts/` directory contains 125 retained files (about 22.3 MiB), and the repository root contains no `.codex-*` files.
 
-- [ ] **Step 2: Check local checkpoint history**
+- [x] **Step 2: Check local checkpoint history**
 
 Run: `git log -3 --oneline`
 
-Expected: the integration checkpoint and hygiene commit are present locally; nothing is pushed.
+Result: integration checkpoint `657ac7e0` and hygiene commit `e21f47fc` are present locally. The branch has no matching remote tracking branch and nothing was pushed.
