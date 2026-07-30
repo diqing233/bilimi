@@ -471,6 +471,80 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
 
+  it('analyzes a normal ledger rule in the active workspace before saving the account configuration', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'completed' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const analyzed = deferred<typeof preview>()
+    const command = vi.fn((_: string, request: { type: string }) => request.type === 'save-draft-ledger-rule'
+      ? analyzed.promise
+      : Promise.resolve(preview))
+    const save = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'custom-music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    await waitFor(() => expect(window.bilimiDesktop?.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '旋律 节奏' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'save-draft-ledger-rule', ledgerId: 'custom-music', title: '音乐', keywords: ['旋律', '节奏'], ruleType: 'keyword'
+    })))
+    expect(save).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toHaveAttribute('aria-current', 'step')
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    await act(async () => analyzed.resolve(preview))
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'custom-music', keywords: ['旋律', '节奏'] })
+    ], { deleteDisabled: false }))
+  })
+
+  it('keeps DeepSeek-only ledger rules on the account configuration path during an active workspace', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'completed' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn()
+    const save = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'deepseek-music', displayName: 'bilimi·精选音乐', keywords: ['保留现场'], ruleType: 'deepseek', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    await waitFor(() => expect(window.bilimiDesktop?.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
+    fireEvent.click(screen.getByRole('button', { name: '精选音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'DeepSeek约束' }), { target: { value: '只保留现场演出' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'deepseek-music', keywords: ['只保留现场演出'], ruleType: 'deepseek' })
+    ], { deleteDisabled: false }))
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'save-draft-ledger-rule' }))
+  })
+
   it('cancels a new local ledger editor without leaving a chip behind', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)

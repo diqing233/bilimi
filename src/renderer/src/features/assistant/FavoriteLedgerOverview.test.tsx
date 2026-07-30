@@ -1,9 +1,85 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
 
 describe('FavoriteLedgerOverview', () => {
   afterEach(() => vi.useRealTimers())
+  it('waits for active-round rule analysis before persisting and locks only draft mutations', async () => {
+    const analysis = deferred<boolean>()
+    const analyze = vi.fn((_ledger: unknown) => analysis.promise)
+    const cancelAnalysis = vi.fn()
+    const save = vi.fn()
+    function Harness() {
+      const [activeAnalysis, setActiveAnalysis] = useState<null | {
+        ledgerId: string
+        status: 'running' | 'canceling'
+        completedItemCount: number
+        totalItemCount: number
+      }>(null)
+      return <FavoriteLedgerOverview ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false }
+      ]} missingLedgerIds={[]} organizationActive onSaveLedgers={save}
+        draftRuleAnalysis={activeAnalysis}
+        draftRuleAnalysisError={null}
+        onAnalyzeLedgerRule={async (ledger) => {
+          setActiveAnalysis({ ledgerId: ledger.id, status: 'running', completedItemCount: 128, totalItemCount: 2_000 })
+          try { return await analyze(ledger) } finally { setActiveAnalysis(null) }
+        }}
+        onCancelDraftRuleAnalysis={cancelAnalysis} />
+    }
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '旋律 节奏' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(analyze).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'music', keywords: ['旋律', '节奏']
+    })))
+    expect(save).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('正在分析 128 / 2000 条')
+    expect(screen.getByRole('progressbar', { name: '收藏夹规则分析进度' })).toHaveAttribute('aria-valuenow', '128')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '新建收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '同步' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '（未保存）音乐' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）音乐' }))
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消分析' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '取消分析' }))
+    expect(cancelAnalysis).toHaveBeenCalledTimes(1)
+
+    await act(async () => analysis.resolve(true))
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'music', keywords: ['旋律', '节奏'] })
+    ], { deleteDisabled: false }))
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the edited ledger open and unsaved when active-round analysis does not complete', async () => {
+    const save = vi.fn()
+    const analyze = vi.fn().mockResolvedValue(false)
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} organizationActive onSaveLedgers={save}
+      onAnalyzeLedgerRule={analyze} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '节奏' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(analyze).toHaveBeenCalledTimes(1))
+    expect(save).not.toHaveBeenCalled()
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+  })
+
   it('inserts a dragged ledger above the blue-line target', () => {
     const save = vi.fn()
     const data = new Map<string, string>()

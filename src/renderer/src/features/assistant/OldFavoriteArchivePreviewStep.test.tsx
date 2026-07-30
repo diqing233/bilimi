@@ -106,6 +106,47 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('group', { name: '音乐舞台 1 条' })).toBeInTheDocument()
   })
 
+  it('locks only preview mutations during ledger analysis while keeping segment and expansion browsing available', () => {
+    const items = Array.from({ length: 13 }, (_, index) => ({
+      aid: index + 1, title: `Preview ${index + 1}`, sourceFolderIds: ['source']
+    }))
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 13, isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', index: 0, itemCount: 13, status: 'previewing' },
+          { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' }
+        ],
+        currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: {
+          cursor: 1, length: 2, entries: [
+            { cursor: 1, source: 'manual', changeCount: 1, targetLedgerIds: ['inbox'] },
+            { cursor: 2, source: 'deepseek', changeCount: 1, targetLedgerIds: ['inbox'] }
+          ]
+        }
+      }}
+      ledgers={[]} loading={false} mutationLocked deepSeekAvailable deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '全部存入暂存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '转移 Preview 1' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '第 2 组' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '显示全部 13 条' })).toBeEnabled()
+
+    const history = screen.getByRole('button', { name: '查看改动记录' })
+    expect(history).toBeEnabled()
+    fireEvent.click(history)
+    expect(screen.getByRole('menuitem', { name: 'DeepSeek：1 条 → inbox' })).toBeDisabled()
+  })
+
   it('restores a select-all control for every concrete archive group', () => {
     const onApplyManualClassifications = vi.fn()
     render(<OldFavoriteArchivePreviewStep

@@ -137,7 +137,7 @@ describe('OldFavoriteConfirmationStep', () => {
       onSetRecommendedCandidates={vi.fn()} ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null} onSelectSegment={vi.fn()}
       onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
       onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()}
-      onApplyManualClassifications={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()}
+      onApplyManualClassifications={vi.fn()} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()}
       onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 

@@ -47,6 +47,7 @@ type OldFavoriteArchivePreviewStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   ledgers: FavoriteLedger[]
   loading: boolean
+  mutationLocked?: boolean
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
@@ -65,6 +66,7 @@ export function OldFavoriteArchivePreviewStep({
   snapshot,
   ledgers,
   loading,
+  mutationLocked = false,
   deepSeekAvailable,
   deepSeekFeedback,
   onSelectSegment,
@@ -147,7 +149,7 @@ export function OldFavoriteArchivePreviewStep({
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
     classification={snapshot.classifications[String(item.aid)]}
     ledgers={ledgers}
-    loading={loading}
+    loading={loading || mutationLocked}
     onApplyManualClassification={onApplyManualClassification}
   />
 
@@ -190,7 +192,7 @@ export function OldFavoriteArchivePreviewStep({
                 disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
                 {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
               </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
-                disabled={!deepSeekAvailable || loading || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
+                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
                 DeepSeek 整理
               </button>}
             </div>
@@ -214,7 +216,7 @@ export function OldFavoriteArchivePreviewStep({
               <summary>查看失败详情</summary>
               {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
             </details> : null}
-            {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
+            {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
         <div className="favorite-ledger-panel__archive-tool-divider favorite-ledger-panel__archive-tool-divider--full-width" aria-hidden="true" />
@@ -231,21 +233,21 @@ export function OldFavoriteArchivePreviewStep({
               {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
                 <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>
                 {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
-                  disabled={loading} onClick={() => {
+                  disabled={loading || mutationLocked} onClick={() => {
                     setHistoryOpen(false)
                     onMoveHistoryCursor(entry.cursor)
                   }}>{historyLabel(entry)}</button>)}
                 <div className="favorite-ledger-panel__archive-history-divider" aria-hidden="true" />
                 <button type="button" role="menuitem" className="favorite-ledger-panel__archive-history-restore"
-                  disabled={loading || snapshot.history.cursor <= historyBaselineCursor} onClick={() => {
+                  disabled={loading || mutationLocked || snapshot.history.cursor <= historyBaselineCursor} onClick={() => {
                     setHistoryOpen(false)
                     onMoveHistoryCursor(historyBaselineCursor)
                   }}>恢复初始改动</button>
               </div> : null}
               </div>
             </label>
-            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor <= historyBaselineCursor} onClick={onUndo}>撤销本次改动</button>
-            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || mutationLocked || snapshot.history.cursor <= historyBaselineCursor} onClick={onUndo}>撤销本次改动</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || mutationLocked || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
           </div>
           <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
         </div>
@@ -262,10 +264,10 @@ export function OldFavoriteArchivePreviewStep({
         return <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
           data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
           <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span>
-            {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading}
+            {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading || mutationLocked}
               onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
                 aid: item.aid, targetLedgerIds: event.currentTarget.checked ? ['inbox'] : []
-              })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading}
+              })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading || mutationLocked}
                 onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
                   aid: item.aid, targetLedgerIds: event.currentTarget.checked ? [group.id] : []
                 })))} /><span>全选</span></label>}

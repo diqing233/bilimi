@@ -42,6 +42,110 @@ const recommendationWorkspace = (adoptedCandidateIds: string[] = []) => ({
 })
 
 describe('useOldFavoriteWorkspace', () => {
+  it('tracks scoped draft-rule analysis progress and cancels it without setting global loading', async () => {
+    let publishProgress: ((progress: {
+      accountMid: string
+      workspaceId: string
+      analysisId: string
+      completedItemCount: number
+      totalItemCount: number
+    }) => void) | undefined
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((_accountMid: string, value: { type?: string }) => {
+      if (value.type === 'save-draft-ledger-rule') return pending.promise
+      return Promise.resolve(recommendationWorkspace())
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command,
+      onOldFavoriteWorkspaceRuleAnalysisProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    let saving!: Promise<unknown>
+    act(() => {
+      saving = result.current.saveDraftLedgerRule({
+        ledgerId: 'custom-music', title: '音乐', keywords: ['音乐'], ruleType: 'keyword'
+      })
+    })
+    await waitFor(() => expect(result.current.draftRuleAnalysis?.status).toBe('running'))
+    expect(result.current.loading).toBe(false)
+    const analysisId = result.current.draftRuleAnalysis!.analysisId
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'save-draft-ledger-rule', analysisId,
+      ledgerId: 'custom-music', title: '音乐', keywords: ['音乐'], ruleType: 'keyword'
+    })
+
+    act(() => publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', analysisId: 'stale-analysis',
+      completedItemCount: 999, totalItemCount: 999
+    }))
+    expect(result.current.draftRuleAnalysis).toMatchObject({ completedItemCount: 0, totalItemCount: 0 })
+    act(() => publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', analysisId,
+      completedItemCount: 128, totalItemCount: 2_000
+    }))
+    expect(result.current.draftRuleAnalysis).toMatchObject({ completedItemCount: 128, totalItemCount: 2_000 })
+
+    act(() => { void result.current.cancelDraftLedgerRuleAnalysis() })
+    expect(result.current.draftRuleAnalysis?.status).toBe('canceling')
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'cancel-draft-ledger-rule-analysis', analysisId
+    })
+    await act(async () => pending.reject(new Error('Old favorite ledger rule analysis canceled.')))
+    await act(async () => { await saving })
+    expect(result.current.draftRuleAnalysis).toBeNull()
+    expect(result.current.draftRuleAnalysisError).toBeNull()
+  })
+
+  it('publishes a completed draft-rule snapshot and ignores progress after the active analysis changes', async () => {
+    let publishProgress: ((progress: {
+      accountMid: string
+      workspaceId: string
+      analysisId: string
+      completedItemCount: number
+      totalItemCount: number
+    }) => void) | undefined
+    const completed = {
+      ...recommendationWorkspace(),
+      recommendations: {
+        candidates: [{ id: 'custom-music', displayName: 'bilimi·音乐', kind: 'series' as const, count: 1, reason: 'local' }],
+        adoptedCandidateIds: ['custom-music']
+      }
+    }
+    const command = vi.fn().mockResolvedValue(completed)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command,
+      onOldFavoriteWorkspaceRuleAnalysisProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    await act(async () => {
+      await result.current.saveDraftLedgerRule({
+        ledgerId: 'custom-music', title: '音乐', keywords: ['音乐'], ruleType: 'keyword'
+      })
+    })
+
+    expect(result.current.snapshot).toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-music'] }
+    })
+    expect(result.current.draftRuleAnalysis).toBeNull()
+    act(() => publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', analysisId: 'finished-analysis',
+      completedItemCount: 2_000, totalItemCount: 2_000
+    }))
+    expect(result.current.draftRuleAnalysis).toBeNull()
+  })
+
   it('prepares the current recommendation draft with progress before returning a preview snapshot', async () => {
     let publishProgress: ((progress: { accountMid: string; workspaceId: string; completedItemCount: number; totalItemCount: number }) => void) | undefined
     const pending = deferred<ReturnType<typeof recommendationWorkspace>>()

@@ -29,6 +29,15 @@ type FavoriteLedgerOverviewProps = {
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onSaveLedgerEnabled?: (ledgerId: string, enabled: boolean) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
+  draftRuleAnalysis?: {
+    ledgerId: string
+    status: 'running' | 'canceling'
+    completedItemCount: number
+    totalItemCount: number
+  } | null
+  draftRuleAnalysisError?: string | null
+  onAnalyzeLedgerRule?: (ledger: FavoriteLedger) => Promise<boolean>
+  onCancelDraftRuleAnalysis?: () => void
 }
 
 const LEDGER_SYNC_HINTS = [
@@ -83,7 +92,7 @@ function isRecoveredRemoteDraft(ledger: FavoriteLedger) {
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled = true, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
+export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled = true, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }: FavoriteLedgerOverviewProps) {
   const externalLedgerSignature = JSON.stringify(ledgers)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
@@ -109,6 +118,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTarget, setDragTarget] = useState<string | null>(null)
+  const draftMutationLocked = Boolean(draftRuleAnalysis)
   const recoveredRemoteDrafts = draftLedgers.filter((ledger) =>
     ledger.syncState === 'local-draft' && Boolean(ledger.bilibiliFolderId) && !ledger.enabled)
   const persistVersionRef = useRef(0)
@@ -260,6 +270,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     }, LEDGER_TOGGLE_SAVE_DELAY_MS)
   }
   const toggle = (id: string) => {
+    if (draftMutationLocked) return
     const previousEnabled = enableStore.isEnabled(id)
     if (!enableStore.toggle(id)) return
     const version = (toggleVersionsRef.current.get(id) ?? 0) + 1
@@ -273,25 +284,29 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     scheduleTogglePersist()
   }
   const toggleAll = () => {
+    if (draftMutationLocked) return
     const previousEnabled = enableStore.getEnabledById()
     if (!enableStore.toggleAll()) return
     pendingToggleSaveRef.current.clear()
     pendingBulkSaveRef.current ??= { previousEnabled }
     scheduleTogglePersist()
   }
-  const beginDrag = (id: string, event: DragEvent<HTMLDivElement>) => {
+  const beginDrag = (id: string, event: DragEvent<HTMLButtonElement>) => {
+    if (draftMutationLocked) return
     setDraggedLedgerId(id)
     setDragTarget(null)
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', id)
   }
   const dragOver = (targetId: string, event: DragEvent<HTMLDivElement>) => {
+    if (draftMutationLocked) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     if (!draggedLedgerId || draggedLedgerId === targetId) return setDragTarget(null)
     setDragTarget(targetId)
   }
   const dropOn = (targetId: string, event: DragEvent<HTMLDivElement>) => {
+    if (draftMutationLocked) return
     event.preventDefault()
     const sourceId = event.dataTransfer.getData('text/plain') || draggedLedgerId
     setDraggedLedgerId(null)
@@ -311,16 +326,24 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
   const add = () => {
+    if (draftMutationLocked) return
     const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, isDefault: false }
     enableStore.reconcile(enableEntries([...draftLedgers, ledger]))
     setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true)
   }
   const close = () => {
+    if (draftMutationLocked) return
     if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
     setActiveLedgerId(null); setNewLedger(false)
   }
-  const save = () => {
-    if (!valid) return
+  const save = async () => {
+    if (!valid || draftMutationLocked || !active || !activeLedgerId) return
+    const savingLedgerId = activeLedgerId
+    const ledgerToSave = projectEnabled(draftLedgers).find((ledger) => ledger.id === savingLedgerId)
+    if (organizationActive && ledgerToSave && ledgerToSave.ruleType !== 'deepseek' && onAnalyzeLedgerRule) {
+      const analyzed = await onAnalyzeLedgerRule(ledgerToSave)
+      if (!analyzed) return
+    }
     const previous = ledgers
     const persistVersion = ++persistVersionRef.current
     const next = projectEnabled(draftLedgers).map((ledger) => {
@@ -336,10 +359,11 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       setDraftLedgers(previous)
       setSavedLedgerSnapshots(Object.fromEntries(previous.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     })
-    setActiveLedgerId(null)
+    setActiveLedgerId((current) => current === savingLedgerId ? null : current)
     setNewLedger(false)
   }
   const requestSync = async () => {
+    if (draftMutationLocked) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     const currentLedgers = projectEnabled(draftLedgers)
     const disabledIds = currentLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
@@ -353,6 +377,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     await onSyncLedgers(currentLedgers, { deleteDisabled: false })
   }
   const confirmManagedDeletion = async () => {
+    if (draftMutationLocked) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !deletionCandidates || !deletionConfirmed) return
     await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, deletionCandidates.map((candidate) => candidate.logicalLedgerId))
@@ -362,7 +387,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
-        <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" onClick={() => void requestSync()}>同步</button></div></div>
+        <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" disabled={draftMutationLocked} onClick={() => void requestSync()}>同步</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINTS.map((hint) => <p key={hint}>{hint}</p>)}</div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
@@ -376,9 +401,10 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
             <FavoriteLedgerEnableButton store={enableStore} id={ledger.id} onToggle={() => toggle(ledger.id)}>{({ enabled, toggle: toggleEnabled }) => {
               const ledgerDisplayName = ledger.displayName
               return <>
-              <button type="button" draggable aria-label={ledgerLabel} title={ledgerDisplayName} aria-pressed={enabled && !disabledBySystem}
+              <button type="button" draggable={!draftMutationLocked} aria-label={ledgerLabel} title={ledgerDisplayName} aria-pressed={enabled && !disabledBySystem}
                 onDragStart={(event) => beginDrag(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }} onClick={() => {
                 if (activeLedgerId === ledger.id) {
+                  if (draftMutationLocked) return
                   setActiveLedgerId(null)
                   setNewLedger(false)
                   return
@@ -386,24 +412,31 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
                 setActiveLedgerId(ledger.id)
                 setNewLedger(false)
               }}>{ledgerLabel}</button>
-              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? '移出同步' : '加入同步'} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={!isOperable(ledger)} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
+              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? '移出同步' : '加入同步'} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || !isOperable(ledger)} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
             </>
             }}</FavoriteLedgerEnableButton>
           </div>
         })}</div>
         {recoveredRemoteDrafts.length ? <p className="favorite-ledger-panel__notice">识别到一个可启用的 bilimi 工作夹。设置、保存并启用后才参与分类；更换设备整理时，建议先完成本地数据迁移。</p> : null}
-        <div className="favorite-ledger-panel__list-toggle"><button type="button" onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={ledgerListExpanded} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{ledgerListExpanded ? '折叠' : '展开'}</button> : null}</div>
+        <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={ledgerListExpanded} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{ledgerListExpanded ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{activeHasUnsavedChanges ? '（未保存）' : ''}{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={save}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" onClick={() => { const next = draftLedgers.filter((ledger) => ledger.id !== active.id); setDraftLedgers(next); void onSaveLedgers(next, { deleteDisabled: false }); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
-        <label><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : duplicate ? <small role="alert">收藏夹名称不能重复</small> : null}</label>
-        <label>收藏夹种类<select aria-label="收藏夹种类" disabled={active.isDefault} value={active.ruleType ?? 'keyword'} onChange={(event) => update({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType, keywords: [] })}>{TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{activeHasUnsavedChanges ? '（未保存）' : ''}{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid || draftMutationLocked} onClick={() => void save()}>保存</button><button type="button" disabled={draftMutationLocked} onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={draftMutationLocked} onClick={() => { const next = draftLedgers.filter((ledger) => ledger.id !== active.id); setDraftLedgers(next); void onSaveLedgers(next, { deleteDisabled: false }); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
+        {draftRuleAnalysis ? <div className="favorite-ledger-panel__rule-analysis" role="status">
+          <span>{draftRuleAnalysis.status === 'canceling' ? '正在取消分析…' : `正在分析 ${draftRuleAnalysis.completedItemCount} / ${draftRuleAnalysis.totalItemCount} 条`}</span>
+          <progress aria-label="收藏夹规则分析进度" value={draftRuleAnalysis.completedItemCount} max={Math.max(1, draftRuleAnalysis.totalItemCount)}
+            aria-valuemin={0} aria-valuenow={draftRuleAnalysis.completedItemCount} aria-valuemax={Math.max(1, draftRuleAnalysis.totalItemCount)} />
+          <button type="button" disabled={draftRuleAnalysis.status === 'canceling'} onClick={onCancelDraftRuleAnalysis}>取消分析</button>
+        </div> : draftRuleAnalysisError ? <p className="favorite-ledger-panel__notice" role="alert">{draftRuleAnalysisError}</p> : null}
+        <label><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" disabled={draftMutationLocked} value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : duplicate ? <small role="alert">收藏夹名称不能重复</small> : null}</label>
+        <label>收藏夹种类<select aria-label="收藏夹种类" disabled={draftMutationLocked || active.isDefault} value={active.ruleType ?? 'keyword'} onChange={(event) => update({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType, keywords: [] })}>{TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
         <label>{ruleLabel(active.ruleType)}<textarea aria-label={ruleLabel(active.ruleType)}
+          disabled={draftMutationLocked}
           value={(active.ruleType ?? 'keyword') === 'deepseek' ? active.keywords.join('\n') : activeRules.localKeywords.join('、')}
           onChange={(event) => update({ keywords: composeKeywords(event.currentTarget.value, activeRules.deepSeekConstraint ?? '', active.ruleType ?? 'keyword') })} /></label>
         {(active.ruleType ?? 'keyword') !== 'deepseek' ? <label className="favorite-ledger-panel__deepseek-constraint-line">
           <span>DeepSeek约束：</span>
-          <input aria-label="DeepSeek约束" value={activeRules.deepSeekConstraint ?? ''}
+          <input aria-label="DeepSeek约束" disabled={draftMutationLocked} value={activeRules.deepSeekConstraint ?? ''}
             onChange={(event) => update({ keywords: composeKeywords(activeRules.localKeywords.join('、'), event.currentTarget.value, active.ruleType ?? 'keyword') })} />
         </label> : null}
         <p className="favorite-ledger-panel__keyword-hint">{ruleHint(active.ruleType)}</p>

@@ -1,5 +1,7 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import type { OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import { useEffect, useRef, useState } from 'react'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -353,6 +355,21 @@ export function ControlledFavoriteLedgerPanel({
         onSaveLedgers={onSaveLedgers}
         onSaveLedgerEnabled={onSaveLedgerEnabled}
         onSyncLedgers={onSyncLedgers}
+        draftRuleAnalysis={workspace.draftRuleAnalysis}
+        draftRuleAnalysisError={workspace.draftRuleAnalysisError}
+        onCancelDraftRuleAnalysis={() => { void workspace.cancelDraftLedgerRuleAnalysis() }}
+        onAnalyzeLedgerRule={async (ledger) => {
+          const ruleType = ledger.ruleType ?? 'keyword'
+          if (ruleType === 'deepseek') return true
+          const rules = parseFavoriteLedgerRules(ledger)
+          const result = await workspace.saveDraftLedgerRule({
+            ledgerId: ledger.id,
+            title: stripBilimiLedgerPrefix(ledger.displayName),
+            keywords: rules.localKeywords,
+            ruleType
+          })
+          return Boolean(result)
+        }}
       />
       {managedDeletionCandidates && !managedDeletionReviewOpen ? <OldFavoriteModal title="同步变更说明" confirmLabel="继续" onCancel={() => setManagedDeletionCandidates(null)} onConfirm={() => setManagedDeletionReviewOpen(true)}>
         <p>本次同步有 {managedDeletionCandidates.length} 个 bilimi 管理的收藏夹需要删除。</p>
@@ -402,6 +419,7 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
+        mutationLocked={Boolean(workspace.draftRuleAnalysis)}
         reconciling={workspace.reconciling}
         preparationStatus={confirmationPreparationStatus}
         executionError={confirmationPreparationError ?? workspace.executionError}
@@ -443,7 +461,6 @@ export function ControlledFavoriteLedgerPanel({
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
         onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
         onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
-        onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={closeGuide}

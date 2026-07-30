@@ -2757,6 +2757,51 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('admits an existing custom ledger into the round on its first rule save but rejects default ledger ids', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+        targetLedgerIds: ['custom-jazz'], confidence: 'high' as const
+      }))),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Jazz live', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-existing-custom-jazz',
+      ledgerId: 'custom-jazz',
+      title: '爵士现场',
+      keywords: ['Jazz'],
+      ruleType: 'keyword'
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'custom-jazz', displayName: 'bilimi·爵士现场', count: 1 })],
+        adoptedCandidateIds: ['custom-jazz']
+      },
+      classifications: {
+        '1': { targetLedgerIds: ['custom-jazz'], source: 'system-high' }
+      }
+    })
+    await expect(coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-default-knowledge',
+      ledgerId: 'knowledge',
+      title: '知识学习',
+      keywords: ['知识'],
+      ruleType: 'keyword'
+    })).rejects.toThrow('Old favorite workspace draft ledger rule is unavailable.')
+  })
+
   it('does not leave a repository folder when atomic draft publication fails', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

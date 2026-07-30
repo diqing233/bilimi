@@ -1139,7 +1139,8 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const state = await this.ensureRecommendations(workspace)
       const existingCandidate = state.candidates.find((candidate) => candidate.id === id)
-      if (input.ledgerId && !existingCandidate) {
+      const defaultLedgerIds = new Set(createDefaultFavoriteLedgers().map((ledger) => ledger.id))
+      if (input.ledgerId && !existingCandidate && defaultLedgerIds.has(id)) {
         throw new Error('Old favorite workspace draft ledger rule is unavailable.')
       }
       if (!input.ledgerId && state.candidates.some((candidate) => candidate.id === id)) {

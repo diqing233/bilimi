@@ -13,6 +13,7 @@ export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
+  mutationLocked?: boolean
   reconciling: boolean
   preparationStatus?: string | null
   executionError?: string | null
@@ -51,7 +52,6 @@ type OldFavoriteGuideProps = {
   onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
-  onCreateLocalLedgerAndReclassify: (title: string) => void
   onSaveLocally: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
@@ -70,6 +70,7 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 export function OldFavoriteGuide({
   snapshot,
   loading,
+  mutationLocked = false,
   reconciling,
   preparationStatus,
   executionError,
@@ -108,7 +109,6 @@ export function OldFavoriteGuide({
   onMoveHistoryCursor,
   onApplyManualClassification,
   onApplyManualClassifications,
-  onCreateLocalLedgerAndReclassify,
   onSaveLocally,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
@@ -126,7 +126,7 @@ export function OldFavoriteGuide({
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
-    if ((recommendationSaving || previewPreparationRunning) && next === 'confirm') return false
+    if ((recommendationSaving || previewPreparationRunning || mutationLocked) && next === 'confirm') return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
@@ -148,7 +148,7 @@ export function OldFavoriteGuide({
     </div>
     {recovery || step === 'scan' ? <OldFavoriteScanOverviewStep
       snapshot={snapshot}
-      loading={loading}
+      loading={loading || mutationLocked}
       scanStarting={scanStarting}
       scanStartFailure={scanStartFailure}
       onRetry={onRetryScan}
@@ -162,7 +162,7 @@ export function OldFavoriteGuide({
     /> : null}
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={snapshot}
-      loading={loading}
+      loading={loading || mutationLocked}
       adoptedCandidateIds={recommendedCandidateIds}
       error={recommendationError}
       previewPreparationRunning={previewPreparationRunning}
@@ -176,6 +176,7 @@ export function OldFavoriteGuide({
       snapshot={snapshot}
       ledgers={ledgers}
       loading={loading}
+      mutationLocked={mutationLocked}
       deepSeekAvailable={deepSeekAvailable}
       deepSeekFeedback={deepSeekFeedback}
       onSelectSegment={onSelectSegment}
@@ -191,7 +192,7 @@ export function OldFavoriteGuide({
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}
-      loading={loading}
+      loading={loading || mutationLocked}
       reconciling={reconciling}
       preparationStatus={preparationStatus}
       executionError={executionError}
