@@ -43,23 +43,23 @@ Result: 7 tests passed.
 - Add: all non-artifact source, tests, configuration, and development documents currently in the working tree
 - Exclude: root `.codex-*` screenshots, logs, JSON diagnostics, and command outputs
 
-- [ ] **Step 1: Stage non-artifact development work**
+- [x] **Step 1: Stage non-artifact development work**
 
 Run: `git add --all -- . ":(exclude).codex-*"`
 
 Expected: source, tests, configuration, and documents are staged; local evidence files remain untracked or ignored.
 
-- [ ] **Step 2: Review the staged snapshot**
+- [x] **Step 2: Review the staged snapshot**
 
 Run: `git diff --cached --check` and `git diff --cached --stat`
 
 Expected: no whitespace errors; the stat matches the integrated development scope.
 
-- [ ] **Step 3: Commit the local checkpoint**
+- [x] **Step 3: Commit the local checkpoint**
 
 Run: `git commit -m "chore: checkpoint integrated development work"`
 
-Expected: a local commit is created without pushing.
+Result: local commit `657ac7e0` was created without pushing.
 
 ### Task 3: Isolate local verification artifacts
 
@@ -67,15 +67,15 @@ Expected: a local commit is created without pushing.
 - Modify: `.gitignore`
 - Move locally: root `.codex-*` files into `.codex-artifacts/`
 
-- [ ] **Step 1: Add the artifact directory to ignore rules**
+- [x] **Step 1: Add the artifact directory to ignore rules**
 
 Add `.codex-artifacts/` and a root `.codex-*` fallback pattern to `.gitignore`.
 
-- [ ] **Step 2: Move existing local evidence into the ignored directory**
+- [x] **Step 2: Move existing local evidence into the ignored directory**
 
-Resolve every root `.codex-*` file first, verify every source and destination remains under the repository, then move the files without deleting them.
+Result: 125 root `.codex-*` files (about 23.4 MB) were validated and moved into `.codex-artifacts/` without deletion.
 
-- [ ] **Step 3: Commit the hygiene rule**
+- [x] **Step 3: Commit the hygiene rule**
 
 Run: `git add .gitignore && git commit -m "chore: isolate local verification artifacts"`
 

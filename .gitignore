@@ -11,6 +11,10 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Local Codex screenshots and verification output
+.codex-artifacts/
+/.codex-*
+
 # Environment files
 .env
 .env.*
