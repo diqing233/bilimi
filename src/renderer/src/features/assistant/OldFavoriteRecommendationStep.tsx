@@ -5,6 +5,9 @@ import { useState } from 'react'
 type OldFavoriteRecommendationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
+  adoptedCandidateIds?: string[]
+  saving?: boolean
+  error?: string | null
   onSetRecommendedCandidates: (candidateIds: string[]) => void
 }
 
@@ -25,10 +28,13 @@ function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate)
 export function OldFavoriteRecommendationStep({
   snapshot,
   loading,
+  adoptedCandidateIds: controlledAdoptedCandidateIds,
+  saving = false,
+  error,
   onSetRecommendedCandidates
 }: OldFavoriteRecommendationStepProps) {
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
-  const adoptedCandidateIds = new Set(snapshot.recommendations.adoptedCandidateIds)
+  const adoptedCandidateIds = new Set(controlledAdoptedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)
   const tagCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'tag')
   const groups: CandidateGroup[] = [
     {
@@ -56,6 +62,8 @@ export function OldFavoriteRecommendationStep({
     <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
     <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
+    {saving ? <p role="status" className="favorite-ledger-panel__recommendation-status">正在更新推荐收藏夹，仍可继续调整选择。</p> : null}
+    {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
     {snapshot.recommendations.candidates.length === 0 ? <p>本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。</p> : null}
     {groups.map((group, index) => {
       const allSelected = group.candidates.length > 0 && group.candidates.every((candidate) => adoptedCandidateIds.has(candidate.id))

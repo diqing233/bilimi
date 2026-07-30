@@ -169,13 +169,18 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
     const addName = `${String.fromCodePoint(0x52a0, 0x5165, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
     const removeName = `${String.fromCodePoint(0x79fb, 0x51fa, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50`
+    const ledgerName = screen.getByRole('button', { name: '\u97f3\u4e50' })
 
+    expect(ledgerName).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(screen.getByRole('button', { name: addName }))
     expect(screen.getByRole('button', { name: removeName })).toHaveAttribute('data-enabled', 'true')
+    expect(ledgerName).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: removeName }))
     expect(screen.getByRole('button', { name: addName })).toHaveAttribute('data-enabled', 'false')
+    expect(ledgerName).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(screen.getByRole('button', { name: addName }))
     expect(screen.getByRole('button', { name: removeName })).toHaveAttribute('data-enabled', 'true')
+    expect(ledgerName).toHaveAttribute('aria-pressed', 'true')
     expect(saveEnabled).not.toHaveBeenCalled()
 
     await act(async () => { vi.advanceTimersByTime(249) })

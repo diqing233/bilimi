@@ -389,6 +389,9 @@ export function ControlledFavoriteLedgerPanel({
         onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
         onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
+        recommendedCandidateIds={workspace.recommendedCandidateIds}
+        recommendationSaving={workspace.recommendationSaving}
+        recommendationError={workspace.recommendationError}
 
         ledgers={ledgers}
         deepSeekAvailable={deepSeekArchiveAvailable}

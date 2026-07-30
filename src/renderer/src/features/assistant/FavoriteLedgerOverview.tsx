@@ -373,17 +373,22 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
             data-dragging={draggedLedgerId === ledger.id ? 'true' : undefined} data-drop-position={dropPosition}
             data-default-system-disabled={disabledBySystem ? 'true' : undefined} aria-label={dropPosition ? `插入到${displayTitle(ledger.displayName)}上方` : undefined}
             onDragOver={(event) => dragOver(ledger.id, event)} onDrop={(event) => dropOn(ledger.id, event)}>
-            <button type="button" draggable aria-label={ledgerLabel} title={ledger.displayName} aria-pressed={ledger.enabled && !disabledBySystem}
-              onDragStart={(event) => beginDrag(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }} onClick={() => {
-              if (activeLedgerId === ledger.id) {
-                setActiveLedgerId(null)
+            <FavoriteLedgerEnableButton store={enableStore} id={ledger.id} onToggle={() => toggle(ledger.id)}>{({ enabled, toggle: toggleEnabled }) => {
+              const ledgerDisplayName = ledger.displayName
+              return <>
+              <button type="button" draggable aria-label={ledgerLabel} title={ledgerDisplayName} aria-pressed={enabled && !disabledBySystem}
+                onDragStart={(event) => beginDrag(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }} onClick={() => {
+                if (activeLedgerId === ledger.id) {
+                  setActiveLedgerId(null)
+                  setNewLedger(false)
+                  return
+                }
+                setActiveLedgerId(ledger.id)
                 setNewLedger(false)
-                return
-              }
-              setActiveLedgerId(ledger.id)
-              setNewLedger(false)
-            }}>{ledgerLabel}</button>
-            <FavoriteLedgerEnableButton store={enableStore} id={ledger.id} onToggle={() => toggle(ledger.id)}>{({ enabled, toggle: toggleEnabled }) => <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={enabled && !disabledBySystem} disabled={!isOperable(ledger)} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>}</FavoriteLedgerEnableButton>
+              }}>{ledgerLabel}</button>
+              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? '移出同步' : '加入同步'} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={!isOperable(ledger)} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
+            </>
+            }}</FavoriteLedgerEnableButton>
           </div>
         })}</div>
         {recoveredRemoteDrafts.length ? <p className="favorite-ledger-panel__notice">识别到一个可启用的 bilimi 工作夹。设置、保存并启用后才参与分类；更换设备整理时，建议先完成本地数据迁移。</p> : null}

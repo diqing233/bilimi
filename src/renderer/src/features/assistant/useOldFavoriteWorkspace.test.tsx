@@ -22,11 +22,76 @@ const workspace = (accountMid: string) => ({
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => { resolve = next })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((next, fail) => { resolve = next; reject = fail })
+  return { promise, resolve, reject }
 }
 
+const recommendationWorkspace = (adoptedCandidateIds: string[] = []) => ({
+  ...workspace('100'),
+  status: 'previewing' as const,
+  scan: { phase: 'complete' as const, failureCount: 0 },
+  recommendations: {
+    candidates: [
+      { id: 'author-a', displayName: 'A', kind: 'author' as const, count: 2, reason: 'A' },
+      { id: 'author-b', displayName: 'B', kind: 'author' as const, count: 2, reason: 'B' },
+      { id: 'tag-c', displayName: 'C', kind: 'tag' as const, count: 2, reason: 'C' }
+    ],
+    adoptedCandidateIds
+  }
+})
+
 describe('useOldFavoriteWorkspace', () => {
+  it('publishes recommendation choices immediately and coalesces rapid changes to the latest set', async () => {
+    const first = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const second = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+    expect(result.current.recommendationSaving).toBe(true)
+    act(() => result.current.setRecommendedCandidates(['author-b']))
+    act(() => result.current.setRecommendedCandidates(['author-b', 'tag-c']))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-b', 'tag-c'])
+    expect(command).toHaveBeenCalledTimes(1)
+
+    await act(async () => first.resolve(recommendationWorkspace(['author-a'])))
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
+    expect(command).toHaveBeenLastCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author-b', 'tag-c']
+    })
+    await act(async () => second.resolve(recommendationWorkspace(['author-b', 'tag-c'])))
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-b', 'tag-c'])
+  })
+
+  it('rolls recommendation choices back to the authoritative snapshot when saving fails', async () => {
+    const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn().mockReturnValue(pending.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace(['author-a'])),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.recommendedCandidateIds).toEqual(['author-a']))
+
+    act(() => result.current.setRecommendedCandidates([]))
+    expect(result.current.recommendedCandidateIds).toEqual([])
+    await act(async () => pending.reject(new Error('save failed')))
+
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+    expect(result.current.recommendationError).toBeTruthy()
+  })
+
   it('opens the compact workspace snapshot for the active account', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop

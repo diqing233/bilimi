@@ -1,7 +1,22 @@
-import { describe, expect, it } from 'vitest'
-import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
+import { describe, expect, it, vi } from 'vitest'
+import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 
 describe('mergeOldFavoriteWorkspaceLedgers', () => {
+  it('classifies large collections in bounded batches and yields between them', async () => {
+    const classifyBatch = vi.fn((items: Array<{ aid: number }>) => items.map((item) => ({ aid: item.aid })))
+    const yieldToEventLoop = vi.fn().mockResolvedValue(undefined)
+    const items = Array.from({ length: 513 }, (_, index) => ({ aid: index + 1 }))
+
+    const result = await classifyOldFavoriteItemsCooperatively(items, classifyBatch, {
+      batchSize: 128,
+      yieldToEventLoop
+    })
+
+    expect(classifyBatch.mock.calls.map(([batch]) => batch.length)).toEqual([128, 128, 128, 128, 1])
+    expect(yieldToEventLoop).toHaveBeenCalledTimes(4)
+    expect(result).toHaveLength(items.length)
+  })
+
   it('enables every default target for an organization round only when the default system is enabled', () => {
     const saved = [
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10, isDefault: true },

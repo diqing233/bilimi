@@ -1,5 +1,20 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 
+export async function classifyOldFavoriteItemsCooperatively<Item, Result>(
+  items: readonly Item[],
+  classifyBatch: (items: Item[]) => Result[] | Promise<Result[]>,
+  options: { batchSize?: number; yieldToEventLoop?: () => Promise<void> } = {}
+) {
+  const batchSize = Math.max(1, Math.floor(options.batchSize ?? 128))
+  const yieldToEventLoop = options.yieldToEventLoop ?? (() => new Promise<void>((resolve) => setImmediate(resolve)))
+  const results: Result[] = []
+  for (let start = 0; start < items.length; start += batchSize) {
+    if (start > 0) await yieldToEventLoop()
+    results.push(...await classifyBatch(items.slice(start, start + batchSize)))
+  }
+  return results
+}
+
 /** Keeps staging available even when an account opts out of bilimi defaults. */
 export function classifierLedgersForAccount(
   savedLedgers: FavoriteLedger[],

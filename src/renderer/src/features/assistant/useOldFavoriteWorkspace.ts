@@ -10,6 +10,16 @@ import type { DeepSeekArchiveMode } from '@shared/types'
 
 type WorkspaceView = OldFavoriteWorkspaceView
 
+function normalizeCandidateIds(candidateIds: string[]) {
+  return [...new Set(candidateIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
+}
+
+function snapshotCandidateIds(snapshot: WorkspaceView | null, accountMid?: string) {
+  return snapshot && !('recovery' in snapshot) && (!accountMid || normalizeAccountMid(snapshot.accountMid) === normalizeAccountMid(accountMid))
+    ? normalizeCandidateIds(snapshot.recommendations?.adoptedCandidateIds ?? [])
+    : []
+}
+
 export type DeepSeekWorkspaceFeedback = {
   status: 'running' | 'completed' | 'failed' | 'canceled'
   message: string
@@ -63,6 +73,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [lastError, setLastError] = useState<string | null>(null)
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [reconciling, setReconciling] = useState(false)
+  const [recommendedCandidateIds, setRecommendedCandidateIds] = useState<string[]>([])
+  const [recommendationSaving, setRecommendationSaving] = useState(false)
+  const [recommendationError, setRecommendationError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
@@ -70,6 +83,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
   const accountGeneration = useRef(0)
+  const recommendationCommittedRef = useRef<string[]>([])
+  const recommendationDesiredRef = useRef<string[] | null>(null)
+  const recommendationQueueRunningRef = useRef(false)
 
   useEffect(() => {
     accountGeneration.current += 1
@@ -79,8 +95,21 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setDeepSeekFeedback(null)
     setDeepSeekCancelRequested(false)
     setReconciling(false)
+    recommendationCommittedRef.current = []
+    recommendationDesiredRef.current = null
+    recommendationQueueRunningRef.current = false
+    setRecommendedCandidateIds([])
+    setRecommendationSaving(false)
+    setRecommendationError(null)
     activeDeepSeekWorkspaceId.current = null
   }, [accountMid])
+
+  useEffect(() => {
+    if (recommendationQueueRunningRef.current || recommendationDesiredRef.current) return
+    const authoritativeIds = snapshotCandidateIds(snapshot, accountMid)
+    recommendationCommittedRef.current = authoritativeIds
+    setRecommendedCandidateIds(authoritativeIds)
+  }, [accountMid, snapshot])
 
   useEffect(() => {
     const subscribe = window.bilimiDesktop?.onOldFavoriteWorkspaceDeepSeekProgress
@@ -381,10 +410,47 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const resumeTagEnrichment = useCallback(() => sendCommand({ type: 'resume-tag-enrichment' }), [sendCommand])
   const retryFailedTagEnrichment = useCallback(() => sendCommand({ type: 'retry-failed-tag-enrichment' }), [sendCommand])
   const acceptCurrentTags = useCallback(() => sendCommand({ type: 'accept-current-tags' }), [sendCommand])
-  const setRecommendedCandidates = useCallback((candidateIds: string[]) => sendCommand({
-    type: 'set-recommended-candidates',
-    candidateIds: [...new Set(candidateIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
-  }), [sendCommand])
+  const runRecommendationQueue = useCallback(async () => {
+    if (recommendationQueueRunningRef.current) return
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return
+    const generation = accountGeneration.current
+    recommendationQueueRunningRef.current = true
+    setRecommendationSaving(true)
+    try {
+      while (recommendationDesiredRef.current && accountGeneration.current === generation) {
+        const requestedIds = recommendationDesiredRef.current
+        recommendationDesiredRef.current = null
+        try {
+          const next = await command(accountMid, { type: 'set-recommended-candidates', candidateIds: requestedIds })
+          if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) continue
+          const authoritativeIds = snapshotCandidateIds(next, accountMid)
+          recommendationCommittedRef.current = authoritativeIds
+          setSnapshot(next)
+          setRecommendationError(null)
+          if (!recommendationDesiredRef.current) setRecommendedCandidateIds(authoritativeIds)
+        } catch {
+          if (accountGeneration.current !== generation) return
+          setRecommendationError('推荐收藏夹未能保存，请重试。')
+          if (!recommendationDesiredRef.current) {
+            setRecommendedCandidateIds(recommendationCommittedRef.current)
+          }
+        }
+      }
+    } finally {
+      if (accountGeneration.current === generation) {
+        setRecommendationSaving(false)
+        recommendationQueueRunningRef.current = false
+      }
+    }
+  }, [accountMid])
+  const setRecommendedCandidates = useCallback((candidateIds: string[]) => {
+    const normalized = normalizeCandidateIds(candidateIds)
+    setRecommendedCandidateIds(normalized)
+    setRecommendationError(null)
+    recommendationDesiredRef.current = normalized
+    void runRecommendationQueue()
+  }, [runRecommendationQueue])
   const createLocalLedgerAndReclassify = useCallback((title: string) => {
     const normalized = title.trim()
     return normalized ? sendCommand({ type: 'create-local-ledger-and-reclassify', title: normalized }) : Promise.resolve(null)
@@ -423,7 +489,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, recommendedCandidateIds, recommendationSaving, recommendationError, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

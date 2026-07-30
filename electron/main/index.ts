@@ -91,7 +91,7 @@ import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinat
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
-import { classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
+import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
 import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, mergeRecoveredLedgerDrafts, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
@@ -1953,7 +1953,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         ),
         recommendedLedgers
       )
-      return items.map((item) => {
+      return classifyOldFavoriteItemsCooperatively(items, (batch) => batch.map((item) => {
         const result = classifyVideoContent({
           title: item.title,
           author: item.author,
@@ -1965,7 +1965,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           targetLedgerIds: [result.ledgerId],
           confidence: result.diagnostic?.confidence === 'high' ? 'high' as const : 'low' as const
         }
-      })
+      }))
     },
     resolveLedgerTitle: async (accountMid, logicalLedgerId) =>
       resolveSavedOldFavoriteWorkspaceLedgerTitle(

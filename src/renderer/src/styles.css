@@ -5266,6 +5266,17 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__guide-title-row > .favorite-ledger-panel__section-title {
   min-width: 0;
 }
+.favorite-ledger-panel__old-favorites-guide[data-busy="true"] {
+  cursor: progress;
+}
+.favorite-ledger-panel__recommendation-status,
+.favorite-ledger-panel__recommendation-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.favorite-ledger-panel__recommendation-status { color: var(--porcelain-muted); }
+.favorite-ledger-panel__recommendation-error { color: var(--porcelain-danger, #9d2e2e); }
 .favorite-ledger-panel__guide-title-toggle {
   justify-self: start;
 }

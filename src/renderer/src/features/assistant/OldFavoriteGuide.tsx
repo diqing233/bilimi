@@ -29,6 +29,9 @@ type OldFavoriteGuideProps = {
   onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
+  recommendedCandidateIds?: string[]
+  recommendationSaving?: boolean
+  recommendationError?: string | null
   ledgers: FavoriteLedger[]
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
@@ -78,6 +81,9 @@ export function OldFavoriteGuide({
   onRetryFailedTagEnrichment,
   onAcceptCurrentTags,
   onSetRecommendedCandidates,
+  recommendedCandidateIds,
+  recommendationSaving = false,
+  recommendationError,
   ledgers,
   deepSeekAvailable,
   deepSeekFeedback,
@@ -110,11 +116,12 @@ export function OldFavoriteGuide({
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
+    if (recommendationSaving && (next === 'preview' || next === 'confirm')) return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
 
-  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导">
+  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || undefined}>
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
           <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
@@ -146,6 +153,9 @@ export function OldFavoriteGuide({
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={snapshot}
       loading={loading}
+      adoptedCandidateIds={recommendedCandidateIds}
+      saving={recommendationSaving}
+      error={recommendationError}
       onSetRecommendedCandidates={onSetRecommendedCandidates}
     /> : null}
     {!recovery && snapshot && step === 'preview' ? <OldFavoriteArchivePreviewStep

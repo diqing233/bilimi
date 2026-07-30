@@ -1739,6 +1739,53 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('checkbox', { name: '科技' })).toBeChecked()
   })
 
+  it('keeps recommendation choices interactive but blocks later steps until the latest save finishes', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'tag-c', displayName: 'C', kind: 'tag' as const, count: 2, reason: 'C' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    let resolveSave!: (value: typeof preview) => void
+    const save = new Promise<typeof preview>((resolve) => { resolveSave = resolve })
+    const command = vi.fn((_accountMid: string, input: { type: string }) =>
+      input.type === 'set-recommended-candidates' ? save : Promise.resolve(preview))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    const navigation = await screen.findByRole('navigation')
+    const stepButtons = within(navigation).getAllByRole('button')
+    fireEvent.click(stepButtons[1]!)
+    const candidate = screen.getByRole('checkbox', { name: 'C' })
+    fireEvent.click(candidate)
+
+    expect(candidate).toBeChecked()
+    expect(candidate).toBeEnabled()
+    expect(stepButtons[2]).toBeDisabled()
+    expect(stepButtons[3]).toBeDisabled()
+
+    await act(async () => {
+      resolveSave({
+        ...preview,
+        recommendations: { ...preview.recommendations, adoptedCandidateIds: ['tag-c'] }
+      })
+      await save
+    })
+
+    await waitFor(() => expect(stepButtons[2]).toBeEnabled())
+    expect(stepButtons[3]).toBeEnabled()
+  })
+
   it('explains why no recommendations are available', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
