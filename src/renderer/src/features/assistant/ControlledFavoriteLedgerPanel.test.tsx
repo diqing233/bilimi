@@ -1785,6 +1785,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(candidate).toBeChecked()
     expect(candidate).toBeEnabled()
+    expect(screen.queryByText('正在更新推荐收藏夹，仍可继续调整选择。')).not.toBeInTheDocument()
     expect(stepButtons[2]).toBeDisabled()
     expect(stepButtons[3]).toBeDisabled()
 

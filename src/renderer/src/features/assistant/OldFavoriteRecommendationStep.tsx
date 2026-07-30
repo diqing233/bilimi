@@ -6,7 +6,6 @@ type OldFavoriteRecommendationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
   adoptedCandidateIds?: string[]
-  saving?: boolean
   error?: string | null
   previewPreparationRunning?: boolean
   previewPreparationProgress?: { completedItemCount: number; totalItemCount: number } | null
@@ -34,7 +33,6 @@ export function OldFavoriteRecommendationStep({
   snapshot,
   loading,
   adoptedCandidateIds: controlledAdoptedCandidateIds,
-  saving = false,
   error,
   previewPreparationRunning = false,
   previewPreparationProgress,
@@ -83,7 +81,6 @@ export function OldFavoriteRecommendationStep({
     <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
     <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
-    {saving ? <p role="status" className="favorite-ledger-panel__recommendation-status">正在更新推荐收藏夹，仍可继续调整选择。</p> : null}
     {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
     {previewPreparationRunning ? <div className="favorite-ledger-panel__preview-preparation" role="status">
       <p>正在准备归档预览：{previewPreparationProgress?.completedItemCount ?? 0} / {previewPreparationProgress?.totalItemCount ?? 0}</p>

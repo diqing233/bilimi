@@ -5278,13 +5278,11 @@ body[data-floating-window="true"],
   justify-content: space-between;
   gap: 12px;
 }
-.favorite-ledger-panel__recommendation-status,
 .favorite-ledger-panel__recommendation-error {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
 }
-.favorite-ledger-panel__recommendation-status { color: var(--porcelain-muted); }
 .favorite-ledger-panel__recommendation-error { color: var(--porcelain-danger, #9d2e2e); }
 .favorite-ledger-panel__guide-title-toggle {
   justify-self: start;

@@ -164,7 +164,6 @@ export function OldFavoriteGuide({
       snapshot={snapshot}
       loading={loading}
       adoptedCandidateIds={recommendedCandidateIds}
-      saving={recommendationSaving}
       error={recommendationError}
       previewPreparationRunning={previewPreparationRunning}
       previewPreparationProgress={previewPreparationProgress}
