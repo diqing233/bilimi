@@ -460,6 +460,7 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
+    notifyRecommendedLedgersChanged?: (accountMid: string) => void
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
@@ -1016,6 +1017,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.planReadiness.set(updated.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
+      this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
       return clone(updated)
     })
   }

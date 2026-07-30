@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'saveRecoveredLedgerDrafts' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -2228,12 +2228,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('saves an adopted recommendation as a local ledger rule before reclassifying', async () => {
+  it('publishes an adopted recommendation only after preview preparation', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(undefined)
+    const published = vi.fn()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       saveRecommendedLedgers: saved,
+      notifyRecommendedLedgersChanged: published,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
     const initial = await coordinator.open('100')
@@ -2252,6 +2254,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
+    expect(saved).toHaveBeenCalled()
+    expect(published).not.toHaveBeenCalled()
+
+    await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+
+    expect(published).toHaveBeenCalledTimes(1)
     expect(saved).toHaveBeenCalledWith('100', [expect.objectContaining({
       id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
       ruleType: 'author', enabled: true, isDefault: false
@@ -2262,10 +2270,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(undefined)
     const removed = vi.fn().mockResolvedValue(undefined)
+    const published = vi.fn()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       saveRecommendedLedgers: saved,
       removeRecommendedLedgers: removed,
+      notifyRecommendedLedgersChanged: published,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
     await coordinator.open('100')
@@ -2283,10 +2293,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
     await coordinator.setRecommendedCandidates('100', [])
-    await coordinator.prepareRecommendationPreview('100', [])
 
     expect(removed).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
+    expect(published).toHaveBeenCalledTimes(1)
+
+    await coordinator.prepareRecommendationPreview('100', [])
+
+    expect(published).toHaveBeenCalledTimes(2)
   })
 
   it('creates a local logical ledger in the repository and reclassifies system results without changing manual decisions', async () => {

@@ -200,6 +200,30 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.recommendedCandidateIds).toEqual(['author-b', 'tag-c'])
   })
 
+  it('keeps the loaded workspace snapshot stable when a recommendation draft save returns', async () => {
+    const opened = recommendationWorkspace()
+    const saved = {
+      ...recommendationWorkspace(['author-a']),
+      currentSegment: {
+        id: 'segment-1',
+        aids: [1],
+        items: [{ aid: 1, title: 'unexpected replacement', sourceFolderIds: [] }]
+      }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(opened),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(saved)
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toBe(opened))
+
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
+    expect(result.current.snapshot).toBe(opened)
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+  })
+
   it('rolls recommendation choices back to the authoritative snapshot when saving fails', async () => {
     const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
     const command = vi.fn().mockReturnValue(pending.promise)

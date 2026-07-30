@@ -462,7 +462,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) continue
           const authoritativeIds = snapshotCandidateIds(next, accountMid)
           recommendationCommittedRef.current = authoritativeIds
-          setSnapshot(next)
           setRecommendationError(null)
           if (!recommendationDesiredRef.current) {
             recommendedCandidateIdsRef.current = authoritativeIds

@@ -2018,6 +2018,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         ...current,
         favoriteLedgers: applyRecommendedLedgers(current.favoriteLedgers, ledgers)
       })
+    },
+    notifyRecommendedLedgersChanged: () => {
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
     saveRecoveredLedgerDrafts: async (accountMid, ledgers) => {
@@ -2036,7 +2038,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         ...current,
         favoriteLedgers: removeRecommendedLedgers(current.favoriteLedgers, ledgerIds)
       })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
     markRecommendedLedgersLocalDraft: async (accountMid, ledgerIds) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)

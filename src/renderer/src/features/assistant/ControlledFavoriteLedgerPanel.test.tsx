@@ -1502,7 +1502,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
       }, history: { cursor: 0, length: 0 }
     }
     const frozen = { ...preview, status: 'frozen' as const }
-    const command = vi.fn().mockResolvedValue(frozen)
+    const command = vi.fn((_accountMid: string, input: { type: string }) => Promise.resolve(
+      input.type === 'set-recommended-candidates'
+        ? { ...preview, recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-up'] } }
+        : frozen
+    ))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
@@ -1513,9 +1517,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'UP' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step'))
-    expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeInTheDocument()
   })
 
   it('opens and locks the guide while a full scan replaces a stale preview', async () => {
@@ -1827,6 +1833,65 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('checkbox', { name: 'A' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'B' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'C' })).toBeChecked()
+  })
+
+  it('projects selected recommendation drafts into the visible folder list without waiting for preferences', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-a', displayName: 'bilimi·A', kind: 'author' as const, count: 2, reason: 'A' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
+        ...preview,
+        recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-a'] }
+      })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'A' }))
+
+    expect(await screen.findByRole('button', { name: 'A' })).toBeInTheDocument()
+  })
+
+  it('removes a deselected recommendation draft from the visible folder list without waiting for preferences', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-a', displayName: 'bilimi·A', kind: 'author' as const, count: 2, reason: 'A' }],
+        adoptedCandidateIds: ['author-a']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
+        ...preview,
+        recommendations: { ...preview.recommendations, adoptedCandidateIds: [] }
+      })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+      id: 'author-a', displayName: 'bilimi·A', keywords: [], ruleType: 'author', enabled: true,
+      priority: 10_000, syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    const checkbox = await screen.findByRole('checkbox', { name: 'A', checked: true })
+    fireEvent.click(checkbox)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'A' })).not.toBeInTheDocument())
   })
 
   it('stays on recommendations with progress until preview preparation completes', async () => {

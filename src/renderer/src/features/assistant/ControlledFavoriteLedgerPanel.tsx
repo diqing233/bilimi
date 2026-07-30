@@ -36,6 +36,34 @@ function normalizeAccountMid(value: string | undefined) {
   return BigInt(value.trim()).toString()
 }
 
+function projectRecommendedLedgerDrafts(
+  ledgers: FavoriteLedger[],
+  snapshot: ReturnType<typeof useOldFavoriteWorkspace>['snapshot'],
+  candidateIds: string[]
+) {
+  if (!snapshot || 'recovery' in snapshot || !snapshot.recommendations?.candidates) return ledgers
+  const selectedIds = new Set(candidateIds)
+  const recommendationIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+  const projectedLedgers = ledgers.filter((ledger) =>
+    !recommendationIds.has(ledger.id) || ledger.syncState !== 'local-draft' || selectedIds.has(ledger.id))
+  const existingIds = new Set(projectedLedgers.map((ledger) => ledger.id))
+  return [
+    ...projectedLedgers,
+    ...snapshot.recommendations.candidates
+      .filter((candidate) => selectedIds.has(candidate.id) && !existingIds.has(candidate.id))
+      .map((candidate, index) => ({
+        id: candidate.id,
+        displayName: candidate.displayName,
+        keywords: [],
+        ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
+        enabled: true,
+        priority: 10_000 + index,
+        syncState: 'local-draft' as const,
+        isDefault: false
+      }))
+  ]
+}
+
 function confirmationNeedsBackup(
   snapshot: Exclude<ReturnType<typeof useOldFavoriteWorkspace>['snapshot'], null>,
   ledgers: FavoriteLedger[],
@@ -291,6 +319,7 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
+  const displayedLedgers = projectRecommendedLedgerDrafts(ledgers, workspace.snapshot, workspace.recommendedCandidateIds)
 
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
@@ -312,7 +341,7 @@ export function ControlledFavoriteLedgerPanel({
       </div>
 
       <FavoriteLedgerOverview
-        ledgers={ledgers}
+        ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
         organizationActive={Boolean(snapshot && !recovery && snapshot.status !== 'completed')}
         hasExpandedOrganizationGuide={guideOpen}
