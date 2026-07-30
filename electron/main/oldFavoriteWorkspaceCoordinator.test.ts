@@ -2001,7 +2001,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
     })
     await coordinator.autoClassifyCurrentSegment('100')
-
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
 
@@ -2077,6 +2076,55 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
       classifications: before && !('recovery' in before) ? before.classifications : {}
+    })
+  })
+
+  it('preserves a DeepSeek classification while recommendation adoption is prepared and removed', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItem: (item, recommendedLedgers = []) => ({
+        targetLedgerIds: recommendedLedgers.length && item.author === 'UP Alpha'
+          ? [recommendedLedgers[0]!.id]
+          : ['system'],
+        confidence: 'high'
+      })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'System', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'DeepSeek', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const beforeDeepSeek = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!beforeDeepSeek.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 2, targetLedgerIds: ['deepseek'] }], {
+      workspaceId: beforeDeepSeek.workspaceId,
+      currentSegmentId: beforeDeepSeek.currentSegment.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: Object.fromEntries(Object.entries(beforeDeepSeek.classifications).map(([aid, classification]) => [aid, {
+        targetLedgerIds: classification.targetLedgerIds,
+        source: classification.source
+      }]))
+    })
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+    await coordinator.setRecommendedCandidates('100', [])
+    await coordinator.prepareRecommendationPreview('100', [])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['system'], source: 'system-high' },
+        '2': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
+      }
     })
   })
 
