@@ -126,7 +126,7 @@ export function OldFavoriteGuide({
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
-    if (recommendationSaving && (next === 'preview' || next === 'confirm')) return false
+    if ((recommendationSaving || previewPreparationRunning) && next === 'confirm') return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }

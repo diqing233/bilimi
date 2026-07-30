@@ -466,6 +466,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           if (!recommendationDesiredRef.current) {
             recommendedCandidateIdsRef.current = authoritativeIds
             setRecommendedCandidateIds(authoritativeIds)
+            setSnapshot(next)
           }
         } catch {
           if (accountGeneration.current !== generation) return
@@ -519,8 +520,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const workspaceId = snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : null
     if (!accountMid || !command || !workspaceId) return null
     const accountVersion = accountGeneration.current
-    await waitForRecommendationQueue()
-    if (accountGeneration.current !== accountVersion) return null
     const generation = ++previewPreparationGenerationRef.current
     const candidateIds = [...recommendedCandidateIdsRef.current]
     const fingerprint = JSON.stringify(candidateIds)
@@ -529,6 +528,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setPreviewPreparationProgress({ completedItemCount: 0, totalItemCount: 0 })
     setPreviewPreparationError(null)
     try {
+      await waitForRecommendationQueue()
+      if (accountGeneration.current !== accountVersion ||
+        previewPreparationGenerationRef.current !== generation ||
+        JSON.stringify(recommendedCandidateIdsRef.current) !== fingerprint) return null
       const next = await command(accountMid, { type: 'prepare-recommendation-preview', candidateIds })
       const current = previewPreparationGenerationRef.current === generation &&
         activePreviewPreparationWorkspaceIdRef.current === workspaceId &&

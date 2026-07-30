@@ -409,13 +409,7 @@ export function ControlledFavoriteLedgerPanel({
         scanStartFailure={scanStartFailure}
         step={step}
         onStepChange={(nextStep) => {
-          if (nextStep !== 'preview') {
-            setStep(nextStep)
-            return
-          }
-          void workspace.prepareRecommendationPreview().then((prepared) => {
-            if (prepared) setStep('preview')
-          })
+          setStep(nextStep)
         }}
         onRetryScan={() => void startScan('incremental')}
         onRetryScanDirect={() => void retryScanWithDirectSession()}

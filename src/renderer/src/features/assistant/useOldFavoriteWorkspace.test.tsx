@@ -200,7 +200,7 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.recommendedCandidateIds).toEqual(['author-b', 'tag-c'])
   })
 
-  it('keeps the loaded workspace snapshot stable when a recommendation draft save returns', async () => {
+  it('publishes the latest authoritative workspace snapshot when a recommendation delta returns', async () => {
     const opened = recommendationWorkspace()
     const saved = {
       ...recommendationWorkspace(['author-a']),
@@ -220,7 +220,7 @@ describe('useOldFavoriteWorkspace', () => {
     act(() => result.current.setRecommendedCandidates(['author-a']))
 
     await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
-    expect(result.current.snapshot).toBe(opened)
+    expect(result.current.snapshot).toBe(saved)
     expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
   })
 

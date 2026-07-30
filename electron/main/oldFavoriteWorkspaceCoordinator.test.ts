@@ -2043,7 +2043,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(1)
   })
 
-  it('stores recommendation selection without preparing classifications', async () => {
+  it('applies an indexed recommendation without preview preparation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItems = vi.fn((items: Array<{ aid: number; author?: string }>, recommendedLedgers: Array<{ id: string }>) =>
@@ -2072,10 +2072,61 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
-    expect(classifyCurrentItems).not.toHaveBeenCalled()
+    expect(classifyCurrentItems).toHaveBeenCalledWith(
+      [expect.objectContaining({ aid: 1 }), expect.objectContaining({ aid: 2 })],
+      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
+      '100'
+    )
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
-      classifications: before && !('recovery' in before) ? before.classifications : {}
+      classifications: {
+        ...(before && !('recovery' in before) ? before.classifications : {}),
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' },
+        '2': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' }
+      }
+    })
+  })
+
+  it('reclassifies only indexed AIDs when a recommendation is added or removed', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifiedAids: number[][] = []
+    const classifyCurrentItems = vi.fn((
+      items: Array<{ aid: number; author?: string }>,
+      recommendedLedgers: Array<{ id: string }>
+    ) => {
+      classifiedAids.push(items.map((item) => item.aid))
+      return items.map((item) => ({
+        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+          ? ['custom-author-up-alpha']
+          : ['system'],
+        confidence: 'high' as const
+      }))
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItems })
+    await coordinator.open('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 3, author: 'UP Beta', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.autoClassifyCurrentSegment('100')
+    classifiedAids.length = 0
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.setRecommendedCandidates('100', [])
+
+    expect(classifiedAids).toEqual([[1, 2], [1, 2]])
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['system'], source: 'system-high' },
+        '2': { targetLedgerIds: ['system'], source: 'system-high' },
+        '3': { targetLedgerIds: ['system'], source: 'system-high' }
+      }
     })
   })
 
@@ -2205,7 +2256,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ classifications: before.classifications })
   })
 
-  it('keeps prior classifications unchanged when recommendation preparation fails', async () => {
+  it('keeps prior recommendation state and classifications when an indexed delta fails', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItems = vi.fn((
@@ -2229,12 +2280,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await coordinator.finishScan('100')
-    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const before = requireSnapshot(await coordinator.getSnapshot('100'))
 
-    await expect(coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha']))
+    await expect(coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha']))
       .rejects.toThrow('simulated classification failure')
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: [] },
       classifications: before.classifications,
       history: { cursor: before.history.cursor, length: before.history.length }
     })
@@ -2276,7 +2327,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('publishes an adopted recommendation only after preview preparation', async () => {
+  it('publishes an adopted recommendation after its indexed delta is ready', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(undefined)
     const published = vi.fn()
@@ -2303,7 +2354,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
     expect(saved).toHaveBeenCalled()
-    expect(published).not.toHaveBeenCalled()
+    expect(published).toHaveBeenCalledTimes(1)
 
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
 
@@ -2345,7 +2396,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', [])
 
     expect(removed).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
-    expect(published).toHaveBeenCalledTimes(1)
+    expect(published).toHaveBeenCalledTimes(2)
 
     await coordinator.prepareRecommendationPreview('100', [])
 
@@ -2543,7 +2594,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '2': { targetLedgerIds: ['knowledge'], source: 'deepseek' },
         '3': { targetLedgerIds: ['manual'], source: 'manual' }
       },
-      history: { cursor: 4, length: 4 }
+      history: { cursor: 6, length: 6 }
     })
 
     for (const [logicalLedgerId, remoteFolderId] of [

@@ -937,11 +937,20 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.options.removeRecommendedLedgers?.(workspace.accountMid, removedAdoptions.map((candidate) => candidate.id))
       }
       const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
+      const updated = await this.applyRecommendedLedgerDeltaUnsafe(
+        workspace,
+        state.adoptedCandidateIds,
+        adoptedCandidateIds,
+        next
+      )
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
       })
       this.recommendations.set(workspace.accountMid, next)
-      return clone(workspace)
+      if (newlyAdopted.length || removedAdoptions.length) {
+        this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
+      }
+      return updated
     })
   }
 
@@ -1040,7 +1049,6 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.planReadiness.set(updated.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
-      this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
       return clone(updated)
     })
   }
@@ -1834,6 +1842,35 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.autoClassifySegmentsUnsafe(workspace, [this.currentSegment(workspace)], replaceSystem)
   }
 
+  private async applyRecommendedLedgerDeltaUnsafe(
+    workspace: OldFavoriteWorkspace,
+    beforeIds: string[],
+    afterIds: string[],
+    nextState: RecommendationState
+  ) {
+    const changedIds = new Set([
+      ...beforeIds.filter((id) => !afterIds.includes(id)),
+      ...afterIds.filter((id) => !beforeIds.includes(id))
+    ])
+    if (!changedIds.size || (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems)) {
+      return clone(workspace)
+    }
+    const affectedAids = new Set<number>()
+    const affectedSegmentIds = new Set<string>()
+    for (const candidate of nextState.candidates) {
+      if (!changedIds.has(candidate.id)) continue
+      for (const [segmentId, aids] of Object.entries(candidate.matchedAidsBySegment ?? {})) {
+        affectedSegmentIds.add(segmentId)
+        for (const aid of aids) affectedAids.add(aid)
+      }
+    }
+    if (!affectedAids.size) return clone(workspace)
+    const availableSegmentIds = [...affectedSegmentIds]
+      .filter((segmentId) => workspace.segments.some((segment) => segment.id === segmentId))
+    if (!availableSegmentIds.length) return clone(workspace)
+    return this.autoClassifySegmentsUnsafe(workspace, availableSegmentIds, true, affectedAids, nextState)
+  }
+
   /** Classification is global; the visible segment only limits rendering, never scan coverage. */
   private async autoClassifyAllSegmentsUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
     return this.autoClassifySegmentsUnsafe(workspace, workspace.segments.map((segment) => segment.id), replaceSystem)
@@ -1858,12 +1895,13 @@ export class OldFavoriteWorkspaceCoordinator {
     workspace: OldFavoriteWorkspace,
     segmentIds: string[],
     replaceSystem: boolean,
-    onlyAids?: ReadonlySet<number>
+    onlyAids?: ReadonlySet<number>,
+    recommendationState?: RecommendationState
   ) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
-    const state = await this.ensureRecommendations(workspace)
+    const state = recommendationState ?? await this.ensureRecommendations(workspace)
     const adopted = new Set(state.adoptedCandidateIds)
     const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id)).map((candidate, index) => ({
       id: candidate.id, displayName: candidate.displayName, keywords: [...candidate.keywords],
