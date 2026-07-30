@@ -78,6 +78,7 @@ type StoredRecommendation = {
   sourceName: string
   keywords: string[]
   count: number
+  matchedAidsBySegment?: Record<string, number[]>
   reason: string
 }
 type RecommendationState = { initialized: boolean; candidates: StoredRecommendation[]; adoptedCandidateIds: string[] }
@@ -252,41 +253,63 @@ function localLedgerId(title: string) {
   return `local-${(hash >>> 0).toString(36)}`
 }
 
-function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'author' | 'tags'>>): RecommendationState {
-  const authorCounts = new Map<string, number>()
-  const tagCounts = new Map<string, number>()
+function buildAuthorRecommendations(
+  items: Iterable<Pick<CurrentSegmentItem, 'aid' | 'author' | 'tags'>>,
+  segmentIdForAid: (aid: number) => string = () => 'segment-1'
+): RecommendationState {
+  const authorAids = new Map<string, Set<number>>()
+  const tagAids = new Map<string, Set<number>>()
   for (const item of items) {
     const author = item.author?.trim()
-    if (author) authorCounts.set(author, (authorCounts.get(author) ?? 0) + 1)
+    if (author) {
+      const aids = authorAids.get(author) ?? new Set<number>()
+      aids.add(item.aid)
+      authorAids.set(author, aids)
+    }
     const tags = new Set((item.tags ?? []).map((tag) => tag.trim().replace(/\s+/g, ' ')).filter(Boolean))
-    for (const tag of tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+    for (const tag of tags) {
+      const aids = tagAids.get(tag) ?? new Set<number>()
+      aids.add(item.aid)
+      tagAids.set(tag, aids)
+    }
   }
-  const authors: StoredRecommendation[] = [...authorCounts.entries()]
-    .filter(([, count]) => count >= 2)
-    .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
+  const matchedAidsBySegment = (aids: ReadonlySet<number>) => Object.fromEntries(
+    [...aids].sort((left, right) => left - right).reduce((segments, aid) => {
+      const segmentId = segmentIdForAid(aid)
+      const segmentAids = segments.get(segmentId) ?? []
+      segmentAids.push(aid)
+      segments.set(segmentId, segmentAids)
+      return segments
+    }, new Map<string, number[]>())
+  )
+  const authors: StoredRecommendation[] = [...authorAids.entries()]
+    .filter(([, aids]) => aids.size >= 2)
+    .sort(([leftName, leftAids], [rightName, rightAids]) => rightAids.size - leftAids.size || leftName.localeCompare(rightName, 'zh-Hans-CN'))
     .slice(0, 24)
-    .map(([sourceName, count]) => ({
+    .map(([sourceName, aids]) => ({
       id: stableRecommendationId(sourceName),
       displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
       kind: 'author' as const,
       sourceName,
       keywords: [sourceName],
-      count,
-      reason: `${sourceName} appeared ${count} times.`
+      count: aids.size,
+      matchedAidsBySegment: matchedAidsBySegment(aids),
+      reason: `${sourceName} appeared ${aids.size} times.`
     }))
   const genericTags = new Set(['视频', 'bilibili', '哔哩哔哩', '收藏', '推荐'])
-  const tags: StoredRecommendation[] = [...tagCounts.entries()]
-    .filter(([tag, count]) => count >= 2 && tag.length >= 2 && !genericTags.has(tag.toLocaleLowerCase()))
-    .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
+  const tags: StoredRecommendation[] = [...tagAids.entries()]
+    .filter(([tag, aids]) => aids.size >= 2 && tag.length >= 2 && !genericTags.has(tag.toLocaleLowerCase()))
+    .sort(([leftName, leftAids], [rightName, rightAids]) => rightAids.size - leftAids.size || leftName.localeCompare(rightName, 'zh-Hans-CN'))
     .slice(0, 24)
-    .map(([sourceName, count]) => ({
+    .map(([sourceName, aids]) => ({
       id: stableTagRecommendationId(sourceName),
       displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
       kind: 'tag' as const,
       sourceName,
       keywords: [sourceName],
-      count,
-      reason: `高频标签“${sourceName}”出现 ${count} 次，适合单独成册。`
+      count: aids.size,
+      matchedAidsBySegment: matchedAidsBySegment(aids),
+      reason: `高频标签“${sourceName}”出现 ${aids.size} 次，适合单独成册。`
     }))
   return {
     candidates: [...authors, ...tags],
@@ -1310,7 +1333,8 @@ export class OldFavoriteWorkspaceCoordinator {
           items: segment.aids.map((aid) => itemsByAid.get(aid) ?? { aid, sourceFolderIds: [] })
         }))
       })
-      const recommendations = buildAuthorRecommendations(itemsByAid.values())
+      const segmentIdForAid = new Map(completed.segments.flatMap((segment) => segment.aids.map((aid) => [aid, segment.id] as const)))
+      const recommendations = buildAuthorRecommendations(itemsByAid.values(), (aid) => segmentIdForAid.get(aid) ?? currentSegmentId)
       const readiness = this.calculatePlanReadinessFromItems(completed, itemsByAid.values(), sourceFolders)
       const discoveredAids = new Set([
         ...itemsByAid.keys(),
@@ -2690,7 +2714,15 @@ export class OldFavoriteWorkspaceCoordinator {
     if (adoptedRecommendationIds.length) {
       await this.options.markRecommendedLedgersLocalDraft?.(marker.accountMid, adoptedRecommendationIds)
     }
-    this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
+    const recommendations = await this.restoreRecommendationIndexes(
+      marker.accountMid,
+      marker.id,
+      recovered.currentSegmentId,
+      scan.segments,
+      recovered.recommendations,
+      recovered.tagUpdates
+    )
+    this.recommendations.set(marker.accountMid, clone(recommendations))
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
     this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
@@ -2985,6 +3017,54 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.currentSegments.get(workspace.accountMid) ?? workspace.segments[0]?.id ?? ''
   }
 
+  private async restoreRecommendationIndexes(
+    accountMid: string,
+    workspaceId: string,
+    currentSegmentId: string,
+    segments: SegmentDescriptor[],
+    state: RecommendationState,
+    tagUpdates: Array<{ aid: number; tags: string[] }>
+  ): Promise<RecommendationState> {
+    const missingIds = new Set(state.candidates
+      .filter((candidate) => !candidate.matchedAidsBySegment)
+      .map((candidate) => candidate.id))
+    if (!missingIds.size) return state
+
+    const updatedTags = new Map(tagUpdates.map((update) => [update.aid, update.tags]))
+    const itemsByAid = new Map<number, CurrentSegmentItem>()
+    const segmentIdForAid = new Map<number, string>()
+    for (const descriptor of segments) {
+      const stored = await this.options.workspaceStore.loadSegment(accountMid, workspaceId, descriptor.id)
+      for (const item of stored.items ?? []) {
+        segmentIdForAid.set(item.aid, descriptor.id)
+        const existing = itemsByAid.get(item.aid)
+        const tags = updatedTags.get(item.aid) ?? item.tags
+        if (existing) {
+          existing.sourceFolderIds = [...new Set([...existing.sourceFolderIds, ...item.sourceFolderIds])].sort()
+          if (!existing.tags?.length && tags?.length) existing.tags = [...tags]
+        } else itemsByAid.set(item.aid, { ...item, ...(tags ? { tags: [...tags] } : {}) })
+      }
+    }
+    const rebuiltById = new Map(buildAuthorRecommendations(
+      itemsByAid.values(),
+      (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
+    ).candidates.map((candidate) => [candidate.id, candidate]))
+    let changed = false
+    const candidates = state.candidates.map((candidate) => {
+      const rebuilt = missingIds.has(candidate.id) ? rebuiltById.get(candidate.id) : undefined
+      if (!rebuilt?.matchedAidsBySegment) return candidate
+      changed = true
+      return { ...candidate, matchedAidsBySegment: clone(rebuilt.matchedAidsBySegment) }
+    })
+    if (!changed) return state
+
+    const migrated = { ...state, candidates }
+    await this.options.workspaceStore.appendOverlay(accountMid, workspaceId, {
+      currentSegmentId, classifications: [], history: [], recommendations: migrated
+    })
+    return migrated
+  }
+
   private async refreshRecommendationsAfterTagEnrichment(workspace: OldFavoriteWorkspace) {
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
@@ -3002,7 +3082,8 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     const prior = this.recommendations.get(workspace.accountMid)
-    const candidates = buildAuthorRecommendations(itemsByAid.values())
+    const segmentIdForAid = new Map(workspace.segments.flatMap((segment) => segment.aids.map((aid) => [aid, segment.id] as const)))
+    const candidates = buildAuthorRecommendations(itemsByAid.values(), (aid) => segmentIdForAid.get(aid) ?? this.currentSegment(workspace))
     const next: RecommendationState = {
       initialized: true,
       candidates: candidates.candidates,
@@ -3029,7 +3110,8 @@ export class OldFavoriteWorkspaceCoordinator {
     await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
       items.push(...page.items)
     })
-    const state = buildAuthorRecommendations(items)
+    const segmentIdForAid = new Map(workspace.segments.flatMap((segment) => segment.aids.map((aid) => [aid, segment.id] as const)))
+    const state = buildAuthorRecommendations(items, (aid) => segmentIdForAid.get(aid) ?? this.currentSegment(workspace))
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: state
     })
@@ -3085,7 +3167,12 @@ export class OldFavoriteWorkspaceCoordinator {
       }])),
       ...(this.staleDeepSeekAids.get(workspace.accountMid)?.length ? { staleDeepSeekAids: [...this.staleDeepSeekAids.get(workspace.accountMid)!] } : {}),
       recommendations: {
-        candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map(({ sourceName: _sourceName, keywords: _keywords, ...candidate }) => clone(candidate)),
+        candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map(({
+          sourceName: _sourceName,
+          keywords: _keywords,
+          matchedAidsBySegment: _matchedAidsBySegment,
+          ...candidate
+        }) => clone(candidate)),
         adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
       },
       planReadiness: (() => {

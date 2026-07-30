@@ -41,6 +41,7 @@ type Recommendation = {
   sourceName: string
   keywords: string[]
   count: number
+  matchedAidsBySegment?: Record<string, number[]>
   reason: string
 }
 type Overlay = {

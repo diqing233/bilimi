@@ -120,6 +120,33 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
   })
 
+  it('recovers recommendation matched AID indexes from the workspace overlay', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1, 2] }, { id: 'segment-2', aids: [3] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [], recommendations: {
+        initialized: true,
+        candidates: [{
+          id: 'custom-author-up', displayName: 'bilimi·UP', kind: 'author', sourceName: 'UP', keywords: ['UP'],
+          count: 3, matchedAidsBySegment: { 'segment-1': [1, 2], 'segment-2': [3] }, reason: 'UP appeared 3 times.'
+        }],
+        adoptedCandidateIds: []
+      }
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [{
+          id: 'custom-author-up', matchedAidsBySegment: { 'segment-1': [1, 2], 'segment-2': [3] }
+        }]
+      }
+    })
+  })
+
   it('keeps recovery readiness and the durable local-commit marker in the manifest-only summary', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

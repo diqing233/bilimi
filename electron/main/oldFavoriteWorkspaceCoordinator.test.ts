@@ -2814,6 +2814,70 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('persists recommendation matched AID indexes without exposing them in renderer snapshots', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(new FavoriteRepositoryService({ root }), store)
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, author: 'UP Alpha', tags: ['TypeScript'], sourceFolderIds: ['source'] },
+        { aid: 2, author: 'UP Alpha', tags: ['TypeScript'], sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.recommendations.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'author', count: 2 }),
+      expect.objectContaining({ kind: 'tag', count: 2 })
+    ]))
+    expect(snapshot.recommendations.candidates[0]).not.toHaveProperty('matchedAidsBySegment')
+
+    const recovered = await store.recover('100', snapshot.workspaceId)
+    if ('recovery' in recovered) throw new Error('workspace unexpectedly unavailable')
+    expect(recovered.recommendations.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ matchedAidsBySegment: { 'segment-1': [1, 2] } })
+    ]))
+  })
+
+  it('rebuilds missing recommendation indexes from persisted segments once', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const first = requireSnapshot(await coordinator.getSnapshot('100'))
+    await store.appendOverlay('100', first.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [], recommendations: {
+        initialized: true,
+        candidates: [{
+          id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', kind: 'author', sourceName: 'UP Alpha',
+          keywords: ['UP Alpha'], count: 2, reason: 'UP Alpha appeared 2 times.'
+        }],
+        adoptedCandidateIds: []
+      }
+    })
+
+    const restarted = createCoordinator(repository, store, { initializeOnOpen: false })
+    await restarted.getSnapshot('100')
+    const recovered = await store.recover('100', first.workspaceId)
+    if ('recovery' in recovered) throw new Error('workspace unexpectedly unavailable')
+    expect(recovered.recommendations.candidates).toEqual([
+      expect.objectContaining({ matchedAidsBySegment: { 'segment-1': [1, 2] } })
+    ])
+  })
+
   it('saves local library folders under resolved display names instead of internal ledger ids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
