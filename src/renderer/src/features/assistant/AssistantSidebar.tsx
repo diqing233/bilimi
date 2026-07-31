@@ -37,7 +37,7 @@ type SidebarWorkspaceProps = {
   onActiveTabChange: (tab: AssistantSidebarTab) => void
   onRequestCollapse: () => void
   onOpenInTab?: (url: string) => void
-  workspaceRequest: (Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites' | 'selectedFavoriteAids'> & { requestId: number }) | undefined
+  workspaceRequest: (Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites' | 'selectedFavoriteAids' | 'selectedFavoriteSelection'> & { requestId: number }) | undefined
 }
 
 const SidebarWorkspace = memo(function SidebarWorkspace({
@@ -78,7 +78,7 @@ export function AssistantSidebar({ onOpenInTab, onResizeActiveChange }: Assistan
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
   const workspaceRequestVersion = useRef(0)
-  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites' | 'selectedFavoriteAids'> & { requestId: number }) | undefined>()
+  const [workspaceRequest, setWorkspaceRequest] = useState<(Pick<FloatingAssistantWorkspaceRequest, 'tab' | 'ledgerId' | 'createLedger' | 'openNoteArchive' | 'organizeOldFavorites' | 'selectedFavoriteAids' | 'selectedFavoriteSelection'> & { requestId: number }) | undefined>()
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
@@ -173,6 +173,7 @@ export function AssistantSidebar({ onOpenInTab, onResizeActiveChange }: Assistan
       openNoteArchive: payload.openNoteArchive,
       organizeOldFavorites: payload.organizeOldFavorites,
       selectedFavoriteAids: payload.selectedFavoriteAids,
+      selectedFavoriteSelection: payload.selectedFavoriteSelection,
       requestId: ++workspaceRequestVersion.current
     })
   }), [])

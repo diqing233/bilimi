@@ -2094,6 +2094,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     deepSeekService: oldFavoriteWorkspaceDeepSeekService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    resolveSelection: (accountMid, selection) => favoriteRepositoryService!.resolveLibrarySelection(
+      accountMid, selection.scope, selection.options, selection.excludedAids
+    ),
     startScan: (accountMid, mode, options) => oldFavoriteWorkspaceScanService!.start(accountMid, mode, options),
     resumeScan: (accountMid) => oldFavoriteWorkspaceScanService!.resume(accountMid),
     resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),

@@ -164,6 +164,30 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('builds a main-resolved scope immediately without synchronously refreshing every selected video', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await repository.commit('100', {
+        id: `seed-scope-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const refreshSelectedVideoMetadata = vi.fn()
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, refreshSelectedVideoMetadata
+    })
+
+    await expect(coordinator.beginSelectedReorganization('100', [1, 2], {
+      refreshIncompleteMetadata: false
+    })).resolves.toMatchObject({
+      status: 'previewing',
+      scope: { kind: 'selection', aids: [1, 2] },
+      scan: { phase: 'complete', taggedItemCount: 0, untaggedItemCount: 2 }
+    })
+    expect(refreshSelectedVideoMetadata).not.toHaveBeenCalled()
+  })
+
   it('refuses to replace an unfinished account workspace with a selection scope', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

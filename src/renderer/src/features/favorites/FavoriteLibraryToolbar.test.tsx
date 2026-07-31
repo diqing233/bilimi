@@ -76,6 +76,18 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
     expect(onBatchAction).toHaveBeenCalledWith('reorganize')
   })
 
+  it('hides the more trigger when the current source has no more-menu actions', () => {
+    render(<FavoriteLibraryToolbar
+      pageCount={1}
+      selectedCount={1}
+      allCurrentPageSelected={false}
+      onTogglePage={vi.fn()}
+      allowedActions={['copy', 'refresh', 'reorganize', 'transcribe', 'cancel-transcribe', 'download-documents']}
+    />)
+
+    expect(screen.queryByRole('button', { name: '更多批量操作' })).not.toBeInTheDocument()
+  })
+
   it('keeps a 30000-folder destination menu DOM bounded', () => {
     render(<FavoriteLibraryToolbar
       pageCount={1}

@@ -241,6 +241,64 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('resolves a full library scope in main before creating 2000-item workspace segments', async () => {
+    const ipcMain = new FakeIpcMain()
+    const aids = Array.from({ length: 30_000 }, (_, index) => index + 1)
+    const selected = {
+      ...snapshot,
+      mode: 'full' as const,
+      hasMultipleSegments: true,
+      segments: Array.from({ length: 15 }, (_, index) => ({
+        id: `segment-${index + 1}`, index, status: 'previewing' as const, itemCount: 2_000
+      }))
+    }
+    const coordinator = {
+      beginSelectedReorganization: vi.fn().mockResolvedValue(selected),
+      getSnapshot: vi.fn().mockResolvedValue(selected)
+    }
+    const resolveSelection = vi.fn().mockResolvedValue(aids)
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, resolveSelection,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    const selection = {
+      kind: 'scope' as const,
+      scope: { kind: 'folder' as const, folderId: 'bilimi-logical:games' },
+      options: { query: 'boss', filter: 'pending' as const },
+      excludedAids: [3, 5]
+    }
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-selected-reorganization', selection
+    })).resolves.toEqual(selected)
+    expect(resolveSelection).toHaveBeenCalledWith('100', selection)
+    expect(coordinator.beginSelectedReorganization).toHaveBeenCalledWith('100', aids, {
+      refreshIncompleteMetadata: false
+    })
+  })
+
+  it('rejects a resolved scope when the active account changes during selection resolution', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      beginSelectedReorganization: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    const getCurrentAccountMid = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockResolvedValueOnce('200')
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never,
+      resolveSelection: vi.fn().mockResolvedValue([1, 2]),
+      isTrustedSender: () => true, getCurrentAccountMid
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-selected-reorganization',
+      selection: { kind: 'scope', scope: { kind: 'all' }, options: {}, excludedAids: [] }
+    })).rejects.toThrow('does not match the current Bilibili account')
+    expect(coordinator.beginSelectedReorganization).not.toHaveBeenCalled()
+  })
+
   it('routes an explicit scan-resume command through the scan service', async () => {
     const ipcMain = new FakeIpcMain()
     const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }

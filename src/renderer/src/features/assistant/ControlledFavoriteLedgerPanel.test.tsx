@@ -2533,13 +2533,15 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     rendered.unmount()
     persisted = reconciling
+    const acknowledgeCompletion = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
-      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onAcknowledgeOrganizationCompletion={acknowledgeCompletion} />)
     fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
     expect(await screen.findByRole('status')).toHaveTextContent('本轮已完成同步到 B 站')
     expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '好的' }))
+    expect(acknowledgeCompletion).toHaveBeenCalledWith('100', 'workspace-100')
     expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
 

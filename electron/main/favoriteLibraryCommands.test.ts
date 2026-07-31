@@ -167,6 +167,29 @@ describe('FavoriteLibraryCommandService', () => {
     expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-library-mirror', payload: expect.objectContaining({ status: 'synced' }) }))
   })
 
+  it('persists unavailable metadata separately from temporary network failures', async () => {
+    const { repository, transcriptionQueue } = createService()
+    const unavailable = Object.assign(new Error('Video is unavailable.'), {
+      errorCode: 'unavailable' as const,
+      remoteCode: 62012
+    })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never,
+      refreshVideo: vi.fn().mockRejectedValue(unavailable),
+      transcriptionQueue,
+      now
+    })
+
+    await expect(service.syncSelection('100', { kind: 'aids', aids: [1] })).rejects.toBe(unavailable)
+    expect(repository.commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'record-library-mirror',
+      payload: expect.objectContaining({
+        status: 'failed', errorCode: 'unavailable', remoteCode: 62012,
+        lastCheckedAt: '2026-07-21T00:00:00.000Z'
+      })
+    }))
+  })
+
   it('refreshes the deduplicated logical-folder union across logical, physical, and bound remote members', async () => {
     const repository = {
       getSnapshot: vi.fn().mockResolvedValue({

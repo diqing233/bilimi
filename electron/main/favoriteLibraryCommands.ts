@@ -10,7 +10,7 @@ export type FavoriteLibrarySyncSelection =
   | { kind: 'aids'; aids: number[] }
   | { kind: 'folder'; folderId: string }
 
-type FavoriteLibraryScopeSelection = {
+export type FavoriteLibraryScopeSelection = {
   kind: 'scope'
   scope: FavoriteRepositoryLibraryPageScope
   options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[] }
@@ -339,6 +339,7 @@ export class FavoriteLibraryCommandService {
     const before = await this.options.repository.getSnapshot(accountMid)
     const prior = before.libraryMirrors[String(aid)]
     const metadataRevision = (prior?.metadataRevision ?? before.revision) + 1
+    const checkedAt = this.now()
     try {
       const video = await this.options.refreshVideo(accountMid, aid)
       if (video.aid !== aid) throw new Error('视频信息不一致。')
@@ -349,14 +350,24 @@ export class FavoriteLibraryCommandService {
       await this.options.repository.commit(accountMid, {
         id: `favorite-library:mirror:${accountMid}:${aid}:${metadataRevision}:${randomUUID()}`,
         accountMid, issuedAt: this.now(), type: 'record-library-mirror',
-        payload: { aid, status: 'synced', metadataRevision, lastSyncedAt: this.now() }
+        payload: { aid, status: 'synced', metadataRevision, lastSyncedAt: checkedAt, lastCheckedAt: checkedAt }
       })
       return { video, metadataRevision }
     } catch (error) {
+      const failure = error && typeof error === 'object'
+        ? error as { errorCode?: unknown; remoteCode?: unknown }
+        : undefined
+      const errorCode = failure?.errorCode === 'unavailable' || failure?.errorCode === 'account-changed'
+        ? failure.errorCode
+        : 'network'
+      const remoteCode = Number.isSafeInteger(failure?.remoteCode) ? Number(failure?.remoteCode) : undefined
       await this.options.repository.commit(accountMid, {
         id: `favorite-library:mirror-failed:${accountMid}:${aid}:${metadataRevision}:${randomUUID()}`,
         accountMid, issuedAt: this.now(), type: 'record-library-mirror',
-        payload: { aid, status: 'failed', metadataRevision, lastSyncedAt: prior?.lastSyncedAt, errorCode: 'network' }
+        payload: {
+          aid, status: 'failed', metadataRevision, lastSyncedAt: prior?.lastSyncedAt,
+          lastCheckedAt: checkedAt, errorCode, ...(remoteCode !== undefined ? { remoteCode } : {})
+        }
       })
       throw error
     }

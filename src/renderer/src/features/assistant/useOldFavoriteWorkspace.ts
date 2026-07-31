@@ -7,6 +7,7 @@ import type {
   OldFavoriteWorkspaceView
 } from '../../../../shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode } from '@shared/types'
+import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
 type WorkspaceView = OldFavoriteWorkspaceView
 
@@ -289,12 +290,12 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
-  const startSelectedReorganization = useCallback(async (aids: number[]) => {
-    const normalizedAids = normalizeSelectedAids(aids)
+  const startSelectedReorganization = useCallback(async (selection: number[] | FavoriteLibraryWorkspaceSelection) => {
+    const normalizedAids = Array.isArray(selection) ? normalizeSelectedAids(selection) : []
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
-    if (!accountMid || !command || normalizedAids.length === 0 || normalizedAids.length > 2_000) return null
+    if (!accountMid || !command || (Array.isArray(selection) && (normalizedAids.length === 0 || normalizedAids.length > 2_000))) return null
 
     activeDeepSeekWorkspaceId.current = null
     setDeepSeekFeedback(null)
@@ -303,7 +304,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     foregroundRequestCount.current += 1
     setLastError(null)
     try {
-      const next = await command(accountMid, { type: 'start-selected-reorganization', aids: normalizedAids })
+      const next = await command(accountMid, Array.isArray(selection)
+        ? { type: 'start-selected-reorganization', aids: normalizedAids }
+        : { type: 'start-selected-reorganization', selection })
       if (!next || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next

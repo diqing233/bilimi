@@ -31,6 +31,18 @@ export type FloatingAssistantActionOptions = {
 
 export type FloatingAssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
 
+export type FavoriteLibraryWorkspaceSelection = {
+  kind: 'scope'
+  scope: { kind: 'all' | 'pending' | 'protected' | 'unsynced' } | { kind: 'folder'; folderId: string }
+  options: {
+    query?: string
+    filter?: 'all' | 'pending' | 'protected' | 'unsynced'
+    sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
+    transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>
+  }
+  excludedAids: number[]
+}
+
 export type FloatingAssistantWorkspaceRequest = {
   tab: FloatingAssistantWorkspaceTab
   /** Opens the persistent sidebar rather than the floating pet workspace. */
@@ -41,6 +53,8 @@ export type FloatingAssistantWorkspaceRequest = {
   organizeOldFavorites?: boolean
   /** Explicit Favorite Library selection for a small reorganization workspace. */
   selectedFavoriteAids?: number[]
+  /** Full-result Favorite Library scope; main resolves it without expanding AIDs in the renderer. */
+  selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection
   /** Stable local ledger identity requested by the Favorite Library. */
   ledgerId?: string
   /** Opens a new local ledger editor. */

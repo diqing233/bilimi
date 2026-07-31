@@ -36,7 +36,7 @@ export function createPersistentStatusTasks({ modelProgress, transcription, deep
   for (const [id, status, destination] of [
     ['transcription', transcription, 'transcription'], ['deepseek', deepSeek, 'deepseek'], ['ledger', ledger, 'ledger']
   ] as const) {
-    if (status?.tone === 'running' || status?.tone === 'error') tasks.push({ id, label: status.label, detail: status.detail, destination })
+    if (status?.tone === 'running' || status?.tone === 'warn' || status?.tone === 'error') tasks.push({ id, label: status.label, detail: status.detail, destination })
   }
   return tasks
 }

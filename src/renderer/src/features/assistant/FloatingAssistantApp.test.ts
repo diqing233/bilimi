@@ -177,9 +177,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('createPersistentStatusTasks({')
     expect(source).toContain('className="floating-assistant-global-status__menu"')
-    expect(source).toContain('常驻任务')
+    expect(source).toContain('后台任务')
+    expect(source).toContain('当前没有后台任务')
     expect(source).toContain('最近提示')
     expect(source).toContain("openSettingsSection('transcription')")
+  })
+
+  it('merges a transcription DeepSeek-summary phase into the transcription task instead of duplicating it', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain("runningItem.progress?.step === 'summarizing-deepseek'")
+    expect(source).toContain('DeepSeek 总结中')
+    expect(source).not.toContain('backgroundSummaryTasks')
+    expect(source).not.toContain('transcription-summary:')
   })
 
   it('does not reload the full archive library for a generic assistant snapshot signal', () => {
@@ -429,5 +439,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
     }).label).toBe(label)
+  })
+
+  it('returns to idle only for the completed workspace the user acknowledged', () => {
+    expect(resolveFavoriteOrganizationLamp({
+      snapshot: workspace('completed'),
+      acknowledgedWorkspaceId: 'workspace',
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [defaultLedger],
+      favoriteLedgerStatus: null
+    })).toMatchObject({ label: '整理空闲', tone: 'idle' })
+
+    expect(resolveFavoriteOrganizationLamp({
+      snapshot: { ...workspace('completed'), workspaceId: 'workspace-next' },
+      acknowledgedWorkspaceId: 'workspace',
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [defaultLedger],
+      favoriteLedgerStatus: null
+    })).toMatchObject({ label: '整理完成' })
   })
 })

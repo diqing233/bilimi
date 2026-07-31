@@ -304,6 +304,7 @@ function BatchActions({
   }
   const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息'], ['reorganize', '重新整理']]
   const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['unfavorite-remote', '取消B站收藏']]
+  const hasMoreActions = allowed('sync') || dangerActions.some(([action]) => allowed(action))
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
     <FavoriteLibraryDestinationList logicalFolders={logicalFolders} destinationIds={destinationIds} onToggle={toggleDestination} focusFirst={focusDestinationFirst} />
@@ -329,7 +330,7 @@ function BatchActions({
       { id: 'transcribe', label: '转写音频', disabled: disabled || !allowed('transcribe') || disabledActions.includes('transcribe'), onSelect: () => run('transcribe') },
       { id: 'cancel-transcribe', label: '取消转写', disabled: disabled || !allowed('cancel-transcribe') || disabledActions.includes('cancel-transcribe'), onSelect: () => run('cancel-transcribe') }
     ]} download={{ disabled: disabled || !allowed('download-documents'), onSelect: () => onDownload ? onDownload() : run('download-documents') }} disabled={disabled} disabledTitle={disabledTitle} /> : null}
-    <button ref={(element) => { triggerRefs.current.more = element ?? undefined }} type="button" className="favorite-library__disclosure-button" aria-expanded={openMenu === 'more'} disabled={disabled} title={disabledTitle} onClick={() => setOpenMenu((current) => current === 'more' ? undefined : 'more')}>更多批量操作<Chevron /></button>
+    {hasMoreActions ? <button ref={(element) => { triggerRefs.current.more = element ?? undefined }} type="button" className="favorite-library__disclosure-button" aria-expanded={openMenu === 'more'} disabled={disabled} title={disabledTitle} onClick={() => setOpenMenu((current) => current === 'more' ? undefined : 'more')}>更多批量操作<Chevron /></button> : null}
     {typeof document === 'undefined' ? null : createPortal(floatingMenu, document.body)}
   </div>
 }

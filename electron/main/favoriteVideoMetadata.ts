@@ -13,6 +13,21 @@ type FavoriteVideoMetadataOptions = {
   now?: () => string
 }
 
+export type FavoriteVideoMetadataErrorCode = 'network' | 'unavailable' | 'account-changed'
+
+export class FavoriteVideoMetadataError extends Error {
+  constructor(
+    message: string,
+    readonly errorCode: FavoriteVideoMetadataErrorCode,
+    readonly remoteCode?: number
+  ) {
+    super(message)
+    this.name = 'FavoriteVideoMetadataError'
+  }
+}
+
+const UNAVAILABLE_VIDEO_CODES = new Set([-404, 62002, 62004, 62012])
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -21,7 +36,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 async function requireSameAccount(options: FavoriteVideoMetadataOptions) {
   if ((await options.readCurrentAccountMid()).trim() !== options.accountMid.trim()) {
-    throw new Error('当前账号已切换，请重新加载收藏库。')
+    throw new FavoriteVideoMetadataError('当前账号已切换，请重新加载收藏库。', 'account-changed')
   }
 }
 
@@ -36,7 +51,11 @@ export async function fetchFavoriteVideoMetadata(
   const viewPayload = record(await viewResponse.json())
   const data = record(viewPayload?.data)
   if (!viewResponse.ok || viewPayload?.code !== 0 || !data) {
-    throw new Error('无法读取视频信息，请稍后重试。')
+    const remoteCode = Number.isSafeInteger(viewPayload?.code) ? Number(viewPayload?.code) : undefined
+    if (remoteCode !== undefined && UNAVAILABLE_VIDEO_CODES.has(remoteCode)) {
+      throw new FavoriteVideoMetadataError('视频已失效或当前不可见。', 'unavailable', remoteCode)
+    }
+    throw new FavoriteVideoMetadataError('无法读取视频信息，请稍后重试。', 'network', remoteCode)
   }
   await requireSameAccount(options)
 

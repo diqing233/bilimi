@@ -625,6 +625,36 @@ describe('FavoriteLibraryApp', () => {
     expect(audioSection.compareDocumentPosition(sourceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(sourceSection).getByRole('button', { name: '查看完整处理记录' })).toBeInTheDocument()
   })
+
+  it('shows an unavailable status without hiding the saved video facts', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 9, title: '保留的旧标题', tags: ['旧标签'], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        video: { aid: 9, title: '保留的旧标题', tags: ['旧标签'], updatedAt: '2026-07-24T00:00:00.000Z' },
+        folderIds: [], pendingStates: [], protected: true,
+        mirror: { status: '同步失败', errorCode: 'unavailable', remoteCode: 62012, lastCheckedAt: '2026-07-24T02:03:04.000Z' },
+        transcription: { status: '未转写' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: true, hasSummary: false }
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('保留的旧标题'))
+    const detail = await screen.findByRole('complementary')
+    expect(within(detail).getByText('已失效')).toHaveAttribute('data-tone', 'danger')
+    expect(detail).toHaveTextContent('返回码 62012')
+    expect(detail).toHaveTextContent('2026-07-24 10:03')
+    expect(detail).toHaveTextContent('保留的旧标题')
+    fireEvent.click(within(detail).getByRole('button', { name: '同步状态说明' }))
+    expect(detail).toHaveTextContent('同步状态以当前的 B 站归属对账结果为准')
+    expect(detail).not.toHaveTextContent('B 站已明确返回该视频不可见')
+    fireEvent.click(within(detail).getByRole('button', { name: '更多信息' }))
+    expect(detail).toHaveTextContent('旧标签')
+    expect(detail).toHaveTextContent('已入档')
+  })
   it('limits a B站 source-folder detail to copying into local placements', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -642,6 +672,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('移动到其他收藏夹')
     expect(detail).not.toHaveTextContent('同步B站位置')
     expect(within(detail).getByRole('button', { name: '视频总结' })).toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: '其他操作' })).not.toBeInTheDocument()
     expect(detail).not.toHaveTextContent('从收藏库删除')
     expect(detail).not.toHaveTextContent('取消B站收藏')
   })
@@ -720,6 +751,37 @@ describe('FavoriteLibraryApp', () => {
 
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({
       tab: 'ledger', sidebar: true, organizeOldFavorites: true, selectedFavoriteAids: [1, 3]
+    })
+  })
+  it('keeps reorganization available for a full-result selection without expanding every AID in the renderer', async () => {
+    const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 30_000, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }],
+        physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:games'], pendingStates: [] }]
+      }),
+      openFloatingAssistantWorkspace,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '游戏' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '全选' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新整理' }))
+
+    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({
+      tab: 'ledger', sidebar: true, organizeOldFavorites: true,
+      selectedFavoriteSelection: {
+        kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:games' },
+        options: { query: '', filter: 'all', sort: 'updated-desc', transcriptionFilters: [] }, excludedAids: []
+      }
     })
   })
   it('does not classify an ordinary Bilibili folder as a workspace from its bilimi title alone', async () => {

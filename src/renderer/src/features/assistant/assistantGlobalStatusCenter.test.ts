@@ -31,4 +31,14 @@ describe('assistantGlobalStatusCenter', () => {
       expect(createPersistentStatusTasks({ modelProgress: { id: 'whisper-small', stage } })).toEqual([])
     }
   })
+
+  it('keeps queued and confirmation-required warning states visible as unfinished tasks', () => {
+    expect(createPersistentStatusTasks({
+      transcription: { label: '转写排队 2', detail: '还有 2 个任务等待处理', tone: 'warn' },
+      ledger: { label: '整理待确认', detail: '等待用户确认对账结果', tone: 'warn' }
+    })).toEqual([
+      { id: 'transcription', label: '转写排队 2', detail: '还有 2 个任务等待处理', destination: 'transcription' },
+      { id: 'ledger', label: '整理待确认', detail: '等待用户确认对账结果', destination: 'ledger' }
+    ])
+  })
 })

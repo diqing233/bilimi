@@ -1656,6 +1656,24 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('projects an unavailable mirror with its remote code and latest detection time', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video-unavailable', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 9, title: '保留的旧标题', tags: ['旧标签'], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-unavailable', accountMid: '100', issuedAt: '2026-07-20T02:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 9, status: 'failed', metadataRevision: 2, lastCheckedAt: '2026-07-20T02:00:00.000Z', errorCode: 'unavailable', remoteCode: 62012 }
+    })
+
+    await expect(service.getLibraryDetail('100', 9)).resolves.toMatchObject({
+      video: { title: '保留的旧标题', tags: ['旧标签'] },
+      mirror: { status: '同步失败', errorCode: 'unavailable', remoteCode: 62012, lastCheckedAt: '2026-07-20T02:00:00.000Z' }
+    })
+  })
+
   it('reports the local metadata mirror without reusing remote favorite sync records', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root })

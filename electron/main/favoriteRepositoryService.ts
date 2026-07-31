@@ -296,6 +296,9 @@ export type FavoriteRepositoryLibraryDetail = {
   mirror: {
     status: '未同步' | '同步中' | '已同步' | '同步失败' | '待确认'
     lastSyncedAt?: string
+    lastCheckedAt?: string
+    errorCode?: 'network' | 'unavailable' | 'account-changed'
+    remoteCode?: number
   }
 }
 
@@ -1337,9 +1340,15 @@ export class FavoriteRepositoryService {
 
   private mirrorSummary(record: AccountFavoriteRepositorySnapshot['libraryMirrors'][string] | undefined): FavoriteRepositoryLibraryDetail['mirror'] {
     if (!record || record.status === 'never') return { status: '未同步' }
-    if (record.status === 'synced') return { status: '已同步', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
-    if (record.status === 'failed') return { status: '同步失败', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
-    return { status: '同步中', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
+    const evidence = {
+      ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}),
+      ...(record.lastCheckedAt ? { lastCheckedAt: record.lastCheckedAt } : {}),
+      ...(record.errorCode ? { errorCode: record.errorCode } : {}),
+      ...(record.remoteCode !== undefined ? { remoteCode: record.remoteCode } : {})
+    }
+    if (record.status === 'synced') return { status: '已同步', ...evidence }
+    if (record.status === 'failed') return { status: '同步失败', ...evidence }
+    return { status: '同步中', ...evidence }
   }
 
   private libraryAids(

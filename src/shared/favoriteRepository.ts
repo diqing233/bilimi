@@ -383,7 +383,9 @@ export type FavoriteLibraryMirrorRecord = {
   status: 'never' | 'refreshing' | 'synced' | 'failed'
   metadataRevision: number
   lastSyncedAt?: string
+  lastCheckedAt?: string
   errorCode?: 'network' | 'unavailable' | 'account-changed'
+  remoteCode?: number
 }
 
 export type FavoriteRepositoryFolder = {
@@ -1105,7 +1107,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         !['never', 'refreshing', 'synced', 'failed'].includes(String(payload.status)) ||
         !Number.isSafeInteger(payload.metadataRevision) || Number(payload.metadataRevision) < 0 ||
         (payload.lastSyncedAt !== undefined && (typeof payload.lastSyncedAt !== 'string' || Number.isNaN(Date.parse(payload.lastSyncedAt)))) ||
-        (payload.errorCode !== undefined && !['network', 'unavailable', 'account-changed'].includes(String(payload.errorCode)))) invalidCommand()
+        (payload.lastCheckedAt !== undefined && (typeof payload.lastCheckedAt !== 'string' || Number.isNaN(Date.parse(payload.lastCheckedAt)))) ||
+        (payload.errorCode !== undefined && !['network', 'unavailable', 'account-changed'].includes(String(payload.errorCode))) ||
+        (payload.remoteCode !== undefined && !Number.isSafeInteger(payload.remoteCode))) invalidCommand()
       return
     case 'set-folder-members':
       if (typeof payload.folderId !== 'string' || !payload.folderId.trim() || !Array.isArray(payload.aids) ||

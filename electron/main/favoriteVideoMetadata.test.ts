@@ -71,4 +71,16 @@ describe('fetchFavoriteVideoMetadata', () => {
     expect(result.tags).toEqual([])
     expect(result).not.toHaveProperty('tagEvidence')
   })
+
+  it('classifies an explicit unavailable response without treating it as a network failure', async () => {
+    await expect(fetchFavoriteVideoMetadata({
+      accountMid: '42',
+      aid: 116955801460032,
+      fetch: vi.fn().mockResolvedValue(Response.json({ code: 62012, message: '62012', ttl: 1 })),
+      readCurrentAccountMid: vi.fn().mockResolvedValue('42')
+    })).rejects.toMatchObject({
+      errorCode: 'unavailable',
+      remoteCode: 62012
+    })
+  })
 })

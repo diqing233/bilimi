@@ -12,6 +12,7 @@ import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
+import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
 type ControlledFavoriteLedgerPanelProps = {
   currentAccountMid?: string
@@ -25,6 +26,7 @@ type ControlledFavoriteLedgerPanelProps = {
   onOpenFavoritePage?: () => Promise<unknown> | void
   onRefreshOrganizationState?: () => Promise<unknown> | void
   onOrganizationSnapshotChange?: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
+  onAcknowledgeOrganizationCompletion?: (accountMid: string, workspaceId: string) => void
   deepSeekArchiveAvailable?: boolean
   openLedgerId?: string
   openLedgerRequestVersion?: number
@@ -32,6 +34,7 @@ type ControlledFavoriteLedgerPanelProps = {
   createLedgerRequestVersion?: number
   openOrganizationRequestVersion?: number
   openOrganizationSelectionAids?: number[]
+  openOrganizationSelection?: FavoriteLibraryWorkspaceSelection
 }
 
 function normalizeAccountMid(value: string | undefined) {
@@ -100,13 +103,15 @@ export function ControlledFavoriteLedgerPanel({
   onOpenFavoritePage,
   onRefreshOrganizationState,
   onOrganizationSnapshotChange,
+  onAcknowledgeOrganizationCompletion,
   deepSeekArchiveAvailable = false,
   openLedgerId,
   openLedgerRequestVersion,
   createLedger,
   createLedgerRequestVersion,
   openOrganizationRequestVersion,
-  openOrganizationSelectionAids
+  openOrganizationSelectionAids,
+  openOrganizationSelection
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
@@ -167,11 +172,11 @@ export function ControlledFavoriteLedgerPanel({
     setScanStartFailure(null)
     const aids = [...new Set((openOrganizationSelectionAids ?? [])
       .filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
-    if (!aids.length) return
+    if (!aids.length && !openOrganizationSelection) return
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++organizationRequestVersion.current
     let active = true
-    void workspace.startSelectedReorganization(aids).then((next) => {
+    void workspace.startSelectedReorganization(openOrganizationSelection ?? aids).then((next) => {
       if (!active || organizationRequestVersion.current !== requestVersion ||
         activeAccountMid.current !== requestedAccountMid) return
       if (next && !('recovery' in next)) setStep('preview')
@@ -181,7 +186,7 @@ export function ControlledFavoriteLedgerPanel({
       setScanStartFailure(error instanceof Error ? error.message : '启动所选视频整理失败。')
     })
     return () => { active = false }
-  }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids])
+  }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids, openOrganizationSelection])
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
@@ -352,6 +357,12 @@ export function ControlledFavoriteLedgerPanel({
     setStep('scan')
     setScanStartFailure(null)
   }
+  const acknowledgeCompletion = () => {
+    if (snapshot && !('recovery' in snapshot) && snapshot.status === 'completed') {
+      onAcknowledgeOrganizationCompletion?.(snapshot.accountMid, snapshot.workspaceId)
+    }
+    closeGuide()
+  }
   const abandonCurrentWorkspace = async () => {
     const result = await workspace.abandonCurrentWorkspace()
     if (!result) {
@@ -505,7 +516,7 @@ export function ControlledFavoriteLedgerPanel({
         onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
-        onAcknowledgeCompletion={closeGuide}
+        onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={() => void confirmAndSync()}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onReconcile={() => void reconcile()}

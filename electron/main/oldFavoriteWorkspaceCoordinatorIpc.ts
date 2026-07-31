@@ -8,6 +8,7 @@ import {
   OldFavoriteWorkspaceCoordinator
 } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
+import type { FavoriteLibraryScopeSelection } from './favoriteLibraryCommands'
 
 type IpcEvent = {
   sender: {
@@ -33,6 +34,7 @@ type WorkspaceRecoverySummary = OldFavoriteWorkspaceRecoverySummary
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
   | { type: 'start-selected-reorganization'; aids: number[] }
+  | { type: 'start-selected-reorganization'; selection: FavoriteLibraryScopeSelection }
   | { type: 'resume-scan' }
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
@@ -94,6 +96,41 @@ function validAssignments(value: unknown): value is ApplyWorkspaceClassification
   })
 }
 
+function favoriteLibraryScopeSelection(value: unknown): FavoriteLibraryScopeSelection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind !== 'scope' || Object.keys(candidate).length !== 4 ||
+    !candidate.scope || typeof candidate.scope !== 'object' || Array.isArray(candidate.scope) ||
+    !candidate.options || typeof candidate.options !== 'object' || Array.isArray(candidate.options) ||
+    !Array.isArray(candidate.excludedAids)) return null
+  const scope = candidate.scope as { kind?: unknown; folderId?: unknown }
+  const options = candidate.options as { query?: unknown; filter?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+  const validScope = scope.kind === 'all' || scope.kind === 'pending' || scope.kind === 'protected' || scope.kind === 'unsynced' ||
+    scope.kind === 'folder' && typeof scope.folderId === 'string' && !!scope.folderId.trim()
+  const transcriptionFilters = options.transcriptionFilters
+  if (!validScope || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || Number(aid) <= 0) ||
+    (options.query !== undefined && typeof options.query !== 'string') ||
+    (options.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(String(options.filter))) ||
+    (options.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(String(options.sort))) ||
+    (transcriptionFilters !== undefined && (!Array.isArray(transcriptionFilters) || transcriptionFilters.length > 5 ||
+      transcriptionFilters.some((filter) => !['completed', 'none', 'pending', 'running', 'failed'].includes(String(filter)))))) return null
+  return {
+    kind: 'scope',
+    scope: scope.kind === 'folder'
+      ? { kind: 'folder', folderId: (scope.folderId as string).trim() }
+      : { kind: scope.kind as Exclude<FavoriteLibraryScopeSelection['scope']['kind'], 'folder'> },
+    options: {
+      ...(typeof options.query === 'string' ? { query: options.query } : {}),
+      ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteLibraryScopeSelection['options']['filter'] } : {}),
+      ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteLibraryScopeSelection['options']['sort'] } : {}),
+      ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length
+        ? { transcriptionFilters: [...new Set(transcriptionFilters as NonNullable<FavoriteLibraryScopeSelection['options']['transcriptionFilters']>)].sort() }
+        : {})
+    },
+    excludedAids: [...new Set(candidate.excludedAids as number[])].sort((left, right) => left - right)
+  }
+}
+
 function command(value: unknown): WorkspaceCommand {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Old favorite workspace command is invalid.')
   const candidate = value as Record<string, unknown>
@@ -107,6 +144,10 @@ function command(value: unknown): WorkspaceCommand {
     candidate.aids.every((aid) => Number.isSafeInteger(aid) && Number(aid) > 0) &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'aids')) {
     return { type: 'start-selected-reorganization', aids: [...new Set(candidate.aids as number[])].sort((left, right) => left - right) }
+  }
+  if (candidate.type === 'start-selected-reorganization' && Object.keys(candidate).length === 2) {
+    const selection = favoriteLibraryScopeSelection(candidate.selection)
+    if (selection) return { type: 'start-selected-reorganization', selection }
   }
   if (candidate.type === 'rebuild-corrupt-workspace' && Object.keys(candidate).length === 1) {
     return { type: 'rebuild-corrupt-workspace' }
@@ -233,6 +274,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   resumeScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   resumeTagEnrichment?: (accountMid: string) => Promise<void>
   retryFailedTagEnrichment?: (accountMid: string) => Promise<void>
+  resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
@@ -295,6 +337,13 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
         ? options.coordinator.beginScan(accountMid, requested.mode, { clearBilibiliMirror: true })
         : options.coordinator.beginScan(accountMid, requested.mode)
     if (requested.type === 'start-selected-reorganization') {
+      if ('selection' in requested) {
+        const aids = await options.resolveSelection?.(accountMid, requested.selection) ?? (() => { throw new Error('所选视频无效。') })()
+        await assertAccount(event, accountMid)
+        return options.coordinator.beginSelectedReorganization(accountMid, aids, {
+          refreshIncompleteMetadata: false
+        })
+      }
       return options.coordinator.beginSelectedReorganization(accountMid, requested.aids)
     }
     if (requested.type === 'resume-scan') return options.resumeScan

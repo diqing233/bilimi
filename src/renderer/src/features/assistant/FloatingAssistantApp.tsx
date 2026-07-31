@@ -73,11 +73,12 @@ import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantPetHint } from './petState'
-import type { AssistantSnapshot } from './assistantRuntimeTypes'
+import type { AssistantSnapshot, FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { appendGlobalFeedbackHistory, createPersistentStatusTasks, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
+import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
@@ -193,7 +194,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[] }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
 }
 
 export function findArchivedSummaryTextForNote(
@@ -343,6 +344,7 @@ type LedgerWorkspacePanelProps = {
   onOpenFavoritePage: () => Promise<unknown>
   onRefreshOrganizationState: () => Promise<unknown>
   onOrganizationSnapshotChange: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
+  onAcknowledgeOrganizationCompletion: (accountMid: string, workspaceId: string) => void
   deepSeekArchiveAvailable: boolean
   openLedgerId?: string
   openLedgerRequestVersion: number
@@ -350,6 +352,7 @@ type LedgerWorkspacePanelProps = {
   createLedgerRequestVersion: number
   openOrganizationRequestVersion: number
   openOrganizationSelectionAids?: number[]
+  openOrganizationSelection?: FavoriteLibraryWorkspaceSelection
 }
 
 const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel(props: LedgerWorkspacePanelProps) {
@@ -472,10 +475,18 @@ export function hasMissingFavoriteLedgerBindings(ledgers: FavoriteLedger[], favo
 
 export function resolveFavoriteOrganizationLamp(args: {
   snapshot: OldFavoriteWorkspaceSnapshot | null
+  acknowledgedWorkspaceId?: string
   defaultFavoriteSystemEnabled: boolean
   ledgers: FavoriteLedger[]
   favoriteLedgerStatus: FavoriteLedgerStatus | null
 }): GlobalStatusItem {
+  if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
+    return {
+      label: '整理空闲',
+      detail: favoriteOrganizationDetail('本轮整理结果已确认；工作区、扫描基线和处理记录均已保留。'),
+      tone: 'idle'
+    }
+  }
   const organizationStatus = favoriteOrganizationStatus(args.snapshot)
   if (organizationStatus) return organizationStatus
 
@@ -2125,6 +2136,8 @@ export function FloatingAssistantApp({
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
   const [favoriteOrganizationSnapshot, setFavoriteOrganizationSnapshot] =
     useState<OldFavoriteWorkspaceSnapshot | null>(null)
+  const [acknowledgedFavoriteWorkspaces, setAcknowledgedFavoriteWorkspaces] =
+    useState(loadAcknowledgedOldFavoriteWorkspaces)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
@@ -2219,6 +2232,7 @@ export function FloatingAssistantApp({
   const [createLedgerRequestVersion, setCreateLedgerRequestVersion] = useState(0)
   const [openOrganizationRequestVersion, setOpenOrganizationRequestVersion] = useState(0)
   const [openOrganizationSelectionAids, setOpenOrganizationSelectionAids] = useState<number[]>()
+  const [openOrganizationSelection, setOpenOrganizationSelection] = useState<FavoriteLibraryWorkspaceSelection>()
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -2318,9 +2332,11 @@ export function FloatingAssistantApp({
       const percent = formatGlobalProgressPercent(runningItem.progress)
       const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
       const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
+      const summarizingWithDeepSeek = runningItem.progress?.step === 'summarizing-deepseek'
+      const activeLabel = summarizingWithDeepSeek ? `${progressLabel} · DeepSeek 总结中` : progressLabel
       return {
-        label: pendingCount > 0 ? `${progressLabel} · 排队 ${pendingCount}` : progressLabel,
-        detail: `${runningItem.title} 正在转写${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
+        label: pendingCount > 0 ? `${activeLabel} · 排队 ${pendingCount}` : activeLabel,
+        detail: `${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
         tone: 'running'
       }
     }
@@ -2376,17 +2392,9 @@ export function FloatingAssistantApp({
       }
     }
 
-    const backgroundSummaryTasks: DeepSeekTask[] = transcriptionQueue.items
-      .filter((item) => item.status === 'running' && item.progress?.step === 'summarizing-deepseek')
-      .map((item) => ({
-        id: `transcription-summary:${item.id}`,
-        kind: 'summary',
-        detail: `文稿总结：${item.title}`
-      }))
     const activeDeepSeekTasks = [
       ...localDeepSeekTasks,
-      ...remoteDeepSeekTasks,
-      ...backgroundSummaryTasks
+      ...remoteDeepSeekTasks
     ].filter(
       (task, index, tasks) => tasks.findIndex((candidate) => candidate.id === task.id) === index
     )
@@ -2458,6 +2466,7 @@ export function FloatingAssistantApp({
     const accountMid = snapshot?.accountMid ?? ''
     return resolveFavoriteOrganizationLamp({
       snapshot: favoriteOrganizationSnapshot,
+      acknowledgedWorkspaceId: acknowledgedFavoriteWorkspaces[accountMid],
       defaultFavoriteSystemEnabled:
         preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled ?? true,
       ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
@@ -2466,10 +2475,19 @@ export function FloatingAssistantApp({
   }, [
     favoriteLedgerStatus,
     favoriteOrganizationSnapshot,
+    acknowledgedFavoriteWorkspaces,
     snapshot?.accountMid,
     preferences.favoriteAccountPreferences,
     preferences.favoriteLedgers
   ])
+
+  const acknowledgeFavoriteOrganizationCompletion = useCallback((accountMid: string, workspaceId: string) => {
+    setAcknowledgedFavoriteWorkspaces((current) => {
+      const next = acknowledgeOldFavoriteWorkspace(current, accountMid, workspaceId)
+      saveAcknowledgedOldFavoriteWorkspaces(next)
+      return next
+    })
+  }, [])
 
   const persistentStatusTasks = useMemo(() => createPersistentStatusTasks({
     modelProgress: transcriptionModelProgress,
@@ -3762,6 +3780,7 @@ export function FloatingAssistantApp({
       if (payload.organizeOldFavorites) {
         tellPet('progress', '小咪切到掌库啦，收藏整理从这里开始。')
         setOpenOrganizationSelectionAids(payload.selectedFavoriteAids)
+        setOpenOrganizationSelection(payload.selectedFavoriteSelection)
         setOpenOrganizationRequestVersion((version) => version + 1)
       }
 
@@ -4129,6 +4148,7 @@ export function FloatingAssistantApp({
     }
     if (workspaceRequest.organizeOldFavorites) {
       setOpenOrganizationSelectionAids(workspaceRequest.selectedFavoriteAids)
+      setOpenOrganizationSelection(workspaceRequest.selectedFavoriteSelection)
       setOpenOrganizationRequestVersion((version) => version + 1)
     }
   }, [loadVideoNoteArchives, workspaceRequest])
@@ -4469,15 +4489,15 @@ export function FloatingAssistantApp({
               {globalFeedbackExpanded ? (
                 <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
                   <section><strong>当前提示</strong><p>{displayedGlobalFeedbackMessage}</p></section>
-                  {persistentStatusTasks.length > 0 ? <section>
-                    <strong>常驻任务</strong>
-                    {persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {
+                  <section>
+                    <strong>后台任务</strong>
+                    {persistentStatusTasks.length > 0 ? persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {
                       setGlobalFeedbackExpanded(false)
                       if (task.destination === 'transcription') openSettingsSection('transcription')
                       else if (task.destination === 'deepseek') openSettingsSection('deepseek')
                       else setActiveTab('ledger')
-                    }}><span>{task.label}</span><small>{task.detail}</small></button>)}
-                  </section> : null}
+                    }}><span>{task.label}</span><small>{task.detail}</small></button>) : <p>当前没有后台任务。</p>}
+                  </section>
                   <section>
                     <strong>最近提示</strong>
                     {globalFeedbackHistory.length > 0 ? globalFeedbackHistory.map((item) => (
@@ -4533,6 +4553,7 @@ export function FloatingAssistantApp({
             onOpenFavoritePage={openFavoritePageForPanel}
             onRefreshOrganizationState={refreshOrganizationStateForPanel}
             onOrganizationSnapshotChange={setFavoriteOrganizationSnapshot}
+            onAcknowledgeOrganizationCompletion={acknowledgeFavoriteOrganizationCompletion}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&
@@ -4544,6 +4565,7 @@ export function FloatingAssistantApp({
             createLedgerRequestVersion={createLedgerRequestVersion}
             openOrganizationRequestVersion={openOrganizationRequestVersion}
             openOrganizationSelectionAids={openOrganizationSelectionAids}
+            openOrganizationSelection={openOrganizationSelection}
             />
           </div>
         ) : null}

@@ -990,11 +990,15 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  /** Builds a small full-mode draft from explicit library AIDs without reading every Bilibili folder. */
-  async beginSelectedReorganization(accountMid: string, requestedAids: number[]): Promise<OldFavoriteWorkspaceSnapshot> {
+  /** Builds a segmented full-mode draft from main-resolved library AIDs without reading Bilibili folders. */
+  async beginSelectedReorganization(
+    accountMid: string,
+    requestedAids: number[],
+    options: { refreshIncompleteMetadata?: boolean } = {}
+  ): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       const aids = normalizeAids(requestedAids)
-      if (!aids.length || aids.length > 2_000) throw new Error('收藏库所选视频无效，请重新勾选。')
+      if (!aids.length || aids.length > 100_000) throw new Error('收藏库所选视频无效，请重新勾选。')
       const existing = await this.openUnsafe(accountMid)
       if (existing && (isRecoveryRequired(existing) || existing.status !== 'completed')) {
         throw new Error('当前有未结束的全库整理草稿，请先完成或放弃后再重新整理所选视频。')
@@ -1003,7 +1007,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const missingAids = aids.filter((aid) => !repository.videos[String(aid)] || !isFavoriteRepositoryScanVisible(repository, aid))
       if (missingAids.length) throw new Error('收藏库所选视频已变化，请刷新后重新勾选。')
 
-      if (this.options.refreshSelectedVideoMetadata) {
+      if (options.refreshIncompleteMetadata !== false && this.options.refreshSelectedVideoMetadata) {
         for (const aid of aids) {
           const video = repository.videos[String(aid)]!
           if (!isFavoriteRepositoryMetadataStale(video) && video.description?.trim() && video.tagEvidence === 'confirmed') continue

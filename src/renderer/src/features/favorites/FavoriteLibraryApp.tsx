@@ -1589,7 +1589,7 @@ export function FavoriteLibraryApp({
             const eligibleSelectedAids = sourceEligibility.eligibleAids
             const commonActions: FavoriteLibraryBatchAction[] = [
               'copy', 'refresh', 'transcribe', 'cancel-transcribe', 'download-documents',
-              ...(selectionSnapshot.selectAllScope ? [] : ['reorganize' as const])
+              'reorganize'
             ]
             const batchAllowedActions = !selectionSnapshot.selectAllScope && selectionSnapshot.selectedAids.length > 0 && !eligibleSelectedAids.length
               ? ['copy', 'reorganize', 'download-documents'] as const
@@ -1639,12 +1639,14 @@ export function FavoriteLibraryApp({
             setBatchEligibilityNotice(selectionSnapshot.selectedAids.length === actionAids.length ? undefined : `可操作 ${actionAids.length} 项，跳过 ${selectionSnapshot.selectedAids.length - actionAids.length} 项`)
             if (Array.isArray(selection)) uiCallbacks?.onBatchAction?.(action, [...actionAids])
             if (Array.isArray(selection) && !actionAids.length) return
-            if (action === 'reorganize' && actionAids.length) {
+            if (action === 'reorganize' && (selectionSnapshot.selectAllScope || actionAids.length)) {
               void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
                 tab: 'ledger',
                 sidebar: true,
                 organizeOldFavorites: true,
-                selectedFavoriteAids: [...actionAids]
+                ...(selectionSnapshot.selectAllScope
+                  ? { selectedFavoriteSelection: selection as Exclude<FavoriteLibraryOperationSelection, number[]> }
+                  : { selectedFavoriteAids: [...actionAids] })
               })
             }
             if (action === 'refresh') void runAction(async () => {
@@ -1788,17 +1790,22 @@ export function FavoriteLibraryApp({
           {detail ? <>
             {(() => {
               const statusTone = (value: string): 'success' | 'warning' | 'danger' | 'neutral' => {
-                if (value.includes('失败')) return 'danger'
+                if (value.includes('失败') || value.includes('已失效')) return 'danger'
                 if (value.includes('待确认') || value.includes('未同步') || value.includes('未保护') || value.includes('未整理')) return 'warning'
                 if (value.includes('已同步') || value.includes('已保护') || value.includes('已整理')) return 'success'
                 return 'neutral'
               }
+              const unavailableExplanation = detailSnapshot?.mirror.errorCode === 'unavailable'
+                ? `B 站已明确返回该视频不可见${detailSnapshot.mirror.remoteCode !== undefined ? `（返回码 ${detailSnapshot.mirror.remoteCode}）` : ''}。最后检测时间 ${formatDetailTimestamp(detailSnapshot.mirror.lastCheckedAt)}；本地已保存的标题、标签、档案、备注和收藏归属会继续保留，点击刷新信息可重新检测。`
+                : null
               const chips = [
                 { label: '同步状态说明', value: formatFavoriteLibraryPositionSyncStatus(detailSnapshot?.position?.state), explanation: '同步状态以当前的 B 站归属对账结果为准，不会从整理或保护状态推导。' },
                 { label: '保护状态说明', value: detailSnapshot?.protected ? '已保护' : '未保护', explanation: '保护只决定下一次增量整理是否跳过该视频，不会隐藏位置差异或同步错误。' },
-                { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detail.pendingStates), explanation: '整理状态与保护及远程位置状态相互独立。' }
+                { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detail.pendingStates), explanation: '整理状态与保护及远程位置状态相互独立。' },
+                ...(unavailableExplanation ? [{ label: '失效状态说明', value: '已失效', explanation: unavailableExplanation }] : [])
               ]
-              return <section className="favorite-library__status-tags" aria-label="视频状态"><h3>状态</h3><div className="favorite-library__status-row">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} data-tone={statusTone(chip.value)} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}</div>{statusExplanation ? <p role="status">{statusExplanation}</p> : null}</section>
+              const displayedStatusExplanation = statusExplanation ?? unavailableExplanation
+              return <section className="favorite-library__status-tags" aria-label="视频状态"><h3>状态</h3><div className="favorite-library__status-row">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} data-tone={statusTone(chip.value)} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}</div>{displayedStatusExplanation ? <p role="status">{displayedStatusExplanation}</p> : null}</section>
             })()}
             <section><h3>收藏归属</h3><div className="favorite-library__detail-action-row"><FavoriteLibraryDestinationButton action="copy" logicalFolders={logicalFolders.map((folder) => ({ id: folder.id, title: folder.title }))} onConfirm={(folderIds) => void runAction(async () => {
               const api = window.bilimiDesktop
@@ -1823,13 +1830,13 @@ export function FavoriteLibraryApp({
             <section><h3>来源与时间</h3><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button><p>{detailSourceMethod} · {formatDetailTimestamp(detailSourceAt)}</p>{detail.folders.length ? <p>来自 {detail.folders.map((folder) => folder.title).join('、')}</p> : null}{detailSnapshot?.sourceShards?.length ? <p>归入 {detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}{eventsOpen ? <ol className="favorite-library__events" aria-label="完整处理记录">{events?.items.map((event) => <li key={event.id} data-event-kind={event.kind}>{formatRepositoryEventKind(event.kind)} <span className="sr-only">{event.kind}</span> · {formatDetailTimestamp(event.occurredAt)}{event.detail ? ` · ${event.detail}` : ''}</li>)}</ol> : null}
               {events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更早记录</button> : null}
             </section>
-            <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>{currentLogicalFolderId ? '从当前工作夹移除' : '从所有 bilimi 工作夹移除'}</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>{currentLogicalFolderId ? <>{(() => {
+            {!detailAllowsOnlyCopy ? <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>{currentLogicalFolderId ? '从当前工作夹移除' : '从所有 bilimi 工作夹移除'}</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>{currentLogicalFolderId ? <>{(() => {
               const otherFolderIds = (detailSnapshot?.position?.localDesiredFolderIds ?? []).filter((folderId) => folderId !== currentLogicalFolderId)
               return <><p>只会从当前工作夹“{detailFolderName(currentLogicalFolderId)}”移除；转写、档案、保护和处理记录会保留。</p>{otherFolderIds.length ? <><label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={deleteOtherWorkFolders} onChange={(event) => setDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label>{deleteOtherWorkFolders ? <p>还会从 {otherFolderIds.length} 个工作夹移除：{otherFolderIds.map(detailFolderName).join('、')}</p> : null}</> : null}</>
             })()}</> : <p>将从所有 bilimi 工作夹移除；转写、档案、保护和处理记录会保留。</p>}<div className="favorite-library__dialog-actions"><button type="button" className="favorite-library__inline-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => void runDetailAction(deleteFromLibrary)}>确认仅从收藏库删除</button></div></FavoriteLibraryConfirmationDialog> : null}{(() => {
               const remoteUnfavoriteAvailable = Boolean(accountMid && selected && summary && window.bilimiDesktop?.previewFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.confirmFavoriteLibraryRemoteUnfavoriteOperation && window.bilimiDesktop?.executeFavoriteLibraryRemoteUnfavoriteOperation)
               return <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" disabled={!remoteUnfavoriteAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在取消 B 站收藏…' : '取消B站收藏'}</button><p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">仅取消当前视频在 B 站的全部收藏；不会删除收藏库本地记录、转写或档案。</p>{remoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认取消B站收藏" busy={remoteUnfavoriteExecuting} onClose={() => setRemoteUnfavoritePreview(undefined)}><p>将取消 B 站对“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的全部收藏（视频 ID：{remoteUnfavoritePreview.aids.join('、')}）。</p><p>本地记录、转写和档案会保留。网络中断时结果会标为待确认，不会自动重试。</p><div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认取消 B 站收藏</button></div></FavoriteLibraryConfirmationDialog> : null}</>
-              })()}</> : null}</section>
+              })()}</> : null}</section> : null}
             </> : null}
         </FavoriteLibraryDetail>
         <FavoriteLibraryFooter
