@@ -106,7 +106,7 @@ export function FavoriteLibraryDetail({ title, author, videoId, onTitleClick, he
         {moreInformation.status === 'loading' ? <p>正在加载更多资料…</p> : null}
         {moreInformation.status === 'missing' ? <p>暂无更多资料。</p> : null}
         {moreInformation.status === 'failed' ? <p>更多资料加载失败。</p> : null}
-        {!moreInformation.status ? <>{moreInformation.description ? <p>{moreInformation.description}</p> : null}<p>标签：{moreInformation.tags?.length ? moreInformation.tags.join('、') : '暂无标签'}</p></> : null}
+        {!moreInformation.status ? <>{moreInformation.description ? <p>简介：{moreInformation.description}</p> : null}<p>标签：{moreInformation.tags?.length ? moreInformation.tags.join('、') : '暂无标签'}</p></> : null}
       </div> : null}
     </div> : null}
     {children}

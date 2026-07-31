@@ -45,7 +45,7 @@ describe('FavoriteLibraryDetail', () => {
     expect(screen.getByRole('button', { name: '收起详情' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '更多信息' }))
-    expect(screen.getByText('完整简介')).toBeInTheDocument()
+    expect(screen.getByText('简介：完整简介')).toBeInTheDocument()
     expect(screen.getByText('标签：音乐、现场')).toBeInTheDocument()
   })
 
@@ -105,7 +105,7 @@ describe('FavoriteLibraryDetail', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '更多信息' }))
-    expect(screen.getByText('视频一完整简介')).toBeInTheDocument()
+    expect(screen.getByText('简介：视频一完整简介')).toBeInTheDocument()
 
     rerender(<FavoriteLibraryDetail
       title="视频二"
@@ -113,7 +113,7 @@ describe('FavoriteLibraryDetail', () => {
       moreInformation={{ description: '视频二完整简介' }}
       onCollapse={vi.fn()}
     />)
-    expect(screen.queryByText('视频二完整简介')).not.toBeInTheDocument()
+    expect(screen.queryByText('简介：视频二完整简介')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '更多信息' })).toHaveAttribute('aria-expanded', 'false')
   })
 
@@ -126,7 +126,7 @@ describe('FavoriteLibraryDetail', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '更多信息' }))
-    expect(screen.getByText('视频 A 完整简介')).toBeInTheDocument()
+    expect(screen.getByText('简介：视频 A 完整简介')).toBeInTheDocument()
 
     rerender(<FavoriteLibraryDetail
       title="视频 B"
@@ -141,7 +141,7 @@ describe('FavoriteLibraryDetail', () => {
       onCollapse={vi.fn()}
     />)
 
-    expect(screen.queryByText('视频 A 完整简介')).not.toBeInTheDocument()
+    expect(screen.queryByText('简介：视频 A 完整简介')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '更多信息' })).toHaveAttribute('aria-expanded', 'false')
   })
 

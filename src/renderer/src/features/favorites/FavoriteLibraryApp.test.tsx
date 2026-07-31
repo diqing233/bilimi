@@ -879,7 +879,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByText(description)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '更多信息' }))
     expect(await screen.findByText(/标签：测试标签/)).toBeInTheDocument()
-    expect(screen.getByText(description)).toBeInTheDocument()
+    expect(screen.getByText(`简介：${description}`)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '保护状态说明' }))
     expect(screen.getByRole('status')).toHaveTextContent('保护')
     const detail = screen.getByRole('complementary', { name: text.detail })
@@ -2651,6 +2651,6 @@ describe('FavoriteLibraryApp', () => {
 
     await waitFor(() => expect(getDetail).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByRole('button', { name: '\u66f4\u591a\u4fe1\u606f' }))
-    expect(await screen.findByText('Recovered description')).toBeInTheDocument()
+    expect(await screen.findByText('简介：Recovered description')).toBeInTheDocument()
   })
 })

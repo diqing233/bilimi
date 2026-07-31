@@ -110,6 +110,7 @@ import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBat
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
+import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
   createFavoriteLibraryArchiveSummary,
   createFavoriteLibraryTranscriptionSummary
@@ -1685,29 +1686,12 @@ async function readCurrentBilibiliAccount(): Promise<FavoriteLibraryAccount> {
 
 /** Fetches video facts through the logged-in Electron session; this endpoint is read-only. */
 async function refreshFavoriteLibraryVideo(accountMid: string, aid: number) {
-  if ((await readCurrentBilibiliAccountMid()).trim() !== accountMid) throw new Error('当前账号已切换，请重新加载收藏库。')
-  const url = new URL('https://api.bilibili.com/x/web-interface/view')
-  url.searchParams.set('aid', String(aid))
-  const response = await session.fromPartition(BILIMI_SESSION_PARTITION).fetch(url)
-  const payload = await response.json() as { code?: unknown; data?: Record<string, unknown> }
-  if (!response.ok || payload.code !== 0 || !payload.data) throw new Error('无法读取视频信息，请稍后重试。')
-  if ((await readCurrentBilibiliAccountMid()).trim() !== accountMid) throw new Error('当前账号已切换，请重新加载收藏库。')
-  const data = payload.data
-  const title = typeof data.title === 'string' ? data.title.trim() : ''
-  if (!title) throw new Error('视频信息不完整，请稍后重试。')
-  const owner = data.owner as Record<string, unknown> | undefined
-  const pages = Array.isArray(data.pages) ? data.pages as Array<Record<string, unknown>> : []
-  const firstPage = pages[0]
-  return {
-    aid, title, tags: [], updatedAt: new Date().toISOString(),
-    ...(typeof owner?.name === 'string' && owner.name.trim() ? { author: owner.name.trim() } : {}),
-    ...(typeof data.desc === 'string' && data.desc.trim() ? { description: data.desc.trim() } : {}),
-    ...(typeof data.bvid === 'string' && data.bvid.trim() ? { bvid: data.bvid.trim() } : {}),
-    ...(Number.isSafeInteger(data.duration) ? { durationSeconds: Number(data.duration) } : {}),
-    ...(typeof data.tname === 'string' && data.tname.trim() ? { category: data.tname.trim() } : {}),
-    ...(typeof data.pic === 'string' && data.pic.trim() ? { coverUrl: data.pic.trim() } : {}),
-    ...(Number.isSafeInteger(firstPage?.cid) ? { cid: Number(firstPage.cid) } : {})
-  }
+  return fetchFavoriteVideoMetadata({
+    accountMid,
+    aid,
+    readCurrentAccountMid: readCurrentBilibiliAccountMid,
+    fetch: (url) => session.fromPartition(BILIMI_SESSION_PARTITION).fetch(url.toString())
+  })
 }
 
 function isTrustedFavoriteLibraryReader(senderId: number): boolean {
