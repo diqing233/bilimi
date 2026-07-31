@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rename, truncate, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 type ScanItem = {
@@ -52,6 +52,11 @@ type RuleAnalysisCheckpoint = {
   totalItemCount: number
   matchedAidsBySegment: Record<string, number[]>
 }
+type TagEnrichmentDelta =
+  | { kind: 'tagged'; aid: number; tags: string[] }
+  | { kind: 'failed'; aid: number }
+  | { kind: 'retry-failed' }
+  | { kind: 'status'; status: 'running' | 'paused' | 'accepted' | 'complete' }
 type Overlay = {
   currentSegmentId: string
   classifications: Classification[]
@@ -83,6 +88,7 @@ type Overlay = {
     taggedAids?: number[]
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
+  tagEnrichmentDelta?: TagEnrichmentDelta
   ruleAnalysisCheckpoint?: RuleAnalysisCheckpoint | null
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
@@ -102,6 +108,8 @@ type Manifest = {
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
+  journalChecksumMode?: 'chain-sha256-v1'
+  journalFile?: string
   /** Compact recovery state; do not load the journal or baseline chunks to show it. */
   planReadiness?: { selectedAidCount: number; classifiedAidCount: number }
   /** Durable witness that the matching local repository commit has succeeded. */
@@ -136,6 +144,25 @@ type RecoveryBaseline = NonNullable<Manifest['recoveryBaseline']>
 
 const checksum = (content: string) => createHash('sha256').update(content).digest('hex')
 const clone = <T>(value: T): T => structuredClone(value)
+const emptyJournalChecksum = checksum('')
+const advanceJournalChecksum = (prior: string, line: string) => checksum(`${prior}\n${line}`)
+
+function chainedJournalChecksum(content: string) {
+  let result = emptyJournalChecksum
+  let offset = 0
+  while (offset < content.length) {
+    const newline = content.indexOf('\n', offset)
+    if (newline < 0) throw new Error('Old favorite workspace journal is corrupt.')
+    const line = content.slice(offset, newline + 1)
+    result = advanceJournalChecksum(result, line)
+    offset = newline + 1
+  }
+  return result
+}
+
+function journalChecksum(content: string, mode: Manifest['journalChecksumMode']) {
+  return mode === 'chain-sha256-v1' ? chainedJournalChecksum(content) : checksum(content)
+}
 
 function normalizeRecoveryBaseline(value: Manifest['recoveryBaseline']): RecoveryBaseline | undefined {
   if (!value) return undefined
@@ -162,6 +189,7 @@ export class OldFavoriteWorkspaceStore {
   private readonly writeLog = new Map<string, string[]>()
   private readonly readLog = new Map<string, string[]>()
   private operationTail = Promise.resolve()
+  private readonly verifiedJournals = new Map<string, { cursor: number; checksum: string; file: string }>()
 
   constructor(private readonly options: { root: string }) {}
 
@@ -185,13 +213,14 @@ export class OldFavoriteWorkspaceStore {
       await this.atomicWrite(join(directory, file), content)
       segments.push({ id: segment.id, file, checksum: checksum(content) })
     }
-    const journalChecksum = checksum('')
+    const initialJournalChecksum = emptyJournalChecksum
     const withoutChecksum: Omit<Manifest, 'checksum'> = {
       version: 1, workspaceId: input.workspaceId, accountMid, status: input.status,
       baselineRevision: input.baselineRevision, currentSegmentId: input.currentSegmentId,
       segments, scanPages: [], sourceFolders: input.sourceFolders?.map(clone) ?? [],
       scan: { phase: 'inventory', failureCount: 0, mode: 'incremental' },
-      overlayRevision: 0, journalCursor: 0, journalChecksum
+      overlayRevision: 0, journalCursor: 0, journalChecksum: initialJournalChecksum,
+      journalChecksumMode: 'chain-sha256-v1', journalFile: 'overlay.journal.jsonl'
     }
     await this.writeManifest(directory, withoutChecksum)
     await this.atomicWrite(join(directory, 'overlay.journal.jsonl'), '')
@@ -201,6 +230,20 @@ export class OldFavoriteWorkspaceStore {
 
   async appendOverlay(accountMid: string, workspaceId: string, overlay: Overlay) {
     return this.queue(() => this.appendOverlayUnsafe(accountMid, workspaceId, overlay))
+  }
+
+  async appendTagEnrichmentDelta(accountMid: string, workspaceId: string, input: {
+    currentSegmentId: string
+    scanMetadata?: Overlay['scanMetadata']
+  } & TagEnrichmentDelta) {
+    const { currentSegmentId, scanMetadata, ...tagEnrichmentDelta } = input
+    return this.queue(() => this.appendOverlayUnsafe(accountMid, workspaceId, {
+      currentSegmentId,
+      classifications: [],
+      history: [],
+      tagEnrichmentDelta,
+      ...(scanMetadata ? { scanMetadata } : {})
+    }))
   }
 
   async startScanRun(accountMid: string, workspaceId: string, runId: string) {
@@ -337,37 +380,42 @@ export class OldFavoriteWorkspaceStore {
   private async appendOverlayUnsafe(accountMid: string, workspaceId: string, overlay: Overlay) {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)
-    const manifest = await this.readManifest(directory)
+    let manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
-    const journalPath = join(directory, 'overlay.journal.jsonl')
-    const line = `${JSON.stringify(overlay)}\n`
-    let journal = Buffer.alloc(0)
-    if (manifest.journalCursor > 0) {
-      try {
-        journal = await readFile(journalPath)
-      } catch {
-        throw new Error('Old favorite workspace journal is corrupt.')
-      }
-      if (journal.byteLength < manifest.journalCursor) throw new Error('Old favorite workspace journal is corrupt.')
-      const committed = journal.subarray(0, manifest.journalCursor)
-      if (checksum(committed.toString('utf8')) !== manifest.journalChecksum) {
-        throw new Error('Old favorite workspace journal is corrupt.')
-      }
-      journal = committed
+    if (overlay.tagEnrichmentDelta && manifest.journalChecksumMode !== 'chain-sha256-v1' && manifest.journalCursor >= 1024 * 1024) {
+      manifest = await this.compactOverlayJournalUnsafe(account, workspaceId, directory, manifest)
     }
-    const nextJournal = Buffer.concat([journal, Buffer.from(line, 'utf8')])
-    await this.atomicWrite(journalPath, nextJournal.toString('utf8'))
+    const journalFile = this.journalFile(manifest)
+    const journalPath = join(directory, journalFile)
+    const line = `${JSON.stringify(overlay)}\n`
+    const key = this.key(account, workspaceId)
+    const committed = await this.verifyCommittedJournal(directory, manifest)
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    let nextCursor: number
+    let nextJournalChecksum: string
+    if (manifest.journalChecksumMode === 'chain-sha256-v1') {
+      await truncate(journalPath, manifest.journalCursor)
+      await appendFile(journalPath, line, 'utf8')
+      nextCursor = manifest.journalCursor + lineBytes
+      nextJournalChecksum = advanceJournalChecksum(manifest.journalChecksum, line)
+    } else {
+      const nextJournal = Buffer.concat([committed, Buffer.from(line, 'utf8')])
+      await this.atomicWrite(journalPath, nextJournal.toString('utf8'))
+      nextCursor = nextJournal.byteLength
+      nextJournalChecksum = checksum(nextJournal.toString('utf8'))
+    }
     const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
     const next: Omit<Manifest, 'checksum'> = {
       ...manifestWithoutChecksum,
       currentSegmentId: overlay.currentSegmentId,
       overlayRevision: manifest.overlayRevision + 1,
-      journalCursor: nextJournal.byteLength,
-      journalChecksum: checksum(nextJournal.toString('utf8')),
+      journalCursor: nextCursor,
+      journalChecksum: nextJournalChecksum,
       ...(overlay.planReadiness ? { planReadiness: clone(overlay.planReadiness) } : {})
     }
     await this.writeManifest(directory, next)
-    this.writeLog.set(this.key(account, workspaceId), ['manifest.json', 'overlay.journal.jsonl'])
+    this.verifiedJournals.set(key, { cursor: nextCursor, checksum: nextJournalChecksum, file: journalFile })
+    this.writeLog.set(key, ['manifest.json', journalFile])
   }
 
   async recover(accountMid: string, workspaceId: string) {
@@ -380,7 +428,7 @@ export class OldFavoriteWorkspaceStore {
       const loadedSegment = currentSegment
         ? await this.readSegment(directory, currentSegment)
         : { id: '', aids: [] as number[], items: [] as ScanItem[] }
-      const journalPath = join(directory, 'overlay.journal.jsonl')
+      const journalPath = join(directory, this.journalFile(manifest))
       let journal = Buffer.alloc(0)
       if (manifest.journalCursor > 0) {
         try {
@@ -390,7 +438,7 @@ export class OldFavoriteWorkspaceStore {
       }
       if (journal.byteLength < manifest.journalCursor) throw new Error('journal cursor exceeds content')
       const committedJournal = journal.subarray(0, manifest.journalCursor).toString('utf8')
-      if (checksum(committedJournal) !== manifest.journalChecksum) throw new Error('journal checksum mismatch')
+      if (journalChecksum(committedJournal, manifest.journalChecksumMode) !== manifest.journalChecksum) throw new Error('journal checksum mismatch')
       const classifications: Record<string, Classification> = {}
       const history: History[] = []
       let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
@@ -438,6 +486,43 @@ export class OldFavoriteWorkspaceStore {
             failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])],
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
             taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])]
+          }
+        }
+        if (overlay.tagEnrichmentDelta) {
+          if (!tagEnrichment) throw new Error('tag enrichment delta has no baseline')
+          const delta = overlay.tagEnrichmentDelta
+          if (delta.kind === 'tagged') {
+            if (!Number.isSafeInteger(delta.aid) || delta.aid <= 0 || !tagEnrichment.pendingAids.includes(delta.aid)) {
+              throw new Error('tag enrichment delta is invalid')
+            }
+            const tags = [...new Set(delta.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 32)
+            tagEnrichment.pendingAids = tagEnrichment.pendingAids.filter((aid) => aid !== delta.aid)
+            tagEnrichment.failedAids = (tagEnrichment.failedAids ?? []).filter((aid) => aid !== delta.aid)
+            tagEnrichment.taggedAids = tags.length
+              ? [...new Set([...(tagEnrichment.taggedAids ?? []), delta.aid])].sort((left, right) => left - right)
+              : (tagEnrichment.taggedAids ?? []).filter((aid) => aid !== delta.aid)
+            tagUpdates.set(delta.aid, tags)
+            tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
+            tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
+          } else if (delta.kind === 'failed') {
+            if (!Number.isSafeInteger(delta.aid) || delta.aid <= 0 || !tagEnrichment.pendingAids.includes(delta.aid)) {
+              throw new Error('tag enrichment delta is invalid')
+            }
+            tagEnrichment.pendingAids = tagEnrichment.pendingAids.filter((aid) => aid !== delta.aid)
+            tagEnrichment.failedAids = [...new Set([...(tagEnrichment.failedAids ?? []), delta.aid])]
+              .sort((left, right) => left - right)
+            tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
+            tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
+          } else if (delta.kind === 'retry-failed') {
+            tagEnrichment.pendingAids = [...new Set([
+              ...tagEnrichment.pendingAids,
+              ...(tagEnrichment.failedAids ?? [])
+            ])].sort((left, right) => left - right)
+            tagEnrichment.failedAids = []
+            tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
+            tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
+          } else {
+            tagEnrichment.status = delta.status
           }
         }
         for (const update of overlay.tagUpdates ?? []) tagUpdates.set(update.aid, [...update.tags])
@@ -569,7 +654,7 @@ export class OldFavoriteWorkspaceStore {
     const directory = this.workspaceDirectory(account, workspaceId)
     const manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
-    const journalPath = join(directory, 'overlay.journal.jsonl')
+    const journalPath = join(directory, this.journalFile(manifest))
     let journal = Buffer.alloc(0)
     try {
       journal = await readFile(journalPath)
@@ -580,7 +665,7 @@ export class OldFavoriteWorkspaceStore {
     }
     if (journal.byteLength < manifest.journalCursor) throw new Error('Old favorite workspace journal is corrupt.')
     const committed = journal.subarray(0, manifest.journalCursor).toString('utf8')
-    if (checksum(committed) !== manifest.journalChecksum) throw new Error('Old favorite workspace journal is corrupt.')
+    if (journalChecksum(committed, manifest.journalChecksumMode) !== manifest.journalChecksum) throw new Error('Old favorite workspace journal is corrupt.')
     return committed.split('\n').filter(Boolean).map((line) => {
       const overlay = JSON.parse(line) as Overlay
       if (typeof overlay.currentSegmentId !== 'string' || !Array.isArray(overlay.history)) {
@@ -599,15 +684,149 @@ export class OldFavoriteWorkspaceStore {
   }
 
   async corruptOverlayForTest(accountMid: string, workspaceId: string) {
-    await writeFile(join(this.workspaceDirectory(normalizedAccountMid(accountMid), workspaceId), 'overlay.journal.jsonl'), '{broken', 'utf8')
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest) throw new Error('Old favorite workspace was not found.')
+    await writeFile(join(directory, this.journalFile(manifest)), '{broken', 'utf8')
   }
 
   async appendUncommittedOverlayForTest(accountMid: string, workspaceId: string, overlay: Overlay) {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest) throw new Error('Old favorite workspace was not found.')
     await appendFile(
-      join(this.workspaceDirectory(normalizedAccountMid(accountMid), workspaceId), 'overlay.journal.jsonl'),
+      join(directory, this.journalFile(manifest)),
       `${JSON.stringify(overlay)}\n`,
       'utf8'
     )
+  }
+
+  private journalFile(manifest: Manifest) {
+    return manifest.journalFile?.trim() || 'overlay.journal.jsonl'
+  }
+
+  private async verifyCommittedJournal(directory: string, manifest: Manifest) {
+    const file = this.journalFile(manifest)
+    const key = this.key(manifest.accountMid, manifest.workspaceId)
+    const verified = this.verifiedJournals.get(key)
+    if (manifest.journalChecksumMode === 'chain-sha256-v1' && verified?.cursor === manifest.journalCursor &&
+      verified.checksum === manifest.journalChecksum && verified.file === file) {
+      return Buffer.alloc(0)
+    }
+    let journal: Buffer
+    try {
+      journal = await readFile(join(directory, file))
+    } catch {
+      throw new Error('Old favorite workspace journal is corrupt.')
+    }
+    if (journal.byteLength < manifest.journalCursor) throw new Error('Old favorite workspace journal is corrupt.')
+    const committed = journal.subarray(0, manifest.journalCursor)
+    if (journalChecksum(committed.toString('utf8'), manifest.journalChecksumMode) !== manifest.journalChecksum) {
+      throw new Error('Old favorite workspace journal is corrupt.')
+    }
+    this.verifiedJournals.set(key, { cursor: manifest.journalCursor, checksum: manifest.journalChecksum, file })
+    return committed
+  }
+
+  private async compactOverlayJournalUnsafe(
+    accountMid: string,
+    workspaceId: string,
+    directory: string,
+    manifest: Manifest
+  ) {
+    const committed = (await this.verifyCommittedJournal(directory, manifest)).toString('utf8')
+    const classifications = new Map<number, Classification>()
+    const tagUpdates = new Map<number, string[]>()
+    const historyOverlays: Overlay[] = []
+    let currentSegmentId = manifest.currentSegmentId
+    let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
+    let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
+    let recommendations: NonNullable<Overlay['recommendations']> = {
+      initialized: false,
+      candidates: [],
+      adoptedCandidateIds: []
+    }
+    let hasRecommendations = false
+    let planReadiness = manifest.planReadiness ? clone(manifest.planReadiness) : undefined
+    let tagEnrichment: Overlay['tagEnrichment'] | undefined
+    let ruleAnalysisCheckpoint: Overlay['ruleAnalysisCheckpoint']
+
+    for (const raw of committed.split('\n').filter(Boolean)) {
+      const overlay = JSON.parse(raw) as Overlay
+      currentSegmentId = overlay.currentSegmentId
+      for (const classification of overlay.classifications) classifications.set(classification.aid, clone(classification))
+      if (overlay.history.length) {
+        historyOverlays.push({ currentSegmentId: overlay.currentSegmentId, classifications: [], history: overlay.history.map(clone) })
+      }
+      if (overlay.recommendations) {
+        hasRecommendations = true
+        if (overlay.recommendations.initialized) recommendations.initialized = true
+        if (overlay.recommendations.candidates) recommendations.candidates = overlay.recommendations.candidates.map(clone)
+        if (overlay.recommendations.adoptedCandidateIds) {
+          recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
+        }
+      }
+      if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
+      if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+      if (overlay.scanMetadata?.phase) {
+        scan = {
+          phase: overlay.scanMetadata.phase,
+          failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
+          mode: overlay.scanMetadata.mode ?? scan.mode,
+          ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {}),
+          ...(Number.isSafeInteger(overlay.scanMetadata.totalItemCount) ? { totalItemCount: overlay.scanMetadata.totalItemCount } : {}),
+          ...(Number.isSafeInteger(overlay.scanMetadata.scannedItemCount) ? { scannedItemCount: overlay.scanMetadata.scannedItemCount } : {}),
+          ...(Number.isSafeInteger(overlay.scanMetadata.taggedItemCount) ? { taggedItemCount: overlay.scanMetadata.taggedItemCount } : {}),
+          ...(Number.isSafeInteger(overlay.scanMetadata.untaggedItemCount) ? { untaggedItemCount: overlay.scanMetadata.untaggedItemCount } : {})
+        }
+      }
+      if (overlay.tagEnrichment) tagEnrichment = clone(overlay.tagEnrichment)
+      for (const update of overlay.tagUpdates ?? []) tagUpdates.set(update.aid, [...update.tags])
+      if (overlay.ruleAnalysisCheckpoint !== undefined) {
+        ruleAnalysisCheckpoint = overlay.ruleAnalysisCheckpoint ? clone(overlay.ruleAnalysisCheckpoint) : null
+      }
+    }
+
+    const stateOverlay: Overlay = {
+      currentSegmentId,
+      classifications: [...classifications.values()],
+      history: [],
+      ...(hasRecommendations ? { recommendations } : {}),
+      ...(planReadiness ? { planReadiness } : {}),
+      scanMetadata: { sourceFolders, ...scan },
+      ...(tagEnrichment ? { tagEnrichment } : {}),
+      ...(tagUpdates.size ? { tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags })) } : {}),
+      ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {})
+    }
+    const compactContent = [...historyOverlays, stateOverlay].map((overlay) => `${JSON.stringify(overlay)}\n`).join('')
+    const compactFile = `overlay.compact.${randomUUID()}.jsonl`
+    const compactPath = join(directory, compactFile)
+    await this.atomicWrite(compactPath, compactContent)
+    const verifiedContent = await readFile(compactPath, 'utf8')
+    const compactChecksum = chainedJournalChecksum(verifiedContent)
+    if (verifiedContent !== compactContent) throw new Error('Old favorite workspace journal compaction failed.')
+
+    const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
+    const nextWithoutChecksum: Omit<Manifest, 'checksum'> = {
+      ...manifestWithoutChecksum,
+      currentSegmentId,
+      journalCursor: Buffer.byteLength(compactContent, 'utf8'),
+      journalChecksum: compactChecksum,
+      journalChecksumMode: 'chain-sha256-v1',
+      journalFile: compactFile
+    }
+    await this.writeManifest(directory, nextWithoutChecksum)
+    const next: Manifest = { ...nextWithoutChecksum, checksum: checksum(canonicalManifest(nextWithoutChecksum)) }
+    this.verifiedJournals.set(this.key(accountMid, workspaceId), {
+      cursor: next.journalCursor, checksum: next.journalChecksum, file: compactFile
+    })
+    const previousFile = this.journalFile(manifest)
+    if (previousFile !== compactFile) {
+      try { await unlink(join(directory, previousFile)) } catch { /* compact state is already committed */ }
+    }
+    return next
   }
 
   private async readManifest(directory: string): Promise<Manifest | null> {

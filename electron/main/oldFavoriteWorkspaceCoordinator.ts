@@ -2739,8 +2739,8 @@ export class OldFavoriteWorkspaceCoordinator {
         failedAids: [],
         completedItemCount: current.totalItemCount - [...new Set([...current.pendingAids, ...current.failedAids])].length
       }
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), kind: 'retry-failed'
       })
       this.tagEnrichments.set(workspace.accountMid, next)
       return true
@@ -2815,9 +2815,8 @@ export class OldFavoriteWorkspaceCoordinator {
           : enrichment.taggedAids.filter((candidate) => candidate !== aid),
         status: pendingAids.length ? 'running' : 'complete'
       }
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
-        tagUpdates: [{ aid, tags: normalizedTags }], tagEnrichment: clone(next),
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), kind: 'tagged', aid, tags: normalizedTags,
         ...(scan ? { scanMetadata: { ...(overview?.sourceFolders ? { sourceFolders: overview.sourceFolders } : {}), ...scan } } : {})
       })
       const currentItems = this.currentSegmentItems.get(workspace.accountMid)
@@ -2850,8 +2849,8 @@ export class OldFavoriteWorkspaceCoordinator {
         failedAids: [...new Set([...enrichment.failedAids, aid])].sort((left, right) => left - right),
         status: pendingAids.length ? 'running' : 'complete'
       }
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), kind: 'failed', aid
       })
       this.tagEnrichments.set(workspace.accountMid, next)
       if (!pendingAids.length) {
@@ -2871,8 +2870,8 @@ export class OldFavoriteWorkspaceCoordinator {
     if (!current || current.status === 'complete' || (current.status === 'accepted' && status !== 'running')) return false
     if (status === 'running' && !current.pendingAids.length) return false
     const next: TagEnrichment = { ...current, status }
-    await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-      currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+    await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+      currentSegmentId: this.currentSegment(workspace), kind: 'status', status
     })
     this.tagEnrichments.set(workspace.accountMid, next)
     return true

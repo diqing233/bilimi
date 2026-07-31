@@ -1,4 +1,4 @@
-import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -426,6 +426,124 @@ describe('OldFavoriteWorkspaceStore', () => {
     const recovered = await new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')
     expect('recovery' in recovered ? recovered : recovered.classifications).toEqual({
       '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'manual' }
+    })
+  })
+
+  it('reconstructs tag enrichment from compact per-aid deltas instead of repeating pending arrays', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1, 2] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'running', totalItemCount: 2, completedItemCount: 0,
+        pendingAids: [1, 2], failedAids: [], reusedTagItemCount: 0, taggedAids: []
+      }
+    })
+
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'tagged', aid: 1, tags: ['游戏']
+    })
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'failed', aid: 2
+    })
+
+    const recovered = await new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')
+    expect(recovered).toMatchObject({
+      tagEnrichment: {
+        status: 'complete', totalItemCount: 2, completedItemCount: 2,
+        pendingAids: [], failedAids: [2], taggedAids: [1]
+      },
+      tagUpdates: [{ aid: 1, tags: ['游戏'] }]
+    })
+    const journal = await readFile(join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'overlay.journal.jsonl'), 'utf8')
+    const lines = journal.trim().split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[1]).not.toContain('pendingAids')
+    expect(lines[1]).not.toContain('taggedAids')
+    expect(lines[2]).not.toContain('pendingAids')
+  })
+
+  it('persists compact retry and pause checkpoints without losing failed aids', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'running', totalItemCount: 1, completedItemCount: 0,
+        pendingAids: [1], failedAids: [], reusedTagItemCount: 0, taggedAids: []
+      }
+    })
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'failed', aid: 1
+    })
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'retry-failed'
+    })
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'status', status: 'paused'
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: {
+        status: 'paused', totalItemCount: 1, completedItemCount: 0,
+        pendingAids: [1], failedAids: [], taggedAids: []
+      }
+    })
+  })
+
+  it('atomically compacts a large legacy tag journal before committing the next delta', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const pendingAids = Array.from({ length: 2_000 }, (_unused, index) => index + 1)
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: pendingAids }]
+    })
+    const directory = join(root, 'accounts', '100', 'workspaces', 'workspace-1')
+    const journalPath = join(directory, 'overlay.journal.jsonl')
+    const legacyLine = `${JSON.stringify({
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'running', totalItemCount: 2_000, completedItemCount: 0,
+        pendingAids, failedAids: [], reusedTagItemCount: 0, taggedAids: []
+      }
+    })}\n`
+    const legacyJournal = legacyLine.repeat(140)
+    await writeFile(journalPath, legacyJournal, 'utf8')
+    const manifestPath = join(directory, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    delete manifest.journalChecksumMode
+    delete manifest.journalFile
+    const { createHash } = await import('node:crypto')
+    manifest.journalCursor = Buffer.byteLength(legacyJournal, 'utf8')
+    manifest.journalChecksum = createHash('sha256').update(legacyJournal).digest('hex')
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    manifest.checksum = createHash('sha256').update(JSON.stringify(withoutChecksum)).digest('hex')
+    await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
+
+    await new OldFavoriteWorkspaceStore({ root }).appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'tagged', aid: 1, tags: ['游戏']
+    })
+
+    const compactManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      journalFile: string; journalChecksumMode: string
+    }
+    expect(compactManifest.journalChecksumMode).toBe('chain-sha256-v1')
+    expect(compactManifest.journalFile).toMatch(/^overlay\.compact\..+\.jsonl$/)
+    const compactJournal = await readFile(join(directory, compactManifest.journalFile), 'utf8')
+    expect(Buffer.byteLength(compactJournal, 'utf8')).toBeLessThan(Buffer.byteLength(legacyJournal, 'utf8') / 10)
+    await expect(readFile(journalPath, 'utf8')).rejects.toThrow()
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: { completedItemCount: 1, pendingAids: expect.not.arrayContaining([1]), taggedAids: [1] },
+      tagUpdates: [{ aid: 1, tags: ['游戏'] }]
     })
   })
 })
