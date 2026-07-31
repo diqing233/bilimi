@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -69,6 +70,7 @@ type DragState = {
 }
 
 export function PalaceMaidPetApp() {
+  const shellRef = useRef<HTMLElement | null>(null)
   const dragState = useRef<DragState | null>(null)
   const longPressTimeout = useRef<number | null>(null)
   const idleGreetingTimeout = useRef<number | null>(null)
@@ -224,10 +226,47 @@ export function PalaceMaidPetApp() {
 
   useEffect(() => window.bilimiDesktop?.onFavoriteLedgerEnabledChanged?.(() => {}), [])
 
+  useLayoutEffect(() => {
+    const shell = shellRef.current
+    const updateRegions = window.bilimiDesktop?.updateFloatingSealInteractiveRegions
+    if (!shell || !updateRegions) return
+
+    const interactiveSelector =
+      '.palace-maid-pet, .palace-maid-pet__hover-shortcuts, .palace-maid-pet__hover-shortcut, .palace-maid-pet__assistant-shortcut, .palace-maid-pet__quick-actions, .palace-maid-pet__quick-action, .palace-maid-pet__bubble, .palace-maid-pet__resize-controls, .palace-maid-pet__resize-step'
+    let lastPublishedRegions = ''
+    const publishRegions = () => {
+      const regions = [...shell.querySelectorAll<HTMLElement>(interactiveSelector)]
+          .filter((element) => {
+            const style = window.getComputedStyle(element)
+            return style.pointerEvents !== 'none' && style.visibility !== 'hidden'
+          })
+          .map((element) => element.getBoundingClientRect())
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .map(({ x, y, width, height }) => ({ x, y, width, height }))
+      const serializedRegions = JSON.stringify(regions)
+      if (serializedRegions === lastPublishedRegions) return
+      lastPublishedRegions = serializedRegions
+      updateRegions(regions)
+    }
+
+    publishRegions()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publishRegions) : null
+    observer?.observe(shell)
+    window.addEventListener('resize', publishRegions)
+    const regionPoll = window.setInterval(publishRegions, 100)
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', publishRegions)
+      window.clearInterval(regionPoll)
+      updateRegions([])
+    }
+  }, [chatOpen, closePromptVisible, hoverShortcutsVisible, petSize, resizeControlsVisible])
+
   useEffect(() => {
     // The native window must accept the first pointer event; otherwise Windows
     // may never forward the pointerenter needed to recover from pass-through.
-    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(false)
+    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
 
     function hideClosePrompt() {
       setClosePromptVisible(false)
@@ -742,6 +781,7 @@ export function PalaceMaidPetApp() {
 
   return (
     <main
+      ref={shellRef}
       className="palace-maid-pet-shell"
       aria-label="bilimi 小咪"
       style={{ '--floating-pet-size': `${petSize}px` } as CSSProperties}

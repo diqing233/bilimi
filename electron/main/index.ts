@@ -82,6 +82,7 @@ import { handleFavoriteLibraryEntry } from './favoriteLibraryEntryFlow'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
+import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRecovery'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
@@ -226,6 +227,7 @@ let mainTray: Tray | null = null
 let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let recompositeFloatingSealWindow: (() => void) | null = null
+let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecoveryController> | null = null
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
@@ -368,7 +370,13 @@ function createFloatingSealWindow() {
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  setFloatingSealMouseTransparency(seal, false)
+  floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
+    getCursorPoint: () => screen.getCursorScreenPoint(),
+    schedulePoll: (callback) => setInterval(callback, 16),
+    cancelPoll: (handle) => clearInterval(handle as NodeJS.Timeout),
+    window: seal
+  })
+  floatingSealMouseRecovery.setTransparent(true)
   seal.removeMenu()
 
   // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
@@ -411,6 +419,8 @@ function createFloatingSealWindow() {
   }
 
   seal.on('closed', () => {
+    floatingSealMouseRecovery?.dispose()
+    floatingSealMouseRecovery = null
     disposeWhiteStripFix?.()
     screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
     screen.off('display-added', handleFloatingSealDisplayChange)
@@ -708,6 +718,11 @@ function saveAssistantPreferencePatch(patch: Partial<AssistantPreferences>) {
 
 function setFloatingSealWindowMouseTransparent(transparent: boolean) {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  if (floatingSealMouseRecovery) {
+    floatingSealMouseRecovery.setTransparent(transparent)
     return
   }
 
@@ -1606,8 +1621,13 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.on('floating-seal:resize-step', (_event, step: number) => {
     resizeFloatingSealByStep(step)
   })
-  ipcMain.on('floating-seal:set-mouse-transparent', (_event, transparent: boolean) => {
+  ipcMain.on('floating-seal:set-mouse-transparent', (event, transparent: boolean) => {
+    if (event.sender.id !== floatingSealWindow?.webContents.id) return
     setFloatingSealWindowMouseTransparent(Boolean(transparent))
+  })
+  ipcMain.on('floating-seal:update-interactive-regions', (event, regions: unknown) => {
+    if (event.sender.id !== floatingSealWindow?.webContents.id || !Array.isArray(regions)) return
+    floatingSealMouseRecovery?.updateInteractiveRegions(regions)
   })
   ipcMain.handle('floating-seal:move-by', (_event, deltaX: number, deltaY: number) => {
     moveFloatingSealBy(deltaX, deltaY)

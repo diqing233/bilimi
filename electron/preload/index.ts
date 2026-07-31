@@ -680,6 +680,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('assistant-pet:set-hint', hint),
   setFloatingSealMouseTransparent: (transparent: boolean) =>
     ipcRenderer.send('floating-seal:set-mouse-transparent', transparent),
+  updateFloatingSealInteractiveRegions: (regions: Array<{ x: number; y: number; width: number; height: number }>) =>
+    ipcRenderer.send('floating-seal:update-interactive-regions', regions),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,

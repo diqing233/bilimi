@@ -1750,7 +1750,7 @@ describe('PalaceMaidPetApp', () => {
     const pet = container.querySelector('.palace-maid-pet') as HTMLElement
     const bubble = container.querySelector('.palace-maid-pet__bubble') as HTMLElement
 
-    expect(api.setFloatingSealMouseTransparent).toHaveBeenCalledWith(false)
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenCalledWith(true)
 
     fireEvent.pointerEnter(pet)
     expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
@@ -1760,6 +1760,58 @@ describe('PalaceMaidPetApp', () => {
 
     fireEvent.pointerEnter(bubble)
     expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
+  })
+
+  it('reports native hit-test regions so a transparent pet window can recover before pointerenter', () => {
+    vi.useFakeTimers()
+    const updateFloatingSealInteractiveRegions = vi.fn()
+    installDesktopApi({ updateFloatingSealInteractiveRegions })
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const x = this.classList.contains('palace-maid-pet__hover-shortcut') ? 160 : 24
+      return {
+        x,
+        y: 36,
+        width: 96,
+        height: 112,
+        top: 36,
+        right: x + 96,
+        bottom: 148,
+        left: x,
+        toJSON: () => ({})
+      }
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    expect(updateFloatingSealInteractiveRegions).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { x: 24, y: 36, width: 96, height: 112 },
+        { x: 160, y: 36, width: 96, height: 112 }
+      ])
+    )
+
+    const lateShortcut = document.createElement('button')
+    lateShortcut.className = 'palace-maid-pet__hover-shortcut'
+    document.querySelector('.palace-maid-pet-shell')?.append(lateShortcut)
+    rect.mockImplementation(function (this: HTMLElement) {
+      const x = this === lateShortcut ? 240 : 24
+      return {
+        x,
+        y: 36,
+        width: 96,
+        height: 112,
+        top: 36,
+        right: x + 96,
+        bottom: 148,
+        left: x,
+        toJSON: () => ({})
+      }
+    })
+    act(() => vi.advanceTimersByTime(100))
+    expect(updateFloatingSealInteractiveRegions).toHaveBeenLastCalledWith(
+      expect.arrayContaining([{ x: 240, y: 36, width: 96, height: 112 }])
+    )
+    rect.mockRestore()
   })
 
   it('ignores repeated pointer-down events on a resize step until the click commits one resize', () => {

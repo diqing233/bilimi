@@ -319,6 +319,7 @@ type BilimiDesktopApi = {
   setAssistantPetState?: (state: AssistantPetState) => void
   setAssistantPetHint?: (hint: AssistantPetHint) => void
   setFloatingSealMouseTransparent?: (transparent: boolean) => void
+  updateFloatingSealInteractiveRegions?: (regions: Array<{ x: number; y: number; width: number; height: number }>) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
