@@ -976,6 +976,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     loaded.resolve(preview)
     await waitFor(() => expect(screen.queryByText('检测到未完成的整理草稿')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
   })
 
   it('keeps the visible draft and recovery dialog when reloading the chosen draft fails', async () => {
@@ -1018,6 +1021,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
     expect(screen.queryByText('尚未开始扫描，请点击“整理收藏”后扫描。')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '按原草稿继续' })).toBeEnabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('恢复整理草稿失败，请重试。')
   })
 
   it('does not show a recovery summary after the active account changes', async () => {
@@ -1303,7 +1307,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
-  it('restores a persisted preview on remount without starting another scan', async () => {
+  it('restores a persisted preview on the scan overview without starting another scan', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1328,8 +1332,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
 
     first.unmount()
@@ -1337,8 +1342,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
     expect(open).toHaveBeenCalledTimes(2)
 
@@ -1346,6 +1352,34 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
     expect(await screen.findByRole('dialog', { name: '整理收藏' })).toBeInTheDocument()
   })
+
+  it.each(['running', 'paused'] as const)(
+    'restores persisted %s tag enrichment on the scan overview',
+    async (status) => {
+      const preview = {
+        version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+        mode: 'full' as const, segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 1, untaggedItemCount: 2 },
+        tagEnrichment: { status, totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1 },
+        sourceFolders: [], continuationCount: 0,
+        segments: [{ id: 'segment-1', index: 0, itemCount: 3, status: 'previewing' as const }],
+        currentSegment: { id: 'segment-1', aids: [1, 2, 3], items: [{ aid: 1, tags: ['已有标签'], sourceFolderIds: [] }, { aid: 2, sourceFolderIds: [] }, { aid: 3, sourceFolderIds: [] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }
+      window.bilimiDesktop = {
+        openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+        commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+      } as unknown as typeof window.bilimiDesktop
+
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+      expect(await screen.findByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+      expect(screen.getByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+    }
+  )
 
   it('restores a persisted frozen snapshot at confirmation on remount', async () => {
     const frozen = {

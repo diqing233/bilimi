@@ -119,6 +119,7 @@ export function ControlledFavoriteLedgerPanel({
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
   const [recoverySummary, setRecoverySummary] = useState<OldFavoriteWorkspaceRecoverySummary | null>(null)
   const [recoveryDecisionPending, setRecoveryDecisionPending] = useState<'continue-original' | 'merge-latest' | 'rescan' | null>(null)
+  const [recoveryDecisionError, setRecoveryDecisionError] = useState<string | null>(null)
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
@@ -135,7 +136,6 @@ export function ControlledFavoriteLedgerPanel({
   const organizationRequestVersion = useRef(0)
   const recoveryDecisionRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
-  const previousWorkspaceStatusRef = useRef<string | null>(null)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
   const snapshot = workspace.snapshot &&
@@ -143,16 +143,20 @@ export function ControlledFavoriteLedgerPanel({
     ? workspace.snapshot
     : null
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
+  const snapshotStatus = snapshot && !('recovery' in snapshot) ? snapshot.status : undefined
+  const tagEnrichmentStatus = snapshot && !('recovery' in snapshot)
+    ? snapshot.tagEnrichment?.status
+    : undefined
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     organizationRequestVersion.current += 1
     recoveryDecisionRequestVersion.current += 1
     scanStartingRef.current = false
-    previousWorkspaceStatusRef.current = null
     setGuideOpen(false)
     setResumeDialogOpen(false)
     setRecoverySummary(null)
     setRecoveryDecisionPending(null)
+    setRecoveryDecisionError(null)
     setStep('scan')
     setFullReorganizationConfirmOpen(false)
     setFullReorganizationAccountMid(null)
@@ -192,16 +196,16 @@ export function ControlledFavoriteLedgerPanel({
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
-    const previousStatus = previousWorkspaceStatusRef.current
-    previousWorkspaceStatusRef.current = snapshot.status
     setGuideOpen(true)
     setStep((currentStep) => {
-      if (snapshot.status === 'scanning' || recovery) return 'scan'
+      if ('recovery' in snapshot) return 'scan'
+      const tagEnrichmentActive = snapshot.tagEnrichment?.status === 'running' ||
+        snapshot.tagEnrichment?.status === 'paused'
+      if (snapshot.status === 'scanning' || tagEnrichmentActive) return 'scan'
       if (snapshot.status !== 'previewing') return 'confirm'
-      if (previousStatus === null) return 'preview'
       return currentStep
     })
-  }, [recovery, scanStarting, snapshot?.accountMid, snapshot?.status])
+  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus, tagEnrichmentStatus])
 
   const startScan = async (mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => {
     if (scanStarting) return
@@ -242,6 +246,7 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailure(null)
+    setRecoveryDecisionError(null)
     const summary = await workspace.getRecoverySummary()
     if (!isCurrentRequest()) return
     if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
@@ -270,9 +275,14 @@ export function ControlledFavoriteLedgerPanel({
     const isCurrentRequest = () => recoveryDecisionRequestVersion.current === requestVersion &&
       activeAccountMid.current === requestedAccountMid
     setRecoveryDecisionPending(choice)
+    setRecoveryDecisionError(null)
     try {
       const result = await workspace.sendRecoveryDecision?.(recoverySummary, choice)
-      if (!isCurrentRequest() || !result) return
+      if (!isCurrentRequest()) return
+      if (!result) {
+        setRecoveryDecisionError('恢复整理草稿失败，请重试。')
+        return
+      }
       if (choice === 'rescan') {
         setRecoverySummary(null)
         setResumeDialogOpen(false)
@@ -280,10 +290,15 @@ export function ControlledFavoriteLedgerPanel({
         return
       }
       const restored = await workspace.refresh(true)
-      if (!isCurrentRequest() || !restored || 'recovery' in restored) return
+      if (!isCurrentRequest()) return
+      if (!restored || 'recovery' in restored) {
+        setRecoveryDecisionError('恢复整理草稿失败，请重试。')
+        return
+      }
       setRecoverySummary(null)
       setResumeDialogOpen(false)
       setGuideOpen(true)
+      setStep('scan')
       if (restored.status === 'scanning' && restored.scan.phase !== 'failed') void workspace.resumeScan()
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
@@ -458,6 +473,7 @@ export function ControlledFavoriteLedgerPanel({
         <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
         {recoverySummary.baselineChangeEvidence.changed ? <p>检测到草稿后的资料、B站位置或收藏夹绑定变化；人工分类会保留。</p> : null}
         {recoveryDecisionPending ? <p role="status">正在恢复整理草稿…</p> : null}
+        {recoveryDecisionError ? <p role="alert">{recoveryDecisionError}</p> : null}
       </OldFavoriteModal> : null}
       {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
