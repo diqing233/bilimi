@@ -234,6 +234,18 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     }
   }
 
+  const pageClickOnly = args.favoriteApiFallbackEnabled === false
+  const skipPageFavorite = usesFavorite(args.action) && !pageClickOnly
+
+  if (args.action === '藏' && skipPageFavorite) {
+    return runFavoriteApiFallback(args, {
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: ''
+    })
+  }
+
   const script = buildAutomationScript(
     args.action,
     args.favoritesFolderName,
@@ -241,7 +253,7 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     args.commentDraft,
     args.favoriteLedgers,
     args.targetLedgerId,
-    { submitComment: args.submitComment }
+    { submitComment: args.submitComment, skipFavorite: skipPageFavorite }
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
 
@@ -252,8 +264,6 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
   if (!shouldUseFavoriteApi(domResult, args.action)) {
     return domResult
   }
-
-  const pageClickOnly = args.favoriteApiFallbackEnabled === false
 
   if (pageClickOnly) {
     if (domResult.ok || !args.runVisualFallback || favoriteMissingTargets(domResult).length === 0) {
@@ -283,25 +293,5 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
       ? skipFavoriteApiFallback(domResult)
       : await runFavoriteApiFallback(args, domResult)
 
-  if (
-    apiResult.ok ||
-    domResult.ok ||
-    !args.runVisualFallback ||
-    favoriteMissingTargets(apiResult).length === 0
-  ) {
-    return apiResult
-  }
-
-  const visualResult = await args.runVisualFallback({
-    favoriteFolders: favoriteLedgerNamesById(args.favoriteLedgers),
-    favoritesFolderName: args.favoritesFolderName,
-    targetLedgerId: args.targetLedgerId
-  })
-
-  return {
-    ok: visualResult.ok,
-    steps: [...apiResult.steps, ...visualResult.steps],
-    missingTargets: visualResult.missingTargets,
-    message: visualResult.message
-  }
+  return apiResult
 }

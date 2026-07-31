@@ -191,6 +191,83 @@ function createConfirmedReviewFavoriteCommands(args: {
   ]
 }
 
+function createConfirmedDailyReviewCommands(args: {
+  accountMid: string
+  aid: number
+  title: string
+  previousTargetLedgerIds: string[]
+  targetLedgerIds: string[]
+  favoriteLedgers: FavoriteLedger[]
+  initialResult: AssistantAutomationResult
+  adjustmentResult: AssistantAutomationResult
+  occurredAt: string
+  operationId: string
+}): FavoriteRepositoryCommand[] {
+  const accountMid = args.accountMid.trim()
+  const targetLedgerIds = Array.from(new Set(args.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))
+  const remoteFolderIdsByLedgerId = {
+    ...(args.initialResult.favoriteFolderIdsByLedgerId ?? {}),
+    ...(args.adjustmentResult.favoriteFolderIdsByLedgerId ?? {})
+  }
+
+  if (
+    !/^\d+$/.test(accountMid) ||
+    !Number.isSafeInteger(args.aid) ||
+    args.aid <= 0 ||
+    !args.adjustmentResult.ok ||
+    !args.adjustmentResult.steps.includes('api:favorite:adjust') ||
+    targetLedgerIds.length === 0 ||
+    targetLedgerIds.some((ledgerId) => !String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
+  ) {
+    return []
+  }
+
+  const localDesiredFolderIds = targetLedgerIds.map((ledgerId) => `bilimi-logical:${ledgerId}`)
+  const folderTitlesAtTime = targetLedgerIds.map(
+    (ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName?.trim() || ledgerId
+  )
+  const previousTitles = args.previousTargetLedgerIds.map(
+    (ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName?.trim() || ledgerId
+  )
+
+  return [
+    {
+      id: `${args.operationId}:position`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'set-favorite-position',
+      payload: {
+        aid: args.aid,
+        localDesiredFolderIds,
+        remoteObservedPhysicalFolderIds: targetLedgerIds.map(
+          (ledgerId) => String(remoteFolderIdsByLedgerId[ledgerId]).trim()
+        ),
+        remoteObservedLogicalFolderIds: localDesiredFolderIds,
+        positionState: 'aligned',
+        observedAt: args.occurredAt,
+        updatedAt: args.occurredAt,
+        reason: 'DeepSeek 批阅二审经 B 站接口确认'
+      }
+    },
+    {
+      id: `${args.operationId}:event-command`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'record-favorite-event',
+      payload: {
+        id: `${args.operationId}:event`,
+        sequence: Math.max(1, Date.parse(args.occurredAt)),
+        aid: args.aid,
+        kind: 'daily-review',
+        occurredAt: args.occurredAt,
+        titleAtTime: args.title,
+        folderTitlesAtTime,
+        detail: `DeepSeek 批阅二审将归属从「${previousTitles.join('、')}」调整为「${folderTitlesAtTime.join('、')}」。`
+      }
+    }
+  ]
+}
+
 type StartupPermissionGateProps = {
   onContinue: () => void
 }
@@ -2042,18 +2119,6 @@ export default function App() {
             return
           }
 
-          const currentTabSnapshot = getActiveTabSnapshot()
-          if (
-            currentTabSnapshot?.id !== actionTabSnapshot?.id ||
-            readBilibiliVideoKey(currentTabSnapshot?.url ?? '') !==
-              readBilibiliVideoKey(actionTabSnapshot?.url ?? '')
-          ) {
-            publishRuntimeFeedback(
-              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${ledgerNames(correction.targetLedgerIds)}」，但页面已切换，本次未调整。`
-            )
-            return
-          }
-
           const removeLedgerIds = localTargetLedgerIds.filter(
             (ledgerId) => ledgerId !== 'inbox' && !correction.targetLedgerIds.includes(ledgerId)
           )
@@ -2063,7 +2128,9 @@ export default function App() {
               runScript(
                 buildFavoriteApiAdjustmentScript(actionFavoriteLedgers, {
                   addLedgerIds: correction.targetLedgerIds,
-                  removeLedgerIds
+                  removeLedgerIds,
+                  aid: Number(videoContentContext.aid),
+                  accountMid: actionAccountMid
                 })
               ),
               DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS,
@@ -2099,6 +2166,34 @@ export default function App() {
             return
           }
 
+          const reviewOccurredAt = new Date().toISOString()
+          const reviewOperationId = `daily-review:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
+          const reviewCommands = createConfirmedDailyReviewCommands({
+            accountMid: actionAccountMid,
+            aid: Number(videoContentContext.aid),
+            title: videoContentContext.title?.trim() || `Video ${videoContentContext.aid}`,
+            previousTargetLedgerIds: localTargetLedgerIds,
+            targetLedgerIds: correction.targetLedgerIds,
+            favoriteLedgers: actionFavoriteLedgers,
+            initialResult: result,
+            adjustmentResult,
+            occurredAt: reviewOccurredAt,
+            operationId: reviewOperationId
+          })
+          let repositoryReviewPersisted = true
+          if (reviewCommands.length > 0) {
+            try {
+              if (!window.bilimiDesktop?.commitFavoriteRepositoryCommand) {
+                throw new Error('收藏库写入接口不可用')
+              }
+              for (const command of reviewCommands) {
+                await window.bilimiDesktop.commitFavoriteRepositoryCommand(actionAccountMid, command)
+              }
+            } catch {
+              repositoryReviewPersisted = false
+            }
+          }
+
           const correctedPreferences = applyDailyCorrectionLearning(nextPreferences, correction)
           setPreferences(correctedPreferences)
           if (window.bilimiDesktop?.savePreferences) {
@@ -2111,9 +2206,9 @@ export default function App() {
             setPreferences(createInitialAssistantPreferences(saved))
             window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
           }
-          publishRuntimeFeedback(
-            `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
-          )
+          publishRuntimeFeedback(repositoryReviewPersisted
+            ? `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
+            : `DeepSeek 二判完成：远端已改归「${targetNames}」，但收藏库记录待核对。`)
           window.bilimiDesktop?.setAssistantPetHint?.({
             tone: 'happy',
             message: `主人，DeepSeek重新判断有调整哦～已从「${ledgerNames(localTargetLedgerIds)}」改存到「${targetNames}」。`

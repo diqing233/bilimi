@@ -231,12 +231,16 @@ describe('buildFavoriteApiFallbackScript', () => {
     const result = await window.eval(
       buildFavoriteApiAdjustmentScript(ledgers, {
         addLedgerIds: ['game'],
-        removeLedgerIds: ['life-interest']
+        removeLedgerIds: ['life-interest'],
+        aid: 710,
+        accountMid: '42'
       })
     )
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:adjust-list', 'api:favorite:adjust'])
+    expect(result.favoriteFolderIdsByLedgerId).toEqual({ game: '91000002' })
+    expect(requests[1].body).toContain('rid=710')
     expect(requests[1].body).toContain('add_media_ids=91000002')
     expect(requests[1].body).toContain('del_media_ids=91000005')
   })

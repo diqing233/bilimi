@@ -2324,7 +2324,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('does not apply a delayed DeepSeek adjustment after the active tab changes', async () => {
+  it('continues a delayed DeepSeek adjustment for the frozen video after the active tab changes', async () => {
     let resolveReview: ((result: DeepSeekGenerateResult) => void) | undefined
     const generateDeepSeek = vi.fn<
       (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
@@ -2349,9 +2349,12 @@ describe('App runtime integration', () => {
         return ledger
       })
     })
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
-      loadPreferences: vi.fn().mockResolvedValue(preferences)
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitFavoriteRepositoryCommand
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -2369,11 +2372,22 @@ describe('App runtime integration', () => {
         }
       }
 
+      if (script.includes('api:favorite:adjust-list')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:adjust-list', 'api:favorite:adjust'],
+          missingTargets: [],
+          favoriteFolderIdsByLedgerId: { game: '9002' },
+          message: 'DeepSeek 后台归类调整已完成。'
+        }
+      }
+
       if (script.includes('/x/v3/fav/resource/deal')) {
         return {
           ok: true,
           steps: ['api:favorite:list', 'api:favorite:add'],
           missingTargets: [],
+          favoriteFolderIdsByLedgerId: { 'life-interest': '9005' },
           message: '已用 B 站接口归入 bilimi 收藏夹。'
         }
       }
@@ -2394,7 +2408,7 @@ describe('App runtime integration', () => {
 
     act(() => {
       webview.dispatchEvent(
-        new CustomEvent('new-window', {
+        new CustomEvent('did-navigate-in-page', {
           detail: { url: 'https://www.bilibili.com/video/BV1differentvideo' }
         })
       )
@@ -2414,15 +2428,40 @@ describe('App runtime integration', () => {
       ).toEqual(
         expect.objectContaining({
           runtimeFeedback:
-            'DeepSeek 二判完成：建议从「bilimi·生活日常」改归「bilimi·游戏专区」，但页面已切换，本次未调整。'
+            'DeepSeek 二判完成：建议从「bilimi·生活日常」改归「bilimi·游戏专区」，已完成调整。'
         })
       )
     )
-    expect(
-      executeJavaScript.mock.calls
-        .map(([script]) => String(script))
-        .filter((script) => script.includes('api:favorite:adjust'))
-    ).toHaveLength(0)
+    const adjustmentScripts = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .filter((script) => script.includes('api:favorite:adjust'))
+    expect(adjustmentScripts).toHaveLength(1)
+    expect(adjustmentScripts[0]).toContain('"aid":710')
+    expect(adjustmentScripts[0]).toContain('"accountMid":"100"')
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        type: 'set-favorite-position',
+        payload: expect.objectContaining({
+          aid: 710,
+          localDesiredFolderIds: ['bilimi-logical:game'],
+          remoteObservedPhysicalFolderIds: ['9002'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:game'],
+          positionState: 'aligned'
+        })
+      })
+    )
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        type: 'record-favorite-event',
+        payload: expect.objectContaining({
+          aid: 710,
+          kind: 'daily-review',
+          folderTitlesAtTime: ['bilimi·游戏专区']
+        })
+      })
+    )
   })
 
   it('does not run the main action when the active tab changes while context is loading', async () => {

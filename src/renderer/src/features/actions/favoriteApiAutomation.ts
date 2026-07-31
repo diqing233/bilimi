@@ -3,6 +3,8 @@ import type { FavoriteLedger } from '@shared/types'
 type FavoriteApiAdjustmentOptions = {
   addLedgerIds: string[]
   removeLedgerIds: string[]
+  aid?: number
+  accountMid?: string
 }
 
 export function buildFavoriteApiFallbackScript(
@@ -294,7 +296,9 @@ export function buildFavoriteApiAdjustmentScript(
   const payload = JSON.stringify({
     favoriteLedgers,
     addLedgerIds: options.addLedgerIds,
-    removeLedgerIds: options.removeLedgerIds
+    removeLedgerIds: options.removeLedgerIds,
+    aid: options.aid,
+    accountMid: options.accountMid
   })
 
   return `
@@ -378,7 +382,14 @@ export function buildFavoriteApiAdjustmentScript(
           return fail('favorite-api-user', '未能读取 B 站用户 ID，无法调用收藏接口。');
         }
 
-        const aid = await resolveAid();
+        if (payload.accountMid && String(mid) !== String(payload.accountMid)) {
+          return fail('favorite-api-account-changed', 'B 站账号已切换，本次后台归类未执行。');
+        }
+
+        const frozenAid = Number(payload.aid);
+        const aid = Number.isSafeInteger(frozenAid) && frozenAid > 0
+          ? frozenAid
+          : await resolveAid();
 
         if (!aid) {
           return fail('favorite-api-aid', '未能读取当前视频 aid，无法调用收藏接口。');
@@ -429,6 +440,7 @@ export function buildFavoriteApiAdjustmentScript(
           return findFolderId(targetFolder);
         };
         const addFolderIds = [];
+        const favoriteFolderIdsByLedgerId = {};
         for (const ledgerId of addLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
           if (!ledger) {
@@ -436,7 +448,9 @@ export function buildFavoriteApiAdjustmentScript(
           }
           const folderId = await ensureTargetFolder(ledger);
           if (folderId) {
-            addFolderIds.push(String(folderId));
+            const normalizedFolderId = String(folderId);
+            addFolderIds.push(normalizedFolderId);
+            favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
           }
         }
         const removeFolderIds = [];
@@ -478,6 +492,7 @@ export function buildFavoriteApiAdjustmentScript(
           ok: true,
           steps,
           missingTargets: [],
+          favoriteFolderIdsByLedgerId,
           message: 'DeepSeek 后台归类调整已完成。'
         };
       } catch (error) {

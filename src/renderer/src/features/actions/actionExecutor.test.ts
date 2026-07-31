@@ -5,21 +5,13 @@ import { executeAssistantAction } from './actionExecutor'
 describe('executeAssistantAction', () => {
   const favoriteLedgers = createDefaultFavoriteLedgers()
 
-  it('runs favorite-only automation for 藏', async () => {
-    const runScript = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        steps: ['favorite:open', 'favorite:folder', 'favorite'],
-        missingTargets: [],
-        message: '收藏已入库。'
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        steps: ['api:favorite:list', 'api:favorite:add'],
-        missingTargets: [],
-        message: '已用 B 站接口归入 bilimi 收藏夹。'
-      })
+  it('uses the Bilibili favorite API directly for 藏 in api-assisted mode', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:favorite:list', 'api:favorite:add'],
+      missingTargets: [],
+      message: '已用 B 站接口归入 bilimi 收藏夹。'
+    })
 
     const result = await executeAssistantAction({
       action: '藏',
@@ -29,25 +21,20 @@ describe('executeAssistantAction', () => {
       targetLedgerId: 'movie-tv'
     })
 
-    expect(runScript).toHaveBeenCalledTimes(2)
-    expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
-    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('bilimi·影视动漫')
-    expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(
-      expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
-    )
-    expect(result.message).toBe('已归类存入 bilimi·影视动漫。')
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[0][0]).not.toContain('favorite:open')
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
   })
 
-  it('passes multiple planned Bilimi archive targets to the API confirmation layer', async () => {
+  it('keeps page actions for 赏 but skips the page favorite dialog in api-assisted mode', async () => {
     const runScript = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        steps: ['like'],
         missingTargets: [],
-        message: '收藏已入库。'
+        message: '点赞已完成。'
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -55,6 +42,55 @@ describe('executeAssistantAction', () => {
         missingTargets: [],
         message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
+
+    const result = await executeAssistantAction({
+      action: '赏',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv'
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[0][0]).toContain('"skipFavorite":true')
+    expect(runScript.mock.calls[0][0]).not.toContain('favorite:open')
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
+  })
+
+  it('runs favorite-only automation for 藏', async () => {
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      steps: ['api:favorite:list', 'api:favorite:add'],
+      missingTargets: [],
+      message: '已用 B 站接口归入 bilimi 收藏夹。'
+    })
+
+    const result = await executeAssistantAction({
+      action: '藏',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv'
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[0][0]).toContain('bilimi·影视动漫')
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['api:favorite:list', 'api:favorite:add'])
+    )
+    expect(result.message).toBe('已归类存入 bilimi·影视动漫。')
+  })
+
+  it('passes multiple planned Bilimi archive targets to the API confirmation layer', async () => {
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      steps: ['api:favorite:list', 'api:favorite:add'],
+      missingTargets: [],
+      message: '已用 B 站接口归入 bilimi 收藏夹。'
+    })
 
     const result = await executeAssistantAction({
       action: '藏',
@@ -65,8 +101,8 @@ describe('executeAssistantAction', () => {
       targetLedgerIds: ['movie-tv', 'game']
     })
 
-    expect(runScript).toHaveBeenCalledTimes(2)
-    expect(runScript.mock.calls[1][0]).toContain('"targetLedgerIds":["movie-tv","game"]')
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('"targetLedgerIds":["movie-tv","game"]')
     expect(result.ok).toBe(true)
   })
 
@@ -158,37 +194,33 @@ describe('executeAssistantAction', () => {
       runVisualFallback,
       favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'movie-tv'
+      targetLedgerId: 'movie-tv',
+      favoriteApiFallbackEnabled: false
     })
 
-    expect(runVisualFallback).toHaveBeenCalledWith({
-      favoritesFolderName: 'bilimi 内库',
-      targetLedgerId: 'movie-tv',
-      favoriteFolders: expect.objectContaining({
-        'movie-tv': 'bilimi·影视动漫'
-      })
-    })
+    expect(runVisualFallback).toHaveBeenCalledWith(
+      {
+        favoritesFolderName: 'bilimi 内库',
+        targetLedgerId: 'movie-tv',
+        favoriteFolders: expect.objectContaining({
+          'movie-tv': 'bilimi·影视动漫'
+        })
+      },
+      { openWithShortcut: true }
+    )
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['like', 'favorite:open', 'visual:favorite:create'])
     )
   })
 
-  it('uses the Bilibili API fallback before visual automation when DOM favorite creation fails', async () => {
-    const runScript = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        steps: ['favorite:open'],
-        missingTargets: ['favorite-create-button'],
-        message: '尚有 favorite-create-button 未能寻见。'
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        steps: ['api:favorite:list', 'api:favorite:create-folder', 'api:favorite:add'],
-        missingTargets: [],
-        message: '已用 B 站接口归入 bilimi 收藏夹。'
-      })
+  it('uses the Bilibili API directly without visual automation for 藏', async () => {
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      steps: ['api:favorite:list', 'api:favorite:create-folder', 'api:favorite:add'],
+      missingTargets: [],
+      message: '已用 B 站接口归入 bilimi 收藏夹。'
+    })
     const runVisualFallback = vi.fn()
 
     const result = await executeAssistantAction({
@@ -200,13 +232,13 @@ describe('executeAssistantAction', () => {
       targetLedgerId: 'knowledge'
     })
 
-    expect(runScript).toHaveBeenCalledTimes(2)
-    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('bilimi·知识学习')
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[0][0]).toContain('bilimi·知识学习')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
-      expect.arrayContaining(['favorite:open', 'api:favorite:create-folder', 'api:favorite:add'])
+      expect.arrayContaining(['api:favorite:create-folder', 'api:favorite:add'])
     )
   })
 
@@ -436,7 +468,7 @@ describe('executeAssistantAction', () => {
     expect(result.missingTargets).toEqual([])
   })
 
-  it('times out hung page scripts and uses the visual favorite fallback', async () => {
+  it('times out a hung favorite API without disturbing the page through visual fallback', async () => {
     vi.useFakeTimers()
 
     const runScript = vi.fn(
@@ -463,16 +495,13 @@ describe('executeAssistantAction', () => {
       })
 
       await vi.advanceTimersByTimeAsync(15_001)
-      await vi.advanceTimersByTimeAsync(15_001)
       const result = await resultPromise
 
-      expect(runScript).toHaveBeenCalledTimes(2)
-      expect(runVisualFallback).toHaveBeenCalledOnce()
+      expect(runScript).toHaveBeenCalledTimes(1)
+      expect(runVisualFallback).not.toHaveBeenCalled()
       expect(result.ok).toBe(false)
-      expect(result.steps).toEqual(
-        expect.arrayContaining(['dom:timeout', 'visual:favorite:open'])
-      )
-      expect(result.missingTargets).toEqual(['visual-create-folder'])
+      expect(result.steps).toEqual(expect.arrayContaining(['dom:timeout']))
+      expect(result.missingTargets).toEqual(['favorite-timeout'])
     } finally {
       vi.useRealTimers()
     }

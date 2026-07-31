@@ -10,7 +10,7 @@ export function buildAutomationScript(
   commentDraft?: string,
   favoriteLedgers: FavoriteLedger[] = [],
   targetLedgerId = '',
-  options: { submitComment?: boolean } = {}
+  options: { submitComment?: boolean; skipFavorite?: boolean } = {}
 ): string {
   const payload = JSON.stringify({
     action,
@@ -19,7 +19,8 @@ export function buildAutomationScript(
     commentDraft,
     favoriteLedgers,
     targetLedgerId,
-    submitComment: options.submitComment ?? true
+    submitComment: options.submitComment ?? true,
+    skipFavorite: options.skipFavorite ?? false
   })
 
   return `
@@ -1105,7 +1106,7 @@ export function buildAutomationScript(
           return;
         }
 
-        const favoriteOpened = click(favoriteButton, 'favorite:open');
+        const favoriteOpened = click(favoriteButton, ${JSON.stringify(options.skipFavorite ? '' : 'favorite:open')});
         if (favoriteOpened) {
           const selectedFolder = await ensureFavoriteFolder();
           if (!selectedFolder) {
@@ -1130,11 +1131,11 @@ export function buildAutomationScript(
         }
       }
 
-      if (likeRequired && likeCompleted) {
+      if (likeRequired && likeCompleted && !payload.skipFavorite) {
         await favoriteCurrentVideo();
       }
 
-      if (payload.action === '藏') {
+      if (payload.action === '藏' && !payload.skipFavorite) {
         await favoriteCurrentVideo();
       }
 
