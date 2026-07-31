@@ -3440,7 +3440,10 @@ export function FloatingAssistantApp({
     setDeepSeekApiKeyDraft('')
     setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
-    await persistPreferences(nextPreferences)
+    await Promise.all([
+      persistPreferences(nextPreferences),
+      window.bilimiDesktop?.saveAssistantSidebarWidth?.(null)
+    ])
     publishDeepSeekConnectionStatus('pending')
     setSettingsDiagnosticMessage('')
     setGlobalFeedback('设置已经恢复默认。')
@@ -3454,9 +3457,7 @@ export function FloatingAssistantApp({
           await window.bilimiDesktop?.restoreDefaultLayoutSize?.()
         },
         persistSidebarWidthReset: async () => {
-          const patch = { assistantSidebarWidthPx: null }
-          preferencesRef.current = applyImmediatePreferencePatch(preferencesRef.current, patch)
-          await getPreferencePatchScheduler().scheduleAndWait(patch)
+          await window.bilimiDesktop?.saveAssistantSidebarWidth?.(null)
         },
         onSuccess: () => {
           setSettingsDiagnosticMessage('')

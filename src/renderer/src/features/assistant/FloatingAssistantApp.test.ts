@@ -214,7 +214,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(updateFunction).not.toContain('createInitialAssistantPreferences')
   })
 
-  it('restores layout through an independent field patch instead of a full preference flush', () => {
+  it('restores layout through the focused sidebar layout API instead of assistant preferences', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const restoreFunction = source.slice(
       source.indexOf('function restoreDefaultLayoutSize'),
@@ -222,10 +222,21 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(restoreFunction).toContain('restoreDefaultLayoutSize?.()')
-    expect(restoreFunction).toContain('scheduleAndWait(patch)')
-    expect(restoreFunction).toContain('assistantSidebarWidthPx: null')
+    expect(restoreFunction).toContain('saveAssistantSidebarWidth?.(null)')
+    expect(restoreFunction).not.toContain('scheduleAndWait(patch)')
+    expect(restoreFunction).not.toContain('assistantSidebarWidthPx: null')
     expect(restoreFunction).not.toContain('persistPreferences(')
     expect(restoreFunction).not.toContain('createInitialAssistantPreferences')
+  })
+
+  it('resets the focused sidebar layout together with the remaining assistant settings', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const resetFunction = source.slice(
+      source.indexOf('async function resetAssistantSettings'),
+      source.indexOf('function restoreDefaultLayoutSize')
+    )
+
+    expect(resetFunction).toContain('saveAssistantSidebarWidth?.(null)')
   })
 
   it('uses themed confirmation dialogs instead of browser confirmations for settings resets', () => {

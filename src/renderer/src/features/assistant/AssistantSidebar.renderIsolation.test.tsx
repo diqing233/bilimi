@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let workspaceRenderCount = 0
-type PatchMeta = { originId: string; mutationId: number }
 
 vi.mock('./FloatingAssistantApp', () => ({
   FloatingAssistantApp: () => {
@@ -16,37 +15,38 @@ import { createInitialAssistantPreferences } from '../state/assistantState'
 
 function installDesktopApi({
   width = null,
-  patchPreferences
+  saveAssistantSidebarWidth
 }: {
   width?: number | null
-  patchPreferences?: (patch: { assistantSidebarWidthPx?: number | null }, meta?: PatchMeta) => Promise<unknown>
+  saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null | void>
 } = {}) {
-  const preferences = createInitialAssistantPreferences({ assistantSidebarWidthPx: width })
-  let patchChanged: ((patch: { assistantSidebarWidthPx?: number | null }, meta?: PatchMeta) => void) | undefined
+  const preferences = createInitialAssistantPreferences()
+  let widthChanged: ((widthPx: number | null) => void) | undefined
   let workspaceChanged: ((payload: { tab?: 'review' | 'notes' | 'ledger' | 'settings'; ledgerId?: string; createLedger?: boolean; sidebar?: boolean }) => void) | undefined
   Object.defineProperty(window, 'bilimiDesktop', {
     configurable: true,
     value: {
       version: '0.1.0',
       loadPreferences: vi.fn(async () => preferences),
+      loadAssistantSidebarWidth: vi.fn(async () => width),
       onOpenAssistant: vi.fn(() => vi.fn()),
       onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
         workspaceChanged = callback
         return vi.fn()
       }),
       onAssistantPreferencesChanged: vi.fn(() => vi.fn()),
-      onAssistantPreferencePatchChanged: vi.fn((callback) => {
-        patchChanged = callback
+      onAssistantSidebarWidthChanged: vi.fn((callback) => {
+        widthChanged = callback
         return vi.fn()
       }),
-      patchPreferences: vi.fn(patchPreferences ?? (async () => preferences)),
+      saveAssistantSidebarWidth: vi.fn(saveAssistantSidebarWidth ?? (async (widthPx) => widthPx)),
       setAssistantPetHint: vi.fn()
     }
   })
   return {
-    notifyPatch: (patch: { assistantSidebarWidthPx?: number | null }, meta?: PatchMeta) => patchChanged?.(patch, meta),
+    notifyWidth: (widthPx: number | null) => widthChanged?.(widthPx),
     openWorkspace: (payload: { tab?: 'review' | 'notes' | 'ledger' | 'settings'; ledgerId?: string; createLedger?: boolean; sidebar?: boolean }) => workspaceChanged?.(payload),
-    patchPreferences: window.bilimiDesktop.patchPreferences as ReturnType<typeof vi.fn>
+    saveAssistantSidebarWidth: window.bilimiDesktop.saveAssistantSidebarWidth as ReturnType<typeof vi.fn>
   }
 }
 
@@ -128,7 +128,7 @@ describe('AssistantSidebar render isolation', () => {
     let finishFirstSave: (() => void) | undefined
     const api = installDesktopApi({
       width: 360,
-      patchPreferences: () => new Promise<void>((resolve) => { finishFirstSave = resolve })
+      saveAssistantSidebarWidth: () => new Promise<void>((resolve) => { finishFirstSave = resolve })
     })
     render(<AssistantSidebar />)
     await act(async () => undefined)
@@ -139,18 +139,17 @@ describe('AssistantSidebar render isolation', () => {
     fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 9 })
     fireEvent.pointerUp(window, { pointerId: 9 })
     act(() => vi.advanceTimersByTime(200))
-    expect(api.patchPreferences).toHaveBeenCalledWith({ assistantSidebarWidthPx: 380 }, expect.any(Object))
+    expect(api.saveAssistantSidebarWidth).toHaveBeenCalledWith(380)
 
     fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 80, pointerId: 10 })
     fireEvent.pointerMove(window, { buttons: 1, clientX: 40, pointerId: 10 })
     fireEvent.pointerUp(window, { pointerId: 10 })
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '420px' })
 
-    const firstMeta = api.patchPreferences.mock.calls[0][1] as PatchMeta
-    act(() => api.notifyPatch({ assistantSidebarWidthPx: 380 }, firstMeta))
-    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '420px' })
     act(() => vi.advanceTimersByTime(200))
-    expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 420 }, expect.any(Object))
+    act(() => api.notifyWidth(380))
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '420px' })
+    expect(api.saveAssistantSidebarWidth).toHaveBeenLastCalledWith(420)
     finishFirstSave?.()
   })
 
@@ -160,12 +159,12 @@ describe('AssistantSidebar render isolation', () => {
     await act(async () => undefined)
     const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
 
-    act(() => api.notifyPatch({ assistantSidebarWidthPx: 440 }, { originId: 'another-window', mutationId: 1 }))
+    act(() => api.notifyWidth(440))
 
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '440px' })
   })
 
-  it('issues monotonic mutations for repeated widths and ignores only its own stale echo', async () => {
+  it('saves repeated completed resize sessions independently', async () => {
     const api = installDesktopApi({ width: 360 })
     render(<AssistantSidebar />)
     await act(async () => undefined)
@@ -178,16 +177,14 @@ describe('AssistantSidebar render isolation', () => {
       act(() => vi.advanceTimersByTime(200))
     }
 
-    const firstMeta = api.patchPreferences.mock.calls[0][1] as PatchMeta
-    const secondMeta = api.patchPreferences.mock.calls[1][1] as PatchMeta
-    expect(secondMeta.originId).toBe(firstMeta.originId)
-    expect(secondMeta.mutationId).toBe(firstMeta.mutationId + 1)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenNthCalledWith(1, 380)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenNthCalledWith(2, 400)
   })
 
   it('keeps later mutations valid when an earlier save rejects', async () => {
     const api = installDesktopApi({
       width: 360,
-      patchPreferences: vi.fn()
+      saveAssistantSidebarWidth: vi.fn()
         .mockRejectedValueOnce(new Error('disk busy'))
         .mockResolvedValueOnce(undefined)
     })
@@ -205,7 +202,8 @@ describe('AssistantSidebar render isolation', () => {
     fireEvent.pointerUp(window, { pointerId: 14 })
     act(() => vi.advanceTimersByTime(200))
 
-    expect(api.patchPreferences.mock.calls[1][1].mutationId).toBeGreaterThan(api.patchPreferences.mock.calls[0][1].mutationId)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenNthCalledWith(1, 380)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenNthCalledWith(2, 400)
   })
 
   it('rerenders the workspace for a real ledger request while chrome updates stay isolated', async () => {

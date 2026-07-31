@@ -51,12 +51,16 @@ function installDesktopApi({
   preferences = createInitialAssistantPreferences(),
   snapshot = assistantSnapshot('100'),
   archives = [],
-  patchPreferences
+  patchPreferences,
+  sidebarWidth = preferences.assistantSidebarWidthPx,
+  saveAssistantSidebarWidth
 }: {
   preferences?: ReturnType<typeof createInitialAssistantPreferences>
   snapshot?: AssistantSnapshot
   archives?: VideoNoteArchiveEntry[]
   patchPreferences?: (patch: Partial<ReturnType<typeof createInitialAssistantPreferences>>) => Promise<ReturnType<typeof createInitialAssistantPreferences>>
+  sidebarWidth?: number | null
+  saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
 } = {}) {
   let openAssistantCallback: (() => void) | undefined
   let preferencesChangedCallback:
@@ -68,6 +72,7 @@ function installDesktopApi({
   const loadVideoNoteArchives = vi.fn(async () => currentArchives)
   const loadTranscriptionModels = vi.fn(async () => [])
   let accountChangedCallback: (() => void) | undefined
+  let sidebarWidthChangedCallback: ((widthPx: number | null) => void) | undefined
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
   > = []
@@ -98,6 +103,12 @@ function installDesktopApi({
         storedPreferences = createInitialAssistantPreferences({ ...storedPreferences, ...patch })
         return storedPreferences
       })),
+      loadAssistantSidebarWidth: vi.fn(async () => sidebarWidth),
+      saveAssistantSidebarWidth: vi.fn(saveAssistantSidebarWidth ?? (async (widthPx) => widthPx)),
+      onAssistantSidebarWidthChanged: vi.fn((callback) => {
+        sidebarWidthChangedCallback = callback
+        return vi.fn()
+      }),
       setAssistantPetHint: vi.fn(),
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         activeItemId: 'bvid:BV1note',
@@ -132,6 +143,9 @@ function installDesktopApi({
     ) => {
       preferencesChangedCallback?.(nextPreferences)
     },
+    notifySidebarWidthChanged: (widthPx: number | null) => {
+      sidebarWidthChangedCallback?.(widthPx)
+    },
     openWorkspace: (
       payload: Parameters<
         NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
@@ -153,6 +167,8 @@ function installDesktopApi({
     loadTranscriptionModels,
     loadPreferences: window.bilimiDesktop.loadPreferences as ReturnType<typeof vi.fn>,
     patchPreferences: window.bilimiDesktop.patchPreferences as ReturnType<typeof vi.fn>,
+    loadAssistantSidebarWidth: window.bilimiDesktop.loadAssistantSidebarWidth as ReturnType<typeof vi.fn>,
+    saveAssistantSidebarWidth: window.bilimiDesktop.saveAssistantSidebarWidth as ReturnType<typeof vi.fn>,
     savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>,
     getLocalDataInfo: window.bilimiDesktop.getLocalDataInfo as ReturnType<typeof vi.fn>
   }
@@ -505,15 +521,16 @@ describe('AssistantSidebar', () => {
 
     expect(api.patchPreferences).not.toHaveBeenCalled()
     await waitFor(() =>
-      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 320 }, expect.any(Object))
+      expect(api.saveAssistantSidebarWidth).toHaveBeenLastCalledWith(320)
     )
+    expect(api.patchPreferences).not.toHaveBeenCalled()
     expect(api.savePreferences).not.toHaveBeenCalled()
 
     fireEvent.doubleClick(resizeHandle)
 
     expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
     await waitFor(() =>
-      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: null }, expect.any(Object))
+      expect(api.saveAssistantSidebarWidth).toHaveBeenLastCalledWith(null)
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })
@@ -535,7 +552,7 @@ describe('AssistantSidebar', () => {
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '410px' })
   })
 
-  it('returns to the stylesheet default width when preferences clear the saved layout width', async () => {
+  it('returns to the stylesheet default width when the focused layout channel clears it', async () => {
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({
         assistantSidebarWidthPx: 360
@@ -550,10 +567,50 @@ describe('AssistantSidebar', () => {
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
 
     act(() => {
-      api.notifyPreferencesChanged(createInitialAssistantPreferences({ assistantSidebarWidthPx: null }))
+      api.notifySidebarWidthChanged(null)
     })
 
     expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
+  })
+
+  it('cancels a pending drag save when the focused layout channel resets the width', async () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    render(<AssistantSidebar />)
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+    api.saveAssistantSidebarWidth.mockClear()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 75 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 75 })
+    fireEvent.pointerUp(window, { pointerId: 75 })
+    act(() => api.notifySidebarWidthChanged(null))
+    await act(async () => { vi.advanceTimersByTime(200) })
+
+    expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
+    expect(api.saveAssistantSidebarWidth).not.toHaveBeenCalled()
+  })
+
+  it('does not let a delayed initial load overwrite a resize that already started', async () => {
+    let finishLoad: ((widthPx: number | null) => void) | undefined
+    const api = installDesktopApi({ sidebarWidth: null })
+    api.loadAssistantSidebarWidth.mockImplementation(
+      () => new Promise((resolve) => { finishLoad = resolve })
+    )
+    render(<AssistantSidebar />)
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 76 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 76 })
+    finishLoad?.(320)
+    await act(async () => undefined)
+    fireEvent.pointerUp(window, { pointerId: 76 })
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '404px' })
   })
 
   it('captures the pointer and shields webviews while resizing', async () => {
@@ -652,10 +709,10 @@ describe('AssistantSidebar', () => {
   })
 
   it('releases the resize shield before a pending width save completes without reloading preferences', async () => {
-    let finishSave: ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void) | undefined
+    let finishSave: ((widthPx: number | null) => void) | undefined
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 }),
-      patchPreferences: () => new Promise((resolve) => { finishSave = resolve })
+      saveAssistantSidebarWidth: () => new Promise((resolve) => { finishSave = resolve })
     })
     render(<AssistantSidebar />)
     const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
@@ -668,7 +725,7 @@ describe('AssistantSidebar', () => {
 
     expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
     expect(api.loadPreferences).not.toHaveBeenCalled()
-    finishSave?.(createInitialAssistantPreferences({ assistantSidebarWidthPx: 380 }))
+    finishSave?.(380)
   })
 
   it('coalesces rapid completed drags into one final narrow width save', async () => {
@@ -679,7 +736,7 @@ describe('AssistantSidebar', () => {
     render(<AssistantSidebar />)
     const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
     await act(async () => undefined)
-    api.patchPreferences.mockClear()
+    api.saveAssistantSidebarWidth.mockClear()
 
     fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 9 })
     fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 9 })
@@ -688,12 +745,32 @@ describe('AssistantSidebar', () => {
     fireEvent.pointerMove(window, { buttons: 1, clientX: 40, pointerId: 10 })
     fireEvent.pointerUp(window, { clientX: 40, pointerId: 10 })
 
-    expect(api.patchPreferences).not.toHaveBeenCalled()
+    expect(api.saveAssistantSidebarWidth).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(199) })
-    expect(api.patchPreferences).not.toHaveBeenCalled()
+    expect(api.saveAssistantSidebarWidth).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(api.patchPreferences).toHaveBeenCalledTimes(1)
-    expect(api.patchPreferences).toHaveBeenCalledWith({ assistantSidebarWidthPx: 420 }, expect.any(Object))
+    expect(api.saveAssistantSidebarWidth).toHaveBeenCalledTimes(1)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenCalledWith(420)
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+  })
+
+  it('flushes the final pending width when the sidebar unmounts before the save delay', async () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })
+    })
+    const { unmount } = render(<AssistantSidebar />)
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    await act(async () => undefined)
+    api.saveAssistantSidebarWidth.mockClear()
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 13 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 13 })
+    fireEvent.pointerUp(window, { pointerId: 13 })
+    unmount()
+
+    expect(api.saveAssistantSidebarWidth).toHaveBeenCalledTimes(1)
+    expect(api.saveAssistantSidebarWidth).toHaveBeenCalledWith(380)
   })
 
   it('allows a new resize immediately after pointer release before persistence starts', async () => {
@@ -704,7 +781,7 @@ describe('AssistantSidebar', () => {
     render(<AssistantSidebar />)
     const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
     await act(async () => undefined)
-    api.patchPreferences.mockClear()
+    api.saveAssistantSidebarWidth.mockClear()
 
     fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 11 })
     fireEvent.pointerMove(window, { buttons: 1, clientX: 80, pointerId: 11 })
@@ -713,7 +790,7 @@ describe('AssistantSidebar', () => {
 
     fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 80, pointerId: 12 })
     expect(document.querySelector('.assistant-sidebar__resize-shield')).toBeInTheDocument()
-    expect(api.patchPreferences).not.toHaveBeenCalled()
+    expect(api.saveAssistantSidebarWidth).not.toHaveBeenCalled()
   })
 
   it('stops resizing when pointer moves after the left mouse button is released', async () => {

@@ -70,6 +70,10 @@ import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
+import {
+  createElectronAssistantSidebarLayoutStore,
+  registerAssistantSidebarLayoutIpc
+} from './assistantSidebarLayoutStore'
 import { restoreMainWindowDefaultLayoutSize } from './mainWindowLayout'
 import { installMainWindowDisplayLayout } from './mainWindowDisplayLayout'
 import {
@@ -1169,6 +1173,18 @@ async function getCurrentAccountTranscriptionQueue(ids: string[]) {
 }
 
 function registerAssistantPreferenceHandlers() {
+  const assistantSidebarLayout = createElectronAssistantSidebarLayoutStore(
+    () => loadAssistantPreferences(getDesktopStore()).assistantSidebarWidthPx
+  )
+  registerAssistantSidebarLayoutIpc({
+    ipcMain,
+    getMainWindow: () => mainWindow,
+    isTrustedSender: (senderId) => {
+      const floatingAssistant = floatingAssistantController.getWindow()
+      return senderId === mainWindow?.webContents.id || senderId === floatingAssistant?.webContents.id
+    },
+    layout: assistantSidebarLayout
+  })
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       return

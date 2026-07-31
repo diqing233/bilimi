@@ -159,6 +159,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
+  loadAssistantSidebarWidth: () =>
+    ipcRenderer.invoke('layout:assistant-sidebar-width-load') as Promise<number | null>,
   loadPendingFavoriteQueue: () =>
     ipcRenderer.invoke('pending-favorite-queue:load') as Promise<PendingFavoriteQueueItem[]>,
   clearPendingFavoriteQueue: () =>
@@ -405,6 +407,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.on('assistant:preferences-patch-changed', listener)
     return () => ipcRenderer.removeListener('assistant:preferences-patch-changed', listener)
   },
+  onAssistantSidebarWidthChanged: (callback: (widthPx: number | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, widthPx: number | null) => callback(widthPx)
+    ipcRenderer.on('layout:assistant-sidebar-width-changed', listener)
+    return () => ipcRenderer.removeListener('layout:assistant-sidebar-width-changed', listener)
+  },
   onFavoriteLedgerEnabledChanged: (callback: (patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => callback(patch, meta)
     ipcRenderer.on('assistant:favorite-ledger-enabled-changed', listener)
@@ -611,6 +618,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   patchPreferences: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:patch-preferences', patch, meta) as Promise<AssistantPreferences>,
+  saveAssistantSidebarWidth: (widthPx: number | null) =>
+    ipcRenderer.invoke('layout:assistant-sidebar-width-save', widthPx) as Promise<number | null>,
   writePreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
   writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) =>

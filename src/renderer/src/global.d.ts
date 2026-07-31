@@ -119,6 +119,7 @@ type BilimiDesktopApi = {
   loadPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
   clearPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
   loadPreferences: () => Promise<AssistantPreferences>
+  loadAssistantSidebarWidth?: () => Promise<number | null>
   loadVideoNotes?: () => Promise<VideoNote[]>
   loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>
   loadDeepSeekApiKeyStatus?: () => Promise<DeepSeekKeyStatus>
@@ -233,6 +234,7 @@ type BilimiDesktopApi = {
   ) => () => void
   onAssistantPreferencesChanged?: (callback: (preferences: AssistantPreferences) => void) => () => void
   onAssistantPreferencePatchChanged?: (callback: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void) => () => void
+  onAssistantSidebarWidthChanged?: (callback: (widthPx: number | null) => void) => () => void
   onFavoriteLedgerEnabledChanged?: (callback: (patch: FavoriteLedgerEnabledPatch, meta?: AssistantPreferencePatchMeta) => void) => () => void
   onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantPetHintChanged?: (callback: (hint: AssistantPetHint) => void) => () => void
@@ -282,6 +284,7 @@ type BilimiDesktopApi = {
   ) => Promise<AssistantAutomationResult>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
   patchPreferences?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<AssistantPreferences>
+  saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
   writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
   writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => Promise<FavoriteLedgerEnabledPatch>
   previewPreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void
