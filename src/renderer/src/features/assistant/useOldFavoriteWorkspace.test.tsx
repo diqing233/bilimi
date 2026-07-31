@@ -445,6 +445,51 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
   })
 
+  it.each([
+    ['returns no workspace', () => Promise.resolve(null)],
+    ['rejects', () => Promise.reject(new Error('workspace unavailable'))],
+    ['returns a recovery marker', () => Promise.resolve({
+      accountMid: '100',
+      recovery: { kind: 'corrupt-workspace' as const, reason: 'invalid-workspace' }
+    })]
+  ])('preserves the visible snapshot when a background refresh %s', async (_label, reload) => {
+    const initial = { ...workspace('100'), status: 'previewing' as const }
+    const open = vi.fn()
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(reload)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toEqual(initial))
+    await act(async () => { await result.current.refresh(true) })
+
+    expect(open).toHaveBeenCalledTimes(2)
+    expect(result.current.snapshot).toEqual(initial)
+    expect(result.current.backgroundRefreshing).toBe(false)
+  })
+
+  it('returns null when a foreground command invalidates a pending background refresh', async () => {
+    const polling = deferred<ReturnType<typeof workspace>>()
+    const open = vi.fn()
+      .mockResolvedValueOnce(workspace('100'))
+      .mockReturnValueOnce(polling.promise)
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), continuationCount: 2 })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toEqual(workspace('100')))
+    let background!: Promise<unknown>
+    act(() => { background = result.current.refresh(true) })
+    await act(async () => { await result.current.autoClassifyCurrentSegment() })
+    await act(async () => polling.resolve({ ...workspace('100'), continuationCount: 1 }))
+
+    await expect(background).resolves.toBeNull()
+    expect(result.current.snapshot).toMatchObject({ continuationCount: 2 })
+  })
+
   it('uses a low-frequency visible fallback while tag enrichment is running without blocking interaction', async () => {
     vi.useFakeTimers()
     const polling = deferred<ReturnType<typeof workspace>>()

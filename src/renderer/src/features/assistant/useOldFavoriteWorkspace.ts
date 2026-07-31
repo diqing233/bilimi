@@ -222,7 +222,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         const isCurrent = preserveSnapshot
           ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
           : requestVersion.current === version && accountGeneration.current === generation
-        if (isCurrent) setSnapshot(null)
+        if (isCurrent && !preserveSnapshot) setSnapshot(null)
         return null
       }
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
@@ -230,13 +230,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       const isCurrent = preserveSnapshot
         ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
         : requestVersion.current === version && accountGeneration.current === generation
-      if (isCurrent) setSnapshot(next)
+      if (!isCurrent) return null
+      if (preserveSnapshot && 'recovery' in next) return null
+      setSnapshot(next)
       return next
     } catch (error) {
       const isCurrent = preserveSnapshot
         ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
         : requestVersion.current === version && accountGeneration.current === generation
-      if (isCurrent) setSnapshot(null)
+      if (isCurrent && !preserveSnapshot) setSnapshot(null)
       if (isCurrent) setLastError(error instanceof Error ? error.message : '读取收藏整理工作区失败。')
       return null
     } finally {
