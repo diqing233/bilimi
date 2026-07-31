@@ -171,11 +171,12 @@ export function deriveFavoriteRepositoryPositionState(input: Pick<FavoriteReposi
 }
 
 export function isFavoriteRepositoryMetadataStale(video: FavoriteRepositoryVideo) {
-  return /^video\s*\+\s*id$/i.test(video.title.trim()) || !video.author?.trim()
+  return hasFavoriteRepositoryPlaceholderTitle(video) || !video.author?.trim()
 }
 
 function hasFavoriteRepositoryPlaceholderTitle(video: FavoriteRepositoryVideo) {
-  return /^video\s*\+\s*id$/i.test(video.title.trim())
+  const title = video.title.trim()
+  return /^video\s*\+\s*id$/i.test(title) || title.toLowerCase() === `video ${video.aid}`.toLowerCase()
 }
 
 /** Never replace confirmed metadata with sparse scan placeholders. */

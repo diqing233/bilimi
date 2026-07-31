@@ -155,6 +155,16 @@ describe('account favorite repository contracts', () => {
     expect(isFavoriteRepositoryMetadataStale({ aid: 2, title: 'Video + ID', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' })).toBe(true)
   })
 
+  it('keeps complete metadata when a scan supplies the real numeric Video placeholder format', () => {
+    const merged = mergeFavoriteRepositoryVideo(
+      { aid: 116953603638658, title: '完整标题', author: '原 UP', description: '完整简介', tags: ['生活'], coverUrl: 'cover', updatedAt: '2026-07-23T00:00:00.000Z' },
+      { aid: 116953603638658, title: 'Video 116953603638658', tags: [], updatedAt: '2026-07-23T00:01:00.000Z' }
+    )
+
+    expect(merged).toMatchObject({ title: '完整标题', author: '原 UP', description: '完整简介', tags: ['生活'], coverUrl: 'cover' })
+    expect(isFavoriteRepositoryMetadataStale({ aid: 116953603638658, title: 'Video 116953603638658', author: '小瑕爱小盘', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' })).toBe(true)
+  })
+
   it('exports archive records without credentials and with a stable checksum', () => {
     const exported = {
       version: 1 as const,
