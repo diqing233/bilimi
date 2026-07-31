@@ -120,6 +120,82 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       segments: [{ itemCount: 1_000 }, { itemCount: 500 }]
     })
   })
+
+  it('reports tag readiness independently so an earlier batch can be organized first', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return {
+            aid,
+            title: `Video ${aid}`,
+            ...(aid === 1 || aid === 501 ? {} : { tags: ['已有标签'] }),
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      segments: [
+        { id: 'segment-1', readiness: 'tagging', pendingTagItemCount: 1 },
+        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+      ]
+    })
+    await coordinator.recordTagEnrichment('100', 1, ['新标签'], workspaceId)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      segments: [
+        { id: 'segment-1', readiness: 'ready', pendingTagItemCount: 0 },
+        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+      ]
+    })
+  })
+
+  it('adopts only the current batch tags while later batches keep enriching and can resume after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: `Video ${offset + index + 1}`,
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+
+    await coordinator.acceptCurrentTags('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 501 },
+      segments: [
+        { id: 'segment-1', readiness: 'ready', pendingTagItemCount: 0 },
+        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+      ]
+    })
+    await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual([501])
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toEqual([501])
+    await restarted.resumeTagEnrichment('100')
+    await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toHaveLength(501)
+  })
   it('creates a full-mode selection scope from repository videos without scanning the account', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -4992,8 +5068,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(snapshot).not.toHaveProperty('baseline')
     expect(snapshot).not.toHaveProperty('plannedAids')
     expect(snapshot.segments).toEqual([
-      { id: 'segment-1', index: 0, status: 'previewing', itemCount: 2_000 },
-      { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1 }
+      { id: 'segment-1', index: 0, status: 'previewing', itemCount: 2_000, readiness: 'ready', completedTagItemCount: 2_000, pendingTagItemCount: 0 },
+      { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'ready', completedTagItemCount: 1, pendingTagItemCount: 0 }
     ])
   })
 

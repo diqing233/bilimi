@@ -109,7 +109,15 @@ export type OldFavoriteWorkspaceSnapshot = {
   }>
   continuationCount: number
   protectedAidCount?: number
-  segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
+  segments: Array<{
+    id: string
+    index: number
+    status: 'previewing' | 'frozen'
+    itemCount: number
+    readiness: 'tagging' | 'ready' | 'saved'
+    completedTagItemCount: number
+    pendingTagItemCount: number
+  }>
   currentSegment: {
     id: string
     aids: number[]

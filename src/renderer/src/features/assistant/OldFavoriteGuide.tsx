@@ -67,6 +67,11 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
   { id: 'confirm', label: '确认执行' }
 ]
 
+function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {
+  if (segment.status === 'frozen' || segment.readiness === 'saved') return '已保存'
+  return segment.readiness === 'tagging' ? '补取中' : '可整理'
+}
+
 export function OldFavoriteGuide({
   snapshot,
   loading,
@@ -119,9 +124,14 @@ export function OldFavoriteGuide({
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
+  const currentSegmentSummary = snapshot && !('recovery' in snapshot)
+    ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
+    : undefined
   const tagEnrichmentBlocksNextStep = Boolean(
     snapshot && !('recovery' in snapshot)
-    && (snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
+    && (currentSegmentSummary?.readiness
+      ? currentSegmentSummary.readiness === 'tagging'
+      : snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
   )
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
@@ -139,6 +149,20 @@ export function OldFavoriteGuide({
             aria-expanded={guideHintExpanded}
             title={'扫描已有收藏：读取可整理的收藏内容。\n检查建议：确认推荐收藏夹与分类结果。\n确认执行：核对后再同步到 bilimi 收藏夹。'}
             onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
+          {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
+            <span>当前批次</span>
+            <select aria-label="整理批次" value={snapshot.currentSegment?.id ?? ''} disabled={loading || mutationLocked}
+              onChange={(event) => {
+                const segment = snapshot.segments.find((candidate) => candidate.id === event.currentTarget.value)
+                if (!segment) return
+                onSelectSegment(segment.id)
+                if (segment.readiness === 'tagging') onStepChange('scan')
+              }}>
+              {snapshot.segments.map((segment) => <option key={segment.id} value={segment.id}>
+                第 {segment.index + 1}/{snapshot.segments.length} 批 · {segment.itemCount} 条 · {segmentReadinessLabel(segment)}
+              </option>)}
+            </select>
+          </label> : null}
       </div>
       {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint"><p>扫描已有收藏：读取可整理的收藏内容。</p><p>检查建议：确认推荐收藏夹与分类结果。</p><p>确认执行：核对后再同步到 bilimi 收藏夹。</p></div> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
@@ -179,7 +203,6 @@ export function OldFavoriteGuide({
       mutationLocked={mutationLocked}
       deepSeekAvailable={deepSeekAvailable}
       deepSeekFeedback={deepSeekFeedback}
-      onSelectSegment={onSelectSegment}
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}
       onRetryFailedDeepSeekChunks={onRetryFailedDeepSeekChunks}
       onCancelDeepSeek={onCancelDeepSeek}

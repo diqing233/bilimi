@@ -2126,7 +2126,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     await screen.findByRole('region', { name: '归档预览' })
-    fireEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+    fireEvent.change(screen.getByRole('combobox', { name: '整理批次' }), { target: { value: 'segment-2' } })
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByRole('checkbox', { name: '阿婆主' })).toBeChecked()
@@ -2477,8 +2477,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: 51, isBilimiWorkFolder: false, selected: true }],
       segments: [
-        { id: 'segment-1', index: 0, itemCount: 51, status: 'previewing' as const },
-        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const }
+        { id: 'segment-1', index: 0, itemCount: 51, status: 'previewing' as const, readiness: 'ready' as const, completedTagItemCount: 51, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
       ],
       currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
       classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-low' as const } },
@@ -2507,7 +2507,15 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getAllByText('分类把握：不太稳')).not.toHaveLength(0)
     expect(screen.queryByText(/^分类来源：/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^目标收藏夹：/)).not.toBeInTheDocument()
-    expect(screen.getByRole('group', { name: '整理分段' })).toBeInTheDocument()
+    const selector = screen.getByRole('combobox', { name: '整理批次' })
+    expect(selector).toHaveValue('segment-1')
+    expect(screen.getByRole('option', { name: '第 1/2 批 · 51 条 · 可整理' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '第 2/2 批 · 1 条 · 补取中' })).toBeInTheDocument()
+    fireEvent.change(selector, { target: { value: 'segment-2' } })
+    await waitFor(() => expect(window.bilimiDesktop?.commandOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100', {
+      type: 'select-segment', segmentId: 'segment-2'
+    }))
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
   })
 
   it('does not introduce segment controls for a single-segment archive preview', async () => {
@@ -2530,7 +2538,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
 
-    expect(screen.queryByRole('group', { name: '整理分段' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: '整理批次' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转移 One' })).toBeInTheDocument()
   })
 
@@ -2709,6 +2717,54 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('region', { name: '扫描概览' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps an already-ready batch open while another batch continues tag enrichment', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const base = {
+        version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+        mode: 'incremental' as const, segmentSize: 500, hasMultipleSegments: true,
+        scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 501, scannedItemCount: 501 },
+        tagEnrichment: { status: 'running' as const, totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1, failedItemCount: 0 },
+        continuationCount: 0, sourceFolders: [],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 500, readiness: 'ready' as const, completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }
+      }
+      let persisted = base
+      window.bilimiDesktop = {
+        openOldFavoriteWorkspaceV1: vi.fn().mockImplementation(() => Promise.resolve(persisted)),
+        commandOldFavoriteWorkspaceV1: vi.fn()
+      } as unknown as typeof window.bilimiDesktop
+
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+      await screen.findByRole('region', { name: '整理收藏向导' })
+      expect(screen.getByLabelText('当前批次标签进度')).toHaveAttribute('value', '500')
+      expect(screen.getByText('当前批 500 / 500 条')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
+      fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+      expect(await screen.findByRole('region', { name: '归档预览' })).toBeInTheDocument()
+
+      persisted = {
+        ...base,
+        tagEnrichment: { ...base.tagEnrichment, completedItemCount: 2, pendingItemCount: 0 },
+        segments: [base.segments[0], { ...base.segments[1], readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }]
+      }
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
+
+      expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+      expect(screen.getByRole('region', { name: '归档预览' })).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }

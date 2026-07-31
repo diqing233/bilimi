@@ -50,7 +50,6 @@ type OldFavoriteArchivePreviewStepProps = {
   mutationLocked?: boolean
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
-  onSelectSegment: (segmentId: string) => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onRetryFailedDeepSeekChunks: () => void
   onCancelDeepSeek?: () => void
@@ -69,7 +68,6 @@ export function OldFavoriteArchivePreviewStep({
   mutationLocked = false,
   deepSeekAvailable,
   deepSeekFeedback,
-  onSelectSegment,
   onOrganizeWithDeepSeek,
   onRetryFailedDeepSeekChunks,
   onCancelDeepSeek = () => undefined,
@@ -161,11 +159,6 @@ export function OldFavoriteArchivePreviewStep({
     </div>
     <p className="favorite-ledger-panel__step-note">检查分类结果，可手动调整或使用 DeepSeek 辅助整理。</p>
     <p className="favorite-ledger-panel__action-explanation">DeepSeek 只辅助更新预览；撤销、恢复和改动记录只处理本轮预览改动。</p>
-    {snapshot.segments.length > 1 ? <div role="group" aria-label="整理分段">
-      {snapshot.segments.map((segment) => <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
-        disabled={snapshot.currentSegment?.id === segment.id || loading}
-        onClick={() => onSelectSegment(segment.id)}>第 {segment.index + 1} 组</button>)}
-    </div> : null}
     <div className="favorite-ledger-panel__preview-tools">
       <div className="favorite-ledger-panel__archive-tool-card" role="group" aria-label="归档预览辅助工具">
         <div className="favorite-ledger-panel__deepseek-archive-section favorite-ledger-panel__deepseek-archive-section--full" role="group" aria-label="DeepSeek 辅助整理">

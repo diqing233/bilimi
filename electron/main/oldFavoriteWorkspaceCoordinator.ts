@@ -258,6 +258,7 @@ type TagEnrichment = {
   failedAids: number[]
   reusedTagItemCount: number
   taggedAids: number[]
+  acceptedSegmentIds: string[]
 }
 
 function normalizeTagEnrichment(value: {
@@ -268,12 +269,14 @@ function normalizeTagEnrichment(value: {
   failedAids?: number[]
   reusedTagItemCount?: number
   taggedAids?: number[]
+  acceptedSegmentIds?: string[]
 }): TagEnrichment {
   return {
     ...value,
     failedAids: [...new Set(value.failedAids ?? [])],
     reusedTagItemCount: value.reusedTagItemCount ?? 0,
-    taggedAids: [...new Set(value.taggedAids ?? [])]
+    taggedAids: [...new Set(value.taggedAids ?? [])],
+    acceptedSegmentIds: [...new Set(value.acceptedSegmentIds ?? [])]
   }
 }
 
@@ -1084,7 +1087,8 @@ export class OldFavoriteWorkspaceCoordinator {
         pendingAids: pendingTagAids,
         failedAids: [],
         reusedTagItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
-        taggedAids: []
+        taggedAids: [],
+        acceptedSegmentIds: []
       }
       const readiness = this.calculatePlanReadinessFromItems(completed, items, sourceFolders)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
@@ -1837,7 +1841,8 @@ export class OldFavoriteWorkspaceCoordinator {
         pendingAids: pendingTagAids,
         failedAids: [],
         reusedTagItemCount,
-        taggedAids: []
+        taggedAids: [],
+        acceptedSegmentIds: []
       }
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
@@ -2753,7 +2758,20 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment) return
-      if (enrichment.status !== 'complete') await this.setTagEnrichmentStatus(workspace.accountMid, 'accepted')
+      const segmentId = this.currentSegment(workspace)
+      if (enrichment.status !== 'complete' && !enrichment.acceptedSegmentIds.includes(segmentId)) {
+        const acceptedSegmentIds = [...new Set([...enrichment.acceptedSegmentIds, segmentId])]
+        const accepted = new Set(acceptedSegmentIds)
+        const hasActivePending = workspace.segments.some((segment) =>
+          !accepted.has(segment.id) && segment.aids.some((aid) => enrichment.pendingAids.includes(aid)))
+        const status = hasActivePending
+          ? enrichment.status === 'paused' ? 'paused' as const : 'running' as const
+          : 'accepted' as const
+        await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+          currentSegmentId: segmentId, kind: 'accept-segment', segmentId, status
+        })
+        this.tagEnrichments.set(workspace.accountMid, { ...enrichment, acceptedSegmentIds, status })
+      }
       await this.refreshRecommendationsAfterTagEnrichment(workspace)
       if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
         await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
@@ -2765,7 +2783,12 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
-      return enrichment?.status === 'running' ? [...enrichment.pendingAids] : []
+      if (enrichment?.status !== 'running') return []
+      const accepted = new Set(enrichment.acceptedSegmentIds)
+      const acceptedAids = new Set(workspace.segments
+        .filter((segment) => accepted.has(segment.id))
+        .flatMap((segment) => segment.aids))
+      return enrichment.pendingAids.filter((aid) => !acceptedAids.has(aid))
     })
   }
 
@@ -2775,6 +2798,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
+      if (workspace.segments.some((segment) => enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(aid))) return false
       const normalizedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 32)
       const persistedVideo = (await this.options.repository.getSnapshot(workspace.accountMid)).videos[String(aid)]
       await this.options.repository.commit(workspace.accountMid, {
@@ -2806,6 +2830,8 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         : undefined
       const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      const activePendingAids = pendingAids.filter((pendingAid) => !workspace.segments.some((segment) =>
+        enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(pendingAid)))
       const next: TagEnrichment = {
         ...enrichment,
         pendingAids,
@@ -2814,7 +2840,7 @@ export class OldFavoriteWorkspaceCoordinator {
         taggedAids: normalizedTags.length > 0
           ? [...new Set([...enrichment.taggedAids, aid])].sort((left, right) => left - right)
           : enrichment.taggedAids.filter((candidate) => candidate !== aid),
-        status: pendingAids.length ? 'running' : 'complete'
+        status: activePendingAids.length ? 'running' : pendingAids.length ? 'accepted' : 'complete'
       }
       await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), kind: 'tagged', aid, tags: normalizedTags,
@@ -2842,13 +2868,16 @@ export class OldFavoriteWorkspaceCoordinator {
       if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
+      if (workspace.segments.some((segment) => enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(aid))) return false
       const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      const activePendingAids = pendingAids.filter((pendingAid) => !workspace.segments.some((segment) =>
+        enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(pendingAid)))
       const next: TagEnrichment = {
         ...enrichment,
         pendingAids,
         completedItemCount: enrichment.totalItemCount - pendingAids.length,
         failedAids: [...new Set([...enrichment.failedAids, aid])].sort((left, right) => left - right),
-        status: pendingAids.length ? 'running' : 'complete'
+        status: activePendingAids.length ? 'running' : pendingAids.length ? 'accepted' : 'complete'
       }
       await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), kind: 'failed', aid
@@ -2870,6 +2899,16 @@ export class OldFavoriteWorkspaceCoordinator {
     const current = this.tagEnrichments.get(workspace.accountMid)
     if (!current || current.status === 'complete' || (current.status === 'accepted' && status !== 'running')) return false
     if (status === 'running' && !current.pendingAids.length) return false
+    const segmentId = this.currentSegment(workspace)
+    if (status === 'running' && current.acceptedSegmentIds.includes(segmentId)) {
+      const acceptedSegmentIds = current.acceptedSegmentIds.filter((id) => id !== segmentId)
+      const next: TagEnrichment = { ...current, status, acceptedSegmentIds }
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: segmentId, kind: 'resume-segment', segmentId, status
+      })
+      this.tagEnrichments.set(workspace.accountMid, next)
+      return true
+    }
     const next: TagEnrichment = { ...current, status }
     await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
       currentSegmentId: this.currentSegment(workspace), kind: 'status', status
@@ -3617,6 +3656,10 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
     const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
+    const tagEnrichment = this.tagEnrichments.get(workspace.accountMid)
+    const pendingTagAids = new Set(tagEnrichment?.pendingAids ?? [])
+    const acceptedTagSegments = new Set(tagEnrichment?.acceptedSegmentIds ?? [])
+    const workspaceSegmentsById = new Map(workspace.segments.map((segment) => [segment.id, segment]))
     return {
       version: 1,
       accountMid: workspace.accountMid,
@@ -3627,9 +3670,9 @@ export class OldFavoriteWorkspaceCoordinator {
       segmentSize: workspace.segmentSize,
       hasMultipleSegments: workspace.hasMultipleSegments,
       scan: clone(this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: workspace.status === 'scanning' ? 'inventory' : 'complete', failureCount: 0, mode: workspace.mode }),
-      ...(this.tagEnrichments.get(workspace.accountMid) ? {
+      ...(tagEnrichment ? {
         tagEnrichment: (() => {
-          const enrichment = this.tagEnrichments.get(workspace.accountMid)!
+          const enrichment = tagEnrichment
           return {
             status: enrichment.status,
             totalItemCount: enrichment.totalItemCount,
@@ -3650,7 +3693,18 @@ export class OldFavoriteWorkspaceCoordinator {
           id: segment.id,
           index: segment.index,
           status: (this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing') as 'previewing' | 'frozen',
-          itemCount: segment.itemCount
+          itemCount: segment.itemCount,
+          ...(() => {
+            const pendingTagItemCount = acceptedTagSegments.has(segment.id) ? 0 :
+              (workspaceSegmentsById.get(segment.id)?.aids ?? [])
+                .reduce((count, aid) => count + Number(pendingTagAids.has(aid)), 0)
+            const saved = this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ?? false
+            return {
+              readiness: saved ? 'saved' as const : pendingTagItemCount > 0 ? 'tagging' as const : 'ready' as const,
+              completedTagItemCount: Math.max(0, segment.itemCount - pendingTagItemCount),
+              pendingTagItemCount
+            }
+          })()
         })),
       currentSegment: currentSegment ? {
         id: currentSegment.id,

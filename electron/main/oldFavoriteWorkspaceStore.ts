@@ -56,6 +56,8 @@ type TagEnrichmentDelta =
   | { kind: 'tagged'; aid: number; tags: string[] }
   | { kind: 'failed'; aid: number }
   | { kind: 'retry-failed' }
+  | { kind: 'accept-segment'; segmentId: string; status?: 'running' | 'paused' | 'accepted' | 'complete' }
+  | { kind: 'resume-segment'; segmentId: string; status?: 'running' | 'paused' | 'accepted' | 'complete' }
   | { kind: 'status'; status: 'running' | 'paused' | 'accepted' | 'complete' }
 type Overlay = {
   currentSegmentId: string
@@ -86,6 +88,7 @@ type Overlay = {
     failedAids?: number[]
     reusedTagItemCount?: number
     taggedAids?: number[]
+    acceptedSegmentIds?: string[]
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
   tagEnrichmentDelta?: TagEnrichmentDelta
@@ -485,7 +488,8 @@ export class OldFavoriteWorkspaceStore {
               : Math.max(0, overlay.tagEnrichment.totalItemCount - overlay.tagEnrichment.pendingAids.length),
             failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])],
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
-            taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])]
+            taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])],
+            acceptedSegmentIds: [...new Set(overlay.tagEnrichment.acceptedSegmentIds ?? [])]
           }
         }
         if (overlay.tagEnrichmentDelta) {
@@ -521,6 +525,15 @@ export class OldFavoriteWorkspaceStore {
             tagEnrichment.failedAids = []
             tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
             tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
+          } else if (delta.kind === 'accept-segment' || delta.kind === 'resume-segment') {
+            if (!manifest.segments.some((segment) => segment.id === delta.segmentId)) {
+              throw new Error('tag enrichment segment delta is invalid')
+            }
+            const acceptedSegmentIds = new Set(tagEnrichment.acceptedSegmentIds ?? [])
+            if (delta.kind === 'accept-segment') acceptedSegmentIds.add(delta.segmentId)
+            else acceptedSegmentIds.delete(delta.segmentId)
+            tagEnrichment.acceptedSegmentIds = [...acceptedSegmentIds]
+            if (delta.status) tagEnrichment.status = delta.status
           } else {
             tagEnrichment.status = delta.status
           }

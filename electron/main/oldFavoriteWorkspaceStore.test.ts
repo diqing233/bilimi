@@ -499,6 +499,38 @@ describe('OldFavoriteWorkspaceStore', () => {
     })
   })
 
+  it('persists accepted tag segments without discarding their resumable pending aids', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [
+        { id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }
+      ]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'running', totalItemCount: 2, completedItemCount: 0,
+        pendingAids: [1, 2], failedAids: [], reusedTagItemCount: 0, taggedAids: []
+      }
+    })
+
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'accept-segment', segmentId: 'segment-1'
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingAids: [1, 2], acceptedSegmentIds: ['segment-1'] }
+    })
+
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'resume-segment', segmentId: 'segment-1'
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingAids: [1, 2], acceptedSegmentIds: [] }
+    })
+  })
+
   it('atomically compacts a large legacy tag journal before committing the next delta', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

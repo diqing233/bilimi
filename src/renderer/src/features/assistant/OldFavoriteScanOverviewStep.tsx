@@ -65,6 +65,7 @@ export function OldFavoriteScanOverviewStep({
   const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
+  const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
   const failedTagItemCount = Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = tagEnrichment?.confirmedUntaggedItemCount ?? 0
   const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
@@ -96,6 +97,13 @@ export function OldFavoriteScanOverviewStep({
         <progress aria-label="标签识别进度" max={Math.max(scannedItemCount, 1)} value={taggedItemCount} />
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
         <strong>{untaggedItemCount ? `${untaggedItemCount} 条尚未取得标签` : '已识别'}</strong>
+      </div> : null}
+      {snapshot?.segments.length && snapshot.segments.length > 1 && currentSegmentSummary ? <div>
+        <span>当前批次</span>
+        <progress aria-label="当前批次标签进度" max={Math.max(currentSegmentSummary.itemCount, 1)}
+          value={currentSegmentSummary.completedTagItemCount} />
+        <span>当前批 {currentSegmentSummary.completedTagItemCount} / {currentSegmentSummary.itemCount} 条</span>
+        <strong>{currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
       </div> : null}
     </div>
     {snapshot ? <>

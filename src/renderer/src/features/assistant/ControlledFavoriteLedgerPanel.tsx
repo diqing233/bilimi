@@ -143,10 +143,8 @@ export function ControlledFavoriteLedgerPanel({
     ? workspace.snapshot
     : null
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
-  const snapshotStatus = snapshot && !('recovery' in snapshot) ? snapshot.status : undefined
-  const tagEnrichmentStatus = snapshot && !('recovery' in snapshot)
-    ? snapshot.tagEnrichment?.status
-    : undefined
+  const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
+  const snapshotStatus = activeSnapshot?.status
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     organizationRequestVersion.current += 1
@@ -168,8 +166,8 @@ export function ControlledFavoriteLedgerPanel({
   }, [currentAccountMid])
 
   useEffect(() => {
-    onOrganizationSnapshotChange?.(snapshot && !recovery ? snapshot : null)
-  }, [onOrganizationSnapshotChange, recovery, snapshot])
+    onOrganizationSnapshotChange?.(activeSnapshot)
+  }, [activeSnapshot, onOrganizationSnapshotChange])
 
   useEffect(() => {
     if (!openOrganizationRequestVersion) return
@@ -199,20 +197,18 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(true)
     setStep((currentStep) => {
       if ('recovery' in snapshot) return 'scan'
-      const tagEnrichmentActive = snapshot.tagEnrichment?.status === 'running' ||
-        snapshot.tagEnrichment?.status === 'paused'
-      if (snapshot.status === 'scanning' || tagEnrichmentActive) return 'scan'
+      if (snapshot.status === 'scanning') return 'scan'
       if (snapshot.status !== 'previewing') return 'confirm'
       return currentStep
     })
-  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus, tagEnrichmentStatus])
+  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus])
 
   const startScan = async (mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => {
     if (scanStarting) return
-    if (mode === 'incremental' && snapshot && !recovery && snapshot.scan.phase !== 'failed' &&
-      snapshot.status !== 'completed' && snapshot.status !== 'scanning') {
+    if (mode === 'incremental' && activeSnapshot && activeSnapshot.scan.phase !== 'failed' &&
+      activeSnapshot.status !== 'completed' && activeSnapshot.status !== 'scanning') {
       setGuideOpen(true)
-      setStep(snapshot.status === 'scanning' ? 'scan' : snapshot.status === 'previewing' ? 'preview' : 'confirm')
+      setStep(activeSnapshot.status === 'previewing' ? 'preview' : 'confirm')
       return
     }
     const requestedAccountMid = currentAccountMid
@@ -388,7 +384,7 @@ export function ControlledFavoriteLedgerPanel({
       closeGuide()
     }
   }
-  const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
+  const canRestartFromResume = activeSnapshot !== null && activeSnapshot.status !== 'completed'
   const displayedLedgers = projectRecommendedLedgerDrafts(ledgers, workspace.snapshot, workspace.recommendedCandidateIds)
 
   const ensureLedgersAndOpenFavoritePage = async () => {
@@ -425,7 +421,7 @@ export function ControlledFavoriteLedgerPanel({
         key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
         ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
-        organizationActive={Boolean(snapshot && !recovery && snapshot.status !== 'completed')}
+        organizationActive={Boolean(activeSnapshot && activeSnapshot.status !== 'completed')}
         hasExpandedOrganizationGuide={guideOpen}
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
         openLedgerId={openLedgerId}
