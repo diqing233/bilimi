@@ -122,6 +122,8 @@ export function ControlledFavoriteLedgerPanel({
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
+  const [ensuringLedgers, setEnsuringLedgers] = useState(false)
+  const ensuringLedgersRef = useRef(false)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const [confirmationPreparing, setConfirmationPreparing] = useState(false)
   const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
@@ -374,22 +376,33 @@ export function ControlledFavoriteLedgerPanel({
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
   const displayedLedgers = projectRecommendedLedgerDrafts(ledgers, workspace.snapshot, workspace.recommendedCandidateIds)
 
+  const ensureLedgersAndOpenFavoritePage = async () => {
+    if (ensuringLedgersRef.current) return
+    ensuringLedgersRef.current = true
+    setEnsuringLedgers(true)
+    try {
+      const result = await onEnsureLedgers() as { ok?: boolean } | undefined
+      if (result?.ok !== false) await onOpenFavoritePage?.()
+    } finally {
+      ensuringLedgersRef.current = false
+      setEnsuringLedgers(false)
+    }
+  }
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
-          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading || defaultFavoriteSystemEnabled === false}
-            onClick={() => void onEnsureLedgers().then((result) => {
-              if ((result as { ok?: boolean } | undefined)?.ok !== false) return onOpenFavoritePage?.()
-            })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
+          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading || ensuringLedgers || defaultFavoriteSystemEnabled === false}
+            onClick={() => void ensureLedgersAndOpenFavoritePage()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
           <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || !currentAccountMid}
             onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理收藏" badge="整"
             label="整理收藏" description="扫描已有收藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
             onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={idlePetUrl} iconAlt="小咪收藏库" badge="库"
-            label="收藏库" description="在独立窗口浏览收藏库" />
+            label="收藏库" description="唤醒 bilimi 并打开收藏库" />
         </div>
       </div>
 

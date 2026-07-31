@@ -124,7 +124,7 @@ export function OldFavoriteScanOverviewStep({
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={loading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
-      {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">暂停会保留已取得标签；采用当前标签会用当前结果继续本轮，未读取项不自动加入。</p> : null}
+      {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>

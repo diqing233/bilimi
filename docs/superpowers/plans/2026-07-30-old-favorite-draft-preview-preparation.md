@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make recommendation selection accumulate instantly and prepare a 2000-item archive preview cooperatively, with progress and cancellation, before switching pages.
+**Goal:** Make recommendation selection accumulate instantly, enter archive preview immediately, and refresh a cooperatively prepared 2000-item result in place.
 
-**Architecture:** The renderer owns an optimistic recommendation draft and updates it through functional mutations backed by a synchronous ref. The main process separates compact candidate persistence from an explicit cooperative preview-preparation command. Preparation publishes progress over IPC, observes an out-of-band cancellation flag, commits classifications only after a complete run, and the renderer switches to preview only when the completed candidate fingerprint still matches the current draft.
+**Architecture:** The renderer owns an optimistic recommendation draft and updates it through functional mutations backed by a synchronous ref. The main process separates compact candidate persistence from an explicit cooperative preview-preparation command. Preview navigation is immediate; preparation runs in the background, commits classifications only after a complete run, and replaces the visible snapshot only when the completed candidate fingerprint still matches the current draft.
 
 **Tech Stack:** React 19, TypeScript, Electron IPC, Vitest, Testing Library.
 
@@ -159,7 +159,7 @@ node_modules\.bin\vitest.cmd run electron/main/oldFavoriteWorkspaceClassificatio
 
 Expected: all pass.
 
-### Task 4: Keep the recommendation page visible while preparing and switch only on a current result
+### Task 4: Enter preview immediately and refresh only from a current result
 
 **Files:**
 - Modify: `src/renderer/src/features/assistant/useOldFavoriteWorkspace.ts`
@@ -174,11 +174,12 @@ Expected: all pass.
 
 Cover these behaviors:
 
-- clicking the preview step stays on recommendation content while the command is pending;
+- clicking the preview step shows the existing archive preview while recommendation persistence or preparation is pending;
 - progress text updates from the preload event;
 - cancel remains clickable and invokes the cancel command;
 - a draft edit during preparation cancels the stale request and prevents it from switching pages;
-- only a successful result matching the latest candidate fingerprint calls the panel's preview transition.
+- only a successful result matching the latest candidate fingerprint replaces the visible preview snapshot;
+- confirmation remains unavailable until the latest background preparation succeeds.
 
 - [ ] **Step 2: Run renderer tests and verify RED**
 
@@ -192,9 +193,9 @@ Expected: FAIL because preview navigation is currently a direct `setStep` and no
 
 - [ ] **Step 3: Implement renderer preparation state and navigation interception**
 
-Add hook state for `previewPreparationRunning`, `previewPreparationProgress`, and `previewPreparationError`, plus `prepareRecommendationPreview()` and `cancelRecommendationPreviewPreparation()`. Subscribe to the progress event for the active workspace. Before preparing, await the compact recommendation queue; record a candidate fingerprint; send the prepare command; accept the result only if account, workspace, request generation, and fingerprint still match.
+Keep hook state for `previewPreparationRunning`, `previewPreparationProgress`, and `previewPreparationError`, plus `prepareRecommendationPreview()` and `cancelRecommendationPreviewPreparation()`. Subscribe to the progress event for the active workspace. Preparation may wait for the compact recommendation queue in the background, but that wait must not disable or delay preview navigation. Accept a returned snapshot only if account, workspace, request generation, and fingerprint still match.
 
-In the panel, intercept a request for `preview`: call preparation and set the step only when it returns a current successful snapshot. In the recommendation page, display `正在准备归档预览：x / y`, keep controls and window navigation usable, and show a cancel button. Apply `cursor: progress` to the guide region without an overlay or `pointer-events: none`.
+In the panel, set the step to `preview` immediately and then start preparation without awaiting it. Keep the existing preview mounted and replace its snapshot in place when preparation succeeds. Do not disable the preview step while recommendation persistence is running. Lock only confirmation and mutations that require the latest classifications; do not add an overlay or `pointer-events: none`.
 
 - [ ] **Step 4: Run renderer tests and verify GREEN**
 
@@ -256,10 +257,10 @@ Expected: no new errors in changed files; full `tsc` may still fail on documente
 In the running development app, verify:
 
 - at least four candidate boxes accept rapid consecutive clicks and remain selected;
-- preview preparation stays on the recommendation page and displays progress;
+- clicking preview immediately shows the archive preview while preparation continues in the background;
 - mouse movement, tab switching, and minimize remain responsive during preparation;
 - cancel stops preparation without deleting the draft;
-- successful preparation switches to preview only after completion;
+- successful preparation refreshes the already-visible preview in place;
 - a large group initially renders six cards and expands through the virtual track;
 - 批阅、札记、掌库、设置 still show mutually exclusive content.
 

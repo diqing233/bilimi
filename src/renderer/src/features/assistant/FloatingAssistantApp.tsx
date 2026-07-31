@@ -79,6 +79,7 @@ import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcriptionModelLabel, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
+import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
@@ -707,7 +708,10 @@ export function createDeepSeekSummaryFeedback(
     }
   }
 
-  const message = errorMessage?.trim() || 'DeepSeek 总结生成失败。'
+  const message = formatDeepSeekErrorMessage(
+    errorMessage ? new Error(errorMessage) : undefined,
+    'DeepSeek 总结生成失败。'
+  )
   return { tone: 'error', globalMessage: message, petMessage: message }
 }
 
@@ -3899,7 +3903,7 @@ export function FloatingAssistantApp({
         )
         if (!saved?.archiveId || !saved.versionId) throw new Error('档案保存未通过重新读取验证。')
         if (matchesCurrentVideoNote(noteToStore, requestSnapshot) && matchesCurrentVideoNote(noteToStore, snapshotRef.current)) {
-          setVideoNoteArchives(saved.archives)
+          setVideoNoteArchives(archivesForCurrentAccount(saved.archives, noteToStore.source.accountMid))
           setVideoNote(noteToStore)
           tellPet('success', '音频札记整理好了，文稿已保存到档案库。')
         }
@@ -4027,6 +4031,7 @@ export function FloatingAssistantApp({
     note: VideoNote,
     poster: NotePosterSummary
   ) {
+    const accountMid = note.source.accountMid
     const saved = await window.bilimiDesktop?.saveVideoNoteArchiveSummary?.(
       archiveId,
       versionId,
@@ -4036,8 +4041,11 @@ export function FloatingAssistantApp({
     if (!saved?.archiveId || !saved.versionId) {
       throw new Error('总结已生成，但档案保存未通过重新读取验证。')
     }
-    setVideoNoteArchives(saved.archives)
-    return saved
+    const accountArchives = archivesForCurrentAccount(saved.archives, accountMid)
+    if (snapshotRef.current?.accountMid === accountMid) {
+      setVideoNoteArchives(accountArchives)
+    }
+    return { ...saved, archives: accountArchives }
   }
 
   async function syncCompletedQueuedVideoNote(completedItem: VideoAudioTranscriptionQueueItem): Promise<boolean> {
@@ -4064,17 +4072,23 @@ export function FloatingAssistantApp({
   }
 
   async function deleteVideoNoteArchiveEntry(archiveId: string) {
+    const accountMid = snapshotRef.current?.accountMid
     tellPet('progress', '小咪正在删除这份档案。')
     const archives = (await window.bilimiDesktop?.deleteVideoNoteArchiveEntry?.(archiveId)) ?? []
-    setVideoNoteArchives(archives)
+    if (snapshotRef.current?.accountMid === accountMid) {
+      setVideoNoteArchives(archivesForCurrentAccount(archives, accountMid))
+    }
     tellPet('success', '这份档案已经删掉啦。')
   }
 
   async function deleteVideoNoteArchiveVersion(archiveId: string, versionId: string) {
+    const accountMid = snapshotRef.current?.accountMid
     tellPet('progress', '小咪正在删除这个档案版本。')
     const archives =
       (await window.bilimiDesktop?.deleteVideoNoteArchiveVersion?.(archiveId, versionId)) ?? []
-    setVideoNoteArchives(archives)
+    if (snapshotRef.current?.accountMid === accountMid) {
+      setVideoNoteArchives(archivesForCurrentAccount(archives, accountMid))
+    }
     tellPet('success', '这个版本已经删掉啦。')
   }
 
@@ -4084,6 +4098,7 @@ export function FloatingAssistantApp({
     note: VideoNote,
     summaryText?: string
   ) {
+    const accountMid = snapshotRef.current?.accountMid
     const archives =
       (await window.bilimiDesktop?.updateVideoNoteArchiveVersion?.(
         archiveId,
@@ -4091,7 +4106,9 @@ export function FloatingAssistantApp({
         note,
         summaryText
       )) ?? []
-    setVideoNoteArchives(archives)
+    if (snapshotRef.current?.accountMid === accountMid) {
+      setVideoNoteArchives(archivesForCurrentAccount(archives, accountMid))
+    }
   }
 
   async function saveVideoNote(note: VideoNote) {
@@ -4113,12 +4130,6 @@ export function FloatingAssistantApp({
     tellPet('progress', '小咪正在检查 bilimi 分册是否齐全。')
     const result =
       (await window.bilimiDesktop?.ensureFavoriteLedgers?.()) ?? createDefaultResult('册目已备齐。')
-    const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
-
-    if (nextSnapshot) {
-      setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
-      setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
-    }
 
     tellPet(result.ok ? 'success' : 'error', result.message)
     return result

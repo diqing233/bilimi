@@ -105,6 +105,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(syncFunction).toContain('saveFavoriteLedgers')
   })
 
+  it('lets the backup snapshot broadcast refresh the floating assistant once', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const ensureFunction = source.slice(
+      source.indexOf('async function ensureFavoriteLedgers()'),
+      source.indexOf('async function saveFavoriteLedgers(')
+    )
+
+    expect(ensureFunction).not.toContain('requestAssistantSnapshot')
+  })
+
   it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
@@ -311,6 +321,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
       '收藏夹：未备册。\n整理收藏：完成备册后可开始。'
     )
+  })
+
+  it('removes Electron IPC wrappers from DeepSeek summary feedback', () => {
+    expect(createDeepSeekSummaryFeedback(
+      'error',
+      "Error invoking remote method 'deepseek:generate': DeepSeekServiceError: DeepSeek 总结内容不完整：缺少标题。"
+    )).toMatchObject({
+      globalMessage: 'DeepSeek 总结内容不完整：缺少标题。',
+      petMessage: 'DeepSeek 总结内容不完整：缺少标题。'
+    })
   })
 
   it('puts the DeepSeek model and enabled feature abbreviations before a separate task section', () => {

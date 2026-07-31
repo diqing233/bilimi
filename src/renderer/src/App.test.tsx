@@ -969,6 +969,52 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('does not rewrite preferences when backup returns unchanged ledger bindings', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9000 + index)
+    }))
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: ledgers
+        }
+      }
+    })
+    const patchPreferences = vi.fn(async () => initialPreferences)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      patchPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return {
+            ok: true,
+            ledgers,
+            steps: ['api:ledger:list'],
+            missingTargets: [],
+            message: '册目已备齐。'
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({ id: 'backup-unchanged-ledgers', type: 'ensure-ledgers' }))
+      .resolves.toMatchObject({ ok: true })
+
+    expect(patchPreferences).not.toHaveBeenCalled()
+  })
+
   it('refreshes and persists unique existing Bilibili folder bindings when an assistant snapshot is requested', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2)

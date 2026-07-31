@@ -1783,6 +1783,8 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
+    expect(updateFloatingSealInteractiveRegions).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(100))
     expect(updateFloatingSealInteractiveRegions).toHaveBeenCalledWith(
       expect.arrayContaining([
         { x: 24, y: 36, width: 96, height: 112 },

@@ -1448,23 +1448,27 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const ledgersChanged = JSON.stringify(result.ledgers) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferences, accountMid, result.ledgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
       })
-      setPreferences(nextPreferences)
 
-      if (window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
+      if (ledgersChanged) {
+        const saved = window.bilimiDesktop?.patchPreferences
           ? await window.bilimiDesktop.patchPreferences(
               accountMid
                 ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
                 : { favoriteLedgers: result.ledgers }
             )
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
-        setPreferences(createInitialAssistantPreferences(saved))
+          : window.bilimiDesktop?.savePreferences
+            ? await window.bilimiDesktop.savePreferences(nextPreferences)
+            : nextPreferences
+        const savedPreferences = createInitialAssistantPreferences(saved)
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
       }
 
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = {
+      const favoriteLedgerStatus: FavoriteLedgerStatus = {
         ok: result.ok,
         ledgers: result.ledgers,
         missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
@@ -1472,6 +1476,19 @@ export default function App() {
           ? result.backupConflictLedgerIds
           : [],
         message: result.message
+      }
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = favoriteLedgerStatus
+      favoriteLedgerStatusCacheRef.current = {
+        accountMid,
+        ledgerSignature: JSON.stringify(result.ledgers.map((ledger) => ({
+          id: ledger.id,
+          displayName: ledger.displayName,
+          enabled: ledger.enabled,
+          syncState: ledger.syncState,
+          bilibiliFolderId: ledger.bilibiliFolderId
+        }))),
+        checkedAt: Date.now(),
+        status: favoriteLedgerStatus
       }
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
     }

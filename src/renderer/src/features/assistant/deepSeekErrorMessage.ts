@@ -1,4 +1,4 @@
-const REMOTE_METHOD_ERROR_PREFIX = /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i
+const REMOTE_METHOD_ERROR_PREFIX = /^Error invoking remote method '[^']+':\s*(?:(?:Error|DeepSeekServiceError):\s*)?/i
 
 export function formatDeepSeekErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback

@@ -786,8 +786,13 @@ export async function generateDeepSeekResult(options: {
     if (summaryResponse.finishReason === 'length') {
       throw new DeepSeekServiceError('invalid-output', 'DeepSeek 总结结果被长度限制截断。')
     }
-    const parsed = parseJsonContent(summaryResponse.content) as Partial<NotePosterSummary>
-    let title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+    const parsedRoot = parseJsonContent(summaryResponse.content) as Partial<NotePosterSummary> & Record<string, unknown>
+    const parsed = parsedRoot.summary && typeof parsedRoot.summary === 'object'
+      ? parsedRoot.summary as Partial<NotePosterSummary> & Record<string, unknown>
+      : parsedRoot
+    let title = [parsed.title, parsed.标题, parsed.heading]
+      .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+      ?.trim() ?? ''
     let subtitle = typeof parsed.subtitle === 'string' ? parsed.subtitle.trim() : ''
     // Poster prompt had no consumer; do not spend output tokens persisting it.
     const prompt = ''
@@ -813,8 +818,12 @@ export async function generateDeepSeekResult(options: {
           true,
           summaryTimeoutMs
         )
-        const repaired = parseJsonContent(repairResponse.content) as Partial<NotePosterSummary>
-        if (!title && typeof repaired.title === 'string') title = repaired.title.trim()
+        const repaired = parseJsonContent(repairResponse.content) as Partial<NotePosterSummary> & Record<string, unknown>
+        if (!title) {
+          title = [repaired.title, repaired.标题, repaired.heading]
+            .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+            ?.trim() ?? ''
+        }
         if (!subtitle && typeof repaired.subtitle === 'string') subtitle = repaired.subtitle.trim()
         if (keyPoints.length === 0) keyPoints = coerceStringArray(repaired.keyPoints, Number.MAX_SAFE_INTEGER)
         if (returnedDetailedOutline.length === 0) {
@@ -827,6 +836,9 @@ export async function generateDeepSeekResult(options: {
     const detailedOutline = mergeReviewItemsIntoDetailedOutline(returnedDetailedOutline, [
       ...reviewItems.map((item) => ({ text: item.originalText, reason: item.reason }))
     ])
+    if (!title && subtitle && keyPoints.length > 0 && detailedOutline.length > 0) {
+      title = note.source.title.trim()
+    }
     const invalidReasons: string[] = []
     if (!title) invalidReasons.push('缺少标题')
     if (!subtitle) invalidReasons.push('缺少主旨')

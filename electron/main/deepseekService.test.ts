@@ -1016,6 +1016,38 @@ describe('DeepSeek main service', () => {
     ).rejects.toMatchObject({ code: 'invalid-output' })
   })
 
+  it('uses the video title when an otherwise complete summary still omits its title after repair', async () => {
+    await expect(generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'note-poster', note: createNote() },
+      fetchImpl: createSequentialJsonFetch([
+        { content: JSON.stringify({ sourceStartSegmentId: 'segment-1', sourceEndSegmentId: 'segment-1', changes: [], reviewItems: [] }) },
+        { content: JSON.stringify({
+          subtitle: '介绍 DeepSeek 总结的兼容处理。',
+          keyPoints: ['保留有效的主旨、核心内容和详细提要。'],
+          detailedOutline: ['兼容接口漏掉标题时，不应丢弃其他有效总结内容。']
+        }) },
+        { content: JSON.stringify({}) }
+      ])
+    })).resolves.toMatchObject({ kind: 'note-poster', poster: { title: 'DeepSeek demo' } })
+  })
+
+  it('accepts compatible provider title aliases and summary wrappers', async () => {
+    await expect(generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'note-poster', note: createNote() },
+      fetchImpl: createSequentialJsonFetch([
+        { content: JSON.stringify({ sourceStartSegmentId: 'segment-1', sourceEndSegmentId: 'segment-1', changes: [], reviewItems: [] }) },
+        { content: JSON.stringify({ summary: {
+          标题: '兼容接口返回的标题',
+          subtitle: '兼容接口把字段包在 summary 对象中。',
+          keyPoints: ['标题别名与嵌套字段都应被识别。'],
+          detailedOutline: ['程序应保留模型实际生成的标题。']
+        } }) }
+      ])
+    })).resolves.toMatchObject({ kind: 'note-poster', poster: { title: '兼容接口返回的标题' } })
+  })
+
   it('returns a short pet chat message string', async () => {
     const fetchImpl = createJsonFetch('Thanks for sharing this page.')
 

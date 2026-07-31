@@ -1,6 +1,8 @@
 export type FavoriteLibraryDrawerCommand = 'toggle' | 'reveal'
 
 type FavoriteLibraryWindow = {
+  isRuntimeReady: () => boolean
+  onceRuntimeReady: (listener: () => void) => void
   webContents: {
     id: number
     isLoadingMainFrame: () => boolean
@@ -14,11 +16,18 @@ export function sendFavoriteLibraryCommandWhenReady(
   command: FavoriteLibraryDrawerCommand
 ) {
   const send = () => window.webContents.send('favorite-library:drawer-command', command)
+  const sendWhenRuntimeReady = () => {
+    if (window.isRuntimeReady()) {
+      send()
+      return
+    }
+    window.onceRuntimeReady(send)
+  }
   if (window.webContents.isLoadingMainFrame()) {
-    window.webContents.once('did-finish-load', send)
+    window.webContents.once('did-finish-load', sendWhenRuntimeReady)
     return
   }
-  send()
+  sendWhenRuntimeReady()
 }
 
 export function handleFavoriteLibraryEntry<TWindow extends FavoriteLibraryWindow>(args: {

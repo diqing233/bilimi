@@ -11,6 +11,15 @@ describe('formatDeepSeekErrorMessage', () => {
         'DeepSeek 总结生成失败。'
       )
     ).toBe('DeepSeek 总结内容不完整：缺少标题。')
+
+    expect(
+      formatDeepSeekErrorMessage(
+        new Error(
+          "Error invoking remote method 'deepseek:generate': DeepSeekServiceError: DeepSeek 总结内容不完整：缺少标题。"
+        ),
+        'DeepSeek 总结生成失败。'
+      )
+    ).toBe('DeepSeek 总结内容不完整：缺少标题。')
   })
 
   it('keeps ordinary error messages and uses the fallback for unknown values', () => {

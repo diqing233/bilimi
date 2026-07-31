@@ -635,6 +635,149 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByText('旧总结')).toBeInTheDocument()
   })
 
+  it('keeps another account and legacy archives hidden after regenerating a summary', async () => {
+    const originalArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      '## Summary\n\n### Current account'
+    )
+    const currentAccountArchives = appendVideoNoteArchiveVersion(
+      originalArchives,
+      createNote({ updatedAt: '2026-06-17T01:00:00.000Z' }),
+      '2026-06-17T01:00:00.000Z',
+      '## Summary\n\n### Regenerated current account'
+    )
+    const otherAccountArchives = appendVideoNoteArchiveVersion(
+      currentAccountArchives,
+      createNote({
+        id: 'bvid:BV1other-account',
+        source: {
+          accountMid: '200',
+          title: 'Other account archive',
+          author: 'Other account',
+          bvid: 'BV1other-account',
+          url: 'https://www.bilibili.com/video/BV1other-account',
+          tags: []
+        }
+      }),
+      '2026-06-17T00:00:00.000Z'
+    )
+    const savedArchives = appendVideoNoteArchiveVersion(
+      otherAccountArchives,
+      createNote({
+        id: 'bvid:BV1legacy',
+        source: {
+          title: 'Legacy unowned archive',
+          author: 'Legacy',
+          bvid: 'BV1legacy',
+          url: 'https://www.bilibili.com/video/BV1legacy',
+          tags: []
+        }
+      }),
+      '2026-06-17T00:00:00.000Z'
+    )
+
+    renderArchivePanel({
+      archives: originalArchives,
+      accountMid: '100',
+      onGeneratePoster: vi.fn().mockResolvedValue({
+        title: 'Regenerated current account',
+        subtitle: 'Current account only',
+        keyPoints: ['Keep account isolation'],
+        keywords: ['archive'],
+        prompt: 'regenerated archive poster'
+      }),
+      onArchivePosterSummary: vi.fn().mockResolvedValue({
+        archives: savedArchives,
+        archiveId: currentAccountArchives[0]!.id,
+        versionId: currentAccountArchives[0]!.versions.at(-1)!.id
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
+    fireEvent.click(screen.getByRole('button', { name: /重新总结/ }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('历史版本')).toHaveValue(
+        currentAccountArchives[0]!.versions.at(-1)!.id
+      )
+    )
+    expect(screen.queryByRole('button', { name: /Other account archive/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Legacy unowned archive/ })).not.toBeInTheDocument()
+  })
+
+  it('does not publish a completed summary into the archive panel after the account changes', async () => {
+    const firstAccountArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      '## Summary\n\n### First account'
+    )
+    const secondAccountArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote({
+        id: 'bvid:BV1second-account',
+        source: {
+          accountMid: '200',
+          title: 'Second account archive',
+          author: 'Second account',
+          bvid: 'BV1second-account',
+          url: 'https://www.bilibili.com/video/BV1second-account',
+          tags: []
+        }
+      }),
+      '2026-06-17T00:00:00.000Z'
+    )
+    let resolveSummarySave: ((value: {
+      archives: VideoNoteArchiveEntry[]
+      archiveId: string
+      versionId: string
+    }) => void) | undefined
+    const onArchivePosterSummary = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolveSummarySave = resolve
+    }))
+    const commonProps = {
+      onClose: vi.fn(),
+      onOpenSource: vi.fn(),
+      onUpdateVersion: vi.fn(),
+      onDeleteEntry: vi.fn(),
+      onDeleteVersion: vi.fn(),
+      deepSeekEnabled: true,
+      onGeneratePoster: vi.fn().mockResolvedValue({
+        title: 'First account regenerated',
+        subtitle: 'Delayed result',
+        keyPoints: ['Do not cross accounts'],
+        keywords: ['archive'],
+        prompt: 'delayed archive poster'
+      }),
+      onArchivePosterSummary
+    }
+    const view = render(
+      <VideoNoteArchivePanel archives={firstAccountArchives} accountMid="100" {...commonProps} />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
+    fireEvent.click(screen.getByRole('button', { name: /重新总结/ }))
+    await waitFor(() => expect(onArchivePosterSummary).toHaveBeenCalledTimes(1))
+
+    view.rerender(
+      <VideoNoteArchivePanel archives={secondAccountArchives} accountMid="200" {...commonProps} />
+    )
+    resolveSummarySave?.({
+      archives: firstAccountArchives,
+      archiveId: firstAccountArchives[0]!.id,
+      versionId: firstAccountArchives[0]!.versions[0]!.id
+    })
+
+    expect(await screen.findByRole('button', { name: /Second account archive/ })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /BV1note/ })).not.toBeInTheDocument()
+    )
+  })
+
   it('keeps the current summary unchanged when archiving a regenerated version fails', async () => {
     const originalSummary = '## 精准总结\n\n### 旧总结'
     const originalArchives = appendVideoNoteArchiveVersion(

@@ -87,6 +87,7 @@ import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRecovery'
+import { createFloatingSealWakeController } from './floatingSealWakeController'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
@@ -233,6 +234,7 @@ let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let recompositeFloatingSealWindow: (() => void) | null = null
 let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecoveryController> | null = null
+let floatingSealInteractiveRegions: unknown[] = []
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
@@ -375,13 +377,7 @@ function createFloatingSealWindow() {
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
-    getCursorPoint: () => screen.getCursorScreenPoint(),
-    schedulePoll: (callback) => setInterval(callback, 16),
-    cancelPoll: (handle) => clearInterval(handle as NodeJS.Timeout),
-    window: seal
-  })
-  floatingSealMouseRecovery.setTransparent(true)
+  setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
   // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
@@ -426,6 +422,7 @@ function createFloatingSealWindow() {
   seal.on('closed', () => {
     floatingSealMouseRecovery?.dispose()
     floatingSealMouseRecovery = null
+    floatingSealInteractiveRegions = []
     disposeWhiteStripFix?.()
     screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
     screen.off('display-added', handleFloatingSealDisplayChange)
@@ -437,15 +434,35 @@ function createFloatingSealWindow() {
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
   seal.webContents.once('did-finish-load', () => {
+    if (seal.isDestroyed() || floatingSealWindow !== seal) return
+    floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
+      getCursorPoint: () => screen.getCursorScreenPoint(),
+      schedulePoll: (callback) => setInterval(callback, 16),
+      cancelPoll: (handle) => clearInterval(handle as NodeJS.Timeout),
+      window: seal
+    })
+    floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
+    floatingSealMouseRecovery.setTransparent(true)
     sendAssistantPetState()
     enforceSealBounds()
-    seal.show()
+    floatingSealWakeController.showWhenReady(seal)
   })
   floatingSealWindow = seal
   enforceFloatingSealWindowBounds = enforceSealBounds
 
   return seal
 }
+
+const floatingSealWakeController = createFloatingSealWakeController({
+  createWindow: createFloatingSealWindow,
+  getWindow: () => floatingSealWindow,
+  prepareWindow: () => {
+    resetFloatingSealWindowBounds()
+    setFloatingSealWindowMouseTransparent(false)
+  },
+  scheduleCreate: (callback) => setImmediate(callback),
+  cancelCreate: (handle) => clearImmediate(handle as NodeJS.Immediate)
+})
 
 function sendAssistantPetState() {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
@@ -655,12 +672,7 @@ function closeFloatingAssistantWindow() {
 function closeAssistantPetWindow() {
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
-
-  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
-    return
-  }
-
-  floatingSealWindow.close()
+  floatingSealWakeController.close()
 }
 
 function restoreMainWindowFromTray() {
@@ -735,15 +747,7 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
 }
 
 function wakeAssistantPetWindow() {
-  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
-    createFloatingSealWindow()
-    return
-  }
-
-  resetFloatingSealWindowBounds()
-  setFloatingSealWindowMouseTransparent(false)
-  floatingSealWindow.show()
-  floatingSealWindow.focus()
+  floatingSealWakeController.wake()
 }
 
 function notifyFloatingAssistantSnapshotChanged() {
@@ -817,12 +821,18 @@ function finishFloatingSealDrag() {
   }
 }
 
-function restoreMainWindowForPet() {
+function restoreMainWindowOnly() {
   mainWindow = restoreMainWindowFromPet({
     createMainWindow,
     mainWindow
   })
-  sendAssistantOpenWhenReady(mainWindow)
+  return mainWindow
+}
+
+function restoreMainWindowForPet() {
+  const restoredWindow = restoreMainWindowOnly()
+  sendAssistantOpenWhenReady(restoredWindow)
+  return restoredWindow
 }
 
 let assistantRuntimeRequestIndex = 0
@@ -1644,6 +1654,7 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.on('floating-seal:update-interactive-regions', (event, regions: unknown) => {
     if (event.sender.id !== floatingSealWindow?.webContents.id || !Array.isArray(regions)) return
+    floatingSealInteractiveRegions = regions
     floatingSealMouseRecovery?.updateInteractiveRegions(regions)
   })
   ipcMain.handle('floating-seal:move-by', (_event, deltaX: number, deltaY: number) => {
@@ -2230,8 +2241,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     assertTrustedOldFavoriteAssistantSender(event)
     handleFavoriteLibraryEntry({
       senderId: event.sender.id,
-      mainWindow,
-      restoreMainWindow: restoreMainWindowForPet
+      mainWindow: mainWindow && !mainWindow.isDestroyed()
+        ? createAssistantRuntimeTarget(mainWindow)
+        : null,
+      restoreMainWindow: () => createAssistantRuntimeTarget(restoreMainWindowOnly())
     })
   })
   registerLocalDataIpc({
@@ -2300,7 +2313,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   registerAssistantPreferenceHandlers()
   createMainWindow()
   if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
-  createFloatingSealWindow()
+  floatingSealWakeController.wake()
 })
 
 const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({

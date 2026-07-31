@@ -137,6 +137,26 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))
   })
 
+  it('coalesces repeated backup clicks while the first backup is still running', async () => {
+    let resolveEnsure: ((result: { ok: boolean }) => void) | undefined
+    const ensure = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => {
+      resolveEnsure = resolve
+    }))
+    const openFavoritePage = vi.fn().mockResolvedValue({ ok: true })
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
+
+    const backup = screen.getByRole('button', { name: '备册' })
+    fireEvent.click(backup)
+    fireEvent.click(backup)
+
+    expect(ensure).toHaveBeenCalledTimes(1)
+    expect(backup).toBeDisabled()
+
+    resolveEnsure?.({ ok: true })
+    await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))
+  })
+
   it('does not open the Bilibili favorites page after a failed backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: false })
     const openFavoritePage = vi.fn()
@@ -633,6 +653,15 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
     expect(openFavoriteLibrary).toHaveBeenCalledTimes(1)
     expect(command).not.toHaveBeenCalled()
+  })
+
+  it('describes the library entry as waking bilimi and opening the library', () => {
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByText('唤醒 bilimi 并打开收藏库')).toBeInTheDocument()
   })
 
   it('uses a distinct XiaoMi portrait for the library toolbar entry', async () => {

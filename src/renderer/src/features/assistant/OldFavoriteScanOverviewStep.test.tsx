@@ -87,7 +87,7 @@ describe('OldFavoriteScanOverviewStep', () => {
 
     expect(screen.getByText('标签补取进行中：已处理 184 / 244 条。')).toBeInTheDocument()
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签183')
-    expect(screen.getByText('暂停会保留已取得标签；采用当前标签会用当前结果继续本轮，未读取项不自动加入。')).toBeInTheDocument()
+    expect(screen.getByText('标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。')).toBeInTheDocument()
     expect(screen.getByTestId('tag-enrichment-actions')).toHaveClass('favorite-ledger-panel__scan-enrichment-actions')
   })
 

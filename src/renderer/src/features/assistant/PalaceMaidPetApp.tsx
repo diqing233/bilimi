@@ -249,7 +249,6 @@ export function PalaceMaidPetApp() {
       updateRegions(regions)
     }
 
-    publishRegions()
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publishRegions) : null
     observer?.observe(shell)
     window.addEventListener('resize', publishRegions)

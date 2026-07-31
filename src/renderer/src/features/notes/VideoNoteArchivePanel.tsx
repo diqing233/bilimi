@@ -110,6 +110,10 @@ function extractMarkdownHeading(text: string): string {
   )
 }
 
+function archivesForPanelAccount(archives: VideoNoteArchiveEntry[], accountMid: string | undefined) {
+  return accountMid ? archives.filter((archive) => archive.source.accountMid === accountMid) : archives
+}
+
 export function VideoNoteArchivePanel({
   archives,
   accountMid,
@@ -132,7 +136,9 @@ export function VideoNoteArchivePanel({
   const archiveRootRef = useRef<HTMLElement | null>(null)
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
   const moreMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const [localArchives, setLocalArchives] = useState<VideoNoteArchiveEntry[]>(archives)
+  const [localArchives, setLocalArchives] = useState<VideoNoteArchiveEntry[]>(() =>
+    archivesForPanelAccount(archives, accountMid)
+  )
   const [query, setQuery] = useState('')
   const [hasMemo, setHasMemo] = useState(false)
   const [hasStarred, setHasStarred] = useState(false)
@@ -164,6 +170,8 @@ export function VideoNoteArchivePanel({
     []
   )
   const previousAccountMidRef = useRef(accountMid)
+  const accountMidRef = useRef(accountMid)
+  accountMidRef.current = accountMid
   const openArchiveSource = (source: VideoNoteSourceMetadata) => {
     if (onOpenArchiveSource) onOpenArchiveSource(source)
     else onOpenSource(source.url)
@@ -206,9 +214,10 @@ export function VideoNoteArchivePanel({
   }
 
   useEffect(() => {
-    setLocalArchives(archives)
-    archiveSelection.retain(new Set(archives.map((archive) => archive.id)))
-  }, [archiveSelection, archives])
+    const accountArchives = archivesForPanelAccount(archives, accountMid)
+    setLocalArchives(accountArchives)
+    archiveSelection.retain(new Set(accountArchives.map((archive) => archive.id)))
+  }, [accountMid, archiveSelection, archives])
 
   useEffect(() => {
     if (previousAccountMidRef.current !== accountMid) {
@@ -407,6 +416,7 @@ export function VideoNoteArchivePanel({
     if (!onGeneratePoster || summaryGenerating || !selectedArchive) return
 
     const archiveId = selectedArchive.id
+    const requestAccountMid = accountMid
 
     setSummaryGenerating(true)
     setStatusMessage('')
@@ -419,10 +429,12 @@ export function VideoNoteArchivePanel({
         poster
       )
       if (archived) {
-        const savedVersion = archived.archives.find((archive) => archive.id === archived.archiveId)
+        if (accountMidRef.current !== requestAccountMid) return
+        const accountArchives = archivesForPanelAccount(archived.archives, requestAccountMid)
+        const savedVersion = accountArchives.find((archive) => archive.id === archived.archiveId)
           ?.versions.find((candidate) => candidate.id === archived.versionId)
         if (!savedVersion) throw new Error('DeepSeek summary save did not return its archive version.')
-        setLocalArchives(archived.archives)
+        setLocalArchives(accountArchives)
         setArchiveSelection({
           archiveId: archived.archiveId,
           versionId: archived.versionId,

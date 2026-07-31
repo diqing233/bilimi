@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { handleFavoriteLibraryEntry, sendFavoriteLibraryCommandWhenReady } from './favoriteLibraryEntryFlow'
 
-function windowState(id: number, loading = false) {
+function windowState(id: number, loading = false, runtimeReady = true) {
   let didFinishLoad: (() => void) | undefined
+  let runtimeReadyListener: (() => void) | undefined
   return {
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
@@ -10,13 +11,22 @@ function windowState(id: number, loading = false) {
     isVisible: vi.fn(() => true),
     restore: vi.fn(),
     show: vi.fn(),
+    isRuntimeReady: vi.fn(() => runtimeReady),
+    onceRuntimeReady: vi.fn((listener: () => void) => { runtimeReadyListener = listener }),
     webContents: {
       id,
       isLoadingMainFrame: vi.fn(() => loading),
       once: vi.fn((_event: 'did-finish-load', listener: () => void) => { didFinishLoad = listener }),
       send: vi.fn()
     },
-    finishLoading: () => didFinishLoad?.()
+    finishLoading: () => {
+      loading = false
+      didFinishLoad?.()
+    },
+    finishRuntimeStartup: () => {
+      runtimeReady = true
+      runtimeReadyListener?.()
+    }
   }
 }
 
@@ -48,6 +58,30 @@ describe('favorite library entry flow', () => {
 
     expect(mainWindow.webContents.send).not.toHaveBeenCalled()
     mainWindow.finishLoading()
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('favorite-library:drawer-command', 'reveal')
+  })
+
+  it('waits for the renderer runtime after the document finishes loading', () => {
+    const mainWindow = windowState(10, true, false)
+
+    sendFavoriteLibraryCommandWhenReady(mainWindow, 'reveal')
+    mainWindow.finishLoading()
+
+    expect(mainWindow.webContents.send).not.toHaveBeenCalled()
+    expect(mainWindow.onceRuntimeReady).toHaveBeenCalledOnce()
+
+    mainWindow.finishRuntimeStartup()
+    expect(mainWindow.webContents.send).toHaveBeenCalledOnce()
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('favorite-library:drawer-command', 'reveal')
+  })
+
+  it('waits for the renderer runtime when the document is already loaded', () => {
+    const mainWindow = windowState(10, false, false)
+
+    sendFavoriteLibraryCommandWhenReady(mainWindow, 'reveal')
+
+    expect(mainWindow.webContents.send).not.toHaveBeenCalled()
+    mainWindow.finishRuntimeStartup()
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('favorite-library:drawer-command', 'reveal')
   })
 })
