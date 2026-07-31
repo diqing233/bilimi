@@ -343,6 +343,7 @@ export function ControlledFavoriteLedgerPanel({
       </div>
 
       <FavoriteLedgerOverview
+        key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
         ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
         organizationActive={Boolean(snapshot && !recovery && snapshot.status !== 'completed')}

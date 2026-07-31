@@ -1193,6 +1193,31 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
+  it('collapses an expanded ledger list when the active account changes', () => {
+    const ledgers = Array.from({ length: 16 }, (_, index) => ({
+      id: `ledger-${index + 1}`,
+      displayName: `bilimi:收藏夹${index + 1}`,
+      keywords: [],
+      ruleType: 'keyword' as const,
+      enabled: true,
+      priority: (index + 1) * 10,
+      isDefault: false
+    }))
+    const props = {
+      ledgers,
+      missingLedgerIds: [],
+      onEnsureLedgers: vi.fn(),
+      onSaveLedgers: vi.fn()
+    }
+    const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} currentAccountMid="100" />)
+    fireEvent.click(screen.getByRole('button', { name: '展开' }))
+
+    rerender(<ControlledFavoriteLedgerPanel {...props} currentAccountMid="200" />)
+
+    expect(screen.getByRole('button', { name: '展开' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '收藏夹16' })).not.toBeInTheDocument()
+  })
+
   it('shows a retryable scan-start failure when the controlled start command is rejected', async () => {
     const command = vi.fn().mockRejectedValue(new Error('current Bilibili account is unavailable'))
     window.bilimiDesktop = {
