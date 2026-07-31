@@ -76,7 +76,7 @@ import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot, FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
-import { appendGlobalFeedbackHistory, createPersistentStatusTasks, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
+import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcriptionModelLabel, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 
@@ -321,6 +321,7 @@ type DeepSeekConnectionStatus = 'pending' | 'connected' | 'failed'
 type GlobalStatusItem = {
   label: string
   detail: string
+  menuDetail?: string
   tone: GlobalStatusTone
 }
 
@@ -793,6 +794,18 @@ function formatSettingsDate(value?: string) {
   })
 }
 
+function formatDeepSeekFeatureSummary(preferences: AssistantPreferences): string {
+  const enabled = [
+    preferences.deepseekCommentEnabled ? '趣评' : '',
+    preferences.deepseekAutoSummaryEnabled ? '总结' : '',
+    preferences.deepseekPetChatEnabled ? '宠物' : '',
+    preferences.deepseekDailyClassificationEnabled ? '批阅' : '',
+    preferences.deepseekArchiveOrganizationEnabled ? '整理' : ''
+  ].filter(Boolean)
+
+  return `模型：${preferences.deepseekModel || '未配置'} · 已开启：${enabled.join('、') || '无'}`
+}
+
 function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[] {
   const reviewMode =
     preferences.deepseekDailyClassificationMode === 'low-confidence-only'
@@ -818,6 +831,32 @@ function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[]
   ]
 }
 
+export function formatDeepSeekRuntimeDetail(
+  preferences: AssistantPreferences,
+  tasks: DeepSeekTask[]
+): string {
+  return [
+    formatDeepSeekFeatureSummary(preferences),
+    '执行任务：',
+    ...tasks.map((task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`)
+  ].join('\n')
+}
+
+export function formatDeepSeekRuntimeHoverDetail(
+  preferences: AssistantPreferences,
+  tasks: DeepSeekTask[],
+  validatingConnection = false
+): string {
+  return [
+    validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
+    `当前模型：${preferences.deepseekModel || '未配置'}`,
+    `正在执行 ${tasks.length} 项任务：`,
+    ...tasks.map((task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`),
+    '',
+    ...formatDeepSeekFeatureLines(preferences)
+  ].join('\n')
+}
+
 function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
   return [
     preferences.deepseekEnabled && preferences.deepseekApiKeyStored
@@ -828,6 +867,81 @@ function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
       : []),
     ...formatDeepSeekFeatureLines(preferences)
   ].join('\n')
+}
+
+function transcriptionGpuReady(
+  modelId: TranscriptionModelId,
+  item: VideoAudioTranscriptionQueueItem | undefined,
+  gpuProbe: TranscriptionGpuProbe | undefined
+): boolean {
+  const actualDevice = item?.actualDevice ?? item?.progress?.actualDevice
+  return actualDevice === 'cuda' || Boolean(
+    gpuProbe?.status === 'available' && gpuProbe.modelId === modelId
+  )
+}
+
+function formatTranscriptionModelStatus(
+  modelId: TranscriptionModelId,
+  gpuReady: boolean
+): string {
+  return `模型：${transcriptionModelLabel(modelId)}${gpuReady ? ' · GPU 已就绪' : ''}`
+}
+
+export function resolveGlobalTranscriptionStatus(
+  transcriptionQueue: VideoAudioTranscriptionQueueSnapshot,
+  selectedModelId: TranscriptionModelId,
+  gpuProbe?: TranscriptionGpuProbe
+): GlobalStatusItem {
+  const modelDetail = (item?: VideoAudioTranscriptionQueueItem) => {
+    const modelId = item?.transcriptionModelId ?? selectedModelId
+    return formatTranscriptionModelStatus(modelId, transcriptionGpuReady(modelId, item, gpuProbe))
+  }
+  const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
+  if (runningItem) {
+    const percent = formatGlobalProgressPercent(runningItem.progress)
+    const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
+    const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
+    const summarizingWithDeepSeek = runningItem.progress?.step === 'summarizing-deepseek'
+    const activeLabel = summarizingWithDeepSeek ? `${progressLabel} · DeepSeek 总结中` : progressLabel
+    return {
+      label: pendingCount > 0 ? `${activeLabel} · 排队 ${pendingCount}` : activeLabel,
+      detail: `${modelDetail(runningItem)}\n${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
+      tone: 'running'
+    }
+  }
+
+  const pendingItems = transcriptionQueue.items.filter((item) => item.status === 'pending')
+  if (pendingItems.length > 0) {
+    return {
+      label: `转写排队 ${pendingItems.length}`,
+      detail: `${modelDetail(pendingItems[0])}\n还有 ${pendingItems.length} 个转写任务等待处理。`,
+      tone: 'warn'
+    }
+  }
+
+  const failedItem = transcriptionQueue.items.findLast((item) => item.status === 'failed')
+  if (failedItem) {
+    const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
+    return {
+      label: '转写失败',
+      detail: `${modelDetail(failedItem)}\n${failedItem.title}：${failureReason} 打开札记可重试。`,
+      tone: 'error'
+    }
+  }
+
+  if (transcriptionQueue.sessionCompletedCount > 0) {
+    return {
+      label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
+      detail: `${modelDetail()}\n本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
+      tone: 'ok'
+    }
+  }
+
+  return {
+    label: '暂无转写',
+    detail: `${modelDetail()}\n当前视频暂无可用转写。`,
+    tone: 'idle'
+  }
 }
 
 function joinSettingValues(values: Array<string | number | undefined>) {
@@ -2326,54 +2440,15 @@ export function FloatingAssistantApp({
     void refreshLocalDataInfo()
   }, [activeView, refreshLocalDataInfo])
 
-  const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
-    const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
-    if (runningItem) {
-      const percent = formatGlobalProgressPercent(runningItem.progress)
-      const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
-      const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
-      const summarizingWithDeepSeek = runningItem.progress?.step === 'summarizing-deepseek'
-      const activeLabel = summarizingWithDeepSeek ? `${progressLabel} · DeepSeek 总结中` : progressLabel
-      return {
-        label: pendingCount > 0 ? `${activeLabel} · 排队 ${pendingCount}` : activeLabel,
-        detail: `${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
-        tone: 'running'
-      }
-    }
-
-    const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
-    if (pendingCount > 0) {
-      return {
-        label: `转写排队 ${pendingCount}`,
-        detail: `还有 ${pendingCount} 个转写任务等待处理。`,
-        tone: 'warn'
-      }
-    }
-
-    const failedItem = transcriptionQueue.items.findLast((item) => item.status === 'failed')
-    if (failedItem) {
-      const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
-      return {
-        label: '转写失败',
-        detail: `${failedItem.title}：${failureReason} 打开札记可重试。`,
-        tone: 'error'
-      }
-    }
-
-    if (transcriptionQueue.sessionCompletedCount > 0) {
-      return {
-        label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
-        detail: `本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
-        tone: 'ok'
-      }
-    }
-
-    return {
-      label: '暂无转写',
-      detail: '当前视频暂无可用转写。',
-      tone: 'idle'
-    }
-  }, [transcriptionQueue])
+  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[snapshot?.accountMid ?? '']?.transcriptionModelId ?? 'whisper-small'
+  const globalTranscriptionStatus = useMemo<GlobalStatusItem>(
+    () => resolveGlobalTranscriptionStatus(
+      transcriptionQueue,
+      selectedTranscriptionModelId,
+      transcriptionGpuProbe
+    ),
+    [transcriptionQueue, selectedTranscriptionModelId, transcriptionGpuProbe]
+  )
 
   const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => {
     if (!preferences.deepseekEnabled) {
@@ -2404,16 +2479,8 @@ export function FloatingAssistantApp({
       )
       return {
         label: validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
-        detail: [
-          validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
-          `当前模型：${preferences.deepseekModel || '未配置'}`,
-          `正在执行 ${activeDeepSeekTasks.length} 项任务：`,
-          ...activeDeepSeekTasks.map(
-            (task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`
-          ),
-          '',
-          ...formatDeepSeekFeatureLines(preferences)
-        ].join('\n'),
+        detail: formatDeepSeekRuntimeHoverDetail(preferences, activeDeepSeekTasks, validatingConnection),
+        menuDetail: formatDeepSeekRuntimeDetail(preferences, activeDeepSeekTasks),
         tone: 'running'
       }
     }
@@ -2908,7 +2975,6 @@ export function FloatingAssistantApp({
   }, [])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
-  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.transcriptionModelId ?? 'whisper-small'
   const probeSelectedTranscriptionGpu = useCallback(async () => {
     if (selectedTranscriptionModelId !== 'faster-whisper-large-v3' && selectedTranscriptionModelId !== 'faster-whisper-large-v3-turbo') return
     setTranscriptionGpuProbe(undefined)

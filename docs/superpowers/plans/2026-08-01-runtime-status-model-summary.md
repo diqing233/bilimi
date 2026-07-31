@@ -4,7 +4,7 @@
 
 **Goal:** 精简 DeepSeek 后台任务详情，并在转写详情与状态灯悬浮提示中显示真实模型和可信的 GPU 就绪状态。
 
-**Architecture:** 在 `FloatingAssistantApp.tsx` 中增加纯格式化辅助函数，把展示规则与 React 状态拼装分开。转写状态继续使用现有 `GlobalStatusItem.detail` 作为后台任务详情和状态灯 tooltip 的唯一信息源，运行任务模型取队列快照，空闲模型取当前账户偏好，GPU 状态取任务实际设备或现有探测结果。
+**Architecture:** 在 `FloatingAssistantApp.tsx` 中增加纯格式化辅助函数，把展示规则与 React 状态拼装分开。DeepSeek 使用完整 `detail` 保持状态灯原有悬浮提示，再用独立 `menuDetail` 投影给后台任务下拉；转写状态继续用完整 `detail` 同时承载模型/GPU 信息。运行任务模型取队列快照，空闲模型取当前账户偏好，GPU 状态取任务实际设备或现有探测结果。
 
 **Tech Stack:** React、TypeScript、Vitest
 
@@ -31,7 +31,8 @@ Expected: FAIL，因为新的格式化函数尚未导出。
 在 `FloatingAssistantApp.tsx` 中实现并导出：
 
 ```ts
-formatDeepSeekRuntimeDetail(preferences, tasks, validatingConnection)
+formatDeepSeekRuntimeDetail(preferences, tasks)
+formatDeepSeekRuntimeHoverDetail(preferences, tasks, validatingConnection)
 formatTranscriptionModelStatus(modelId, gpuReady)
 ```
 
@@ -52,7 +53,7 @@ Expected: PASS。
 
 - [ ] **Step 1: Connect the DeepSeek status**
 
-让活动 DeepSeek 状态使用 `formatDeepSeekRuntimeDetail`，删除重复标题与五段功能长说明；其他连接状态保持原逻辑。
+让活动 DeepSeek 状态的 `detail` 使用 `formatDeepSeekRuntimeHoverDetail` 保留原完整悬浮，`menuDetail` 使用 `formatDeepSeekRuntimeDetail`；其他连接状态保持原逻辑。
 
 - [ ] **Step 2: Connect the transcription status**
 
@@ -71,4 +72,3 @@ Expected: 两个测试文件全部 PASS；如有既有警告，原样记录。
 - [ ] **Step 5: Commit only scoped files**
 
 只暂存本设计、计划、`FloatingAssistantApp.tsx` 和对应测试；明确排除两份 2026-07-30 旧藏文档。提交信息：`fix: clarify runtime model status`。不 push。
-

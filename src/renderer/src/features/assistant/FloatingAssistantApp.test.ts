@@ -5,6 +5,7 @@ import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shar
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
 import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
+import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
   id: 'knowledge', displayName: 'bilimi\u00b7\u77e5\u8bc6', keywords: [], enabled: true,
@@ -310,6 +311,108 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
       '收藏夹：未备册。\n整理收藏：完成备册后可开始。'
     )
+  })
+
+  it('puts the DeepSeek model and enabled feature abbreviations before a separate task section', () => {
+    const preferences = createInitialAssistantPreferences({
+      deepseekModel: 'deepseek-v4-pro',
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: false,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: false
+    })
+
+    const detail = FloatingAssistantAppModule.formatDeepSeekRuntimeDetail(preferences, [
+      { id: 'classification:1', kind: 'classification', detail: '复核《测试视频》的分类' }
+    ])
+
+    expect(detail).toBe(
+      '模型：deepseek-v4-pro · 已开启：趣评、宠物、批阅\n执行任务：\n• 复核《测试视频》的分类'
+    )
+    expect(detail).not.toContain('会生成候选弹幕')
+    expect(detail).not.toContain('DeepSeek 工作中')
+  })
+
+  it('keeps the original full DeepSeek explanation for the status-light hover detail', () => {
+    const preferences = createInitialAssistantPreferences({
+      deepseekModel: 'deepseek-v4-pro',
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true
+    })
+
+    const detail = FloatingAssistantAppModule.formatDeepSeekRuntimeHoverDetail(preferences, [
+      { id: 'classification:1', kind: 'classification', detail: '复核《测试视频》的分类' }
+    ])
+
+    expect(detail).toContain('DeepSeek 工作中\n当前模型：deepseek-v4-pro\n正在执行 1 项任务：')
+    expect(detail).toContain('趣味评论：开启，会生成候选弹幕，可复制发布为评论。')
+    expect(detail).toContain('收藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。')
+  })
+
+  it('uses the queued transcription model and actual CUDA runtime in running status details', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'running',
+      sessionCompletedCount: 0,
+      items: [{
+        id: 'running',
+        url: 'https://www.bilibili.com/video/BV1test',
+        title: '测试视频',
+        transcriptionModelId: 'faster-whisper-large-v3-turbo',
+        status: 'running',
+        actualDevice: 'cuda',
+        progress: { step: 'transcribing-segment', message: '转写中', segmentIndex: 1, segmentCount: 4 },
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:01.000Z'
+      }]
+    }
+
+    const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      queue,
+      'whisper-small'
+    )
+
+    expect(status.detail).toBe('模型：faster-whisper large-v3-turbo · GPU 已就绪\n测试视频 正在转写')
+    expect(statusLightTooltip(status)).toContain('模型：faster-whisper large-v3-turbo · GPU 已就绪')
+  })
+
+  it('shows the selected transcription model and only a matching available GPU probe as ready', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = { items: [], sessionCompletedCount: 1 }
+    const matching = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      queue,
+      'faster-whisper-large-v3',
+      {
+        modelId: 'faster-whisper-large-v3',
+        status: 'available',
+        device: 'cuda',
+        computeType: 'float16',
+        gpuName: 'NVIDIA GeForce RTX 4060 Ti',
+        driverVersion: '595.97',
+        memoryMiB: 8188,
+        freeMemoryMiB: 6500
+      }
+    )
+    const mismatched = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      queue,
+      'whisper-small',
+      {
+        modelId: 'faster-whisper-large-v3',
+        status: 'available',
+        device: 'cuda',
+        computeType: 'float16',
+        gpuName: 'NVIDIA GeForce RTX 4060 Ti',
+        driverVersion: '595.97',
+        memoryMiB: 8188,
+        freeMemoryMiB: 6500
+      }
+    )
+
+    expect(matching.detail).toContain('模型：faster-whisper large-v3 · GPU 已就绪')
+    expect(mismatched.detail).toContain('模型：Whisper small')
+    expect(mismatched.detail).not.toContain('GPU 已就绪')
   })
 
   it('does not treat a completed transcription for another part as the current video', () => {

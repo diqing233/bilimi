@@ -26,6 +26,19 @@ describe('assistantGlobalStatusCenter', () => {
     expect(tasks[0]).toMatchObject({ label: 'Whisper small 下载中 · 42%', destination: 'transcription' })
   })
 
+  it('uses a compact menu detail without changing the full status-light hover detail', () => {
+    const tasks = createPersistentStatusTasks({
+      deepSeek: {
+        label: 'DeepSeek 工作中',
+        detail: '完整悬浮说明',
+        menuDetail: '简短下拉说明',
+        tone: 'running'
+      }
+    })
+
+    expect(tasks[0]?.detail).toBe('简短下拉说明')
+  })
+
   it('does not keep completed or canceled model downloads as persistent tasks', () => {
     for (const stage of ['available', 'canceled'] as const) {
       expect(createPersistentStatusTasks({ modelProgress: { id: 'whisper-small', stage } })).toEqual([])
