@@ -313,6 +313,8 @@ export type AssistantAutomationResult = {
   missingTargets: string[]
   message: string
   resultUnknown?: boolean
+  /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
+  favoriteFolderIdsByLedgerId?: Record<string, string>
 }
 
 export type VisualAutomationContext = {

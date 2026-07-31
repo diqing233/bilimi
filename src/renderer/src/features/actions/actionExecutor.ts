@@ -190,6 +190,7 @@ async function runFavoriteApiFallback(
       ok: true,
       steps: [...domResult.steps, ...apiResult.steps],
       missingTargets: [],
+      favoriteFolderIdsByLedgerId: apiResult.favoriteFolderIdsByLedgerId,
       message: apiResult.message
     }
   }

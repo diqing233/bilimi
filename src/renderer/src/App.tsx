@@ -11,6 +11,7 @@ import type {
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   FavoriteKeywordSuggestion,
+  FavoriteRepositoryCommand,
   PendingFavoriteQueueItem,
   VideoNote,
   VideoNoteExtractionResult,
@@ -93,6 +94,101 @@ const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
   steps: ['auth:check'],
   missingTargets: ['bilibili-login'],
   message: '请先登录 Bilibili 后再操作。'
+}
+
+function createConfirmedReviewFavoriteCommands(args: {
+  accountMid: string
+  video: VideoContentContext
+  targetLedgerIds: string[]
+  favoriteLedgers: FavoriteLedger[]
+  result: AssistantAutomationResult
+  occurredAt: string
+  operationId: string
+}): FavoriteRepositoryCommand[] {
+  const aid = Number(args.video.aid)
+  const accountMid = args.accountMid.trim()
+  const remoteFolderIdsByLedgerId = args.result.favoriteFolderIdsByLedgerId
+  const targetLedgerIds = Array.from(new Set(args.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))
+
+  if (
+    !/^\d+$/.test(accountMid) ||
+    !Number.isSafeInteger(aid) ||
+    aid <= 0 ||
+    !args.result.ok ||
+    !args.result.steps.includes('api:favorite:add') ||
+    !remoteFolderIdsByLedgerId ||
+    targetLedgerIds.length === 0 ||
+    targetLedgerIds.some((ledgerId) => !String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
+  ) {
+    return []
+  }
+
+  const localDesiredFolderIds = targetLedgerIds.map((ledgerId) => `bilimi-logical:${ledgerId}`)
+  const remoteObservedPhysicalFolderIds = targetLedgerIds.map(
+    (ledgerId) => String(remoteFolderIdsByLedgerId[ledgerId]).trim()
+  )
+  const title = args.video.title?.trim() || `Video ${aid}`
+  const tags = Array.from(new Set((args.video.tags ?? []).map((tag) => tag.trim()).filter(Boolean)))
+  const folderTitlesAtTime = targetLedgerIds.map(
+    (ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName?.trim() || ledgerId
+  )
+  const videoPayload = {
+    aid,
+    title,
+    tags,
+    ...(tags.length > 0 ? { tagEvidence: 'confirmed' as const } : {}),
+    ...(args.video.author?.trim() ? { author: args.video.author.trim() } : {}),
+    ...(args.video.description?.trim() ? { description: args.video.description.trim() } : {}),
+    ...(args.video.bvid?.trim() ? { bvid: args.video.bvid.trim() } : {}),
+    ...(Number.isSafeInteger(Number(args.video.cid)) && Number(args.video.cid) > 0
+      ? { cid: Number(args.video.cid) }
+      : {}),
+    ...(args.video.category?.trim() ? { category: args.video.category.trim() } : {}),
+    favoriteAt: args.occurredAt,
+    updatedAt: args.occurredAt
+  }
+
+  return [
+    {
+      id: `${args.operationId}:video`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'upsert-video',
+      payload: videoPayload
+    },
+    {
+      id: `${args.operationId}:position`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'set-favorite-position',
+      payload: {
+        aid,
+        localDesiredFolderIds,
+        remoteObservedPhysicalFolderIds,
+        remoteObservedLogicalFolderIds: localDesiredFolderIds,
+        positionState: 'aligned',
+        observedAt: args.occurredAt,
+        updatedAt: args.occurredAt,
+        reason: '批阅收藏经 B 站接口确认'
+      }
+    },
+    {
+      id: `${args.operationId}:event-command`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'record-favorite-event',
+      payload: {
+        id: `${args.operationId}:event`,
+        sequence: Math.max(1, Date.parse(args.occurredAt)),
+        aid,
+        kind: 'entered',
+        occurredAt: args.occurredAt,
+        titleAtTime: title,
+        folderTitlesAtTime,
+        detail: '批阅收藏已由 B 站接口确认并写入收藏库。'
+      }
+    }
+  ]
 }
 
 type StartupPermissionGateProps = {
@@ -1814,6 +1910,37 @@ export default function App() {
     if (resultMessagePrefix?.startsWith('DeepSeek 二判')) {
       result = withResultMessagePrefix(result, resultMessagePrefix)
       publishRuntimeFeedback(resultMessagePrefix)
+    }
+
+    if (result.ok && actionUsesFavorite(action)) {
+      const occurredAt = new Date().toISOString()
+      const operationId = `review-favorite:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
+      const repositoryCommands = createConfirmedReviewFavoriteCommands({
+        accountMid: actionAccountMid,
+        video: videoContentContext,
+        targetLedgerIds,
+        favoriteLedgers: actionFavoriteLedgers,
+        result,
+        occurredAt,
+        operationId
+      })
+
+      if (repositoryCommands.length > 0) {
+        try {
+          if (!window.bilimiDesktop?.commitFavoriteRepositoryCommand) {
+            throw new Error('收藏库写入接口不可用')
+          }
+          for (const command of repositoryCommands) {
+            await window.bilimiDesktop.commitFavoriteRepositoryCommand(actionAccountMid, command)
+          }
+        } catch (error) {
+          const localPersistenceFeedback =
+            'B 站收藏已完成，但收藏库记录未能确认写入，已标记为待核对。' +
+            (error instanceof Error && error.message ? `（${error.message}）` : '')
+          result = withResultMessagePrefix(result, localPersistenceFeedback)
+          publishRuntimeFeedback(localPersistenceFeedback)
+        }
+      }
     }
 
     if (result.ok && action !== '阅') {

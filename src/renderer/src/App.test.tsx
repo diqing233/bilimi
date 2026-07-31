@@ -708,8 +708,10 @@ describe('App runtime integration', () => {
 
   it('runs floating assistant actions through the active webview and saves preferences', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const commitFavoriteRepositoryCommand = vi.fn()
     const { requestRuntime } = renderAppWithRuntimeBridge({
-      savePreferences
+      savePreferences,
+      commitFavoriteRepositoryCommand
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -810,6 +812,117 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         preferenceCounts: expect.objectContaining({
           knowledge: 1
+        })
+      })
+    )
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
+  })
+
+  it('persists confirmed review favorites with frozen video metadata and remote placement', async () => {
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const preferences = createAppPreferences()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitFavoriteRepositoryCommand
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 701,
+            bvid: 'BV1review701',
+            cid: 702,
+            title: '游戏机制解析',
+            author: '测试UP',
+            description: '测试简介',
+            tags: ['游戏', '攻略']
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            favoriteFolderIdsByLedgerId: { game: '91000002' },
+            message: '已用 B 站接口归入 bilimi 收藏夹。'
+          }
+        }
+
+        if (script.includes('document.cookie')) {
+          return { hasUserId: true, hasCsrf: true }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1review701' }
+        })
+      )
+      webview.dispatchEvent(
+        new CustomEvent('page-title-updated', {
+          detail: { title: '游戏机制解析 - 哔哩哔哩' }
+        })
+      )
+    })
+
+    await expect(
+      requestRuntime({ id: 'review-favorite-701', type: 'run-action', action: '藏' })
+    ).resolves.toMatchObject({ ok: true })
+
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        accountMid: '100',
+        type: 'upsert-video',
+        payload: expect.objectContaining({
+          aid: 701,
+          bvid: 'BV1review701',
+          cid: 702,
+          title: '游戏机制解析',
+          author: '测试UP',
+          description: '测试简介',
+          tags: ['游戏', '攻略']
+        })
+      })
+    )
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        accountMid: '100',
+        type: 'set-favorite-position',
+        payload: expect.objectContaining({
+          aid: 701,
+          localDesiredFolderIds: ['bilimi-logical:game'],
+          remoteObservedPhysicalFolderIds: ['91000002'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:game'],
+          positionState: 'aligned'
+        })
+      })
+    )
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        accountMid: '100',
+        type: 'record-favorite-event',
+        payload: expect.objectContaining({
+          aid: 701,
+          kind: 'entered',
+          titleAtTime: '游戏机制解析',
+          folderTitlesAtTime: ['bilimi·游戏专区']
         })
       })
     )

@@ -75,6 +75,9 @@ describe('buildFavoriteApiFallbackScript', () => {
       'api:favorite:create-folder',
       'api:favorite:add'
     ])
+    expect(result.favoriteFolderIdsByLedgerId).toEqual({
+      knowledge: '91000001'
+    })
     expect(requests[0].url).toContain('rid=2')
     expect(requests[1].body).toContain(`title=${encodeURIComponent('bilimi·知识学习')}`)
     expect(requests[2].body).toContain('rid=2')
@@ -120,6 +123,9 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])
+    expect(result.favoriteFolderIdsByLedgerId).toEqual({
+      'movie-tv': '91000001'
+    })
     expect(requests.map((request) => request.url)).not.toContain(
       expect.stringContaining('/x/v3/fav/folder/add')
     )
@@ -173,6 +179,10 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])
+    expect(result.favoriteFolderIdsByLedgerId).toEqual({
+      game: '91000002',
+      'movie-tv': '91000001'
+    })
     expect(requests[1].body).toContain('add_media_ids=91000001%2C91000002')
     expect(requests[1].body).toContain('del_media_ids=')
   })

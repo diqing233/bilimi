@@ -225,10 +225,13 @@ export function buildFavoriteApiFallbackScript(
           return targetFolder?.id || targetFolder?.fid || '';
         };
         const folderIds = [];
+        const favoriteFolderIdsByLedgerId = {};
         for (const ledger of targetLedgers) {
           const folderId = await ensureTargetFolder(ledger);
           if (folderId) {
-            folderIds.push(String(folderId));
+            const normalizedFolderId = String(folderId);
+            folderIds.push(normalizedFolderId);
+            favoriteFolderIdsByLedgerId[ledger.id] = normalizedFolderId;
           }
         }
 
@@ -265,6 +268,7 @@ export function buildFavoriteApiFallbackScript(
           ok: true,
           steps,
           missingTargets: [],
+          favoriteFolderIdsByLedgerId,
           message: '已用 B 站接口归入 bilimi 收藏夹：' +
             targetLedgers.map((ledger) => ledger.displayName).join('、') +
             '。'
