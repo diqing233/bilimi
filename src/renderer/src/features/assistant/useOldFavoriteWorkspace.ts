@@ -14,6 +14,10 @@ function normalizeCandidateIds(candidateIds: string[]) {
   return [...new Set(candidateIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
 }
 
+function normalizeSelectedAids(aids: number[]) {
+  return [...new Set(aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
+}
+
 function snapshotCandidateIds(snapshot: WorkspaceView | null, accountMid?: string) {
   return snapshot && !('recovery' in snapshot) && (!accountMid || normalizeAccountMid(snapshot.accountMid) === normalizeAccountMid(accountMid))
     ? normalizeCandidateIds(snapshot.recommendations?.adoptedCandidateIds ?? [])
@@ -276,6 +280,37 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch (error) {
       if (requestVersion.current === version && accountGeneration.current === generation) setLastError(error instanceof Error ? error.message : '启动收藏整理扫描失败。')
+      throw error
+    } finally {
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
+    }
+  }, [accountMid])
+
+  const startSelectedReorganization = useCallback(async (aids: number[]) => {
+    const normalizedAids = normalizeSelectedAids(aids)
+    const version = ++requestVersion.current
+    const generation = accountGeneration.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command || normalizedAids.length === 0 || normalizedAids.length > 2_000) return null
+
+    activeDeepSeekWorkspaceId.current = null
+    setDeepSeekFeedback(null)
+    setDeepSeekCancelRequested(false)
+    setLoading(true)
+    foregroundRequestCount.current += 1
+    setLastError(null)
+    try {
+      const next = await command(accountMid, { type: 'start-selected-reorganization', aids: normalizedAids })
+      if (!next || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
+      if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
+      return next
+    } catch (error) {
+      if (requestVersion.current === version && accountGeneration.current === generation) {
+        setLastError(error instanceof Error ? error.message : '启动所选视频整理失败。')
+      }
       throw error
     } finally {
       if (accountGeneration.current === generation) {
@@ -741,7 +776,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,

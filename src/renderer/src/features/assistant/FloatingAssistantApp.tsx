@@ -193,7 +193,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[] }
 }
 
 export function findArchivedSummaryTextForNote(
@@ -349,6 +349,7 @@ type LedgerWorkspacePanelProps = {
   createLedger: boolean
   createLedgerRequestVersion: number
   openOrganizationRequestVersion: number
+  openOrganizationSelectionAids?: number[]
 }
 
 const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel(props: LedgerWorkspacePanelProps) {
@@ -2217,6 +2218,7 @@ export function FloatingAssistantApp({
   const [createLedgerRequested, setCreateLedgerRequested] = useState(false)
   const [createLedgerRequestVersion, setCreateLedgerRequestVersion] = useState(0)
   const [openOrganizationRequestVersion, setOpenOrganizationRequestVersion] = useState(0)
+  const [openOrganizationSelectionAids, setOpenOrganizationSelectionAids] = useState<number[]>()
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -3759,6 +3761,7 @@ export function FloatingAssistantApp({
 
       if (payload.organizeOldFavorites) {
         tellPet('progress', '小咪切到掌库啦，收藏整理从这里开始。')
+        setOpenOrganizationSelectionAids(payload.selectedFavoriteAids)
         setOpenOrganizationRequestVersion((version) => version + 1)
       }
 
@@ -4124,7 +4127,10 @@ export function FloatingAssistantApp({
     } else {
       setActiveTab(workspaceRequest.tab)
     }
-    if (workspaceRequest.organizeOldFavorites) setOpenOrganizationRequestVersion((version) => version + 1)
+    if (workspaceRequest.organizeOldFavorites) {
+      setOpenOrganizationSelectionAids(workspaceRequest.selectedFavoriteAids)
+      setOpenOrganizationRequestVersion((version) => version + 1)
+    }
   }, [loadVideoNoteArchives, workspaceRequest])
 
   async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
@@ -4537,6 +4543,7 @@ export function FloatingAssistantApp({
             createLedger={createLedgerRequested}
             createLedgerRequestVersion={createLedgerRequestVersion}
             openOrganizationRequestVersion={openOrganizationRequestVersion}
+            openOrganizationSelectionAids={openOrganizationSelectionAids}
             />
           </div>
         ) : null}

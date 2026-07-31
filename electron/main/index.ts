@@ -1961,6 +1961,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
+    refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
     classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {

@@ -40,6 +40,9 @@ export function OldFavoriteConfirmationStep({
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const isMultiSegment = snapshot.hasMultipleSegments
+  const syncExplanation = snapshot.scope?.kind === 'selection'
+    ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
+    : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
 
   if (snapshot.status === 'completed') {
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
@@ -96,7 +99,7 @@ export function OldFavoriteConfirmationStep({
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
     <h4>确认执行</h4>
     <p>确认本轮分类结果，并选择保存到收藏库或同步到 B 站。</p>
-    <p className="favorite-ledger-panel__action-explanation">确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。</p>
+    <p className="favorite-ledger-panel__action-explanation">{syncExplanation}</p>
     {readinessText ? <p>{readinessText}</p> : null}
     {preparationStatus ? <p role="status">{preparationStatus}</p> : null}
     {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}

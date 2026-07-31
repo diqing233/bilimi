@@ -20,7 +20,7 @@ import type { FloatingAssistantWorkspaceRequest } from '../assistant/assistantRu
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation, type FavoriteLibraryNavigationGroup } from './FavoriteLibraryNavigation'
-import { FavoriteLibraryColumnMenu, FavoriteLibraryDestinationButton, FavoriteLibraryMultiSelectColumnMenu, FavoriteLibraryToolbar, type FavoriteLibraryFilter, type FavoriteLibrarySort, type FavoriteLibraryTranscriptionFilter } from './FavoriteLibraryToolbar'
+import { FavoriteLibraryColumnMenu, FavoriteLibraryDestinationButton, FavoriteLibraryMultiSelectColumnMenu, FavoriteLibraryToolbar, type FavoriteLibraryBatchAction, type FavoriteLibraryFilter, type FavoriteLibrarySort, type FavoriteLibraryTranscriptionFilter } from './FavoriteLibraryToolbar'
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
 import { VideoNoteBatchExportDialog } from '../notes/VideoNoteBatchExportDialog'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
@@ -149,7 +149,7 @@ function navigationForScope(scope: LibraryScope): string {
 }
 
 export type FavoriteLibraryUiCallbacks = {
-  onBatchAction?: (action: 'copy' | 'move' | 'refresh' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'unfavorite-remote', aids: number[]) => void
+  onBatchAction?: (action: FavoriteLibraryBatchAction, aids: number[]) => void
   onManagedFolderAction?: (folderId: string, action: 'edit' | 'delete') => void
   onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
 }
@@ -1587,9 +1587,12 @@ export function FavoriteLibraryApp({
             const selection = operationSelection(selectionSnapshot)
             const sourceEligibility = selectionEligibility(selectionSnapshot)
             const eligibleSelectedAids = sourceEligibility.eligibleAids
-            const commonActions = ['copy', 'refresh', 'transcribe', 'cancel-transcribe', 'download-documents'] as const
+            const commonActions: FavoriteLibraryBatchAction[] = [
+              'copy', 'refresh', 'transcribe', 'cancel-transcribe', 'download-documents',
+              ...(selectionSnapshot.selectAllScope ? [] : ['reorganize' as const])
+            ]
             const batchAllowedActions = !selectionSnapshot.selectAllScope && selectionSnapshot.selectedAids.length > 0 && !eligibleSelectedAids.length
-              ? ['copy', 'download-documents'] as const
+              ? ['copy', 'reorganize', 'download-documents'] as const
               : sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder'
                 ? commonActions
                 : currentLogicalFolderId
@@ -1632,10 +1635,18 @@ export function FavoriteLibraryApp({
             selectionStore.clear()
             if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, query })
           }} onBatchAction={(action) => {
-            const actionAids = action === 'copy' || action === 'unfavorite-remote' || action === 'download-documents' ? selectionSnapshot.selectedAids : eligibleSelectedAids
+            const actionAids = action === 'copy' || action === 'reorganize' || action === 'unfavorite-remote' || action === 'download-documents' ? selectionSnapshot.selectedAids : eligibleSelectedAids
             setBatchEligibilityNotice(selectionSnapshot.selectedAids.length === actionAids.length ? undefined : `可操作 ${actionAids.length} 项，跳过 ${selectionSnapshot.selectedAids.length - actionAids.length} 项`)
             if (Array.isArray(selection)) uiCallbacks?.onBatchAction?.(action, [...actionAids])
             if (Array.isArray(selection) && !actionAids.length) return
+            if (action === 'reorganize' && actionAids.length) {
+              void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+                tab: 'ledger',
+                sidebar: true,
+                organizeOldFavorites: true,
+                selectedFavoriteAids: [...actionAids]
+              })
+            }
             if (action === 'refresh') void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)

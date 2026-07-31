@@ -24,7 +24,7 @@ function readFloatingAssistantAppRootSource(): string {
 
 function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteWorkspaceSnapshot {
   return {
-    version: 1, accountMid: '100', workspaceId: 'workspace', status, mode: 'incremental', segmentSize: 2_000,
+    version: 1, accountMid: '100', workspaceId: 'workspace', status, mode: 'incremental', scope: { kind: 'account' }, segmentSize: 2_000,
     hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, sourceFolders: [],
     continuationCount: 0, segments: [], currentSegment: null, classifications: {},
     recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }

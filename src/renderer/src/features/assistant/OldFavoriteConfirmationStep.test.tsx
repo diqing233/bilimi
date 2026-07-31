@@ -38,6 +38,37 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(abandon).toHaveBeenCalledOnce()
   })
 
+  it('explains selection sync as replacing only bilimi-managed memberships', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        scope: { kind: 'selection', aids: [1] },
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByText(/会替换所选视频在 bilimi 管理收藏夹中的归属/)).toBeInTheDocument()
+    expect(screen.getByText(/不会删除或取消用户自己的收藏夹关系/)).toBeInTheDocument()
+  })
+
+  it('keeps account-wide sync copy append-only', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        scope: { kind: 'account' },
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByText(/确认同步只会追加到 bilimi 收藏夹/)).toBeInTheDocument()
+  })
+
   it('keeps local save and Bilibili sync available for the classified portion of an incomplete plan', () => {
     render(<OldFavoriteConfirmationStep
       snapshot={{

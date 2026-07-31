@@ -32,6 +32,7 @@ type WorkspaceRecoverySummary = OldFavoriteWorkspaceRecoverySummary
 
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
+  | { type: 'start-selected-reorganization'; aids: number[] }
   | { type: 'resume-scan' }
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
@@ -100,6 +101,12 @@ function command(value: unknown): WorkspaceCommand {
     Object.keys(candidate).every((key) => key === 'type' || key === 'mode' || key === 'clearBilibiliMirror') &&
     (candidate.clearBilibiliMirror === undefined || (candidate.mode === 'full' && candidate.clearBilibiliMirror === true))) {
     return candidate.clearBilibiliMirror ? { type: 'start-scan', mode: candidate.mode, clearBilibiliMirror: true } : { type: 'start-scan', mode: candidate.mode }
+  }
+  if (candidate.type === 'start-selected-reorganization' && Array.isArray(candidate.aids) &&
+    candidate.aids.length > 0 && candidate.aids.length <= 2_000 &&
+    candidate.aids.every((aid) => Number.isSafeInteger(aid) && Number(aid) > 0) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'aids')) {
+    return { type: 'start-selected-reorganization', aids: [...new Set(candidate.aids as number[])].sort((left, right) => left - right) }
   }
   if (candidate.type === 'rebuild-corrupt-workspace' && Object.keys(candidate).length === 1) {
     return { type: 'rebuild-corrupt-workspace' }
@@ -287,6 +294,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       : requested.clearBilibiliMirror
         ? options.coordinator.beginScan(accountMid, requested.mode, { clearBilibiliMirror: true })
         : options.coordinator.beginScan(accountMid, requested.mode)
+    if (requested.type === 'start-selected-reorganization') {
+      return options.coordinator.beginSelectedReorganization(accountMid, requested.aids)
+    }
     if (requested.type === 'resume-scan') return options.resumeScan
       ? options.resumeScan(accountMid)
       : snapshot(await options.coordinator.resumeScan(accountMid))

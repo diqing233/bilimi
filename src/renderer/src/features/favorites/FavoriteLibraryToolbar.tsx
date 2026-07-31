@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { createPortal } from 'react-dom'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
 
-export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'unfavorite-remote'
+export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'reorganize' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'unfavorite-remote'
 export type FavoriteLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 export type FavoriteLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
 export type FavoriteLibraryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
@@ -302,7 +302,7 @@ function BatchActions({
     onBatchPlacement?.(openMenu, destinationIds)
     closeMenu()
   }
-  const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息']]
+  const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息'], ['reorganize', '重新整理']]
   const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['unfavorite-remote', '取消B站收藏']]
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>

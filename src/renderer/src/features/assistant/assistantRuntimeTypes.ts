@@ -39,6 +39,8 @@ export type FloatingAssistantWorkspaceRequest = {
   anchor?: { screenX: number; screenY: number }
   openNoteArchive?: boolean
   organizeOldFavorites?: boolean
+  /** Explicit Favorite Library selection for a small reorganization workspace. */
+  selectedFavoriteAids?: number[]
   /** Stable local ledger identity requested by the Favorite Library. */
   ledgerId?: string
   /** Opens a new local ledger editor. */

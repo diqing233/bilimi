@@ -11,13 +11,19 @@ import {
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
   type OldFavoriteWorkspaceHistoryEntry,
+  type OldFavoriteWorkspaceScope,
   type OldFavoriteWorkspaceRecoveryDecision,
   type OldFavoriteWorkspaceRecoveryDecisionResult,
   type OldFavoriteWorkspaceRecoverySummary,
   type OldFavoriteWorkspaceRecoveryRequired,
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
-import { isFavoriteRepositoryScanVisible, type FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
+import {
+  isFavoriteRepositoryMetadataStale,
+  isFavoriteRepositoryScanVisible,
+  type FavoriteRepositoryVideo,
+  type FavoriteRepositoryWorkspace
+} from '../../src/shared/favoriteRepository'
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
@@ -34,6 +40,7 @@ type ScanJournalEvent = {
   type: 'scan'
   createdAt: string
   mode: OldFavoriteWorkspace['mode']
+  scope?: OldFavoriteWorkspaceScope
   segmentSize: number
   segments: SegmentDescriptor[]
   baselineCompletedAids: number[]
@@ -530,6 +537,7 @@ export class OldFavoriteWorkspaceCoordinator {
     notifyRecommendedLedgersChanged?: (accountMid: string) => void
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
+    refreshSelectedVideoMetadata?: (accountMid: string, aid: number) => Promise<FavoriteRepositoryVideo>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
     resolveLedgerBinding?: (accountMid: string, logicalLedgerId: string) => Promise<{
       remoteFolderId?: string
@@ -979,6 +987,147 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.recommendations.set(workspace.accountMid, next)
       return updated
+    })
+  }
+
+  /** Builds a small full-mode draft from explicit library AIDs without reading every Bilibili folder. */
+  async beginSelectedReorganization(accountMid: string, requestedAids: number[]): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const aids = normalizeAids(requestedAids)
+      if (!aids.length || aids.length > 2_000) throw new Error('收藏库所选视频无效，请重新勾选。')
+      const existing = await this.openUnsafe(accountMid)
+      if (existing && (isRecoveryRequired(existing) || existing.status !== 'completed')) {
+        throw new Error('当前有未结束的全库整理草稿，请先完成或放弃后再重新整理所选视频。')
+      }
+      let repository = await this.options.repository.getSnapshot(accountMid)
+      const missingAids = aids.filter((aid) => !repository.videos[String(aid)] || !isFavoriteRepositoryScanVisible(repository, aid))
+      if (missingAids.length) throw new Error('收藏库所选视频已变化，请刷新后重新勾选。')
+
+      if (this.options.refreshSelectedVideoMetadata) {
+        for (const aid of aids) {
+          const video = repository.videos[String(aid)]!
+          if (!isFavoriteRepositoryMetadataStale(video) && video.description?.trim() && video.tagEvidence === 'confirmed') continue
+          try {
+            const refreshed = await this.options.refreshSelectedVideoMetadata(repository.accountMid, aid)
+            if (refreshed.aid !== aid) throw new Error('Selected favorite metadata does not match its requested AID.')
+            await this.options.repository.commit(repository.accountMid, {
+              id: `old-favorite-workspace:selected-metadata:${aid}:${randomUUID()}`,
+              accountMid: repository.accountMid,
+              issuedAt: this.now(),
+              type: 'upsert-video',
+              payload: refreshed
+            })
+          } catch {
+            // Keep the last durable facts. Unconfirmed tags remain pending and block automatic classification.
+          }
+        }
+        repository = await this.options.repository.getSnapshot(repository.accountMid)
+      }
+
+      const sourceId = `favorite-library-selection:${randomUUID()}`
+      const scanning = await this.createScanningWorkspace(repository.accountMid, 'full', { kind: 'selection', aids })
+      const completed = completeWorkspaceScan(scanning, {
+        revision: repository.revision,
+        aids,
+        mode: 'full'
+      })
+      const sourceFolders = [{
+        id: sourceId,
+        title: '收藏库所选视频',
+        itemCount: aids.length,
+        isBilimiWorkFolder: false,
+        selected: true
+      }]
+      const items = aids.map((aid): CurrentSegmentItem => {
+        const video = repository.videos[String(aid)]!
+        return {
+          aid,
+          title: video.title,
+          ...(video.author ? { author: video.author } : {}),
+          tags: [...video.tags],
+          ...(video.tagEvidence ? { tagEvidence: video.tagEvidence } : {}),
+          ...(video.category ? { category: video.category } : {}),
+          ...(video.coverUrl ? { cover: video.coverUrl } : {}),
+          sourceFolderIds: [sourceId]
+        }
+      })
+      const itemsByAid = new Map(items.map((item) => [item.aid, item]))
+      const currentSegmentId = completed.segments[0]?.id ?? ''
+      await this.options.workspaceStore.create({
+        accountMid: completed.accountMid,
+        workspaceId: completed.id,
+        status: completed.status,
+        baselineRevision: completed.baseline?.revision ?? 0,
+        currentSegmentId,
+        sourceFolders,
+        segments: completed.segments.map((segment) => ({
+          id: segment.id,
+          aids: [...segment.aids],
+          items: segment.aids.map((aid) => clone(itemsByAid.get(aid)!))
+        }))
+      })
+      const descriptors = completed.segments.map(({ id, index, aids: segmentAids }) => ({ id, index, itemCount: segmentAids.length }))
+      const segmentIdForAid = new Map(completed.segments.flatMap((segment) => segment.aids.map((aid) => [aid, segment.id] as const)))
+      const recommendations = buildAuthorRecommendations(items, (aid) => segmentIdForAid.get(aid) ?? currentSegmentId)
+      const pendingTagAids = items
+        .filter((item) => !item.tags?.length && item.tagEvidence !== 'confirmed')
+        .map((item) => item.aid)
+      const tagEnrichment: TagEnrichment = {
+        status: pendingTagAids.length ? 'running' : 'complete',
+        totalItemCount: pendingTagAids.length,
+        completedItemCount: 0,
+        pendingAids: pendingTagAids,
+        failedAids: [],
+        reusedTagItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
+        taggedAids: []
+      }
+      const readiness = this.calculatePlanReadinessFromItems(completed, items, sourceFolders)
+      await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
+        currentSegmentId,
+        classifications: [],
+        history: [],
+        recommendations,
+        planReadiness: readiness,
+        scanMetadata: {
+          sourceFolders,
+          phase: 'complete',
+          failureCount: 0,
+          mode: completed.mode,
+          totalItemCount: aids.length,
+          scannedItemCount: aids.length,
+          taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
+          untaggedItemCount: items.filter((item) => !item.tags?.length).length
+        },
+        tagEnrichment
+      })
+      await this.appendEvents(completed, currentSegmentId, [{
+        type: 'scan',
+        createdAt: completed.createdAt,
+        mode: completed.mode,
+        scope: clone(completed.scope),
+        segmentSize: completed.segmentSize,
+        segments: descriptors,
+        baselineCompletedAids: []
+      }])
+      await this.persistMarker(completed)
+      this.scanOverviews.set(completed.accountMid, {
+        sourceFolders,
+        scan: {
+          phase: 'complete', failureCount: 0, mode: completed.mode,
+          totalItemCount: aids.length, scannedItemCount: aids.length,
+          taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
+          untaggedItemCount: items.filter((item) => !item.tags?.length).length
+        }
+      })
+      this.tagEnrichments.set(completed.accountMid, tagEnrichment)
+      this.recommendations.set(completed.accountMid, clone(recommendations))
+      this.planReadiness.set(completed.accountMid, readiness)
+      this.remember(completed, currentSegmentId, descriptors, new Set())
+      this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => clone(itemsByAid.get(aid)!)) ?? [])
+      const classified = (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && pendingTagAids.length === 0
+        ? await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyAllSegmentsUnsafe(completed, true))
+        : completed
+      return this.createSnapshot(classified)
     })
   }
 
@@ -1691,7 +1840,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
-        type: 'scan', createdAt: completed.createdAt, mode: completed.mode, segmentSize: completed.segmentSize,
+        type: 'scan', createdAt: completed.createdAt, mode: completed.mode, scope: clone(completed.scope), segmentSize: completed.segmentSize,
         segments: descriptors, baselineCompletedAids: [...completed.baselineCompletedAids]
       }])
       await this.persistMarker(completed)
@@ -1768,6 +1917,7 @@ export class OldFavoriteWorkspaceCoordinator {
         type: 'scan',
         createdAt: completed.createdAt,
         mode: completed.mode,
+        scope: clone(completed.scope),
         segmentSize: completed.segmentSize,
         segments: descriptors,
         baselineCompletedAids: [...completed.baselineCompletedAids]
@@ -2540,6 +2690,7 @@ export class OldFavoriteWorkspaceCoordinator {
           workspaceId: workspace.id,
           baselineRevision: workspace.baseline.revision,
           createdAt: this.now(),
+          replaceManagedMemberships: workspace.scope.kind === 'selection',
           classifications: classifications.map((classification) => ({
             aid: classification.aid,
             targetLedgerIds: classification.targetLedgerIds.filter((id) => id !== 'inbox')
@@ -2890,13 +3041,14 @@ export class OldFavoriteWorkspaceCoordinator {
     return null
   }
 
-  private async createScanningWorkspace(accountMid: string, mode?: OldFavoriteWorkspace['mode']) {
+  private async createScanningWorkspace(accountMid: string, mode?: OldFavoriteWorkspace['mode'], scope?: OldFavoriteWorkspaceScope) {
     const account = (await this.options.repository.getSnapshot(accountMid)).accountMid
     const now = this.now()
     const workspace = createOldFavoriteWorkspace({
       accountMid: account,
       now,
-      id: `old-favorite-workspace-${account}-${now.replace(/[^0-9]/g, '')}-${randomUUID()}`
+      id: `old-favorite-workspace-${account}-${now.replace(/[^0-9]/g, '')}-${randomUUID()}`,
+      scope
     })
     await this.options.workspaceStore.create({
       accountMid: account,
@@ -3032,11 +3184,13 @@ export class OldFavoriteWorkspaceCoordinator {
       id: marker.id,
       now: scan.createdAt,
       segmentSize: scan.segmentSize
+      ,scope: scan.scope
     })
     const workspace: OldFavoriteWorkspace = {
       ...scanning,
       status: marker.status,
       mode: scan.mode,
+      scope: scan.scope?.kind === 'selection' ? clone(scan.scope) : { kind: 'account' },
       baseline: { revision: marker.baselineRevision, aids: [...loaded.aids] },
       baselineCompletedAids,
       plannedAids: loaded.aids.filter((aid) => !protectedSet.has(aid)),
@@ -3464,6 +3618,7 @@ export class OldFavoriteWorkspaceCoordinator {
       workspaceId: workspace.id,
       status: workspace.status,
       mode: workspace.mode,
+      scope: clone(workspace.scope),
       segmentSize: workspace.segmentSize,
       hasMultipleSegments: workspace.hasMultipleSegments,
       scan: clone(this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: workspace.status === 'scanning' ? 'inventory' : 'complete', failureCount: 0, mode: workspace.mode }),

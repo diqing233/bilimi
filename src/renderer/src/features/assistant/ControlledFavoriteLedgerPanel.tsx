@@ -31,6 +31,7 @@ type ControlledFavoriteLedgerPanelProps = {
   createLedger?: boolean
   createLedgerRequestVersion?: number
   openOrganizationRequestVersion?: number
+  openOrganizationSelectionAids?: number[]
 }
 
 function normalizeAccountMid(value: string | undefined) {
@@ -104,7 +105,8 @@ export function ControlledFavoriteLedgerPanel({
   openLedgerRequestVersion,
   createLedger,
   createLedgerRequestVersion,
-  openOrganizationRequestVersion
+  openOrganizationRequestVersion,
+  openOrganizationSelectionAids
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
@@ -163,7 +165,23 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailure(null)
-  }, [openOrganizationRequestVersion])
+    const aids = [...new Set((openOrganizationSelectionAids ?? [])
+      .filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
+    if (!aids.length) return
+    const requestedAccountMid = currentAccountMid
+    const requestVersion = ++organizationRequestVersion.current
+    let active = true
+    void workspace.startSelectedReorganization(aids).then((next) => {
+      if (!active || organizationRequestVersion.current !== requestVersion ||
+        activeAccountMid.current !== requestedAccountMid) return
+      if (next && !('recovery' in next)) setStep('preview')
+    }).catch((error) => {
+      if (!active || organizationRequestVersion.current !== requestVersion ||
+        activeAccountMid.current !== requestedAccountMid) return
+      setScanStartFailure(error instanceof Error ? error.message : '启动所选视频整理失败。')
+    })
+    return () => { active = false }
+  }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids])
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return

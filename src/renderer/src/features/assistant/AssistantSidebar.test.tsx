@@ -415,6 +415,27 @@ describe('AssistantSidebar', () => {
     expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute('data-collapsed', 'false')
   })
 
+  it('forwards only the current Favorite Library selection and clears it for a normal organization request', async () => {
+    const api = installDesktopApi()
+    const command = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop.commandOldFavoriteWorkspaceV1 = command
+
+    render(<AssistantSidebar />)
+    act(() => {
+      api.openWorkspace({
+        tab: 'ledger', sidebar: true, organizeOldFavorites: true, selectedFavoriteAids: [3, 1, 3]
+      })
+    })
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'start-selected-reorganization', aids: [1, 3]
+    }))
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', sidebar: true, organizeOldFavorites: true })
+    })
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1))
+  })
+
   it('keeps the default favorite system switch in Settings instead of the ledger overview', async () => {
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({

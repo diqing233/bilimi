@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -100,6 +100,85 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('creates a full-mode selection scope from repository videos without scanning the account', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const video of [
+      { aid: 1, title: '视频一', author: 'UP 一', description: '简介一', tags: ['游戏'] },
+      { aid: 2, title: '视频二', author: 'UP 二', description: '简介二', tags: ['知识'] }
+    ]) {
+      await repository.commit('100', {
+        id: `seed-${video.aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { ...video, tagEvidence: 'confirmed', updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(coordinator.beginSelectedReorganization('100', [2, 1, 2])).resolves.toMatchObject({
+      status: 'previewing',
+      mode: 'full',
+      scope: { kind: 'selection', aids: [1, 2] },
+      protectedAidCount: 0,
+      currentSegment: {
+        aids: [1, 2],
+        items: [
+          expect.objectContaining({ aid: 1, title: '视频一', author: 'UP 一', tags: ['游戏'] }),
+          expect.objectContaining({ aid: 2, title: '视频二', author: 'UP 二', tags: ['知识'] })
+        ]
+      }
+    })
+  })
+
+  it('refreshes and persists only incomplete selected metadata before building the selection preview', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const video of [
+      { aid: 1, title: 'Video 1', tags: [] },
+      { aid: 2, title: '完整视频', author: 'UP 二', description: '简介二', tags: ['知识'], tagEvidence: 'confirmed' as const },
+      { aid: 3, title: 'Video 3', tags: [] }
+    ]) {
+      await repository.commit('100', {
+        id: `seed-refresh-${video.aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { ...video, updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const refreshSelectedVideoMetadata = vi.fn().mockResolvedValue({
+      aid: 1, title: '已补全视频', author: 'UP 一', description: '简介一', tags: ['游戏'], tagEvidence: 'confirmed',
+      updatedAt: '2026-07-24T00:01:00.000Z'
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, refreshSelectedVideoMetadata
+    })
+
+    await expect(coordinator.beginSelectedReorganization('100', [2, 1])).resolves.toMatchObject({
+      scan: { phase: 'complete', taggedItemCount: 2, untaggedItemCount: 0 },
+      currentSegment: { items: [
+        expect.objectContaining({ aid: 1, title: '已补全视频', author: 'UP 一', tags: ['游戏'] }),
+        expect.objectContaining({ aid: 2, title: '完整视频', author: 'UP 二', tags: ['知识'] })
+      ] }
+    })
+    expect(refreshSelectedVideoMetadata).toHaveBeenCalledTimes(1)
+    expect(refreshSelectedVideoMetadata).toHaveBeenCalledWith('100', 1)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': expect.objectContaining({ title: '已补全视频', description: '简介一', tags: ['游戏'] }) }
+    })
+  })
+
+  it('refuses to replace an unfinished account workspace with a selection scope', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'seed-1', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    const accountWorkspace = await coordinator.beginScan('100', 'incremental')
+
+    await expect(coordinator.beginSelectedReorganization('100', [1]))
+      .rejects.toThrow('当前有未结束的全库整理草稿')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ workspaceId: accountWorkspace.workspaceId })
+  })
+
   it('prepares account targets before an explicit organization scan begins', async () => {
     const root = await createRoot()
     const prepareForOrganization = vi.fn().mockResolvedValue(undefined)

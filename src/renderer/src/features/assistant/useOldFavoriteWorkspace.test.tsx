@@ -42,6 +42,24 @@ const recommendationWorkspace = (adoptedCandidateIds: string[] = []) => ({
 })
 
 describe('useOldFavoriteWorkspace', () => {
+  it('starts an explicit selected-video workspace without using the account scan command', async () => {
+    const selected = {
+      ...recommendationWorkspace(),
+      mode: 'full' as const,
+      scope: { kind: 'selection' as const, aids: [1, 3] }
+    }
+    const command = vi.fn().mockResolvedValue(selected)
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.startSelectedReorganization([3, 1, 3]) })
+
+    expect(command).toHaveBeenCalledWith('100', { type: 'start-selected-reorganization', aids: [1, 3] })
+    expect(result.current.snapshot).toMatchObject({ scope: { kind: 'selection', aids: [1, 3] } })
+  })
+
   it('tracks scoped draft-rule analysis progress and cancels it without setting global loading', async () => {
     let publishProgress: ((progress: {
       accountMid: string

@@ -22,6 +22,7 @@ export type CompileFrozenFavoriteSyncPlanInput = {
   baselineRevision: number
   createdAt: string
   planId?: string
+  replaceManagedMemberships?: boolean
   classifications: FrozenPlanClassification[]
   shards: BoundRemoteShard[]
 }
@@ -82,7 +83,7 @@ export function compileFrozenFavoriteSyncPlan(
   for (const shards of shardsByLedger.values()) {
     for (const shard of shards) {
       occupiedAidsByFolder.set(shard.remoteFolderId, new Set(shard.memberAids))
-      occupiedCountsByFolder.set(shard.remoteFolderId, shard.memberCount)
+      occupiedCountsByFolder.set(shard.remoteFolderId, shard.memberCount ?? shard.memberAids.length)
       for (const aid of shard.memberAids) {
         const folders = beforeFoldersByAid.get(aid) ?? new Set<string>()
         folders.add(shard.remoteFolderId)
@@ -93,6 +94,9 @@ export function compileFrozenFavoriteSyncPlan(
   for (const classification of [...input.classifications].sort((left, right) => left.aid - right.aid)) {
     if (!Number.isSafeInteger(classification.aid) || classification.aid <= 0 || !Array.isArray(classification.targetLedgerIds)) {
       return { allowed: false, reason: 'invalid-input', plan: null }
+    }
+    if (input.replaceManagedMemberships && !operations.has(classification.aid)) {
+      operations.set(classification.aid, new Set())
     }
     for (const logicalLedgerId of normalizedLedgerIds(classification.targetLedgerIds)) {
       const shards = [...(shardsByLedger.get(logicalLedgerId) ?? [])].sort((left, right) =>
@@ -115,6 +119,38 @@ export function compileFrozenFavoriteSyncPlan(
 
   const id = input.planId?.trim() || stablePlanId(input)
   if (!id) return { allowed: false, reason: 'invalid-input', plan: null }
+  const compiledOperations = [...operations.entries()].sort(([left], [right]) => left - right).flatMap(([aid, folderIds]) => {
+    const desiredFolderIds = [...folderIds].sort()
+    const beforeFolderIds = [...(beforeFoldersByAid.get(aid) ?? [])].sort()
+    if (!input.replaceManagedMemberships) {
+      return [{
+        operationKey: `append:${aid}:${desiredFolderIds.join(',')}`,
+        aid,
+        kind: 'append' as const,
+        folderIds: desiredFolderIds,
+        beforeFolderIds
+      }]
+    }
+    const removedFolderIds = beforeFolderIds.filter((folderId) => !folderIds.has(folderId))
+    const retainedFolderIds = beforeFolderIds.filter((folderId) => folderIds.has(folderId))
+    const appendedFolderIds = desiredFolderIds.filter((folderId) => !beforeFoldersByAid.get(aid)?.has(folderId))
+    return [
+      ...(removedFolderIds.length ? [{
+        operationKey: `remove:${aid}:${removedFolderIds.join(',')}`,
+        aid,
+        kind: 'remove' as const,
+        folderIds: removedFolderIds,
+        beforeFolderIds
+      }] : []),
+      ...(appendedFolderIds.length ? [{
+        operationKey: `append:${aid}:${appendedFolderIds.join(',')}`,
+        aid,
+        kind: 'append' as const,
+        folderIds: appendedFolderIds,
+        beforeFolderIds: retainedFolderIds
+      }] : [])
+    ]
+  })
   return {
     allowed: true,
     reason: null,
@@ -124,13 +160,7 @@ export function compileFrozenFavoriteSyncPlan(
       workspaceId: input.workspaceId.trim(),
       baselineRevision: input.baselineRevision,
       createdAt: new Date(input.createdAt).toISOString(),
-      operations: [...operations.entries()].sort(([left], [right]) => left - right).map(([aid, folderIds]) => ({
-        operationKey: `append:${aid}:${[...folderIds].sort().join(',')}`,
-        aid,
-        kind: 'append' as const,
-        folderIds: [...folderIds].sort(),
-        beforeFolderIds: [...(beforeFoldersByAid.get(aid) ?? [])].sort()
-      }))
+      operations: compiledOperations
     }
   }
 }

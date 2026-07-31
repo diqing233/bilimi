@@ -28,6 +28,47 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
+  it('starts the requested Favorite Library selection and opens its existing archive preview', async () => {
+    const selected = {
+      version: 1 as const,
+      accountMid: '100',
+      workspaceId: 'selection-workspace',
+      status: 'previewing' as const,
+      mode: 'full' as const,
+      scope: { kind: 'selection' as const, aids: [1, 3] },
+      segmentSize: 2_000,
+      hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 2, scannedItemCount: 2 },
+      sourceFolders: [{ id: 'selection', title: '收藏库所选视频', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0,
+      protectedAidCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 2 }],
+      currentSegment: { id: 'segment-1', aids: [1, 3], items: [] },
+      classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0, entries: [] }
+    }
+    const command = vi.fn().mockResolvedValue(selected)
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+      openOrganizationRequestVersion={1}
+      openOrganizationSelectionAids={[3, 1, 3]}
+    />)
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'start-selected-reorganization', aids: [1, 3]
+    }))
+    expect(await screen.findByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+  })
+
   it('does not load workspace segments while the library panel merely mounts', async () => {
     const open = vi.fn().mockResolvedValue(null)
     const summary = vi.fn().mockResolvedValue(null)

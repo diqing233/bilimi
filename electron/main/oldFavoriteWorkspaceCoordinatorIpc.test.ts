@@ -217,6 +217,30 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes only a bounded explicit AID selection into the scoped organization entry', async () => {
+    const ipcMain = new FakeIpcMain()
+    const selected = { ...snapshot, mode: 'full' as const, scope: { kind: 'selection' as const, aids: [1, 3] } }
+    const coordinator = {
+      beginSelectedReorganization: vi.fn().mockResolvedValue(selected),
+      getSnapshot: vi.fn().mockResolvedValue(selected)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-selected-reorganization', aids: [3, 1, 3]
+    })).resolves.toEqual(selected)
+    expect(coordinator.beginSelectedReorganization).toHaveBeenCalledWith('100', [1, 3])
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-selected-reorganization', aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-selected-reorganization', aids: [1], mode: 'full'
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes an explicit scan-resume command through the scan service', async () => {
     const ipcMain = new FakeIpcMain()
     const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }

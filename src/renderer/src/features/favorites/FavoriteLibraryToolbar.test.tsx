@@ -61,6 +61,21 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
     expect(more).toHaveAttribute('title', '请先勾选视频')
   })
 
+  it('starts selected-video reorganization from a dedicated direct action', () => {
+    const onBatchAction = vi.fn()
+    render(<FavoriteLibraryToolbar
+      pageCount={2}
+      selectedCount={2}
+      allCurrentPageSelected={false}
+      onTogglePage={vi.fn()}
+      onBatchAction={onBatchAction}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重新整理' }))
+
+    expect(onBatchAction).toHaveBeenCalledWith('reorganize')
+  })
+
   it('keeps a 30000-folder destination menu DOM bounded', () => {
     render(<FavoriteLibraryToolbar
       pageCount={1}

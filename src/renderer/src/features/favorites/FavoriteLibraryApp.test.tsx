@@ -691,6 +691,37 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认复制' }))
     await waitFor(() => expect(copyFavoriteLibrarySelection).toHaveBeenCalledWith('100', [2], ['bilimi-logical:target'], 1, expect.any(Object)))
   })
+
+  it('opens the existing organization guide with only explicitly selected aids', async () => {
+    const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 3, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [
+          { video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [] },
+          { video: { aid: 2, title: '视频二', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [] },
+          { video: { aid: 3, title: '视频三', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: [], pendingStates: [] }
+        ]
+      }),
+      openFloatingAssistantWorkspace,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频三' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新整理' }))
+
+    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({
+      tab: 'ledger', sidebar: true, organizeOldFavorites: true, selectedFavoriteAids: [1, 3]
+    })
+  })
   it('does not classify an ordinary Bilibili folder as a workspace from its bilimi title alone', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),

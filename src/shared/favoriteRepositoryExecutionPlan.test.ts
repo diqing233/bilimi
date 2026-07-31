@@ -30,6 +30,35 @@ describe('compileFrozenFavoriteSyncPlan', () => {
     ])
   })
 
+  it('replaces only managed memberships for an explicit selection reorganization', () => {
+    const result = compileFrozenFavoriteSyncPlan({
+      accountMid: '100', workspaceId: 'selection-workspace', baselineRevision: 2,
+      createdAt: '2026-07-20T00:00:00.000Z', replaceManagedMemberships: true,
+      classifications: [{ aid: 1, targetLedgerIds: ['game'] }],
+      shards: [
+        { logicalLedgerId: 'music', remoteFolderId: 'managed-music', memberAids: [1] },
+        { logicalLedgerId: 'game', remoteFolderId: 'managed-game', memberAids: [] }
+      ]
+    })
+
+    expect(result.plan?.operations).toEqual([
+      expect.objectContaining({ aid: 1, kind: 'remove', folderIds: ['managed-music'], beforeFolderIds: ['managed-music'] }),
+      expect.objectContaining({ aid: 1, kind: 'append', folderIds: ['managed-game'], beforeFolderIds: [] })
+    ])
+    expect(result.plan?.operations.flatMap((operation) => operation.folderIds)).not.toContain('user-folder')
+  })
+
+  it('does not write an unchanged managed membership during selection replacement', () => {
+    const result = compileFrozenFavoriteSyncPlan({
+      accountMid: '100', workspaceId: 'selection-workspace', baselineRevision: 2,
+      createdAt: '2026-07-20T00:00:00.000Z', replaceManagedMemberships: true,
+      classifications: [{ aid: 1, targetLedgerIds: ['music'] }],
+      shards: [{ logicalLedgerId: 'music', remoteFolderId: 'managed-music', memberAids: [1] }]
+    })
+
+    expect(result.plan?.operations).toEqual([])
+  })
+
   it('rejects an unbound logical ledger instead of passing its local id to Bilibili', () => {
     expect(compileFrozenFavoriteSyncPlan({
       accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,

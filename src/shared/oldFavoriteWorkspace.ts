@@ -3,6 +3,7 @@ export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 
 export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
+export type OldFavoriteWorkspaceScope = { kind: 'account' } | { kind: 'selection'; aids: number[] }
 export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'deepseek' | 'system-high' | 'system-low'
 
 export type OldFavoriteWorkspaceBaseline = {
@@ -49,6 +50,7 @@ export type OldFavoriteWorkspace = {
   createdAt: string
   status: OldFavoriteWorkspaceStatus
   mode: OldFavoriteWorkspaceMode
+  scope: OldFavoriteWorkspaceScope
   segmentSize: number
   baseline?: OldFavoriteWorkspaceBaseline
   baselineCompletedAids: number[]
@@ -73,6 +75,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   workspaceId: string
   status: OldFavoriteWorkspaceStatus
   mode: OldFavoriteWorkspaceMode
+  scope?: OldFavoriteWorkspaceScope
   segmentSize: number
   hasMultipleSegments: boolean
   scan: {
@@ -245,6 +248,7 @@ export type CreateOldFavoriteWorkspaceOptions = {
   now: string
   id?: string
   segmentSize?: number
+  scope?: OldFavoriteWorkspaceScope
 }
 
 export type CompleteWorkspaceScanOptions = {
@@ -375,6 +379,9 @@ export function createOldFavoriteWorkspace(options: CreateOldFavoriteWorkspaceOp
     createdAt,
     status: 'scanning',
     mode: 'incremental',
+    scope: options.scope?.kind === 'selection'
+      ? { kind: 'selection', aids: normalizeAids(options.scope.aids) }
+      : { kind: 'account' },
     segmentSize,
     baselineCompletedAids: [],
     plannedAids: [],
