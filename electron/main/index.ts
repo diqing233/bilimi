@@ -93,7 +93,7 @@ import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanServi
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
-import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, mergeRecoveredLedgerDrafts, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { mergeRecoveredLedgerDrafts, reconcileRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
@@ -2012,15 +2012,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
-    saveRecommendedLedgers: async (accountMid, ledgers) => {
+    saveRecommendedLedgers: async (accountMid, ledgers, adoptedLedgerIds = ledgers.map((ledger) => ledger.id)) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const favoriteLedgers = reconcileRecommendedLedgers(current.favoriteLedgers, ledgers, adoptedLedgerIds)
+      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
         ...current,
-        favoriteLedgers: applyRecommendedLedgers(current.favoriteLedgers, ledgers)
+        favoriteLedgers
       })
+      return true
     },
     notifyRecommendedLedgersChanged: () => {
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      sendAssistantPreferencePatchChanged({
+        favoriteAccountPreferences: loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences
+      })
     },
     saveRecoveredLedgerDrafts: async (accountMid, ledgers) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
@@ -2029,21 +2034,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
         ...current,
         favoriteLedgers
-      })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
-    },
-    removeRecommendedLedgers: async (accountMid, ledgerIds) => {
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
-        ...current,
-        favoriteLedgers: removeRecommendedLedgers(current.favoriteLedgers, ledgerIds)
-      })
-    },
-    markRecommendedLedgersLocalDraft: async (accountMid, ledgerIds) => {
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
-        ...current,
-        favoriteLedgers: markRecommendedLedgersLocalDraft(current.favoriteLedgers, ledgerIds)
       })
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },

@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'removeRecommendedLedgers' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -2327,9 +2327,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('publishes an adopted recommendation after its indexed delta is ready', async () => {
+  it('keeps an adopted recommendation in the workspace draft until local save', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(undefined)
+    const saved = vi.fn().mockResolvedValue(true)
     const published = vi.fn()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
@@ -2353,27 +2353,76 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
-    expect(saved).toHaveBeenCalled()
-    expect(published).toHaveBeenCalledTimes(1)
+    expect(saved).not.toHaveBeenCalled()
+    expect(published).not.toHaveBeenCalled()
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
+    })
 
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
     expect(published).toHaveBeenCalledTimes(1)
-    expect(saved).toHaveBeenCalledWith('100', [expect.objectContaining({
-      id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-      ruleType: 'author', enabled: true, isDefault: false
-    })])
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(saved).toHaveBeenCalledWith(
+      '100',
+      [expect.objectContaining({
+        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
+        ruleType: 'author', enabled: true, isDefault: false
+      })],
+      ['custom-author-up-alpha']
+    )
   })
 
-  it('removes a previously adopted recommendation rule when its checkbox is cleared', async () => {
+  it('repairs recommendation preferences when the process reopens after a post-commit save failure', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(undefined)
-    const removed = vi.fn().mockResolvedValue(undefined)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, workspaceStore, {
+      saveRecommendedLedgers: vi.fn().mockRejectedValue(new Error('preferences unavailable')),
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await first.open('100')
+    await first.beginScan('100', 'full')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await first.finishScan('100')
+    await first.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await first.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+
+    await expect(first.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('preferences unavailable')
+
+    const repaired = vi.fn().mockResolvedValue(true)
+    const published = vi.fn()
+    const reopened = createCoordinator(repository, workspaceStore, {
+      initializeOnOpen: false,
+      saveRecommendedLedgers: repaired,
+      notifyRecommendedLedgersChanged: published
+    })
+    await expect(reopened.open('100')).resolves.toMatchObject({ status: 'completed' })
+    expect(repaired).toHaveBeenCalledWith(
+      '100',
+      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
+      ['custom-author-up-alpha']
+    )
+    expect(published).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not touch account preferences when a recommendation is selected and cleared in the draft', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(false)
     const published = vi.fn()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       saveRecommendedLedgers: saved,
-      removeRecommendedLedgers: removed,
       notifyRecommendedLedgersChanged: published,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
@@ -2394,13 +2443,73 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
     await coordinator.setRecommendedCandidates('100', [])
-
-    expect(removed).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
-    expect(published).toHaveBeenCalledTimes(2)
-
     await coordinator.prepareRecommendationPreview('100', [])
 
-    expect(published).toHaveBeenCalledTimes(2)
+    expect(saved).not.toHaveBeenCalled()
+    expect(published).not.toHaveBeenCalled()
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    expect(saved).toHaveBeenCalledWith(
+      '100',
+      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
+      []
+    )
+    expect(published).not.toHaveBeenCalled()
+  })
+
+  it('persists adopted recommendations once after a Bilibili plan freezes successfully', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(true)
+    const published = vi.fn()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined),
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder: vi.fn(async ({ title }: { title: string }) => ({
+            observedAccountMid: '100', folder: { id: 'remote-alpha-1', title, memberCount: 0 }
+          })),
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      saveRecommendedLedgers: saved,
+      notifyRecommendedLedgersChanged: published,
+      classifyCurrentItem: (item, recommendedLedgers = []) => item.author === 'UP Alpha' && recommendedLedgers.length
+        ? { targetLedgerIds: [recommendedLedgers[0]!.id], confidence: 'high' }
+        : { targetLedgerIds: [], confidence: 'low' },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+
+    expect(saved).not.toHaveBeenCalled()
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(saved).toHaveBeenCalledWith(
+      '100',
+      [expect.objectContaining({ id: 'custom-author-up-alpha', ruleType: 'author' })],
+      ['custom-author-up-alpha']
+    )
+    expect(published).toHaveBeenCalledTimes(1)
   })
 
   it('creates a local logical ledger in the repository and reclassifies system results without changing manual decisions', async () => {

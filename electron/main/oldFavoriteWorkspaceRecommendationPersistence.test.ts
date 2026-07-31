@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, mergeRecoveredLedgerDrafts, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import {
+  applyRecommendedLedgers,
+  markRecommendedLedgersLocalDraft,
+  mergeRecoveredLedgerDrafts,
+  reconcileRecommendedLedgers,
+  removeRecommendedLedgers
+} from './oldFavoriteWorkspaceRecommendationPersistence'
 
 describe('old favorite workspace recommendation persistence', () => {
   const defaults = [
@@ -24,6 +30,78 @@ describe('old favorite workspace recommendation persistence', () => {
       syncState: 'local-draft'
     }])
     expect(removeRecommendedLedgers([...defaults, changed], ['custom-author-alice'])).toEqual(defaults)
+  })
+
+  it('reconciles final recommendation choices without deleting edited or bound ledgers', () => {
+    const cleared = { ...recommendation, syncState: 'local-draft' as const }
+    const edited = {
+      ...recommendation,
+      id: 'custom-author-edited',
+      displayName: 'bilimi·Alice 精选',
+      syncState: 'local-draft' as const
+    }
+    const bound = {
+      ...recommendation,
+      id: 'custom-author-bound',
+      bilibiliFolderId: '42',
+      syncState: 'local-draft' as const
+    }
+    const added = { ...recommendation, id: 'custom-author-added', displayName: 'bilimi·Bob', keywords: ['Bob'] }
+
+    expect(reconcileRecommendedLedgers(
+      [...defaults, cleared, edited, bound],
+      [
+        recommendation,
+        { ...recommendation, id: edited.id },
+        { ...recommendation, id: bound.id },
+        added
+      ],
+      [added.id]
+    )).toEqual([
+      ...defaults,
+      edited,
+      bound,
+      { ...added, syncState: 'local-draft' }
+    ])
+  })
+
+  it('keeps an unselected recommendation when the user changed its behavior flags', () => {
+    const disabled = { ...recommendation, enabled: false, syncState: 'local-draft' as const }
+    const reprioritized = { ...recommendation, id: 'custom-author-priority', priority: 42, syncState: 'local-draft' as const }
+    const promoted = { ...recommendation, id: 'custom-author-default', isDefault: true, syncState: 'local-draft' as const }
+
+    expect(reconcileRecommendedLedgers(
+      [...defaults, disabled, reprioritized, promoted],
+      [
+        recommendation,
+        { ...recommendation, id: reprioritized.id },
+        { ...recommendation, id: promoted.id }
+      ],
+      []
+    )).toEqual([...defaults, disabled, reprioritized, promoted])
+  })
+
+  it('does not overwrite edited or bound fields when an existing recommendation stays selected', () => {
+    const edited = {
+      ...recommendation,
+      displayName: 'bilimi·Alice 精选',
+      keywords: ['Alice', '精选'],
+      enabled: false,
+      priority: 42,
+      syncState: 'local-draft' as const
+    }
+    const bound = {
+      ...recommendation,
+      id: 'custom-author-bound',
+      bilibiliFolderId: '42',
+      syncState: 'synced' as const
+    }
+
+    expect(reconcileRecommendedLedgers(
+      [...defaults, edited, bound],
+      [recommendation, { ...recommendation, id: bound.id }],
+      [edited.id, bound.id]
+    )).toEqual([...defaults, edited, bound])
   })
 
   it('migrates unsynced adopted rules to local drafts without downgrading an existing Bilibili folder', () => {

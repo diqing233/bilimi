@@ -587,6 +587,30 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('loads an existing favorite account without reading unrelated persisted branches', () => {
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [{
+            id: 'music', displayName: 'bilimi·音乐', keywords: ['music'], enabled: true, priority: 10, isDefault: false
+          }],
+          transcriptionModelId: 'whisper-small'
+        }
+      }
+    })
+    const originalGet = store.get.bind(store)
+    store.get = ((key: keyof DesktopStoreState) => {
+      if (key !== 'favoriteAccountPreferences') throw new Error(`unrelated branch read: ${String(key)}`)
+      return originalGet(key)
+    }) as AssistantStoreLike['get']
+
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({
+      favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: 'music', keywords: ['music'] })]),
+      transcriptionModelId: 'whisper-small'
+    })
+  })
+
   it('keeps Whisper small as the safe account default until SenseVoice passes its acceptance gate', () => {
     const store = createFakeStore()
     expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'whisper-small' })

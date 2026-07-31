@@ -895,24 +895,18 @@ export function loadFavoriteAccountPreferences(
 ): FavoriteAccountPreferences {
   const account = normalizeFavoriteAccountMid(accountMid)
   const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
-  const preferences = loadAssistantPreferences(store, undefined, enabledOverrideStore)
-  const existing = preferences.favoriteAccountPreferences[account]
-  if (existing) return {
-    defaultFavoriteSystemEnabled: existing.defaultFavoriteSystemEnabled,
-    favoriteLedgers: normalizeFavoriteLedgers(existing.favoriteLedgers),
-    ...(existing.favoriteLibraryCollapsedGroups ? { favoriteLibraryCollapsedGroups: { ...existing.favoriteLibraryCollapsedGroups } } : {}),
-    transcriptionModelId: existing.transcriptionModelId ?? 'whisper-small',
-    ...(existing.updatedAt ? { updatedAt: existing.updatedAt } : {})
-  }
+  const accounts = normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences'))
+  const existing = applyFavoriteLedgerEnabledOverrides(accounts, enabledOverrideStore)[account]
+  if (existing) return { ...existing, transcriptionModelId: existing.transcriptionModelId ?? 'whisper-small' }
 
   const initialized: FavoriteAccountPreferences = {
     defaultFavoriteSystemEnabled: true,
-    favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
+    favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     // SenseVoice becomes the default only after the documented quality gate passes.
     transcriptionModelId: 'whisper-small',
     updatedAt: new Date().toISOString()
   }
-  store.set({ favoriteAccountPreferences: { ...preferences.favoriteAccountPreferences, [account]: initialized } })
+  store.set({ favoriteAccountPreferences: { ...accounts, [account]: initialized } })
   return initialized
 }
 

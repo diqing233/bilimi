@@ -16,6 +16,36 @@ export function removeRecommendedLedgers(current: FavoriteLedger[], recommendati
   return current.filter((ledger) => !removedIds.has(ledger.id))
 }
 
+function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: FavoriteLedger) {
+  return ledger.syncState === 'local-draft' && !ledger.bilibiliFolderId &&
+    ledger.displayName === recommendation.displayName &&
+    (ledger.ruleType ?? 'keyword') === (recommendation.ruleType ?? 'keyword') &&
+    JSON.stringify(ledger.keywords) === JSON.stringify(recommendation.keywords) &&
+    ledger.enabled === recommendation.enabled &&
+    ledger.priority === recommendation.priority &&
+    ledger.isDefault === recommendation.isDefault
+}
+
+export function reconcileRecommendedLedgers(
+  current: FavoriteLedger[],
+  recommendations: FavoriteLedger[],
+  adoptedRecommendationIds: string[]
+) {
+  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
+  const adoptedIds = new Set(adoptedRecommendationIds)
+  const retained = current.filter((ledger) => {
+    const recommendation = recommendedById.get(ledger.id)
+    return !recommendation || adoptedIds.has(ledger.id) || !matchesGeneratedRecommendation(ledger, recommendation)
+  })
+  const retainedIds = new Set(retained.map((ledger) => ledger.id))
+  return [
+    ...retained,
+    ...recommendations
+      .filter((ledger) => adoptedIds.has(ledger.id) && !retainedIds.has(ledger.id))
+      .map((ledger) => ({ ...ledger, syncState: 'local-draft' as const }))
+  ]
+}
+
 function hasConfiguredRule(ledger: FavoriteLedger) {
   return ledger.enabled || ledger.keywords.some((keyword) => keyword.trim())
 }

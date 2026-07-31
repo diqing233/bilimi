@@ -522,11 +522,13 @@ export class OldFavoriteWorkspaceCoordinator {
         shouldCancel?: () => boolean
       }
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
-    saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
+    saveRecommendedLedgers?: (
+      accountMid: string,
+      ledgers: FavoriteLedger[],
+      adoptedLedgerIds?: string[]
+    ) => Promise<boolean | void>
     notifyRecommendedLedgersChanged?: (accountMid: string) => void
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
-    removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
-    markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
     resolveLedgerBinding?: (accountMid: string, logicalLedgerId: string) => Promise<{
@@ -965,17 +967,6 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
         throw new Error('Old favorite workspace recommendation selection is invalid.')
       }
-      const newlyAdopted = state.candidates.filter((candidate) =>
-        adoptedCandidateIds.includes(candidate.id) && !state.adoptedCandidateIds.includes(candidate.id))
-      const removedAdoptions = state.candidates.filter((candidate) =>
-        state.adoptedCandidateIds.includes(candidate.id) && !adoptedCandidateIds.includes(candidate.id))
-      if (newlyAdopted.length) {
-        await this.options.saveRecommendedLedgers?.(workspace.accountMid, newlyAdopted.map((candidate, index) =>
-          asLocalRecommendedLedger(candidate, 10_000 + index)))
-      }
-      if (removedAdoptions.length) {
-        await this.options.removeRecommendedLedgers?.(workspace.accountMid, removedAdoptions.map((candidate) => candidate.id))
-      }
       const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
       const updated = await this.applyRecommendedLedgerDeltaUnsafe(
         workspace,
@@ -987,9 +978,6 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
       })
       this.recommendations.set(workspace.accountMid, next)
-      if (newlyAdopted.length || removedAdoptions.length) {
-        this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
-      }
       return updated
     })
   }
@@ -2353,7 +2341,8 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
       const currentSegmentId = this.currentSegment(workspace)
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
-      const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
+      const recommendations = await this.ensureRecommendations(workspace)
+      const recommendationTitles = new Map(recommendations.candidates
         .map((candidate) => [candidate.id, candidate.sourceName] as const))
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const itemsByAid = new Map<number, CurrentSegmentItem>()
@@ -2447,6 +2436,7 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       })
       await this.options.workspaceStore.markCommitted(workspace.accountMid, workspace.id, localCommitId)
+      await this.persistRecommendedLedgersUnsafe(workspace, recommendations)
       this.remember(completed, currentSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [],
         new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
       return clone(completed)
@@ -2565,6 +2555,7 @@ export class OldFavoriteWorkspaceCoordinator {
           new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
         const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
         if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
+        await this.persistRecommendedLedgersUnsafe(workspace, await this.ensureRecommendations(workspace))
         return clone(persisted.workspace)
       })
       if (frozen) return frozen
@@ -3072,10 +3063,6 @@ export class OldFavoriteWorkspaceCoordinator {
       })),
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
-    const adoptedRecommendationIds = recovered.recommendations.adoptedCandidateIds
-    if (adoptedRecommendationIds.length) {
-      await this.options.markRecommendedLedgersLocalDraft?.(marker.accountMid, adoptedRecommendationIds)
-    }
     const recommendations = await this.restoreRecommendationIndexes(
       marker.accountMid,
       marker.id,
@@ -3085,6 +3072,9 @@ export class OldFavoriteWorkspaceCoordinator {
       recovered.tagUpdates
     )
     this.recommendations.set(marker.accountMid, clone(recommendations))
+    if (marker.status === 'completed' || marker.status === 'frozen') {
+      await this.persistRecommendedLedgersUnsafe(workspace, recommendations)
+    }
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
     this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
@@ -3454,6 +3444,16 @@ export class OldFavoriteWorkspaceCoordinator {
     })
     this.recommendations.set(workspace.accountMid, clone(state))
     return clone(state)
+  }
+
+  private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState) {
+    if (!this.options.saveRecommendedLedgers || !state.candidates.length) return
+    const saved = await this.options.saveRecommendedLedgers(
+      workspace.accountMid,
+      state.candidates.map((candidate, index) => asLocalRecommendedLedger(candidate, 10_000 + index)),
+      state.adoptedCandidateIds
+    )
+    if (saved !== false) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
   }
 
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {

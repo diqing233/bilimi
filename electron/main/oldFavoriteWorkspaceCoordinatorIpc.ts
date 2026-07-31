@@ -314,7 +314,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)
-    if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
+    if (requested.type === 'set-recommended-candidates') {
+      await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
+      return options.coordinator.getSnapshot(accountMid)
+    }
     if (requested.type === 'prepare-recommendation-preview') {
       const workspace = await options.coordinator.getSnapshot(accountMid)
       if (!workspace || 'recovery' in workspace) throw new Error('Old favorite workspace recommendations are not ready.')
