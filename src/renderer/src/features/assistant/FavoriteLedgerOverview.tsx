@@ -146,7 +146,6 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     setSavedLedgerSnapshots(Object.fromEntries(ledgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     setActiveLedgerId(null)
     setNewLedger(false)
-    setLedgerListExpanded(false)
   }, [externalLedgerSignature])
   useEffect(() => () => {
     if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)

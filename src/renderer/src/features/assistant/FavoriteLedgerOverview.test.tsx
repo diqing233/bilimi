@@ -651,4 +651,36 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '收藏夹16' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
   })
+
+  it('keeps the ledger list expanded when recommendation drafts refresh the ledgers', () => {
+    const ledgers = Array.from({ length: 16 }, (_, index) => ({
+      id: `ledger-${index + 1}`,
+      displayName: `bilimi:收藏夹${index + 1}`,
+      keywords: [],
+      ruleType: 'keyword' as const,
+      enabled: true,
+      priority: (index + 1) * 10,
+      isDefault: false
+    }))
+    const { rerender } = render(<FavoriteLedgerOverview ledgers={ledgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开' }))
+
+    rerender(<FavoriteLedgerOverview
+      ledgers={[...ledgers, {
+        id: 'recommended-up',
+        displayName: 'bilimi:推荐 UP',
+        keywords: ['推荐 UP'],
+        ruleType: 'author',
+        enabled: true,
+        priority: 170,
+        isDefault: false,
+        syncState: 'local-draft'
+      }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '推荐 UP' })).toBeInTheDocument()
+  })
 })
