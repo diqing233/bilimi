@@ -270,6 +270,8 @@ export type AssistantPreferences = {
   /** Device-wide Bilibili session network preference, never account-scoped. */
   bilibiliConnectionMode: 'auto' | 'direct'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  /** Maximum detailed items in each batch of the next old-favorite organization round. */
+  oldFavoriteWorkspaceSegmentSize: number
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean

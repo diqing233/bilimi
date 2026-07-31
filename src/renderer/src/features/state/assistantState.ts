@@ -1,6 +1,7 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import { normalizeAssistantSidebarWidthPx } from '@shared/assistantSidebarWidth'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
+import { normalizeOldFavoriteWorkspaceSegmentSize } from '@shared/oldFavoriteWorkspace'
 import {
   normalizeFavoriteArchiveProtectionInitializedAccountMids,
   normalizeFavoriteArchiveProtectionRecords
@@ -178,6 +179,9 @@ export function createInitialAssistantPreferences(
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     bilibiliConnectionMode: normalizeBilibiliConnectionMode(persisted?.bilibiliConnectionMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
+    oldFavoriteWorkspaceSegmentSize: normalizeOldFavoriteWorkspaceSegmentSize(
+      persisted?.oldFavoriteWorkspaceSegmentSize
+    ),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled:
       typeof persisted?.favoriteCorrectionLearningEnabled === 'boolean'

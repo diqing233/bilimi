@@ -544,6 +544,7 @@ export class OldFavoriteWorkspaceCoordinator {
       remoteDisplayTitle?: string
     } | undefined>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
+    segmentSize?: () => number
     now?: () => string
   }) {}
 
@@ -3051,7 +3052,8 @@ export class OldFavoriteWorkspaceCoordinator {
       accountMid: account,
       now,
       id: `old-favorite-workspace-${account}-${now.replace(/[^0-9]/g, '')}-${randomUUID()}`,
-      scope
+      scope,
+      segmentSize: this.options.segmentSize?.()
     })
     await this.options.workspaceStore.create({
       accountMid: account,

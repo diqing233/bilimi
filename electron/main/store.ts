@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import { normalizeOldFavoriteWorkspaceSegmentSize } from '../../src/shared/oldFavoriteWorkspace'
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
 import {
   DEFAULT_PET_HOVER_SHORTCUTS,
@@ -77,6 +78,7 @@ export type AssistantPreferences = {
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   bilibiliConnectionMode: 'auto' | 'direct'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  oldFavoriteWorkspaceSegmentSize: number
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
@@ -275,6 +277,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   bilibiliOperationMode: 'api-assisted',
   bilibiliConnectionMode: 'auto',
   favoriteArchiveMultiMode: 'off',
+  oldFavoriteWorkspaceSegmentSize: 1_000,
   favoriteArchiveStrategy: 'aggressive',
   favoriteCorrectionLearningEnabled: true,
   favoriteCorrectionLearningClassificationEnabled: true,
@@ -603,6 +606,9 @@ export function loadAssistantPreferences(
       favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
         ? favoriteArchiveMultiMode
         : 'off',
+    oldFavoriteWorkspaceSegmentSize: normalizeOldFavoriteWorkspaceSegmentSize(
+      store.get('oldFavoriteWorkspaceSegmentSize')
+    ),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled:
       store.has?.('favoriteCorrectionLearningEnabled') === false
@@ -702,6 +708,9 @@ export function saveAssistantPreferences(
       preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
         ? preferences.favoriteArchiveMultiMode
         : 'off',
+    oldFavoriteWorkspaceSegmentSize: normalizeOldFavoriteWorkspaceSegmentSize(
+      preferences.oldFavoriteWorkspaceSegmentSize
+    ),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(preferences.favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled: Boolean(preferences.favoriteCorrectionLearningEnabled),
     favoriteCorrectionLearningClassificationEnabled: Boolean(

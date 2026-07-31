@@ -2027,6 +2027,41 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               </label>
             </fieldset>
             <fieldset
+              className="assistant-settings__group assistant-settings__group--old-favorite-batches"
+              data-settings-section="old-favorite-batches"
+            >
+              <legend>整理旧藏批次</legend>
+              <p>设置下一轮整理时每批最多加载的详细视频数；当前草稿不会被重新切分。</p>
+              {([500, 1_000, 2_000] as const).map((size) => (
+                <label key={size}>
+                  <input
+                    type="radio"
+                    name="old-favorite-workspace-segment-size"
+                    checked={preferences.oldFavoriteWorkspaceSegmentSize === size}
+                    onChange={() => actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })}
+                  />
+                  <span>{size === 1_000 ? '1000 条（推荐）' : `${size} 条`}</span>
+                </label>
+              ))}
+              <label>
+                <span>自定义（500–2000）</span>
+                <input
+                  type="number"
+                  aria-label="自定义单批整理上限"
+                  min={500}
+                  max={2_000}
+                  step={1}
+                  value={preferences.oldFavoriteWorkspaceSegmentSize}
+                  onChange={(event) => {
+                    const size = Number(event.currentTarget.value)
+                    if (Number.isSafeInteger(size) && size >= 500 && size <= 2_000) {
+                      actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })
+                    }
+                  }}
+                />
+              </label>
+            </fieldset>
+            <fieldset
               className="assistant-settings__group assistant-settings__group--review-actions"
               data-settings-section="review-actions"
             >

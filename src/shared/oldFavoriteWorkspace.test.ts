@@ -154,13 +154,22 @@ describe('old favorite workspace', () => {
     expect(() => redoWorkspaceChange({ ...frozen, historyCursor: 0 })).toThrow('Old favorite workspace plan is frozen.')
   })
 
-  it('keeps at most 2000 planned aids in one UI segment even when a smaller segment size is configured', () => {
+  it('honors a smaller configured segment size even when the full round is below 2000 items', () => {
     const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 1_000 })
     const preview = completeWorkspaceScan(scanning, {
       revision: 1, aids: Array.from({ length: 1_500 }, (_, index) => index + 1)
     })
 
-    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([1_500])
-    expect(preview.hasMultipleSegments).toBe(false)
+    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([1_000, 500])
+    expect(preview.hasMultipleSegments).toBe(true)
+  })
+
+  it('rejects physical segment sizes outside the supported 500 to 2000 range', () => {
+    expect(() => createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 499
+    })).toThrow('segment size is invalid')
+    expect(() => createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 2_001
+    })).toThrow('segment size is invalid')
   })
 })

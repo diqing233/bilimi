@@ -567,6 +567,18 @@ describe('assistant state', () => {
     })
   })
 
+  it('normalizes the next-round old-favorite segment limit to 500 through 2000', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 500 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 500 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_000 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 499 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_001 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+  })
+
   it('clears legacy correction records once before the adjustment-record schema is enabled', () => {
     const legacyRecord = {
       id: 'legacy-record',

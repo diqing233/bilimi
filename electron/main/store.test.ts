@@ -713,6 +713,7 @@ describe('assistant preference store helpers', () => {
       bilibiliOperationMode: 'page-visual',
       bilibiliConnectionMode: 'direct',
       favoriteArchiveMultiMode: 'two',
+      oldFavoriteWorkspaceSegmentSize: 1_500,
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,
       favoriteCorrectionLearningClassificationEnabled: false,
@@ -775,6 +776,7 @@ describe('assistant preference store helpers', () => {
       bilibiliOperationMode: 'page-visual',
       bilibiliConnectionMode: 'direct',
       favoriteArchiveMultiMode: 'two',
+      oldFavoriteWorkspaceSegmentSize: 1_500,
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,
       favoriteCorrectionLearningClassificationEnabled: false,
@@ -840,6 +842,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
       favoriteArchiveMultiMode: 'many' as never,
+      oldFavoriteWorkspaceSegmentSize: 2_001,
       favoriteArchiveStrategy: 'reckless' as never,
       favoriteCorrectionRecords: [
         null,
@@ -866,6 +869,7 @@ describe('assistant preference store helpers', () => {
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
+      oldFavoriteWorkspaceSegmentSize: 1_000,
       favoriteArchiveStrategy: 'aggressive',
       favoriteCorrectionRecords: [
         expect.objectContaining({

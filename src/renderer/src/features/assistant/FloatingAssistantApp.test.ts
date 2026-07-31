@@ -33,6 +33,17 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('exposes a bounded next-round old-favorite batch setting without changing the active draft', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const start = source.indexOf('data-settings-section="old-favorite-batches"')
+    const section = source.slice(start, source.indexOf('</fieldset>', start))
+    expect(section).toContain('当前草稿不会被重新切分')
+    expect(section).toContain('1000 条（推荐）')
+    expect(section).toContain('min={500}')
+    expect(section).toContain('max={2_000}')
+    expect(section).toContain('persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })')
+  })
+
   it('routes a direct ledger-enabled intent through the narrow IPC without scanning the ledger array', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
