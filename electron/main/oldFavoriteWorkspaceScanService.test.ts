@@ -636,6 +636,28 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     expect(coordinator.resumeTagEnrichment).toHaveBeenCalledWith('100')
     expect(runtime).toHaveBeenCalledWith({ type: 'old-favorite-workspace-bind-scan-target', accountMid: '100' })
+    expect(runtime.mock.invocationCallOrder[0]).toBeLessThan(coordinator.resumeTagEnrichment.mock.invocationCallOrder[0])
+  })
+
+  it('keeps a recovered tag enrichment paused when no usable Bilibili target can be bound', async () => {
+    const coordinator = {
+      resumeTagEnrichment: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue({
+        workspaceId: 'workspace-1',
+        tagEnrichment: { status: 'paused' }
+      }),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([1])
+    }
+    const runtime = vi.fn().mockResolvedValue({
+      status: 'unknown', observedAccountMid: '100', reason: 'scan-target-unavailable'
+    })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.resumeTagEnrichment('100')
+
+    expect(coordinator.resumeTagEnrichment).not.toHaveBeenCalled()
+    expect(coordinator.getSnapshot).not.toHaveBeenCalled()
+    expect(coordinator.getPendingTagEnrichmentAids).not.toHaveBeenCalled()
   })
 
   it('fails closed instead of endlessly paging an empty source result that claims more pages', async () => {

@@ -302,11 +302,11 @@ export class OldFavoriteWorkspaceScanService {
     this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
-    await this.options.coordinator.resumeTagEnrichment(account)
     const binding = await this.request(account, { type: 'old-favorite-workspace-bind-scan-target', accountMid: account })
     if (binding.status !== 'ok' || !binding.target || normalizeAccountMid(binding.observedAccountMid) !== account) {
       return
     }
+    await this.options.coordinator.resumeTagEnrichment(account)
     const snapshot = await this.options.coordinator.getSnapshot(account)
     if (snapshot && 'workspaceId' in snapshot) void this.startTagEnrichment(account, binding.target, snapshot.workspaceId)
   }
