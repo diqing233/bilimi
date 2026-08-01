@@ -234,6 +234,7 @@ export function PalaceMaidPetApp() {
     const interactiveSelector =
       '.palace-maid-pet, .palace-maid-pet__hover-shortcuts, .palace-maid-pet__hover-shortcut, .palace-maid-pet__assistant-shortcut, .palace-maid-pet__quick-actions, .palace-maid-pet__quick-action, .palace-maid-pet__bubble, .palace-maid-pet__resize-controls, .palace-maid-pet__resize-step'
     let lastPublishedRegions = ''
+    let publishFrame: number | null = null
     const publishRegions = () => {
       const regions = [...shell.querySelectorAll<HTMLElement>(interactiveSelector)]
           .filter((element) => {
@@ -248,16 +249,26 @@ export function PalaceMaidPetApp() {
       lastPublishedRegions = serializedRegions
       updateRegions(regions)
     }
+    const schedulePublishRegions = () => {
+      if (publishFrame !== null) return
+      publishFrame = window.requestAnimationFrame(() => {
+        publishFrame = null
+        publishRegions()
+      })
+    }
 
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publishRegions) : null
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(schedulePublishRegions) : null
+    const mutationObserver = new MutationObserver(schedulePublishRegions)
     observer?.observe(shell)
-    window.addEventListener('resize', publishRegions)
-    const regionPoll = window.setInterval(publishRegions, 100)
+    mutationObserver.observe(shell, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
+    window.addEventListener('resize', schedulePublishRegions)
+    publishRegions()
 
     return () => {
       observer?.disconnect()
-      window.removeEventListener('resize', publishRegions)
-      window.clearInterval(regionPoll)
+      mutationObserver.disconnect()
+      window.removeEventListener('resize', schedulePublishRegions)
+      if (publishFrame !== null) window.cancelAnimationFrame(publishFrame)
       updateRegions([])
     }
   }, [chatOpen, closePromptVisible, hoverShortcutsVisible, petSize, resizeControlsVisible])

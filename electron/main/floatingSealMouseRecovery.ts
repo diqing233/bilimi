@@ -31,6 +31,7 @@ export function createFloatingSealMouseRecoveryController({
   let interactiveRegions: FloatingSealInteractiveRegion[] = []
   let pollHandle: unknown
   let transparent = false
+  let visible = true
 
   function stopPolling() {
     if (pollHandle === undefined) return
@@ -68,7 +69,12 @@ export function createFloatingSealMouseRecoveryController({
       transparent = nextTransparent
       setFloatingSealMouseTransparency(window, nextTransparent)
       stopPolling()
-      if (nextTransparent) pollHandle = schedulePoll(restoreWhenCursorEntersInteractiveRegion)
+      if (nextTransparent && visible) pollHandle = schedulePoll(restoreWhenCursorEntersInteractiveRegion)
+    },
+    setVisible(nextVisible: boolean) {
+      visible = nextVisible
+      stopPolling()
+      if (visible && transparent) pollHandle = schedulePoll(restoreWhenCursorEntersInteractiveRegion)
     },
     updateInteractiveRegions(regions: unknown[]) {
       interactiveRegions = regions.flatMap((region) => {

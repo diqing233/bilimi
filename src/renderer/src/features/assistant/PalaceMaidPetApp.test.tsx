@@ -1762,7 +1762,7 @@ describe('PalaceMaidPetApp', () => {
     expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
   })
 
-  it('reports native hit-test regions so a transparent pet window can recover before pointerenter', () => {
+  it('reports native hit-test regions so a transparent pet window can recover before pointerenter', async () => {
     vi.useFakeTimers()
     const updateFloatingSealInteractiveRegions = vi.fn()
     installDesktopApi({ updateFloatingSealInteractiveRegions })
@@ -1783,8 +1783,6 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    expect(updateFloatingSealInteractiveRegions).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(100))
     expect(updateFloatingSealInteractiveRegions).toHaveBeenCalledWith(
       expect.arrayContaining([
         { x: 24, y: 36, width: 96, height: 112 },
@@ -1809,7 +1807,10 @@ describe('PalaceMaidPetApp', () => {
         toJSON: () => ({})
       }
     })
-    act(() => vi.advanceTimersByTime(100))
+    await act(async () => {
+      await Promise.resolve()
+      vi.advanceTimersByTime(20)
+    })
     expect(updateFloatingSealInteractiveRegions).toHaveBeenLastCalledWith(
       expect.arrayContaining([{ x: 240, y: 36, width: 96, height: 112 }])
     )

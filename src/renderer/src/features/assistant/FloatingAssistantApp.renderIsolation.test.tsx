@@ -39,7 +39,7 @@ vi.mock('../notes/VideoNoteArchivePanel', () => ({ VideoNoteArchivePanel: () => 
 
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 
-function installDesktopApi(preferences = createInitialAssistantPreferences()) {
+function installDesktopApi(preferences = createInitialAssistantPreferences(), patch: Record<string, unknown> = {}) {
   Object.defineProperty(window, 'bilimiDesktop', {
     configurable: true,
     value: {
@@ -64,7 +64,8 @@ function installDesktopApi(preferences = createInitialAssistantPreferences()) {
       onVideoAudioTranscriptionQueueChanged: vi.fn(() => vi.fn()),
       onTranscriptionModelInstallProgress: vi.fn(() => vi.fn()),
       getLocalDataInfo: vi.fn(async () => ({ path: 'C:\\test\\bilimi', accounts: [] })),
-      setAssistantPetHint: vi.fn()
+      setAssistantPetHint: vi.fn(),
+      ...patch
     }
   })
 }
@@ -189,5 +190,22 @@ describe('FloatingAssistantApp render isolation', () => {
 
     expect(screen.getByRole('button', { name: '保存并测试' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '重置 DeepSeek' })).toBeEnabled()
+  })
+
+  it('shows only the pet wake action as busy while the ready signal is pending', async () => {
+    let resolveWake: (() => void) | undefined
+    const wakeAssistantPet = vi.fn(() => new Promise<void>((resolve) => { resolveWake = resolve }))
+    installDesktopApi(createInitialAssistantPreferences(), { wakeAssistantPet })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '唤醒宠物' }))
+
+    expect(screen.getByRole('button', { name: '正在唤醒…' })).toBeDisabled()
+    expect(screen.getByRole('tab', { name: '掌库' })).toBeEnabled()
+    expect(wakeAssistantPet).toHaveBeenCalledOnce()
+
+    await act(async () => { resolveWake?.(); await Promise.resolve() })
+    expect(screen.getByRole('button', { name: '唤醒宠物' })).toBeEnabled()
   })
 })

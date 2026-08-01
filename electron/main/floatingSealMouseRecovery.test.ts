@@ -74,4 +74,28 @@ describe('createFloatingSealMouseRecoveryController', () => {
     expect(cancelPoll).toHaveBeenNthCalledWith(1, 9)
     expect(cancelPoll).toHaveBeenNthCalledWith(2, 9)
   })
+
+  it('pauses cursor polling while the pet window is hidden and resumes only when visible', () => {
+    const schedulePoll = vi.fn(() => 5)
+    const cancelPoll = vi.fn()
+    const controller = createFloatingSealMouseRecoveryController({
+      getCursorPoint: () => ({ x: 0, y: 0 }),
+      schedulePoll,
+      cancelPoll,
+      window: {
+        getBounds: () => ({ x: 0, y: 0, width: 320, height: 380 }),
+        isDestroyed: () => false,
+        setIgnoreMouseEvents: vi.fn()
+      }
+    })
+
+    controller.setVisible(false)
+    controller.setTransparent(true)
+    expect(schedulePoll).not.toHaveBeenCalled()
+
+    controller.setVisible(true)
+    expect(schedulePoll).toHaveBeenCalledOnce()
+    controller.setVisible(false)
+    expect(cancelPoll).toHaveBeenCalledWith(5)
+  })
 })

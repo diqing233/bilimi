@@ -437,15 +437,17 @@ function createFloatingSealWindow() {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
     floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
       getCursorPoint: () => screen.getCursorScreenPoint(),
-      schedulePoll: (callback) => setInterval(callback, 16),
+      schedulePoll: (callback) => setInterval(callback, 40),
       cancelPoll: (handle) => clearInterval(handle as NodeJS.Timeout),
       window: seal
     })
+    floatingSealMouseRecovery.setVisible(false)
     floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
     floatingSealMouseRecovery.setTransparent(true)
     sendAssistantPetState()
     enforceSealBounds()
     floatingSealWakeController.showWhenReady(seal)
+    floatingSealMouseRecovery.setVisible(seal.isVisible())
   })
   floatingSealWindow = seal
   enforceFloatingSealWindowBounds = enforceSealBounds
@@ -458,6 +460,7 @@ const floatingSealWakeController = createFloatingSealWakeController({
   getWindow: () => floatingSealWindow,
   prepareWindow: () => {
     resetFloatingSealWindowBounds()
+    floatingSealMouseRecovery?.setVisible(true)
     setFloatingSealWindowMouseTransparent(false)
   },
   scheduleCreate: (callback) => setImmediate(callback),
@@ -673,6 +676,7 @@ function closeAssistantPetWindow() {
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
   floatingSealWakeController.close()
+  floatingSealMouseRecovery?.setVisible(false)
 }
 
 function restoreMainWindowFromTray() {
@@ -747,7 +751,7 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
 }
 
 function wakeAssistantPetWindow() {
-  floatingSealWakeController.wake()
+  return floatingSealWakeController.wake()
 }
 
 function notifyFloatingAssistantSnapshotChanged() {
@@ -1539,9 +1543,7 @@ function registerAssistantPreferenceHandlers() {
     const tone = hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint'
     sendAssistantPetHint({ tone, message: hint.message })
   })
-  ipcMain.handle('assistant-pet:wake', () => {
-    wakeAssistantPetWindow()
-  })
+  ipcMain.handle('assistant-pet:wake', () => wakeAssistantPetWindow())
   ipcMain.handle('assistant:open-from-floating-seal', () => {
     restoreMainWindowForPet()
   })
@@ -2314,7 +2316,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   registerAssistantPreferenceHandlers()
   createMainWindow()
   if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
-  floatingSealWakeController.wake()
+  void floatingSealWakeController.wake()
 })
 
 const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({

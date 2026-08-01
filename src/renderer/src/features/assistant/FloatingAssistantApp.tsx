@@ -1156,6 +1156,7 @@ type SettingsWorkspaceData = {
   } | null
   localDataUnavailable: boolean
   connectionTestRunning: boolean
+  petWakeRunning: boolean
   petHoverShortcutFieldStore: ReturnType<typeof createPetHoverShortcutFieldStore>
   preferences: AssistantPreferences
   selectedTranscriptionModelId: TranscriptionModelId
@@ -1218,7 +1219,7 @@ type SettingsWorkspaceActions = {
     status: FavoriteKeywordSuggestionStatus,
     favoriteLedgers?: AssistantPreferences['favoriteLedgers']
   ) => void
-  wakeAssistantPet: () => void
+  wakeAssistantPet: () => Promise<void>
 }
 
 type SettingsWorkspaceContentProps = {
@@ -1237,6 +1238,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     localDataInfo,
     localDataUnavailable,
     connectionTestRunning,
+    petWakeRunning,
     petHoverShortcutFieldStore,
     preferences,
     selectedTranscriptionModelId,
@@ -1279,7 +1281,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     [getActions]
   )
   const wakeAssistantPet = useCallback(
-    () => getActions().wakeAssistantPet(),
+    () => { void getActions().wakeAssistantPet() },
     [getActions]
   )
   const closeAssistantPet = useCallback(
@@ -1909,8 +1911,8 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               </div>
               <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <div className="assistant-settings__pet-actions">
-                <button type="button" onClick={wakeAssistantPet}>
-                  唤醒宠物
+                <button type="button" disabled={petWakeRunning} aria-busy={petWakeRunning} onClick={wakeAssistantPet}>
+                  {petWakeRunning ? '正在唤醒…' : '唤醒宠物'}
                 </button>
                 <button type="button" onClick={closeAssistantPet}>
                   关闭宠物
@@ -2318,6 +2320,7 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
+  const [petWakeRunning, setPetWakeRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
@@ -3301,9 +3304,18 @@ export function FloatingAssistantApp({
     persistPreferencePatch({ rememberCloseChoice })
   }
 
-  function wakeAssistantPet() {
-    tellPet('success', '小咪醒着呢，随时陪主人看视频。')
-    void window.bilimiDesktop?.wakeAssistantPet?.()
+  async function wakeAssistantPet() {
+    if (petWakeRunning) return
+    setPetWakeRunning(true)
+    tellPet('progress', '正在唤醒小咪，侧边栏仍可继续操作。')
+    try {
+      await window.bilimiDesktop?.wakeAssistantPet?.()
+      tellPet('success', '小咪醒着呢，随时陪主人看视频。')
+    } catch {
+      tellPet('error', '小咪这次没能醒来，请稍后再试。')
+    } finally {
+      setPetWakeRunning(false)
+    }
   }
 
   function closeAssistantPet() {
@@ -4464,6 +4476,7 @@ export function FloatingAssistantApp({
   const settingsWorkspaceData = useMemo<SettingsWorkspaceData>(() => ({
     accountMid: resolvedSnapshot.accountMid,
     connectionTestRunning,
+    petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
     localDataInfo,
@@ -4484,6 +4497,7 @@ export function FloatingAssistantApp({
     transcriptionModels
   }), [
     connectionTestRunning,
+    petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
     localDataInfo,

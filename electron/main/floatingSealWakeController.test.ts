@@ -3,7 +3,7 @@ import { createFloatingSealWakeController } from './floatingSealWakeController'
 
 function sealWindow() {
   return {
-    close: vi.fn(),
+    hide: vi.fn(),
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     showInactive: vi.fn()
@@ -148,7 +148,7 @@ describe('createFloatingSealWakeController', () => {
     controller.close()
     controller.showWhenReady(created)
 
-    expect(created.close).toHaveBeenCalledOnce()
+    expect(created.hide).toHaveBeenCalledOnce()
     expect(created.showInactive).not.toHaveBeenCalled()
     expect(created.focus).not.toHaveBeenCalled()
   })

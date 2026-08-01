@@ -1,5 +1,5 @@
 type WakeableFloatingSealWindow = {
-  close: () => void
+  hide: () => void
   isDestroyed: () => boolean
   showInactive: () => void
 }
@@ -22,6 +22,8 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
   let createScheduled = false
   let createHandle: unknown
   let displayRequested = false
+  let pendingWake: Promise<void> | null = null
+  let resolvePendingWake: (() => void) | null = null
   const readyWindows = new WeakSet<TWindow>()
 
   function showWithoutActivation(window: TWindow) {
@@ -33,12 +35,20 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
   return {
     wake() {
       displayRequested = true
+      pendingWake ??= new Promise<void>((resolve) => { resolvePendingWake = resolve })
       const existing = getWindow()
       if (existing && !existing.isDestroyed()) {
-        if (readyWindows.has(existing)) showWithoutActivation(existing)
-        return
+        if (readyWindows.has(existing)) {
+          showWithoutActivation(existing)
+          resolvePendingWake?.()
+          resolvePendingWake = null
+          const completed = pendingWake
+          pendingWake = null
+          return completed
+        }
+        return pendingWake
       }
-      if (createScheduled) return
+      if (createScheduled) return pendingWake
 
       createScheduled = true
       createHandle = scheduleCreate(() => {
@@ -47,6 +57,7 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
         if (!displayRequested) return
         createWindow()
       })
+      return pendingWake
     },
     close() {
       displayRequested = false
@@ -56,12 +67,18 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
         createHandle = undefined
       }
       const existing = getWindow()
-      if (existing && !existing.isDestroyed()) existing.close()
+      if (existing && !existing.isDestroyed()) existing.hide()
+      resolvePendingWake?.()
+      resolvePendingWake = null
+      pendingWake = null
     },
     showWhenReady(window: TWindow) {
       readyWindows.add(window)
       if (!displayRequested || getWindow() !== window || window.isDestroyed()) return
       window.showInactive()
+      resolvePendingWake?.()
+      resolvePendingWake = null
+      pendingWake = null
     }
   }
 }

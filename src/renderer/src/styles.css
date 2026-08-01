@@ -7036,6 +7036,9 @@ body[data-floating-window="true"],
   gap: 8px;
   padding-left: 0;
 }
+.assistant-settings__pet-actions button[aria-busy='true'] {
+  cursor: progress;
+}
 .assistant-settings__deepseek-review-control label {
   display: inline-flex;
   grid-template-columns: none;

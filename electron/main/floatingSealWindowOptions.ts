@@ -42,7 +42,7 @@ export function createFloatingSealWindowOptions(
       preload,
       contextIsolation: true,
       sandbox: false,
-      backgroundThrottling: false
+      backgroundThrottling: true
     }
   }
 }
