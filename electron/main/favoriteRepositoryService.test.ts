@@ -832,6 +832,71 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 1 })
   })
 
+  it('derives sync, protection, and organization from independent repository facts', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-02T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `state-video-${aid}`, accountMid: '100', issuedAt: '2026-08-02T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `State video ${aid}`, tags: [], updatedAt: '2026-08-02T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'state-protection', accountMid: '100', issuedAt: '2026-08-02T00:00:01.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: [], completedAt: '2026-08-02T00:00:01.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'state-work-folder', accountMid: '100', issuedAt: '2026-08-02T00:00:02.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [2],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '900'
+      }
+    })
+    await service.commit('100', {
+      id: 'state-work-members', accountMid: '100', issuedAt: '2026-08-02T00:00:03.000Z', type: 'set-folder-members',
+      payload: { folderId: 'bilimi-logical:music', aids: [2] }
+    })
+    await service.commit('100', {
+      id: 'state-aligned-position', accountMid: '100', issuedAt: '2026-08-02T00:00:04.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 2,
+        localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['bilibili:900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:music'],
+        positionState: 'aligned',
+        updatedAt: '2026-08-02T00:00:04.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'state-ordinary-source', accountMid: '100', issuedAt: '2026-08-02T00:00:05.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'state-workspace',
+        memberAidsByFolderId: { 'bilibili:901': [3] },
+        folders: [{ id: 'bilibili:901', title: '普通用户收藏夹', remoteFolderId: '901' }],
+        videos: [1, 2, 3, 4].map((aid) => ({ aid, title: `State video ${aid}`, tags: [], updatedAt: '2026-08-02T00:00:05.000Z' }))
+      }
+    })
+    await service.commit('100', {
+      id: 'state-inbox-members', accountMid: '100', issuedAt: '2026-08-02T00:00:06.000Z', type: 'set-folder-members',
+      payload: { folderId: 'local:inbox', aids: [1, 4] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'title-asc' })).resolves.toMatchObject({
+      items: [
+        { video: { aid: 1 }, libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'unorganized' } },
+        { video: { aid: 2 }, libraryStates: { sync: 'synced', protection: 'unprotected', organization: 'organized' } },
+        { video: { aid: 3 }, libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' } },
+        { video: { aid: 4 }, libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' } }
+      ]
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'unorganized' }
+    })
+    await expect(service.getLibraryDetail('100', 4)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
+    })
+  })
+
   it('reapplies an authoritative workspace transition when a retained command result no longer matches', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
@@ -1461,7 +1526,8 @@ describe('FavoriteRepositoryService', () => {
       version: 1, accountMid: '100', revision: 1, totalCount: 2,
       items: [{
         video: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
-          folderIds: [], pendingStates: []
+          folderIds: [], pendingStates: [],
+          libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
       }],
       nextCursor: '1'
     })

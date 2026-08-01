@@ -14,6 +14,13 @@ export type FavoriteLibrarySearchEntry = {
 export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
   folderIds: string[]
   pendingStates?: FavoriteLibraryPendingState[]
+  libraryStates?: FavoriteLibraryStates
+}
+
+export type FavoriteLibraryStates = {
+  sync: 'synced' | 'unsynced'
+  protection: 'protected' | 'unprotected'
+  organization: 'organized' | 'unorganized'
 }
 
 export type FavoriteLibraryPendingState = 'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown'
@@ -96,19 +103,22 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 }
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
-export function formatFavoriteLibraryMirrorStatus(states: readonly FavoriteLibraryPendingState[]): string {
+export function formatFavoriteLibraryMirrorStatus(
+  states: readonly FavoriteLibraryPendingState[],
+  syncState: FavoriteLibraryStates['sync'] = 'unsynced'
+): string {
   // Protection describes local retention policy, not the Bilibili mirror state.
   const syncStates = states.filter((state) => state !== 'protected')
   if (syncStates.includes('failed')) return '同步失败'
   if (syncStates.includes('result-unknown')) return '同步状态待确认'
   if (syncStates.includes('unsynced')) return '未同步'
   if (syncStates.includes('continuation')) return '等待处理'
-  return '已同步'
+  return syncState === 'synced' ? '已同步' : '未同步'
 }
 
 /** Organization protection is separate from local information refresh. */
-export function formatFavoriteLibraryOrganizationStatus(states: readonly FavoriteLibraryPendingState[]): string {
-  return states.includes('protected') ? '已整理' : '未整理'
+export function formatFavoriteLibraryOrganizationStatus(state: FavoriteLibraryStates['organization']): string {
+  return state === 'organized' ? '已整理' : '未整理'
 }
 
 export function formatFavoriteLibraryMetadataStatus(status: string | undefined, isPlaceholder = false) {

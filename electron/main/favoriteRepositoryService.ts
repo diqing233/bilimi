@@ -118,6 +118,11 @@ type EventJournalEntry = {
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 export type FavoriteRepositoryLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
 export type FavoriteRepositoryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
+export type FavoriteRepositoryLibraryStates = {
+  sync: 'synced' | 'unsynced'
+  protection: 'protected' | 'unprotected'
+  organization: 'organized' | 'unorganized'
+}
 
 type FolderPageOptions = {
   limit: number
@@ -273,6 +278,7 @@ export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
   pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown' | 'transcription'>
+  libraryStates: FavoriteRepositoryLibraryStates
 }
 
 export type FavoriteRepositoryLibraryDetail = {
@@ -282,6 +288,7 @@ export type FavoriteRepositoryLibraryDetail = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
   pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
+  libraryStates: FavoriteRepositoryLibraryStates
   protected: boolean
   position?: {
     state: NonNullable<AccountFavoriteRepositorySnapshot['positions'][string]>['positionState']
@@ -867,7 +874,8 @@ export class FavoriteRepositoryService {
         return [{
           video: { ...video, tags: [...video.tags] },
           folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
-          pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state))
+          pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
+          libraryStates: this.libraryStatesForAid(snapshot, index, aid)
         }]
       }),
       ...(start + limit < scopedAids.length ? { nextCursor: String(start + limit) } : {}),
@@ -907,6 +915,7 @@ export class FavoriteRepositoryService {
       video: { ...video, tags: [...video.tags] },
       folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
+      libraryStates: this.libraryStatesForAid(snapshot, index, aid),
       protected: snapshot.organizationRecords.some((record) => record.aid === aid),
       ...(snapshot.positions[`${snapshot.accountMid}:${aid}`] ? {
         position: this.positionSummary(snapshot.positions[`${snapshot.accountMid}:${aid}`])
@@ -1314,6 +1323,33 @@ export class FavoriteRepositoryService {
       addState(Number(item.aid), 'transcription')
     }
     return statesByAid
+  }
+
+  private libraryStatesForAid(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    index: FavoriteRepositoryLibraryIndex,
+    aid: number
+  ): FavoriteRepositoryLibraryStates {
+    const position = snapshot.positions?.[`${snapshot.accountMid}:${aid}`]
+    const remoteBilimiEvidence = Boolean(position && (
+      position.remoteObservedLogicalFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:')) ||
+      position.remoteObservedPhysicalFolderIds.some((folderId) => {
+        const normalized = folderId.trim()
+        return (snapshot.physicalShards ?? []).some((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) && (
+          shard.folderId === normalized ||
+          shard.remoteFolderId === normalized ||
+          `bilibili:${shard.remoteFolderId}` === normalized
+        ))
+      })
+    ))
+    const reliableRemoteState = position?.positionState === 'aligned' || position?.positionState === 'local-only-change'
+    const organized = (index.folderIdsByAid.get(aid) ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))
+    const protectedAid = (snapshot.organizationRecords ?? []).some((record) => record.aid === aid)
+    return {
+      sync: remoteBilimiEvidence && reliableRemoteState ? 'synced' : 'unsynced',
+      protection: protectedAid ? 'protected' : 'unprotected',
+      organization: organized ? 'organized' : 'unorganized'
+    }
   }
 
   /** Protected and transcription states are displayed separately; neither requires library work. */

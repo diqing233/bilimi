@@ -32,25 +32,26 @@ describe('favoriteLibraryModel', () => {
   })
 
   it('translates repository mirror states into user-facing Chinese labels', () => {
-    expect(formatFavoriteLibraryMirrorStatus(['unsynced'])).toBe('未同步')
-    expect(formatFavoriteLibraryMirrorStatus(['failed'])).toBe('同步失败')
-    expect(formatFavoriteLibraryMirrorStatus([])).toBe('已同步')
+    expect(formatFavoriteLibraryMirrorStatus(['unsynced'], 'unsynced')).toBe('未同步')
+    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).toBe('同步失败')
+    expect(formatFavoriteLibraryMirrorStatus([], 'synced')).toBe('已同步')
+    expect(formatFavoriteLibraryMirrorStatus([], 'unsynced')).toBe('未同步')
   })
 
   it('does not expose internal pending-state enum values in reader-facing labels', () => {
-    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'])).toMatch(/确认/)
-    expect(formatFavoriteLibraryMirrorStatus(['continuation'])).toMatch(/等待/)
-    expect(formatFavoriteLibraryMirrorStatus(['failed'])).not.toContain('failed')
-    expect(formatFavoriteLibraryMirrorStatus(['protected'])).toBe('已同步')
+    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'], 'unsynced')).toMatch(/确认/)
+    expect(formatFavoriteLibraryMirrorStatus(['continuation'], 'unsynced')).toMatch(/等待/)
+    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).not.toContain('failed')
+    expect(formatFavoriteLibraryMirrorStatus(['protected'], 'unsynced')).toBe('未同步')
   })
 
   it('keeps organization protection from hiding an outstanding information refresh', () => {
-    expect(formatFavoriteLibraryMirrorStatus(['protected', 'unsynced'])).toMatch(/未同步/)
+    expect(formatFavoriteLibraryMirrorStatus(['protected', 'unsynced'], 'unsynced')).toMatch(/未同步/)
   })
 
   it('reports organization status separately from information refresh state', () => {
-    expect(formatFavoriteLibraryOrganizationStatus(['protected', 'unsynced'])).toBe('已整理')
-    expect(formatFavoriteLibraryOrganizationStatus(['unsynced'])).toBe('未整理')
+    expect(formatFavoriteLibraryOrganizationStatus('organized')).toBe('已整理')
+    expect(formatFavoriteLibraryOrganizationStatus('unorganized')).toBe('未整理')
   })
 
   it('labels the legacy local inbox as unmatched classifications without changing its id', () => {

@@ -113,7 +113,12 @@ const text = {
 } as const
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
-  return page.items.map((item) => ({ ...item.video, folderIds: [...item.folderIds], pendingStates: [...item.pendingStates] }))
+  return page.items.map((item) => ({
+    ...item.video,
+    folderIds: [...item.folderIds],
+    pendingStates: [...item.pendingStates],
+    libraryStates: item.libraryStates ? { ...item.libraryStates } : undefined
+  }))
 }
 
 function pendingCount(summary: FavoriteRepositorySnapshotSummary) {
@@ -407,7 +412,7 @@ export function FavoriteLibraryApp({
       if (preserveSelection) {
         setSelected((current) => {
           const matching = current && next.items.find((item) => item.video.aid === current.aid)
-          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates] } : undefined
+          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates], libraryStates: matching.libraryStates ? { ...matching.libraryStates } : undefined } : undefined
         })
       } else {
         setSelected(undefined)
@@ -671,7 +676,7 @@ export function FavoriteLibraryApp({
       if (sameAccount) {
         setSelected((current) => {
           const matching = current && nextPage.items.find((item) => item.video.aid === current.aid)
-          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates] } : undefined
+          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates], libraryStates: matching.libraryStates ? { ...matching.libraryStates } : undefined } : undefined
         })
       }
       setError(undefined)
@@ -814,7 +819,7 @@ export function FavoriteLibraryApp({
   const shouldShowFilteredCount = hasActiveResultFilter && displayedTotal !== currentScopeTotal
   const detail = selected && activeRow ? buildFavoriteLibraryDetail(
     detailSnapshot?.video.aid === selected.aid
-      ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates].filter((state) => state !== 'transcription') }
+      ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates].filter((state) => state !== 'transcription'), libraryStates: detailSnapshot.libraryStates ? { ...detailSnapshot.libraryStates } : undefined }
       : selected,
     folders,
     { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)].filter((state) => state !== 'transcription') }
@@ -1728,7 +1733,7 @@ export function FavoriteLibraryApp({
                   else { setSelected(row); setDetailOpen(true) }
                 }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.click() }}>
             <span className="favorite-library__row-title"><strong title={row.title}>{row.title}</strong><small>{row.author ?? text.unknownAuthor}{row.bvid ? ` · ${row.bvid}` : ` · AV${row.aid}`}</small></span>
-                  <span className="favorite-library__row-status"><span className="favorite-library__row-status-sync">{formatFavoriteLibraryMirrorStatus(row.pendingStates ?? [])}</span><span className="favorite-library__row-status-local">{(row.pendingStates ?? []).includes('protected') ? '已保护' : '未保护'} · {formatFavoriteLibraryOrganizationStatus(row.pendingStates ?? [])}</span></span>
+                  <span className="favorite-library__row-status"><span className="favorite-library__row-status-sync">{formatFavoriteLibraryMirrorStatus(row.pendingStates ?? [], row.libraryStates?.sync)}</span><span className="favorite-library__row-status-local">{row.libraryStates?.protection === 'protected' ? '已保护' : '未保护'} · {formatFavoriteLibraryOrganizationStatus(row.libraryStates?.organization ?? 'unorganized')}</span></span>
                   <span className="favorite-library__row-transcription" onClick={(event) => event.stopPropagation()}><button type="button" disabled={transcriptionCommand === 'cancel-requested' || transcriptionCommand === 'cancel-summary-requested' || transcriptionCommand === 'enqueue' && transcription.disabled} onClick={() => void runAction(async () => {
                     const api = window.bilimiDesktop
                     if (!accountMid) throw new Error(text.unavailable)
@@ -1801,7 +1806,7 @@ export function FavoriteLibraryApp({
               const chips = [
                 { label: '同步状态说明', value: formatFavoriteLibraryPositionSyncStatus(detailSnapshot?.position?.state), explanation: '同步状态以当前的 B 站归属对账结果为准，不会从整理或保护状态推导。' },
                 { label: '保护状态说明', value: detailSnapshot?.protected ? '已保护' : '未保护', explanation: '保护只决定下一次增量整理是否跳过该视频，不会隐藏位置差异或同步错误。' },
-                { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detail.pendingStates), explanation: '整理状态与保护及远程位置状态相互独立。' },
+                { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detailSnapshot?.libraryStates?.organization ?? detail.libraryStates?.organization ?? 'unorganized'), explanation: '整理状态与保护及远程位置状态相互独立。' },
                 ...(unavailableExplanation ? [{ label: '失效状态说明', value: '已失效', explanation: unavailableExplanation }] : [])
               ]
               const displayedStatusExplanation = statusExplanation ?? unavailableExplanation

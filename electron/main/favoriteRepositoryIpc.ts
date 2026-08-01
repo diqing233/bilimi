@@ -112,6 +112,11 @@ export type FavoriteRepositoryLibraryRow = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
   pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
+  libraryStates: {
+    sync: 'synced' | 'unsynced'
+    protection: 'protected' | 'unprotected'
+    organization: 'organized' | 'unorganized'
+  }
 }
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
