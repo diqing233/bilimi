@@ -32,6 +32,8 @@ export type OldFavoriteWorkspaceRecommendationCandidate = {
   displayName: string
   kind: 'author' | 'series' | 'tag'
   count: number
+  /** Number of matches in the currently selected batch; the full AID index stays main-process only. */
+  currentSegmentCount?: number
   reason: string
 }
 
@@ -125,6 +127,7 @@ export type OldFavoriteWorkspaceSnapshot = {
       aid: number
       title?: string
       author?: string
+      description?: string
       tags?: string[]
       category?: string
       cover?: string

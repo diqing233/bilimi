@@ -6,6 +6,7 @@ import type {
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
   DeepSeekArchiveMode,
+  DeepSeekArchiveScope,
   AssistantPreferences,
   FavoriteLedger,
   FavoriteLedgerEnabledPatch,
@@ -82,7 +83,7 @@ type BilimiDesktopApi = {
   getOldFavoriteWorkspaceRecoverySummaryV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceRecoverySummary | null>
   previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>
   deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ id: string; title: string; memberCount: number }>>
-  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceDeepSeekResult>
+  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {
     accountMid: string

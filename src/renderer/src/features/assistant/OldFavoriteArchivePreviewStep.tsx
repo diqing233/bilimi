@@ -1,5 +1,5 @@
 import type { FavoriteLedger } from '@shared/types'
-import type { DeepSeekArchiveMode } from '@shared/types'
+import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
@@ -50,7 +50,7 @@ type OldFavoriteArchivePreviewStepProps = {
   mutationLocked?: boolean
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
-  onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
+  onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => void
   onRetryFailedDeepSeekChunks: () => void
   onCancelDeepSeek?: () => void
   deepSeekCancelRequested?: boolean
@@ -79,6 +79,7 @@ export function OldFavoriteArchivePreviewStep({
   onApplyManualClassifications,
 }: OldFavoriteArchivePreviewStepProps) {
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
+  const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
@@ -180,12 +181,18 @@ export function OldFavoriteArchivePreviewStep({
                   </button>)}
                 </div> : null}
               </div>
+              {snapshot.hasMultipleSegments ? <div className="favorite-ledger-panel__deepseek-archive-scope">
+                <button type="button" aria-label="DeepSeek 批次范围" aria-haspopup="menu" title={deepSeekScope === 'all' ? '本轮所有批次（推荐）' : '当前批次'}
+                  disabled={loading || deepSeekCancellationAction} onClick={() => setDeepSeekScope((scope) => scope === 'all' ? 'current' : 'all')}>
+                  {deepSeekScope === 'all' ? '本轮所有批次' : '当前批次'}
+                </button>
+              </div> : null}
               {deepSeekCancellationAction ? <button
                 type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
                 disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
                 {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
               </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
-                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
+                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode, snapshot.hasMultipleSegments ? deepSeekScope : 'current')}>
                 DeepSeek 整理
               </button>}
             </div>

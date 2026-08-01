@@ -138,7 +138,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
     expect(screen.getByRole('checkbox', { name: '全部存入暂存' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '转移 Preview 1' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '第 2 组' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '第 2 组' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '显示全部 13 条' })).toBeEnabled()
 
     const history = screen.getByRole('button', { name: '查看改动记录' })

@@ -530,7 +530,7 @@ export function ControlledFavoriteLedgerPanel({
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}
         onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
-        onOrganizeWithDeepSeek={(mode) => void workspace.organizeCurrentSegmentWithDeepSeek(mode)}
+        onOrganizeWithDeepSeek={(mode, scope) => void workspace.organizeCurrentSegmentWithDeepSeek(mode, scope)}
         onRetryFailedDeepSeekChunks={() => void workspace.retryFailedDeepSeekChunks()}
         onCancelDeepSeek={() => void workspace.cancelCurrentSegmentDeepSeek()}
         deepSeekCancelRequested={workspace.deepSeekCancelRequested}

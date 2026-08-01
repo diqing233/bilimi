@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
@@ -174,6 +174,55 @@ describe('OldFavoriteConfirmationStep', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
     expect(screen.queryByRole('progressbar', { name: '正在同步到 B 站' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { label: 'frozen status', status: 'frozen' as const, readiness: 'ready' as const },
+    { label: 'saved readiness', status: 'previewing' as const, readiness: 'saved' as const }
+  ])('locks $label mutations while keeping the segment selector available', ({ status, readiness }) => {
+    const onSelectSegment = vi.fn()
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 1, status, readiness, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Saved item', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: {
+        candidates: [{ id: 'author-up', displayName: 'Saved UP', kind: 'author' as const, count: 2, reason: 'Saved recommendation' }],
+        adoptedCandidateIds: ['author-up']
+      },
+      history: { cursor: 1, length: 2, entries: [] }
+    }
+    const SavedGuide = ({ step }: { step: 'generated' | 'preview' }) => <OldFavoriteGuide
+      snapshot={snapshot}
+      loading={false} reconciling={false} preparationStatus={null} executionError={null} scanStarting={false} scanStartFailure={null} step={step}
+      onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()} onSelectSourceFolders={vi.fn()}
+      onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onSetRecommendedCandidates={vi.fn()} ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      deepSeekAvailable deepSeekFeedback={null} onSelectSegment={onSelectSegment}
+      onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()}
+      onApplyManualClassifications={vi.fn()} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />
+    const { rerender } = render(<SavedGuide step="generated" />)
+
+    const selector = screen.getByRole('combobox', { name: '整理批次' })
+    expect(selector).toBeEnabled()
+    expect(screen.getByRole('checkbox', { name: 'Saved UP' })).toBeDisabled()
+    fireEvent.change(selector, { target: { value: 'segment-2' } })
+    expect(onSelectSegment).toHaveBeenCalledWith('segment-2')
+
+    rerender(<SavedGuide step="preview" />)
+    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '转移 Saved item' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '全选 Music' })).toBeDisabled()
   })
 
   it('shows reconciliation progress and restores an actionable retry after a failed check', () => {

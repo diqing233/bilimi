@@ -443,6 +443,8 @@ export type DeepSeekArchiveMode =
   | 'unclassified-only'
   | 'low-confidence-and-unclassified'
 
+export type DeepSeekArchiveScope = 'current' | 'all'
+
 export type DeepSeekArchiveVideoInput = {
   aid: number
   title: string

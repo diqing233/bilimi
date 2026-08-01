@@ -6,6 +6,7 @@ type ScanItem = {
   aid: number
   title?: string
   author?: string
+  description?: string
   tags?: string[]
   tagEvidence?: 'confirmed'
   category?: string

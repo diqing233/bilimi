@@ -3,7 +3,7 @@ import type {
   OldFavoriteWorkspaceRecoveryRequired,
   OldFavoriteWorkspaceRecoverySummary
 } from '../../src/shared/oldFavoriteWorkspace'
-import type { DeepSeekArchiveMode } from '../../src/shared/types'
+import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '../../src/shared/types'
 import {
   OldFavoriteWorkspaceCoordinator
 } from './oldFavoriteWorkspaceCoordinator'
@@ -267,7 +267,8 @@ function command(value: unknown): WorkspaceCommand {
 export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   ipcMain: IpcMain
   coordinator: OldFavoriteWorkspaceCoordinator
-  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks' | 'cancelCurrentSegment'>
+  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks' | 'cancelCurrentSegment'> &
+    Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeAllSegments'>>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
@@ -304,16 +305,20 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (!Array.isArray(ledgerIds) || ledgerIds.some((id) => typeof id !== 'string' || !id.trim())) throw new Error('Old favorite workspace deletion request is invalid.')
     return options.coordinator.deleteManagedFolderCandidates(accountMid, ledgerIds)
   })
-  options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, ...args: unknown[]) => {
-    if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
+  options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope, ...args: unknown[]) => {
+    if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode)) || (scope !== undefined && !['current', 'all'].includes(scope))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
     const accountMid = await assertAccount(event, requestedAccountMid)
     const workspace = await options.coordinator.getSnapshot(accountMid)
     if (!workspace || 'recovery' in workspace) throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     const workspaceId = workspace.workspaceId
-    return snapshot(await options.deepSeekService.organizeCurrentSegment(accountMid, mode ?? 'all', (progress) => {
+    const organize = scope === 'all' && workspace.hasMultipleSegments
+      ? options.deepSeekService.organizeAllSegments
+      : options.deepSeekService.organizeCurrentSegment
+    if (!organize) throw new Error('Old favorite workspace DeepSeek batch organization is unavailable.')
+    return organize.call(options.deepSeekService, accountMid, mode ?? 'all', (progress) => {
       event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, workspaceId, ...progress })
-    }))
+    })
   })
   options.ipcMain.handle('old-favorite-workspace-v1:retry-failed-deepseek', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
@@ -322,9 +327,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     const workspace = await options.coordinator.getSnapshot(accountMid)
     if (!workspace || 'recovery' in workspace) throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     const workspaceId = workspace.workspaceId
-    return snapshot(await options.deepSeekService.retryFailedChunks(accountMid, (progress) => {
+    return options.deepSeekService.retryFailedChunks(accountMid, (progress) => {
       event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, workspaceId, ...progress })
-    }))
+    })
   })
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)

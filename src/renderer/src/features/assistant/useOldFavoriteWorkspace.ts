@@ -6,7 +6,7 @@ import type {
   OldFavoriteWorkspaceRecoverySummary,
   OldFavoriteWorkspaceView
 } from '../../../../shared/oldFavoriteWorkspace'
-import type { DeepSeekArchiveMode } from '@shared/types'
+import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
 type WorkspaceView = OldFavoriteWorkspaceView
@@ -443,7 +443,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return sendCommand({ type: 'apply-classifications', source: 'manual', assignments: normalized })
   }, [sendCommand])
 
-  const organizeCurrentSegmentWithDeepSeek = useCallback(async (mode: DeepSeekArchiveMode) => {
+  const organizeCurrentSegmentWithDeepSeek = useCallback(async (mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => {
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const organize = window.bilimiDesktop?.organizeOldFavoriteWorkspaceDeepSeekV1
@@ -455,9 +455,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     foregroundRequestCount.current += 1
     setDeepSeekCancelRequested(false)
     activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
-    setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
+    setDeepSeekFeedback({ status: 'running', message: scope === 'all' ? 'DeepSeek 正在依次整理本轮所有批次…' : 'DeepSeek 正在整理当前批次…' })
     try {
-      const result = await organize(accountMid, mode)
+      const result = scope ? await organize(accountMid, mode, scope) : await organize(accountMid, mode)
       const next = result.snapshot
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
@@ -470,7 +470,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${referencedConstraints}`, progress: result.progress, failures: result.failures }
           : result.failures.length
             ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${referencedConstraints}`, progress: result.progress, failures: result.failures }
-            : { status: 'completed', message: `DeepSeek 整理完成，已更新当前分段。${referencedConstraints}`, progress: result.progress, failures: [] })
+            : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${referencedConstraints}`, progress: result.progress, failures: [] })
       }
       return next
     } catch (error) {

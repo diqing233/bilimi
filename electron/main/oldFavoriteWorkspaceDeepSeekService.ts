@@ -29,6 +29,18 @@ type ActiveDeepSeekRun = {
   cancelRequested: boolean
   work?: Promise<OldFavoriteWorkspaceDeepSeekResult>
 }
+type FailedDeepSeekSegment = { segmentId: string; aids: number[] }
+type FailedDeepSeekRun = {
+  workspaceId: string
+  mode: DeepSeekArchiveMode
+  scope: 'current' | 'all'
+  segments: FailedDeepSeekSegment[]
+}
+type DeepSeekPreferences = Pick<{
+  deepseekArchiveOrganizationEnabled: boolean
+  favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  favoriteLedgers: FavoriteLedger[]
+}, 'deepseekArchiveOrganizationEnabled' | 'favoriteArchiveMultiMode' | 'favoriteLedgers'>
 
 function multiArchiveLimit(mode: FavoriteArchiveMultiMode) {
   return mode === 'three' ? 3 : mode === 'two' ? 2 : 1
@@ -41,19 +53,14 @@ function uniqueTargets(targets: string[]) {
 /** Builds, validates, and applies a DeepSeek batch entirely in the main process. */
 export class OldFavoriteWorkspaceDeepSeekService {
   private destructiveMaintenance = false
-  private readonly failedRuns = new Map<string, { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }>()
+  private readonly failedRuns = new Map<string, FailedDeepSeekRun>()
   private readonly activeRuns = new Map<string, ActiveDeepSeekRun>()
 
   constructor(private readonly options: {
-    coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
-    preferences: () => Pick<{
-      deepseekArchiveOrganizationEnabled: boolean
-      favoriteArchiveMultiMode: FavoriteArchiveMultiMode
-      favoriteLedgers: FavoriteLedger[]
-    }, 'deepseekArchiveOrganizationEnabled' | 'favoriteArchiveMultiMode' | 'favoriteLedgers'>
-    ledgersForAccount?: (accountMid: string, preferences: Pick<{
-      favoriteLedgers: FavoriteLedger[]
-    }, 'favoriteLedgers'>) => FavoriteLedger[]
+  coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
+    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment'>>
+    preferences: () => DeepSeekPreferences
+    ledgersForAccount?: (accountMid: string, preferences: Pick<DeepSeekPreferences, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
   }) {}
 
@@ -65,14 +72,114 @@ export class OldFavoriteWorkspaceDeepSeekService {
     return this.runOrganize(accountMid, mode, undefined, onProgress)
   }
 
+  /** Runs the same bounded classifier serially across every unsaved ready batch. */
+  async organizeAllSegments(
+    accountMid: string,
+    mode: DeepSeekArchiveMode = 'all',
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    if (!this.options.coordinator.selectSegment) throw new Error('Old favorite workspace batch selection is unavailable.')
+    if (this.destructiveMaintenance) throw new Error('DeepSeek organization is unavailable during destructive maintenance.')
+    if (this.activeRuns.has(accountMid)) throw new Error('DeepSeek is already organizing this old favorite workspace.')
+    const initial = await this.options.coordinator.getSnapshot(accountMid)
+    if (!initial || 'recovery' in initial || initial.status !== 'previewing') {
+      throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
+    }
+    const originalSegmentId = initial.currentSegment?.id
+    const segmentIds = initial.segments
+      .filter((segment) => segment.status !== 'frozen' && segment.readiness !== 'saved')
+      .map((segment) => segment.id)
+    if (!segmentIds.length || !originalSegmentId) {
+      return {
+        snapshot: initial,
+        referencedConstraintLedgerNames: [],
+        progress: { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 },
+        failures: []
+      }
+    }
+    const run: ActiveDeepSeekRun = { cancelRequested: false }
+    const frozenPreferences = this.options.preferences()
+    this.activeRuns.set(accountMid, run)
+    let final = initial
+    const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
+    const failedSegments: FailedDeepSeekSegment[] = []
+    const referencedConstraintLedgerNames = new Set<string>()
+    const aggregate = { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 }
+    try {
+      for (const segmentId of segmentIds) {
+        if (run.cancelRequested) break
+        while (!run.cancelRequested) {
+          const readinessSnapshot = await this.options.coordinator.getSnapshot(accountMid)
+          if (!readinessSnapshot || 'recovery' in readinessSnapshot || readinessSnapshot.workspaceId !== initial.workspaceId || readinessSnapshot.status !== 'previewing') {
+            throw new Error('Old favorite workspace changed while DeepSeek was waiting for the next batch.')
+          }
+          const summary = readinessSnapshot.segments.find((segment) => segment.id === segmentId)
+          if (!summary || summary.status === 'frozen' || summary.readiness === 'saved') break
+          if (summary.readiness === 'ready') {
+            await this.options.coordinator.selectSegment(accountMid, segmentId)
+            break
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 250))
+        }
+        if (run.cancelRequested) break
+        const selected = await this.options.coordinator.getSnapshot(accountMid)
+        const selectedSummary = selected && !('recovery' in selected)
+          ? selected.segments.find((segment) => segment.id === segmentId)
+          : undefined
+        if (!selectedSummary || selectedSummary.status === 'frozen' || selectedSummary.readiness === 'saved') continue
+        const segmentResult = await this.organize(accountMid, mode, undefined, (progress) => {
+          onProgress?.({
+            totalChunks: aggregate.totalChunks + progress.totalChunks,
+            completedChunks: aggregate.completedChunks + progress.completedChunks,
+            totalVideoCount: aggregate.totalVideoCount + progress.totalVideoCount,
+            successfulVideoCount: aggregate.successfulVideoCount + progress.successfulVideoCount,
+            failedVideoCount: aggregate.failedVideoCount + progress.failedVideoCount
+          })
+        }, run, frozenPreferences)
+        final = segmentResult.snapshot
+        segmentResult.failures.forEach((failure) => failures.push({ ...failure, chunkIndex: failures.length + failure.chunkIndex }))
+        const failedAids = segmentResult.failures.flatMap((failure) => failure.aids)
+        if (failedAids.length) failedSegments.push({ segmentId, aids: this.normalizeAids(failedAids) })
+        segmentResult.referencedConstraintLedgerNames.forEach((name) => referencedConstraintLedgerNames.add(name))
+        aggregate.totalChunks += segmentResult.progress.totalChunks
+        aggregate.completedChunks += segmentResult.progress.completedChunks
+        aggregate.totalVideoCount += segmentResult.progress.totalVideoCount
+        aggregate.successfulVideoCount += segmentResult.progress.successfulVideoCount
+        aggregate.failedVideoCount += segmentResult.progress.failedVideoCount
+        if (segmentResult.canceled) break
+      }
+    } finally {
+      await this.options.coordinator.selectSegment(accountMid, originalSegmentId).catch(() => undefined)
+      const restored = await this.options.coordinator.getSnapshot(accountMid)
+      if (restored && !('recovery' in restored)) final = restored
+      if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
+    }
+    this.rememberFailedRun(accountMid, initial.workspaceId, mode, 'all', failedSegments)
+    return {
+      snapshot: final,
+      referencedConstraintLedgerNames: [...referencedConstraintLedgerNames],
+      progress: aggregate,
+      failures,
+      canceled: run.cancelRequested
+    }
+  }
+
   /** Retries only the main-process remembered failed chunk aids for the active workspace. */
   async retryFailedChunks(
     accountMid: string,
     onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const failedRun = this.failedRuns.get(accountMid)
-    if (!failedRun?.aids.length) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
-    return this.runOrganize(accountMid, failedRun.mode, failedRun, onProgress)
+    if (!failedRun?.segments.some((segment) => segment.aids.length)) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
+    if (failedRun.scope === 'all') return this.retryFailedSegments(accountMid, failedRun, onProgress)
+    const [segment] = failedRun.segments
+    if (!segment) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
+    return this.runOrganize(accountMid, failedRun.mode, {
+      workspaceId: failedRun.workspaceId,
+      segmentId: segment.segmentId,
+      mode: failedRun.mode,
+      aids: segment.aids
+    }, onProgress)
   }
 
   cancelCurrentSegment(accountMid: string) {
@@ -88,7 +195,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
     this.failedRuns.clear()
     for (const run of this.activeRuns.values()) run.cancelRequested = true
     while (this.activeRuns.size) {
-      await Promise.allSettled([...this.activeRuns.values()].map((run) => run.work ?? Promise.resolve()))
+      const work = [...this.activeRuns.values()].flatMap((run) => run.work ? [run.work] : [])
+      if (work.length) await Promise.allSettled(work)
+      else await new Promise<void>((resolve) => setTimeout(resolve, 10))
     }
   }
 
@@ -113,14 +222,96 @@ export class OldFavoriteWorkspaceDeepSeekService {
     }
   }
 
+  private async retryFailedSegments(
+    accountMid: string,
+    failedRun: FailedDeepSeekRun,
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    if (!this.options.coordinator.selectSegment) throw new Error('Old favorite workspace batch selection is unavailable.')
+    if (this.destructiveMaintenance) throw new Error('DeepSeek organization is unavailable during destructive maintenance.')
+    if (this.activeRuns.has(accountMid)) throw new Error('DeepSeek is already organizing this old favorite workspace.')
+    const initial = await this.options.coordinator.getSnapshot(accountMid)
+    if (!initial || 'recovery' in initial || initial.status !== 'previewing' || initial.workspaceId !== failedRun.workspaceId) {
+      throw new Error('Old favorite workspace changed before failed DeepSeek chunks could be retried.')
+    }
+    const originalSegmentId = initial.currentSegment?.id
+    if (!originalSegmentId) throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
+    const run: ActiveDeepSeekRun = { cancelRequested: false }
+    const frozenPreferences = this.options.preferences()
+    const aggregate = { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 }
+    const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
+    const remainingFailures: FailedDeepSeekSegment[] = []
+    const referencedConstraintLedgerNames = new Set<string>()
+    let final = initial
+    this.activeRuns.set(accountMid, run)
+    try {
+      for (let index = 0; index < failedRun.segments.length; index += 1) {
+        const failedSegment = failedRun.segments[index]!
+        if (run.cancelRequested) {
+          remainingFailures.push(...failedRun.segments.slice(index))
+          break
+        }
+        const current = await this.options.coordinator.getSnapshot(accountMid)
+        if (!current || 'recovery' in current || current.status !== 'previewing' || current.workspaceId !== failedRun.workspaceId) {
+          throw new Error('Old favorite workspace changed before failed DeepSeek chunks could be retried.')
+        }
+        const summary = current.segments.find((segment) => segment.id === failedSegment.segmentId)
+        if (!summary || summary.status === 'frozen' || summary.readiness === 'saved') continue
+        await this.options.coordinator.selectSegment(accountMid, failedSegment.segmentId)
+        const segmentResult = await this.organize(accountMid, failedRun.mode, {
+          workspaceId: failedRun.workspaceId,
+          segmentId: failedSegment.segmentId,
+          mode: failedRun.mode,
+          aids: failedSegment.aids
+        }, (progress) => {
+          onProgress?.({
+            totalChunks: aggregate.totalChunks + progress.totalChunks,
+            completedChunks: aggregate.completedChunks + progress.completedChunks,
+            totalVideoCount: aggregate.totalVideoCount + progress.totalVideoCount,
+            successfulVideoCount: aggregate.successfulVideoCount + progress.successfulVideoCount,
+            failedVideoCount: aggregate.failedVideoCount + progress.failedVideoCount
+          })
+        }, run, frozenPreferences)
+        final = segmentResult.snapshot
+        const failedAids = segmentResult.failures.flatMap((failure) => failure.aids)
+        if (failedAids.length) remainingFailures.push({ segmentId: failedSegment.segmentId, aids: this.normalizeAids(failedAids) })
+        segmentResult.failures.forEach((failure) => failures.push({ ...failure, chunkIndex: failures.length + failure.chunkIndex }))
+        segmentResult.referencedConstraintLedgerNames.forEach((name) => referencedConstraintLedgerNames.add(name))
+        aggregate.totalChunks += segmentResult.progress.totalChunks
+        aggregate.completedChunks += segmentResult.progress.completedChunks
+        aggregate.totalVideoCount += segmentResult.progress.totalVideoCount
+        aggregate.successfulVideoCount += segmentResult.progress.successfulVideoCount
+        aggregate.failedVideoCount += segmentResult.progress.failedVideoCount
+        if (segmentResult.canceled) {
+          remainingFailures.push(...failedRun.segments.slice(index + 1))
+          break
+        }
+      }
+    } finally {
+      await this.options.coordinator.selectSegment(accountMid, originalSegmentId).catch(() => undefined)
+      const restored = await this.options.coordinator.getSnapshot(accountMid)
+      if (restored && !('recovery' in restored)) final = restored
+      if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
+    }
+    this.rememberFailedRun(accountMid, failedRun.workspaceId, failedRun.mode, 'all', remainingFailures)
+    return {
+      snapshot: final,
+      referencedConstraintLedgerNames: [...referencedConstraintLedgerNames],
+      progress: aggregate,
+      failures,
+      canceled: run.cancelRequested
+    }
+  }
+
   private async organize(
     accountMid: string,
     mode: DeepSeekArchiveMode,
     retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] },
     onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void,
-    run?: ActiveDeepSeekRun
+    run?: ActiveDeepSeekRun,
+    frozenPreferences?: DeepSeekPreferences
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
-    const preferences = this.options.preferences()
+    const preferences = frozenPreferences ?? this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
@@ -307,13 +498,32 @@ export class OldFavoriteWorkspaceDeepSeekService {
   ) {
     const aids = failures.flatMap((failure) => failure.aids)
     if (aids.length && snapshot.currentSegment) {
-      this.failedRuns.set(accountMid, {
-        workspaceId: snapshot.workspaceId, segmentId: snapshot.currentSegment.id, mode, aids: [...new Set(aids)].sort((left, right) => left - right)
-      })
+      this.rememberFailedRun(accountMid, snapshot.workspaceId, mode, 'current', [{
+        segmentId: snapshot.currentSegment.id,
+        aids: this.normalizeAids(aids)
+      }])
     } else {
       this.failedRuns.delete(accountMid)
     }
     return this.result(snapshot, totalChunks, completedChunks, totalVideoCount, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, canceled)
+  }
+
+  private normalizeAids(aids: number[]) {
+    return [...new Set(aids)].sort((left, right) => left - right)
+  }
+
+  private rememberFailedRun(
+    accountMid: string,
+    workspaceId: string,
+    mode: DeepSeekArchiveMode,
+    scope: FailedDeepSeekRun['scope'],
+    segments: FailedDeepSeekSegment[]
+  ) {
+    const normalized = segments
+      .map((segment) => ({ segmentId: segment.segmentId, aids: this.normalizeAids(segment.aids) }))
+      .filter((segment) => segment.aids.length)
+    if (normalized.length) this.failedRuns.set(accountMid, { workspaceId, mode, scope, segments: normalized })
+    else this.failedRuns.delete(accountMid)
   }
 
   private result(
@@ -356,15 +566,16 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const assignments = new Map<number, { aid: number; targetLedgerIds: string[] }>()
     for (const result of results) {
       if (result.invalid) continue
-      if (!Number.isSafeInteger(result.aid) || !itemByAid.has(result.aid)) {
+      const aid = result.aid
+      if (typeof aid !== 'number' || !Number.isSafeInteger(aid) || !itemByAid.has(aid)) {
         throw new Error('DeepSeek result is outside the current segment.')
       }
       const targets = uniqueTargets([
-        ...(result.keepOriginal ? classifications[String(result.aid)]?.targetLedgerIds ?? [] : []),
+        ...(result.keepOriginal ? classifications[String(aid)]?.targetLedgerIds ?? [] : []),
         ...result.targetLedgerIds
       ])
       if (!targets.length || targets.length > limit || targets.some((target) => !enabledLedgerIds.has(target))) continue
-      assignments.set(result.aid, { aid: result.aid, targetLedgerIds: targets })
+      assignments.set(aid, { aid, targetLedgerIds: targets })
     }
     return [...assignments.values()].sort((left, right) => left.aid - right.aid)
   }
@@ -375,8 +586,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     enabledLedgerIds: Set<string>,
     limit: 1 | 2 | 3
   ) {
+    const aid = result.aid
+    if (typeof aid !== 'number' || !Number.isSafeInteger(aid)) return false
     const targets = uniqueTargets([
-      ...(result.keepOriginal ? classifications[String(result.aid)]?.targetLedgerIds ?? [] : []),
+      ...(result.keepOriginal ? classifications[String(aid)]?.targetLedgerIds ?? [] : []),
       ...result.targetLedgerIds
     ])
     return Boolean(targets.length) && targets.length <= limit && targets.every((target) => enabledLedgerIds.has(target))

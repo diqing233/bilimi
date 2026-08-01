@@ -25,8 +25,9 @@ function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) 
   return stripBilimiLedgerPrefix(candidate.displayName)
 }
 
-function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
-  return `${candidate.count} 条适合`
+function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate, showBatchCount: boolean) {
+  if (!showBatchCount || candidate.currentSegmentCount === undefined) return `${candidate.count} 条适合`
+  return `当前批 ${candidate.currentSegmentCount} 条 · 全部 ${candidate.count} 条`
 }
 
 export function OldFavoriteRecommendationStep({
@@ -123,7 +124,7 @@ export function OldFavoriteRecommendationStep({
                     else next.delete(candidate.id)
                     onSetRecommendedCandidates([...next])
                   }} />
-                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate)}</small></span>
+                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate, snapshot.hasMultipleSegments)}</small></span>
               </label>
             </article>
           })}

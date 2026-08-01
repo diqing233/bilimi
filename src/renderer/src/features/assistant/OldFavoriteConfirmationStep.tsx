@@ -40,6 +40,18 @@ export function OldFavoriteConfirmationStep({
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const isMultiSegment = snapshot.hasMultipleSegments
+  const currentSegmentSummary = snapshot.currentSegment
+    ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
+    : undefined
+  const currentSegmentSaved = Boolean(currentSegmentSummary && (
+    currentSegmentSummary.status === 'frozen' || currentSegmentSummary.readiness === 'saved'
+  ))
+  const allSegmentsSaved = !isMultiSegment || snapshot.segments.every((segment) => (
+    segment.status === 'frozen' || segment.readiness === 'saved'
+  ))
+  const localSaveLabel = isMultiSegment
+    ? currentSegmentSaved ? '当前批已保存' : '保存当前批到收藏库'
+    : '仅保存本轮到收藏库'
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
     : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
@@ -105,8 +117,8 @@ export function OldFavoriteConfirmationStep({
     {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
     <div className="favorite-ledger-panel__confirm-actions">
-      <button type="button" disabled={!canSaveLocally || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
-      <button type="button" disabled={!canSyncToBilibili || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
+      <button type="button" disabled={!canSaveLocally || loading || currentSegmentSaved} onClick={onSaveLocally}>{localSaveLabel}</button>
+      <button type="button" disabled={!canSyncToBilibili || loading || !allSegmentsSaved} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
       <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>放弃本轮整理</button>
     </div>
   </section>

@@ -2032,10 +2032,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '只整理【未匹配到合适分类】' }))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
-    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only'))
-    expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 正在整理当前分段…')
+    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only', 'current'))
+    expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 正在整理当前批次…')
     resolveDeepSeek?.({ snapshot: preview, referencedConstraintLedgerNames: ['bilimi·动画'], progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
-    await screen.findByText('DeepSeek 整理完成，已更新当前分段。本次整理参考了 DeepSeek 约束收藏夹：bilimi·动画。')
+    await screen.findByText('DeepSeek 整理完成，已更新当前批次。本次整理参考了 DeepSeek 约束收藏夹：bilimi·动画。')
     deepSeek.mockRejectedValueOnce(new Error('DeepSeek 服务暂时不可用'))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await screen.findByRole('alert')
@@ -2062,7 +2062,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
-    expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only')
+    expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only', 'current')
   })
 
   it('renders UP and tag recommendation cards and restores whole-round choices across segments and remounts', async () => {
@@ -2072,8 +2072,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [],
       segments: [
-        { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const },
-        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const }
+        { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
       ],
       currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
       classifications: {},
@@ -2569,7 +2569,35 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(screen.getByText('整体准备度：1 / 2 条已分类')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('1 条未分类视频会仅本地暂存')
-    expect(screen.getByRole('button', { name: '仅保存本轮到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '保存当前批到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+  })
+
+  it('freezes a saved batch action and enables Bilibili sync only after every batch is saved', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 1, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 1, status: 'frozen' as const, readiness: 'saved' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'frozen' as const, readiness: 'saved' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 2, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByRole('button', { name: '当前批已保存' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 

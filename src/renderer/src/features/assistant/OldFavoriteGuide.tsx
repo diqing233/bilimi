@@ -1,5 +1,5 @@
 import type { FavoriteLedger } from '@shared/types'
-import type { DeepSeekArchiveMode } from '@shared/types'
+import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import { useEffect, useState } from 'react'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
@@ -43,7 +43,7 @@ type OldFavoriteGuideProps = {
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
   onAutoClassify: () => void
-  onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
+  onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => void
   onRetryFailedDeepSeekChunks: () => void
   onCancelDeepSeek: () => void
   deepSeekCancelRequested: boolean
@@ -127,6 +127,7 @@ export function OldFavoriteGuide({
   const currentSegmentSummary = snapshot && !('recovery' in snapshot)
     ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
     : undefined
+  const currentSegmentSaved = Boolean(currentSegmentSummary?.status === 'frozen' || currentSegmentSummary?.readiness === 'saved')
   const tagEnrichmentBlocksNextStep = Boolean(
     snapshot && !('recovery' in snapshot)
     && (currentSegmentSummary?.readiness
@@ -186,7 +187,7 @@ export function OldFavoriteGuide({
     /> : null}
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={snapshot}
-      loading={loading || mutationLocked}
+      loading={loading || mutationLocked || currentSegmentSaved}
       adoptedCandidateIds={recommendedCandidateIds}
       error={recommendationError}
       previewPreparationRunning={previewPreparationRunning}
@@ -200,7 +201,7 @@ export function OldFavoriteGuide({
       snapshot={snapshot}
       ledgers={ledgers}
       loading={loading}
-      mutationLocked={mutationLocked}
+      mutationLocked={mutationLocked || currentSegmentSaved}
       deepSeekAvailable={deepSeekAvailable}
       deepSeekFeedback={deepSeekFeedback}
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}

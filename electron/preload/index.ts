@@ -9,6 +9,7 @@ import type {
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
   DeepSeekArchiveMode,
+  DeepSeekArchiveScope,
   FavoriteLedger,
   FavoriteLedgerEnabledPatch,
   FavoriteLedgerSaveOptions,
@@ -100,8 +101,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>,
   deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[]) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds) as Promise<Array<{ id: string; title: string; memberCount: number }>>,
-  organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
+  organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode, scope) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   retryOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:retry-failed-deepseek', accountMid) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   onOldFavoriteWorkspaceDeepSeekProgress: (callback: (progress: {
@@ -115,6 +116,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: {
       accountMid: string
+      workspaceId: string
       totalChunks: number
       completedChunks: number
       totalVideoCount: number
