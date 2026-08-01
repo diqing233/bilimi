@@ -279,6 +279,78 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('publishes a compact whole-run overview only when a complete batch is ready and restores it after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['knowledge'], confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, workspaceStore, {
+      initializeOnOpen: false, segmentSize: () => 500, classifyCurrentItems
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 502, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 502; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 502 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          if (aid === 502) return { aid, title: '已失效视频', unavailable: true, sourceFolderIds: ['source'] }
+          return {
+            aid, title: `Video ${aid}`,
+            ...(aid === 1 || aid === 501 ? {} : { tags: ['TypeScript'] }),
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+    const workspaceId = requireSnapshot(await coordinator.getSnapshot('100')).workspaceId
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      overview: { available: false, completedSegmentCount: 0, totalSegmentCount: 2 }
+    })
+
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+    const ready = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(ready.overview).toMatchObject({
+      available: true,
+      completedSegmentCount: 1,
+      totalSegmentCount: 2,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 500, invalidItemCount: 1 }],
+      unavailableItemCount: 1,
+      recommendationCounts: expect.arrayContaining([
+        expect.objectContaining({ id: 'custom-tag-typescript', count: 500 })
+      ]),
+      archiveTargets: [{ ledgerId: 'knowledge', itemCount: 500, segmentCounts: [{ segmentId: 'segment-1', count: 500 }] }]
+    })
+    expect(JSON.stringify(ready.overview)).not.toContain('"aids"')
+
+    await coordinator.recordTagEnrichment('100', 501, ['TypeScript'], workspaceId)
+    const allReady = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(allReady.overview).toMatchObject({
+      available: true,
+      completedSegmentCount: 2,
+      totalSegmentCount: 2,
+      sourceFolders: [{ id: 'source', itemCount: 501, invalidItemCount: 1 }],
+      recommendationCounts: expect.arrayContaining([
+        expect.objectContaining({ id: 'custom-tag-typescript', count: 501 })
+      ]),
+      archiveTargets: [{
+        ledgerId: 'knowledge', itemCount: 501,
+        segmentCounts: [{ segmentId: 'segment-1', count: 500 }, { segmentId: 'segment-2', count: 1 }]
+      }]
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, segmentSize: () => 500, classifyCurrentItems
+    })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ overview: allReady.overview })
+  })
+
   it('refreshes high-frequency tag recommendations and classifies the completed batch before later batches finish tagging', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

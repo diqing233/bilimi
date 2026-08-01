@@ -101,6 +101,12 @@ type RecommendationIndex = {
   segmentIdForAid: Map<number, string>
 }
 type PlanReadiness = { selectedAidCount: number; classifiedAidCount: number }
+type OverviewRuntime = {
+  aidRangeBySegment: Map<string, { firstAid?: number; lastAid?: number }>
+  sourceCountsBySegment: Map<string, Map<string, number>>
+  classificationsBySegment: Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>
+  unavailableItemCount: number
+}
 
 function isUnavailableScanItem(item: Pick<CurrentSegmentItem, 'title' | 'author' | 'unavailable'>) {
   return item.unavailable === true || item.title?.trim() === '已失效视频' || item.author?.trim() === '账号已注销'
@@ -642,6 +648,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly recommendationIndexes = new Map<string, RecommendationIndex>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
+  private readonly overviewRuntimes = new Map<string, OverviewRuntime>()
   private readonly recommendationPreviewGenerations = new Map<string, number>()
   private readonly draftLedgerRuleAnalysisIds = new Map<string, string>()
   private operationTail = Promise.resolve()
@@ -1236,6 +1243,7 @@ export class OldFavoriteWorkspaceCoordinator {
         acceptedSegmentIds: []
       }
       const readiness = this.calculatePlanReadinessFromItems(completed, items, sourceFolders)
+      const overviewRuntime = this.initializeOverviewRuntime(completed, itemsByAid.values(), 0)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId,
         classifications: [],
@@ -1252,7 +1260,8 @@ export class OldFavoriteWorkspaceCoordinator {
           taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
           untaggedItemCount: items.filter((item) => !item.tags?.length).length
         },
-        tagEnrichment
+        tagEnrichment,
+        overview: this.persistedOverviewRuntime(overviewRuntime)
       })
       await this.appendEvents(completed, currentSegmentId, [{
         type: 'scan',
@@ -1579,6 +1588,7 @@ export class OldFavoriteWorkspaceCoordinator {
         planReadiness: readiness,
         ruleAnalysisCheckpoint: null
       })
+      this.updateOverviewClassifications(workspace.accountMid, newEntries)
       const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
       const visibleEntries = newEntries.filter(({ segmentId }) => segmentId === this.currentSegment(workspace)).map(({ entry }) => ({
         ...clone(entry),
@@ -1934,9 +1944,12 @@ export class OldFavoriteWorkspaceCoordinator {
         taggedAids: [],
         acceptedSegmentIds: []
       }
+      const overviewRuntime = this.initializeOverviewRuntime(completed, itemsByAid.values(),
+        [...itemsByAid.values()].filter((item) => isUnavailableScanItem(item)).length)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
-        scanMetadata: { sourceFolders, ...completedScan }, tagEnrichment
+        scanMetadata: { sourceFolders, ...completedScan }, tagEnrichment,
+        overview: this.persistedOverviewRuntime(overviewRuntime)
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
@@ -2529,14 +2542,18 @@ export class OldFavoriteWorkspaceCoordinator {
           if (next === updated) continue
           const entry = next.history[next.history.length - 1]
           const readiness = await this.applyReadinessHistoryChange(updated, entry, 'forward')
+          const classificationEvent: Extract<WorkspaceJournalEvent, { type: 'classification' }> = {
+            type: 'classification', segmentId: segment.id, entry: clone(entry), historyCursor: next.historyCursor
+          }
           await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
             currentSegmentId: segment.id,
             classifications: entry.changes.flatMap((change) => change.after ? [{
               aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
             }] : []),
-            history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })],
+            history: [encodeJournalEvent(classificationEvent)],
             planReadiness: readiness
           })
+          this.updateOverviewClassifications(updated.accountMid, [{ segmentId: segment.id, entry }])
           this.planReadiness.set(updated.accountMid, readiness)
           updated = next
         }
@@ -3363,6 +3380,20 @@ export class OldFavoriteWorkspaceCoordinator {
     const activeAidSet = new Set(loaded.aids)
     const frozenIds = new Set(events.flatMap((event) => event.type === 'freeze' ? [event.segmentId] : []))
     const journalState = replayClassificationJournal(recovered.overlayHistory)
+    const overviewClassificationsBySegment = new Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>()
+    for (const descriptor of scan.segments) {
+      const entries = journalState.entriesBySegment.get(descriptor.id) ?? []
+      const cursor = Math.min(journalState.cursorBySegment.get(descriptor.id) ?? entries.length, entries.length)
+      const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+      for (const entry of entries.slice(0, cursor)) for (const change of entry.changes) {
+        if (change.after) classifications.set(change.aid, clone(change.after))
+        else classifications.delete(change.aid)
+      }
+      overviewClassificationsBySegment.set(descriptor.id, classifications)
+    }
+    this.restoreOverviewRuntime(marker.accountMid, scan.segments, recovered.currentSegmentId,
+      recovered.loadedSegmentItems, overviewClassificationsBySegment, recovered.overview,
+      restoredSourceFolders, repositorySnapshot, unavailableAids)
     const allHistory = journalState.entriesBySegment.get(recovered.currentSegmentId) ?? []
     const latestCursor = journalState.cursorBySegment.get(recovered.currentSegmentId) ?? allHistory.length
     const recoveredHistory = allHistory.map((entry) => ({
@@ -3527,6 +3558,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.recommendationIndexes.delete(accountMid)
     this.planReadiness.delete(accountMid)
     this.staleDeepSeekAids.delete(accountMid)
+    this.overviewRuntimes.delete(accountMid)
   }
 
   private async appendEvents(
@@ -3541,7 +3573,26 @@ export class OldFavoriteWorkspaceCoordinator {
       history: events.map(encodeJournalEvent),
       ...(planReadiness ? { planReadiness } : {})
     })
+    this.updateOverviewClassifications(workspace.accountMid, events.flatMap((event) => event.type === 'classification'
+      ? [{ segmentId: event.segmentId ?? currentSegmentId, entry: event.entry }]
+      : []))
     if (planReadiness) this.planReadiness.set(workspace.accountMid, planReadiness)
+  }
+
+  private updateOverviewClassifications(
+    accountMid: string,
+    entries: Array<{ segmentId: string; entry: OldFavoriteWorkspaceHistoryEntry }>
+  ) {
+    const overviewRuntime = this.overviewRuntimes.get(accountMid)
+    if (!overviewRuntime) return
+    for (const { segmentId, entry } of entries) {
+      const classifications = overviewRuntime.classificationsBySegment.get(segmentId) ?? new Map()
+      for (const change of entry.changes) {
+        if (change.after) classifications.set(change.aid, clone(change.after))
+        else classifications.delete(change.aid)
+      }
+      overviewRuntime.classificationsBySegment.set(segmentId, classifications)
+    }
   }
 
   private async calculatePlanReadiness(workspace: OldFavoriteWorkspace): Promise<PlanReadiness> {
@@ -3866,12 +3917,184 @@ export class OldFavoriteWorkspaceCoordinator {
     if (saved !== false) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
   }
 
+  private initializeOverviewRuntime(
+    workspace: OldFavoriteWorkspace,
+    items: Iterable<CurrentSegmentItem>,
+    unavailableItemCount: number
+  ) {
+    const segmentIdByAid = new Map(workspace.segments.flatMap((segment) =>
+      segment.aids.map((aid) => [aid, segment.id] as const)))
+    const aidRangeBySegment = new Map(workspace.segments.map((segment) => [segment.id, {
+      ...(segment.aids.length ? { firstAid: segment.aids[0], lastAid: segment.aids[segment.aids.length - 1] } : {})
+    }]))
+    const sourceCountsBySegment = new Map<string, Map<string, number>>()
+    for (const item of items) {
+      const segmentId = segmentIdByAid.get(item.aid)
+      if (!segmentId || isUnavailableScanItem(item)) continue
+      const sourceCounts = sourceCountsBySegment.get(segmentId) ?? new Map<string, number>()
+      for (const sourceFolderId of new Set(item.sourceFolderIds)) {
+        sourceCounts.set(sourceFolderId, (sourceCounts.get(sourceFolderId) ?? 0) + 1)
+      }
+      sourceCountsBySegment.set(segmentId, sourceCounts)
+    }
+    const runtime: OverviewRuntime = {
+      aidRangeBySegment,
+      sourceCountsBySegment,
+      classificationsBySegment: new Map(workspace.segments.map((segment) => [segment.id, new Map()])),
+      unavailableItemCount
+    }
+    this.overviewRuntimes.set(workspace.accountMid, runtime)
+    return runtime
+  }
+
+  private persistedOverviewRuntime(runtime: OverviewRuntime) {
+    return {
+      segments: [...runtime.sourceCountsBySegment].map(([id, sourceCounts]) => ({
+        id,
+        ...runtime.aidRangeBySegment.get(id),
+        sourceFolderCounts: Object.fromEntries(sourceCounts)
+      })),
+      unavailableItemCount: runtime.unavailableItemCount
+    }
+  }
+
+  private restoreOverviewRuntime(
+    accountMid: string,
+    descriptors: SegmentDescriptor[],
+    currentSegmentId: string,
+    currentSegmentItems: CurrentSegmentItem[],
+    classificationsBySegment: Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>,
+    persisted: { segments: Array<{ id: string; firstAid?: number; lastAid?: number; sourceFolderCounts: Record<string, number> }>; unavailableItemCount: number } | undefined,
+    sourceFolders: ScanOverview['sourceFolders'],
+    repository: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
+    unavailableAids: ReadonlySet<number>
+  ) {
+    const sourceMembershipAids = new Set(sourceFolders.flatMap((folder) =>
+      repository.memberships[`bilibili:${folder.id}`] ?? repository.memberships[folder.id] ?? []))
+    const sourceCountsBySegment = new Map((persisted?.segments ?? []).map((segment) => [
+      segment.id, new Map(Object.entries(segment.sourceFolderCounts))
+    ]))
+    const aidRangeBySegment = new Map((persisted?.segments ?? []).map((segment) => [segment.id, {
+      ...(segment.firstAid ? { firstAid: segment.firstAid } : {}),
+      ...(segment.lastAid ? { lastAid: segment.lastAid } : {})
+    }]))
+    if (!sourceCountsBySegment.has(currentSegmentId)) {
+      const counts = new Map<string, number>()
+      for (const item of currentSegmentItems) for (const sourceFolderId of new Set(item.sourceFolderIds)) {
+        counts.set(sourceFolderId, (counts.get(sourceFolderId) ?? 0) + 1)
+      }
+      sourceCountsBySegment.set(currentSegmentId, counts)
+      const aids = currentSegmentItems.map((item) => item.aid).sort((left, right) => left - right)
+      aidRangeBySegment.set(currentSegmentId, aids.length ? { firstAid: aids[0], lastAid: aids[aids.length - 1] } : {})
+    }
+    for (const descriptor of descriptors) {
+      if (!sourceCountsBySegment.has(descriptor.id)) sourceCountsBySegment.set(descriptor.id, new Map())
+      if (!aidRangeBySegment.has(descriptor.id)) aidRangeBySegment.set(descriptor.id, {})
+    }
+    this.overviewRuntimes.set(accountMid, {
+      aidRangeBySegment,
+      sourceCountsBySegment,
+      classificationsBySegment,
+      unavailableItemCount: persisted?.unavailableItemCount ??
+        [...unavailableAids].filter((aid) => sourceMembershipAids.has(aid)).length
+    })
+  }
+
+  private captureCurrentSegmentOverviewClassifications(workspace: OldFavoriteWorkspace) {
+    const runtime = this.overviewRuntimes.get(workspace.accountMid)
+    const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
+    if (!runtime || !currentSegment) return
+    const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+    for (const [aid, classification] of Object.entries(workspace.classifications)) {
+      const numericAid = Number(aid)
+      if (currentSegment.aids.includes(numericAid)) classifications.set(numericAid, clone(classification))
+    }
+    runtime.classificationsBySegment.set(currentSegment.id, classifications)
+  }
+
+  private createOverviewProjection(
+    workspace: OldFavoriteWorkspace,
+    segments: OldFavoriteWorkspaceSnapshot['segments']
+  ): OldFavoriteWorkspaceSnapshot['overview'] {
+    if (segments.length < 2) return undefined
+    const runtime = this.overviewRuntimes.get(workspace.accountMid)
+    const completedSegmentIds = new Set(segments
+      .filter((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
+      .map((segment) => segment.id))
+    const sourceFolders = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .map((folder) => ({
+        id: folder.id,
+        title: folder.title,
+        itemCount: [...completedSegmentIds].reduce((count, segmentId) =>
+          count + (runtime?.sourceCountsBySegment.get(segmentId)?.get(folder.id) ?? 0), 0),
+        invalidItemCount: folder.invalidItemCount ?? 0
+      }))
+    const recommendations = this.recommendations.get(workspace.accountMid)
+    const recommendationCounts = (recommendations?.candidates ?? []).map((candidate) => ({
+      id: candidate.id,
+      count: [...completedSegmentIds].reduce((count, segmentId) =>
+        count + new Set(candidate.matchedAidsBySegment?.[segmentId] ?? []).size, 0)
+    })).filter((candidate) => candidate.count > 0)
+    const archiveCounts = new Map<string, Map<string, number>>()
+    for (const segmentId of completedSegmentIds) {
+      for (const classification of runtime?.classificationsBySegment.get(segmentId)?.values() ?? []) {
+        for (const ledgerId of new Set(classification.targetLedgerIds.slice(0, 3))) {
+          const segmentCounts = archiveCounts.get(ledgerId) ?? new Map<string, number>()
+          segmentCounts.set(segmentId, (segmentCounts.get(segmentId) ?? 0) + 1)
+          archiveCounts.set(ledgerId, segmentCounts)
+        }
+      }
+    }
+    const archiveTargets = [...archiveCounts].map(([ledgerId, counts]) => ({
+      ledgerId,
+      itemCount: [...counts.values()].reduce((sum, count) => sum + count, 0),
+      segmentCounts: [...counts].map(([segmentId, count]) => ({ segmentId, count }))
+        .sort((left, right) => left.segmentId.localeCompare(right.segmentId))
+    })).sort((left, right) => left.ledgerId.localeCompare(right.ledgerId))
+    return {
+      completedSegmentCount: completedSegmentIds.size,
+      totalSegmentCount: segments.length,
+      available: completedSegmentIds.size > 0,
+      sourceFolders,
+      unavailableItemCount: runtime?.unavailableItemCount ?? 0,
+      recommendationCounts,
+      archiveTargets
+    }
+  }
+
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
     const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
     const tagEnrichment = this.tagEnrichments.get(workspace.accountMid)
     const pendingTagAids = new Set(tagEnrichment?.pendingAids ?? [])
     const acceptedTagSegments = new Set(tagEnrichment?.acceptedSegmentIds ?? [])
     const workspaceSegmentsById = new Map(workspace.segments.map((segment) => [segment.id, segment]))
+    const overviewRuntime = this.overviewRuntimes.get(workspace.accountMid)
+    this.captureCurrentSegmentOverviewClassifications(workspace)
+    const projectedSegments: OldFavoriteWorkspaceSnapshot['segments'] =
+      (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
+        .map((segment) => ({
+          id: segment.id,
+          index: segment.index,
+          status: (this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing') as 'previewing' | 'frozen',
+          itemCount: segment.itemCount,
+          ...(() => {
+            const knownSegmentAids = workspaceSegmentsById.get(segment.id)?.aids
+            const range = overviewRuntime?.aidRangeBySegment.get(segment.id)
+            const pendingTagItemCount = acceptedTagSegments.has(segment.id) ? 0 : knownSegmentAids
+              ? knownSegmentAids.reduce((count, aid) => count + Number(pendingTagAids.has(aid)), 0)
+              : [...pendingTagAids].reduce((count, aid) => count + Number(
+                range?.firstAid !== undefined && range.lastAid !== undefined && aid >= range.firstAid && aid <= range.lastAid
+              ), 0)
+            const saved = this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ?? false
+            return {
+              readiness: saved ? 'saved' as const : pendingTagItemCount > 0 ? 'tagging' as const : 'ready' as const,
+              completedTagItemCount: Math.max(0, segment.itemCount - pendingTagItemCount),
+              pendingTagItemCount
+            }
+          })()
+        }))
+    const overview = this.createOverviewProjection(workspace, projectedSegments)
     return {
       version: 1,
       accountMid: workspace.accountMid,
@@ -3900,29 +4123,13 @@ export class OldFavoriteWorkspaceCoordinator {
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
       continuationCount: workspace.continuationAids.length,
       protectedAidCount: workspace.protectedAids.length,
-      segments: (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
-        .map((segment) => ({
-          id: segment.id,
-          index: segment.index,
-          status: (this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing') as 'previewing' | 'frozen',
-          itemCount: segment.itemCount,
-          ...(() => {
-            const pendingTagItemCount = acceptedTagSegments.has(segment.id) ? 0 :
-              (workspaceSegmentsById.get(segment.id)?.aids ?? [])
-                .reduce((count, aid) => count + Number(pendingTagAids.has(aid)), 0)
-            const saved = this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ?? false
-            return {
-              readiness: saved ? 'saved' as const : pendingTagItemCount > 0 ? 'tagging' as const : 'ready' as const,
-              completedTagItemCount: Math.max(0, segment.itemCount - pendingTagItemCount),
-              pendingTagItemCount
-            }
-          })()
-        })),
+      segments: projectedSegments,
       currentSegment: currentSegment ? {
         id: currentSegment.id,
         aids: [...currentSegment.aids],
         items: clone(this.currentSegmentItems.get(workspace.accountMid) ?? []).filter((item) => currentSegment.aids.includes(item.aid))
       } : null,
+      ...(overview ? { overview } : {}),
       classifications: Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
         aid: classification.aid,
         targetLedgerIds: [...classification.targetLedgerIds],

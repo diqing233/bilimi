@@ -55,6 +55,12 @@ type RuleAnalysisCheckpoint = {
   totalItemCount: number
   matchedAidsBySegment: Record<string, number[]>
 }
+type OverviewSegmentSummary = {
+  id: string
+  firstAid?: number
+  lastAid?: number
+  sourceFolderCounts: Record<string, number>
+}
 type TagEnrichmentDelta =
   | { kind: 'tagged'; aid: number; tags: string[] }
   | { kind: 'failed'; aid: number }
@@ -96,6 +102,7 @@ type Overlay = {
   tagUpdates?: Array<{ aid: number; tags: string[] }>
   tagEnrichmentDelta?: TagEnrichmentDelta
   ruleAnalysisCheckpoint?: RuleAnalysisCheckpoint | null
+  overview?: { segments: OverviewSegmentSummary[]; unavailableItemCount: number }
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
 type Manifest = {
@@ -455,6 +462,7 @@ export class OldFavoriteWorkspaceStore {
       let tagEnrichment: Overlay['tagEnrichment'] | undefined
       const tagUpdates = new Map<number, string[]>()
       let ruleAnalysisCheckpoint: RuleAnalysisCheckpoint | undefined
+      let overview: Overlay['overview'] | undefined
       const overlayHistory: OverlayHistory[] = []
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
@@ -545,6 +553,7 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.ruleAnalysisCheckpoint !== undefined) {
           ruleAnalysisCheckpoint = overlay.ruleAnalysisCheckpoint ? clone(overlay.ruleAnalysisCheckpoint) : undefined
         }
+        if (overlay.overview) overview = clone(overlay.overview)
       }
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
@@ -562,6 +571,7 @@ export class OldFavoriteWorkspaceStore {
         classifications, history, recommendations, planReadiness
         ,overlayHistory
         ,ruleAnalysisCheckpoint
+        ,overview
         ,tagEnrichment, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
     } catch {

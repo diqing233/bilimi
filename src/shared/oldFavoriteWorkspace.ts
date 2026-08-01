@@ -137,6 +137,19 @@ export type OldFavoriteWorkspaceSnapshot = {
       sourceFolderIds: string[]
     }>
   } | null
+  overview?: {
+    completedSegmentCount: number
+    totalSegmentCount: number
+    available: boolean
+    sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount: number }>
+    unavailableItemCount: number
+    recommendationCounts: Array<{ id: string; count: number }>
+    archiveTargets: Array<{
+      ledgerId: string
+      itemCount: number
+      segmentCounts: Array<{ segmentId: string; count: number }>
+    }>
+  }
   classifications: Record<string, OldFavoriteWorkspaceClassification>
   recommendations: {
     candidates: OldFavoriteWorkspaceRecommendationCandidate[]
