@@ -106,6 +106,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     id: string
     title: string
     itemCount: number
+    invalidItemCount?: number
     isBilimiWorkFolder: boolean
     selected?: boolean
   }>
@@ -132,6 +133,7 @@ export type OldFavoriteWorkspaceSnapshot = {
       category?: string
       cover?: string
       addedAt?: number
+      unavailable?: boolean
       sourceFolderIds: string[]
     }>
   } | null

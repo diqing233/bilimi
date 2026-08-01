@@ -62,7 +62,7 @@ describe('old favorite workspace page bridge', () => {
       observedAccountMid: '100',
       items: [{
         aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
-        tags: ['TypeScript', 'Frontend'], category: '科技'
+        tags: ['TypeScript', 'Frontend'], category: '科技', unavailable: false
       }],
       hasMore: true
     })
@@ -79,7 +79,7 @@ describe('old favorite workspace page bridge', () => {
       observedAccountMid: '100',
       items: [{
         aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
-        tags: ['TypeScript', 'Frontend'], category: '科技'
+        tags: ['TypeScript', 'Frontend'], category: '科技', unavailable: false
       }],
       hasMore: true
     })
@@ -96,6 +96,33 @@ describe('old favorite workspace page bridge', () => {
     expect(script).toContain('media?.tname')
     expect(script).not.toContain('/x/tag/archive/tags')
     expect(() => new Function(`return ${script}`)).not.toThrow()
+  })
+
+  it('marks unavailable videos from the source-page metadata', async () => {
+    const execute = vi.fn().mockResolvedValue({
+      status: 'ok', observedAccountMid: '100',
+      items: [
+        { aid: 41, title: '已失效视频', upperName: 'UP', cover: '', addedAt: 0, tags: [], category: '', unavailable: true },
+        { aid: 42, title: 'Video', upperName: '账号已注销', cover: '', addedAt: 0, tags: [], category: '', unavailable: true },
+        { aid: 43, title: 'Video', upperName: 'UP', cover: '', addedAt: 0, tags: [], category: '', unavailable: false }
+      ],
+      hasMore: false
+    })
+    const bridge = createOldFavoriteWorkspacePageBridge({ execute })
+
+    await expect(bridge.run(target, {
+      type: 'read-source-page', accountMid: '100', folderId: '11', page: 1, pageSize: 20
+    })).resolves.toMatchObject({
+      items: [
+        { aid: 41, unavailable: true },
+        { aid: 42, unavailable: true },
+        { aid: 43, unavailable: false }
+      ]
+    })
+
+    const script = execute.mock.calls[0][1]
+    expect(script).toContain("title.trim() === '已失效视频'")
+    expect(script).toContain("upperName.trim() === '账号已注销'")
   })
 
   it('reads tags for one already-scanned video without returning page inventory data', async () => {

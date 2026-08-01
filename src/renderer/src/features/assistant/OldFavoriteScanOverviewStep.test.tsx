@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
@@ -67,7 +67,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签25')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮确认无标签0')
     expect(screen.getByText('扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('已选来源默认收藏夹246246')
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('全选·用户收藏夹（1）总数（246）已选来源⇄（246）默认收藏夹246246')
   })
 
   it('shows tag enrichment once and keeps its actions in one equal-width row', () => {
@@ -111,5 +111,96 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重新补取失败标签' })).toBeInTheDocument()
+  })
+
+  it('keeps classified source folders selectable and makes the header control select all only', () => {
+    const selectSourceFolders = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 3, untaggedItemCount: 0 },
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'source-a', title: '收藏夹 A', itemCount: 2, isBilimiWorkFolder: false, selected: true },
+          { id: 'source-b', title: '收藏夹 B', itemCount: 1, isBilimiWorkFolder: false, selected: false }
+        ],
+        segments: [], currentSegment: null,
+        classifications: { '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={selectSourceFolders} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const sourceA = screen.getByRole('checkbox', { name: '选择来源 收藏夹 A' })
+    expect(sourceA).toBeEnabled()
+    fireEvent.click(sourceA)
+    expect(selectSourceFolders).toHaveBeenLastCalledWith([])
+
+    const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
+    expect(selectAll).not.toBeChecked()
+    fireEvent.click(selectAll)
+    expect(selectSourceFolders).toHaveBeenLastCalledWith(['source-a', 'source-b'])
+  })
+
+  it('deselects every user source when the checked header control is clicked', () => {
+    const selectSourceFolders = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 3, untaggedItemCount: 0 },
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'source-a', title: 'Source A', itemCount: 2, isBilimiWorkFolder: false, selected: true },
+          { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false, selected: true }
+        ],
+        segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={selectSourceFolders} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选来源' }))
+
+    expect(selectSourceFolders).toHaveBeenCalledWith([])
+  })
+
+  it('toggles the source summary column between selected and unavailable counts', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 5, scannedItemCount: 5, taggedItemCount: 2, untaggedItemCount: 0 },
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'source-a', title: '收藏夹 A', itemCount: 3, invalidItemCount: 1, isBilimiWorkFolder: false, selected: true },
+          { id: 'source-b', title: '收藏夹 B', itemCount: 2, invalidItemCount: 2, isBilimiWorkFolder: false, selected: false }
+        ],
+        segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const rows = screen.getAllByRole('row').slice(-2)
+    expect(screen.getByText('全选')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '总数（5）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '已选来源（3）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '已选来源（3）' })).toHaveTextContent('⇄')
+    expect(rows[0]).toHaveTextContent('收藏夹 A33')
+    expect(rows[1]).toHaveTextContent('收藏夹 B20')
+
+    fireEvent.click(screen.getByRole('button', { name: '已选来源（3）' }))
+
+    expect(screen.getByRole('button', { name: '失效视频（3）' })).toBeInTheDocument()
+    expect(rows[0]).toHaveTextContent('收藏夹 A31')
+    expect(rows[1]).toHaveTextContent('收藏夹 B22')
   })
 })

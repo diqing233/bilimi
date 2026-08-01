@@ -18,7 +18,12 @@ type OldFavoriteRecommendationStepProps = {
 type CandidateGroup = {
   heading: string
   emptyText: string
+  allCandidates: OldFavoriteWorkspaceRecommendationCandidate[]
   candidates: OldFavoriteWorkspaceRecommendationCandidate[]
+  expanded: boolean
+  onToggleExpanded: () => void
+  expandLabel: string
+  collapseLabel: string
 }
 
 function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
@@ -42,19 +47,31 @@ export function OldFavoriteRecommendationStep({
   onSetRecommendedCandidates,
   onUpdateRecommendedCandidates
 }: OldFavoriteRecommendationStepProps) {
+  const [authorCandidatesExpanded, setAuthorCandidatesExpanded] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const adoptedCandidateIds = new Set(controlledAdoptedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)
+  const authorCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'author')
   const tagCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'tag')
   const groups: CandidateGroup[] = [
     {
       heading: '专属 UP 追更',
       emptyText: '暂无专属 UP 追更候选。',
-      candidates: snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'author')
+      allCandidates: authorCandidates,
+      candidates: authorCandidatesExpanded ? authorCandidates : authorCandidates.slice(0, 6),
+      expanded: authorCandidatesExpanded,
+      onToggleExpanded: () => setAuthorCandidatesExpanded((expanded) => !expanded),
+      expandLabel: '展开更多专属 UP 追更',
+      collapseLabel: '收起专属 UP 追更'
     },
     {
       heading: '高频标签收藏夹',
       emptyText: '暂无高频标签收藏夹候选，可直接查看归档预览。',
-      candidates: tagCandidatesExpanded ? tagCandidates : tagCandidates.slice(0, 6)
+      allCandidates: tagCandidates,
+      candidates: tagCandidatesExpanded ? tagCandidates : tagCandidates.slice(0, 6),
+      expanded: tagCandidatesExpanded,
+      onToggleExpanded: () => setTagCandidatesExpanded((expanded) => !expanded),
+      expandLabel: '展开更多高频标签',
+      collapseLabel: '收起高频标签'
     }
   ]
 
@@ -90,15 +107,15 @@ export function OldFavoriteRecommendationStep({
     {previewPreparationError ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{previewPreparationError}</p> : null}
     {snapshot.recommendations.candidates.length === 0 ? <p>本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。</p> : null}
     {groups.map((group, index) => {
-      const allSelected = group.candidates.length > 0 && group.candidates.every((candidate) => adoptedCandidateIds.has(candidate.id))
+      const allSelected = group.allCandidates.length > 0 && group.allCandidates.every((candidate) => adoptedCandidateIds.has(candidate.id))
       return <div key={group.heading} className="favorite-ledger-panel__candidate-section">
         {index > 0 ? <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" /> : null}
         <div className="favorite-ledger-panel__candidate-section-heading">
           <h5>{group.heading}</h5>
           <label>
             <input type="checkbox" aria-label={`全选 ${group.heading}`} checked={allSelected}
-              disabled={loading || group.candidates.length === 0}
-              onChange={(event) => setGroupSelected(group.candidates, event.currentTarget.checked)} />
+              disabled={loading || group.allCandidates.length === 0}
+              onChange={(event) => setGroupSelected(group.allCandidates, event.currentTarget.checked)} />
             <span>全选</span>
           </label>
         </div>
@@ -129,8 +146,10 @@ export function OldFavoriteRecommendationStep({
             </article>
           })}
           {group.candidates.length === 0 ? <p>{group.emptyText}</p> : null}
-          {group.heading === '高频标签收藏夹' && !tagCandidatesExpanded && tagCandidates.length > group.candidates.length ? (
-            <button type="button" onClick={() => setTagCandidatesExpanded(true)}>展开更多高频标签</button>
+          {group.allCandidates.length > 6 ? (
+            <button type="button" aria-expanded={group.expanded} onClick={group.onToggleExpanded}>
+              {group.expanded ? group.collapseLabel : group.expandLabel}
+            </button>
           ) : null}
         </div>
       </div>

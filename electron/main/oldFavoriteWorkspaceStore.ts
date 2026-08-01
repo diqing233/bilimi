@@ -12,6 +12,7 @@ type ScanItem = {
   category?: string
   cover?: string
   addedAt?: number
+  unavailable?: boolean
   sourceFolderIds: string[]
   [key: string]: unknown
 }
@@ -30,6 +31,7 @@ type SourceFolder = {
   id: string
   title: string
   itemCount: number
+  invalidItemCount?: number
   isBilimiWorkFolder: boolean
   selected?: boolean
 }

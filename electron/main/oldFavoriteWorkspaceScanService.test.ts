@@ -3,6 +3,34 @@ import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRe
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('passes unavailable source items to the coordinator without requesting their tags', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
+      recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100', hasMore: false,
+        items: [{ aid: 42, title: '已失效视频', upperName: '账号已注销', cover: '', addedAt: 0, tags: [], category: '', unavailable: true }]
+      })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+
+    expect(coordinator.recordScanPage).toHaveBeenCalledWith('100', expect.objectContaining({
+      items: [expect.objectContaining({ aid: 42, unavailable: true })]
+    }), 'scan-run-1')
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' }))
+  })
+
   it('quiesces an active inventory request before destructive maintenance and rejects new scans', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     let resolveBinding: ((result: { status: 'ok'; observedAccountMid: string; target: typeof target }) => void) | undefined

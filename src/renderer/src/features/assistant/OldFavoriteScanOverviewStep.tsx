@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 
 type OldFavoriteScanOverviewStepProps = {
@@ -43,6 +44,7 @@ export function OldFavoriteScanOverviewStep({
   ,onRetryFailedTagEnrichment
   ,onAcceptCurrentTags
 }: OldFavoriteScanOverviewStepProps) {
+  const [sourceCountMode, setSourceCountMode] = useState<'selected' | 'invalid'>('selected')
   if (snapshot && 'recovery' in snapshot) {
     return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
       <h4>扫描概览</h4>
@@ -71,7 +73,10 @@ export function OldFavoriteScanOverviewStep({
   const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
   const fetchedTagItemCount = tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
-  const sourceSelectionLocked = Boolean(snapshot && Object.keys(snapshot.classifications).length > 0)
+  const allUserSourcesSelected = userFolders.length > 0 && selectedSourceIds.size === userFolders.length
+  const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.itemCount, 0)
+  const selectedSourceItemCount = userFolders.reduce((count, folder) => count + (selectedSourceIds.has(folder.id) ? folder.itemCount : 0), 0)
+  const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.invalidItemCount ?? 0), 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'
@@ -147,21 +152,41 @@ export function OldFavoriteScanOverviewStep({
       : null}
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
-        <span role="columnheader" aria-label="选择" /><span role="columnheader">用户收藏夹</span>
-        <span role="columnheader">总数</span><span role="columnheader">已选来源</span>
+        <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading">
+          <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
+            disabled={loading} onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : userFolders.map((folder) => folder.id))} /><span>全选</span></label>
+          <span className="favorite-ledger-panel__source-heading-separator" aria-hidden="true">·</span>
+          <span className="favorite-ledger-panel__source-heading-title">用户收藏夹</span>
+          <small>（{userFolders.length}）</small>
+        </span>
+        <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
+          <span>总数</span><small>（{totalUserSourceItemCount}）</small>
+        </span>
+        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading favorite-ledger-panel__source-metric-heading--toggle">
+          <span>{sourceCountMode === 'selected' ? '已选来源' : '失效视频'}</span>
+          <button type="button" className="favorite-ledger-panel__source-count-toggle"
+            aria-label={sourceCountMode === 'selected' ? `已选来源（${selectedSourceItemCount}）` : `失效视频（${invalidSourceItemCount}）`}
+            title={sourceCountMode === 'selected' ? '切换为失效视频' : '切换为已选来源'}
+            onClick={() => setSourceCountMode((current) => current === 'selected' ? 'invalid' : 'selected')}>
+            <span aria-hidden="true">⇄</span>
+          </button>
+          <small>（{sourceCountMode === 'selected' ? selectedSourceItemCount : invalidSourceItemCount}）</small>
+        </span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
         {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
           <label className="favorite-ledger-panel__source-row-content">
             <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
-              disabled={loading || sourceSelectionLocked} onChange={(event) => {
+              disabled={loading} onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
                 onSelectSourceFolders([...next])
               }} /></span>
             <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
-            <span role="cell" className="favorite-ledger-panel__source-count">{selectedSourceIds.has(folder.id) ? folder.itemCount : 0}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{sourceCountMode === 'selected'
+              ? selectedSourceIds.has(folder.id) ? folder.itemCount : 0
+              : folder.invalidItemCount ?? 0}</span>
           </label>
         </li>)}
       </ul>

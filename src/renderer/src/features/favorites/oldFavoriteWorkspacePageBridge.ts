@@ -49,6 +49,7 @@ export type OldFavoriteWorkspaceSourceItem = {
   addedAt: number
   tags: string[]
   category: string
+  unavailable: boolean
 }
 
 type PageBaseResult = {
@@ -58,10 +59,11 @@ type PageBaseResult = {
 }
 
 export type OldFavoriteWorkspacePageResult =
-  | (PageBaseResult & { folders: OldFavoriteWorkspaceFolder[] })
-  | (PageBaseResult & { members: Record<string, number[]> })
-  | (PageBaseResult & { items: OldFavoriteWorkspaceSourceItem[]; hasMore: boolean })
-  | (PageBaseResult & { aid: number; tags: string[] })
+  | (PageBaseResult & { status: 'unknown' | 'rejected' })
+  | (PageBaseResult & { status: 'ok'; folders: OldFavoriteWorkspaceFolder[] })
+  | (PageBaseResult & { status: 'ok'; members: Record<string, number[]> })
+  | (PageBaseResult & { status: 'ok'; items: OldFavoriteWorkspaceSourceItem[]; hasMore: boolean })
+  | (PageBaseResult & { status: 'ok'; aid: number; tags: string[] })
 
 type PageExecutor = {
   execute: (target: OldFavoriteWorkspacePageTarget, script: string) => Promise<unknown>
@@ -136,13 +138,14 @@ function isMembers(value: unknown): value is Record<string, number[]> {
 function isSourceItem(value: unknown): value is OldFavoriteWorkspaceSourceItem {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const item = value as Record<string, unknown>
-  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt' || key === 'tags' || key === 'category') &&
+  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt' || key === 'tags' || key === 'category' || key === 'unavailable') &&
     isPositiveInteger(item.aid) && typeof item.title === 'string' && item.title.length <= 1024 &&
     typeof item.upperName === 'string' && item.upperName.length <= 512 &&
     typeof item.cover === 'string' && item.cover.length <= 2048 &&
     typeof item.addedAt === 'number' && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0 &&
     Array.isArray(item.tags) && item.tags.length <= 32 && item.tags.every((tag) => typeof tag === 'string' && tag.length <= 128) &&
-    typeof item.category === 'string' && item.category.length <= 128
+    typeof item.category === 'string' && item.category.length <= 128 &&
+    (item.unavailable === undefined || typeof item.unavailable === 'boolean')
 }
 
 function resultFor(command: OldFavoriteWorkspacePageCommand, value: unknown): OldFavoriteWorkspacePageResult | null {
@@ -163,13 +166,20 @@ function resultFor(command: OldFavoriteWorkspacePageCommand, value: unknown): Ol
   if (command.type === 'inventory' && validKeys(['folders']) && Array.isArray(result.folders) && result.folders.every(isFolder)) {
     return result as OldFavoriteWorkspacePageResult
   }
-  if (command.type === 'read-managed-members' && validKeys(['members']) && isMembers(result.members) &&
-    Object.keys(result.members).length === new Set(command.folderIds).size &&
-    command.folderIds.every((folderId) => Object.hasOwn(result.members, folderId))) {
+  const members = result.members
+  if (command.type === 'read-managed-members' && validKeys(['members']) && isMembers(members) &&
+    Object.keys(members).length === new Set(command.folderIds).size &&
+    command.folderIds.every((folderId) => Object.hasOwn(members, folderId))) {
     return result as OldFavoriteWorkspacePageResult
   }
   if (command.type === 'read-source-page' && validKeys(['items', 'hasMore']) && Array.isArray(result.items) && result.items.length <= command.pageSize && result.items.every(isSourceItem) && typeof result.hasMore === 'boolean') {
-    return result as OldFavoriteWorkspacePageResult
+    return {
+      ...result,
+      items: result.items.map((item) => ({
+        ...item,
+        unavailable: item.unavailable === true || item.title.trim() === '已失效视频' || item.upperName.trim() === '账号已注销'
+      }))
+    } as OldFavoriteWorkspacePageResult
   }
   if (command.type === 'read-video-tags' && validKeys(['aid', 'tags']) && result.aid === command.aid &&
     Array.isArray(result.tags) && result.tags.length <= 32 && result.tags.every((tag) => typeof tag === 'string' && tag.length <= 128)) {
@@ -269,15 +279,20 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       .map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim())
       .filter(Boolean)
       .slice(0, 32);
-    const rawItems = response.json.data.medias.map((media) => ({
-      aid: Number(media?.id ?? media?.aid),
-      title: String(media?.title || ''),
-      upperName: String(media?.upper?.name || ''),
-      cover: String(media?.cover || ''),
-      addedAt: Number(media?.fav_time ?? media?.ctime ?? 0),
-      tags: readTags(media?.tags ?? media?.tag),
-      category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128)
-    })).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);
+    const rawItems = response.json.data.medias.map((media) => {
+      const title = String(media?.title || '');
+      const upperName = String(media?.upper?.name || '');
+      return {
+        aid: Number(media?.id ?? media?.aid),
+        title,
+        upperName,
+        cover: String(media?.cover || ''),
+        addedAt: Number(media?.fav_time ?? media?.ctime ?? 0),
+        tags: readTags(media?.tags ?? media?.tag),
+        category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128),
+        unavailable: title.trim() === '已失效视频' || upperName.trim() === '账号已注销'
+      };
+    }).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);
     const items = rawItems;
     return { status: 'ok', observedAccountMid, items, hasMore: Boolean(response.json?.data?.has_more) };
   })()`

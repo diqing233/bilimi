@@ -106,6 +106,34 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('group', { name: '音乐舞台 1 条' })).toBeInTheDocument()
   })
 
+  it('excludes unavailable videos from archive groups and pending counts', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 4, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: {
+          id: 'segment-1', aids: [1, 2, 3, 4], items: [
+            { aid: 1, title: 'Explicitly unavailable', unavailable: true, sourceFolderIds: ['source'] },
+            { aid: 2, title: '已失效视频', sourceFolderIds: ['source'] },
+            { aid: 3, title: 'Closed account video', author: '账号已注销', sourceFolderIds: ['source'] },
+            { aid: 4, title: 'Available', sourceFolderIds: ['source'] }
+          ]
+        },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.queryByText('Explicitly unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('已失效视频')).not.toBeInTheDocument()
+    expect(screen.queryByText('Closed account video')).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
+  })
+
   it('locks only preview mutations during ledger analysis while keeping segment and expansion browsing available', () => {
     const items = Array.from({ length: 13 }, (_, index) => ({
       aid: index + 1, title: `Preview ${index + 1}`, sourceFolderIds: ['source']

@@ -347,6 +347,8 @@ type LedgerWorkspacePanelProps = {
   onRefreshOrganizationState: () => Promise<unknown>
   onOrganizationSnapshotChange: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   onAcknowledgeOrganizationCompletion: (accountMid: string, workspaceId: string) => void
+  onTransientFeedback: (message: string) => void
+  onDeepSeekTaskStart: (detail: string) => () => void
   deepSeekArchiveAvailable: boolean
   openLedgerId?: string
   openLedgerRequestVersion: number
@@ -2651,7 +2653,7 @@ export function FloatingAssistantApp({
     onActiveTabChange?.(tab)
   }
 
-  function showCopyFeedback(feedback: { tone: 'success' | 'error'; message: string }) {
+  function showTemporaryGlobalFeedback(feedback: { tone: 'success' | 'error'; message: string }, durationMs = 3_000) {
     const message = feedback.message.trim()
     if (!message) return
 
@@ -2664,8 +2666,16 @@ export function FloatingAssistantApp({
     temporaryGlobalFeedbackTimerRef.current = window.setTimeout(() => {
       setTemporaryGlobalFeedbackMessage('')
       temporaryGlobalFeedbackTimerRef.current = null
-    }, 3_000)
+    }, durationMs)
   }
+
+  function showCopyFeedback(feedback: { tone: 'success' | 'error'; message: string }) {
+    showTemporaryGlobalFeedback(feedback)
+  }
+
+  const reportLedgerTransientFeedback = useStableCallback((message: string) => {
+    showTemporaryGlobalFeedback({ tone: 'error', message }, 8_000)
+  })
 
   useEffect(() => () => {
     if (temporaryGlobalFeedbackTimerRef.current !== null) {
@@ -4419,6 +4429,10 @@ export function FloatingAssistantApp({
   const syncFavoriteLedgersForPanel = useStableCallback(syncFavoriteLedgers)
   const openFavoritePageForPanel = useStableCallback(openFavoritePage)
   const refreshOrganizationStateForPanel = useStableCallback(refreshOrganizationState)
+  const startLedgerDeepSeekTask = useStableCallback((detail: string) => startDeepSeekTask({
+    id: `archive-organize:${resolvedSnapshot.accountMid ?? 'unknown'}:${Date.now()}:${Math.random()}`,
+    kind: 'archive-organize', detail
+  }))
 
   settingsActionsRef.current = {
     restoreDefaultLayoutSize,
@@ -4680,6 +4694,8 @@ export function FloatingAssistantApp({
             onRefreshOrganizationState={refreshOrganizationStateForPanel}
             onOrganizationSnapshotChange={setFavoriteOrganizationSnapshot}
             onAcknowledgeOrganizationCompletion={acknowledgeFavoriteOrganizationCompletion}
+            onTransientFeedback={reportLedgerTransientFeedback}
+            onDeepSeekTaskStart={startLedgerDeepSeekTask}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&

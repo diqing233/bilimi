@@ -134,7 +134,9 @@ export function OldFavoriteGuide({
       ? currentSegmentSummary.readiness === 'tagging'
       : snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
   )
+  const deepSeekRunning = deepSeekFeedback?.status === 'running'
   const canOpenStep = (next: OldFavoriteGuideStep) => {
+    if (deepSeekRunning) return false
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
     if ((recommendationSaving || previewPreparationRunning || mutationLocked) && next === 'confirm') return false
@@ -148,24 +150,24 @@ export function OldFavoriteGuide({
           <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
             aria-label={`${guideHintExpanded ? '收起' : '展开'}整理收藏`}
             aria-expanded={guideHintExpanded}
-            title={'扫描已有收藏：读取可整理的收藏内容。\n检查建议：确认推荐收藏夹与分类结果。\n确认执行：核对后再同步到 bilimi 收藏夹。'}
+            title={'请从左到右完成本轮整理\n① 扫描概览：选择来源并等待标签补取；标签是分类的重要依据\n② 推荐收藏夹：根据 UP 主和高频标签，勾选想采用的推荐收藏夹\n③ 归档预览：检查标签分类结果，可用 DeepSeek 辅助调整\n④ 确认执行：选择保存到收藏库或同步到 B 站，完成后点“好的”'}
             onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
-          {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
-            <span>当前批次</span>
-            <select aria-label="整理批次" value={snapshot.currentSegment?.id ?? ''} disabled={loading || mutationLocked}
-              onChange={(event) => {
-                const segment = snapshot.segments.find((candidate) => candidate.id === event.currentTarget.value)
-                if (!segment) return
-                onSelectSegment(segment.id)
-                if (segment.readiness === 'tagging') onStepChange('scan')
-              }}>
-              {snapshot.segments.map((segment) => <option key={segment.id} value={segment.id}>
-                第 {segment.index + 1}/{snapshot.segments.length} 批 · {segment.itemCount} 条 · {segmentReadinessLabel(segment)}
-              </option>)}
-            </select>
-          </label> : null}
       </div>
-      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint"><p>扫描已有收藏：读取可整理的收藏内容。</p><p>检查建议：确认推荐收藏夹与分类结果。</p><p>确认执行：核对后再同步到 bilimi 收藏夹。</p></div> : null}
+      {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
+        <span>整理批次</span>
+        <select aria-label="整理批次" value={snapshot.currentSegment?.id ?? ''} disabled={loading || mutationLocked || deepSeekRunning}
+          onChange={(event) => {
+            const segment = snapshot.segments.find((candidate) => candidate.id === event.currentTarget.value)
+            if (!segment) return
+            onSelectSegment(segment.id)
+            if (segment.readiness === 'tagging') onStepChange('scan')
+          }}>
+          {snapshot.segments.map((segment) => <option key={segment.id} value={segment.id}>
+            第 {segment.index + 1}/{snapshot.segments.length} 批 · {segment.itemCount} 条 · {segmentReadinessLabel(segment)}
+          </option>)}
+        </select>
+      </label> : null}
+      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint"><p>请从左到右完成本轮整理</p><p>① 扫描概览：选择来源并等待标签补取；标签是分类的重要依据</p><p>② 推荐收藏夹：根据 UP 主和高频标签，勾选想采用的推荐收藏夹</p><p>③ 归档预览：检查标签分类结果，可用 DeepSeek 辅助调整</p><p>④ 确认执行：选择保存到收藏库或同步到 B 站，完成后点“好的”</p></div> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => onStepChange(item.id)}>{item.label}</button>)}

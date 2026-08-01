@@ -10,7 +10,7 @@ type RuntimeInventoryResult = {
   target?: ScanTarget
   folders?: Array<{ id: string; title: string; mediaCount: number }>
   members?: Record<string, number[]>
-  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; tags: string[]; category: string }>
+  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; tags: string[]; category: string; unavailable: boolean }>
   hasMore?: boolean
   aid?: number
   tags?: string[]
@@ -110,7 +110,8 @@ export class OldFavoriteWorkspaceScanService {
 
   private async tagRequestStillCurrent(accountMid: string, workspaceId: string) {
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
-    return Boolean(snapshot) && 'workspaceId' in snapshot && snapshot.workspaceId === workspaceId && snapshot.tagEnrichment?.status === 'running'
+    if (!snapshot || 'recovery' in snapshot) return false
+    return snapshot.workspaceId === workspaceId && snapshot.tagEnrichment?.status === 'running'
   }
 
   private requestCurrentTag(accountMid: string, workspaceId: string, request: RuntimeRequest) {
@@ -182,7 +183,7 @@ export class OldFavoriteWorkspaceScanService {
     // Old staged pages did not retain the terminal marker, so they cannot be
     // safely skipped. New pages carry hasMore and can be resumed exactly.
     const completedPages = new Map(resumeState.completedPages
-      .filter((page) => typeof page.hasMore === 'boolean')
+      .filter((page): page is { folderId: string; page: number; hasMore: boolean } => typeof page.hasMore === 'boolean')
       .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
     void this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids))).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
@@ -279,7 +280,8 @@ export class OldFavoriteWorkspaceScanService {
             hasMore: sourcePage.hasMore,
             items: sourcePage.items.map((item) => ({
               aid: item.aid, title: item.title, author: item.upperName, cover: item.cover,
-              addedAt: item.addedAt, tags: item.tags, category: item.category, sourceFolderIds: [folder.id]
+              addedAt: item.addedAt, tags: item.tags, category: item.category,
+              unavailable: item.unavailable, sourceFolderIds: [folder.id]
             }))
           }, runId)
           hasMore = sourcePage.hasMore

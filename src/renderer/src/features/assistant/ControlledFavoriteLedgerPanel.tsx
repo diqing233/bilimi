@@ -27,6 +27,8 @@ type ControlledFavoriteLedgerPanelProps = {
   onRefreshOrganizationState?: () => Promise<unknown> | void
   onOrganizationSnapshotChange?: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   onAcknowledgeOrganizationCompletion?: (accountMid: string, workspaceId: string) => void
+  onTransientFeedback?: (message: string) => void
+  onDeepSeekTaskStart?: (detail: string) => () => void
   deepSeekArchiveAvailable?: boolean
   openLedgerId?: string
   openLedgerRequestVersion?: number
@@ -104,6 +106,8 @@ export function ControlledFavoriteLedgerPanel({
   onRefreshOrganizationState,
   onOrganizationSnapshotChange,
   onAcknowledgeOrganizationCompletion,
+  onTransientFeedback,
+  onDeepSeekTaskStart,
   deepSeekArchiveAvailable = false,
   openLedgerId,
   openLedgerRequestVersion,
@@ -138,6 +142,15 @@ export function ControlledFavoriteLedgerPanel({
   const scanStartingRef = useRef(false)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
+  const reportScanStartFailure = (message: string) => {
+    setScanStartFailure(message)
+    onTransientFeedback?.(message)
+  }
+  useEffect(() => {
+    if (!scanStartFailure) return
+    const timer = window.setTimeout(() => setScanStartFailure(null), 8_000)
+    return () => window.clearTimeout(timer)
+  }, [scanStartFailure])
   const snapshot = workspace.snapshot &&
     normalizeAccountMid(workspace.snapshot.accountMid) === normalizeAccountMid(currentAccountMid)
     ? workspace.snapshot
@@ -187,7 +200,7 @@ export function ControlledFavoriteLedgerPanel({
     }).catch((error) => {
       if (!active || organizationRequestVersion.current !== requestVersion ||
         activeAccountMid.current !== requestedAccountMid) return
-      setScanStartFailure(error instanceof Error ? error.message : '启动所选视频整理失败。')
+      reportScanStartFailure(error instanceof Error ? error.message : '启动所选视频整理失败。')
     })
     return () => { active = false }
   }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids, openOrganizationSelection])
@@ -220,11 +233,11 @@ export function ControlledFavoriteLedgerPanel({
     setScanStarting(true)
     try {
       if (!await workspace.startScan(mode, options) && scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
-        setScanStartFailure(workspace.lastError ?? '扫描启动失败，请重新扫描。')
+        reportScanStartFailure(workspace.lastError ?? '扫描启动失败，请重新扫描。')
       }
     } catch (error) {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
-        setScanStartFailure(error instanceof Error ? error.message : '扫描启动失败，请重新扫描。')
+        reportScanStartFailure(error instanceof Error ? error.message : '扫描启动失败，请重新扫描。')
       }
     } finally {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
@@ -530,8 +543,14 @@ export function ControlledFavoriteLedgerPanel({
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}
         onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
-        onOrganizeWithDeepSeek={(mode, scope) => void workspace.organizeCurrentSegmentWithDeepSeek(mode, scope)}
-        onRetryFailedDeepSeekChunks={() => void workspace.retryFailedDeepSeekChunks()}
+        onOrganizeWithDeepSeek={(mode, scope) => {
+          const finishDeepSeekTask = onDeepSeekTaskStart?.(scope === 'all' ? '收藏整理：本轮所有批次' : '收藏整理：当前批次')
+          void workspace.organizeCurrentSegmentWithDeepSeek(mode, scope).finally(() => finishDeepSeekTask?.())
+        }}
+        onRetryFailedDeepSeekChunks={() => {
+          const finishDeepSeekTask = onDeepSeekTaskStart?.('收藏整理：重试失败批次')
+          void workspace.retryFailedDeepSeekChunks().finally(() => finishDeepSeekTask?.())
+        }}
         onCancelDeepSeek={() => void workspace.cancelCurrentSegmentDeepSeek()}
         deepSeekCancelRequested={workspace.deepSeekCancelRequested}
         onUndoClassification={() => void workspace.undoClassification()}
