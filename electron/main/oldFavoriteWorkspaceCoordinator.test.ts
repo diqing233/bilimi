@@ -5880,27 +5880,67 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
-      new OldFavoriteWorkspaceStore({ root })
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false }
     )
-    await coordinator.open('100')
-    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [
+        { aid: 1, title: 'First video', tags: ['music'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Second video', tags: ['music'], sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
     await coordinator.applyClassificationBatch('100', {
-      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+      source: 'manual', assignments: [
+        { aid: 1, targetLedgerIds: ['music'] },
+        { aid: 2, targetLedgerIds: ['music'] }
+      ]
     })
     await coordinator.applyClassificationBatch('100', {
-      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['knowledge'] }]
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
 
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot).toMatchObject({
       history: {
         cursor: 2,
         length: 2,
         entries: [
-          { cursor: 2, source: 'manual', changeCount: 1, targetLedgerIds: ['knowledge'] },
-          { cursor: 1, source: 'manual', changeCount: 1, targetLedgerIds: ['music'] }
+          {
+            cursor: 2,
+            source: 'manual',
+            changeCount: 1,
+            targetLedgerIds: ['knowledge'],
+            summary: {
+              title: 'First video',
+              beforeTargetLedgerIds: ['music'],
+              afterTargetLedgerIds: ['knowledge'],
+              reason: '人工调整',
+              movedCount: 1
+            }
+          },
+          {
+            cursor: 1,
+            source: 'manual',
+            changeCount: 2,
+            targetLedgerIds: ['music'],
+            summary: {
+              title: 'First video',
+              beforeTargetLedgerIds: [],
+              afterTargetLedgerIds: ['music'],
+              reason: '人工调整',
+              movedCount: 2
+            }
+          }
         ]
       }
     })
+    expect(snapshot.history.entries[0]).not.toHaveProperty('changes')
+    expect(snapshot.history.entries[1]).not.toHaveProperty('changes')
 
     await coordinator.moveHistoryCursor('100', 1)
 

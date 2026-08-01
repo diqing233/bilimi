@@ -305,12 +305,27 @@ describe('OldFavoriteArchivePreviewStep', () => {
         history: {
           cursor: 3, length: 3, baselineCursor: 1,
           entries: [
-            { cursor: 3, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'] },
-            { cursor: 2, source: 'deepseek', changeCount: 1, targetLedgerIds: ['manual'] }
+            {
+              cursor: 3, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'],
+              summary: {
+                title: 'Preview', beforeTargetLedgerIds: ['archive'], afterTargetLedgerIds: ['manual'],
+                reason: '人工调整', movedCount: 1
+              }
+            },
+            {
+              cursor: 2, source: 'deepseek', changeCount: 44, targetLedgerIds: ['manual'],
+              summary: {
+                title: 'Batch sample', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['manual'],
+                reason: 'DeepSeek 整理', movedCount: 44
+              }
+            }
           ]
         }
       }}
-      ledgers={[{ id: 'manual', displayName: 'Manual', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      ledgers={[
+        { id: 'archive', displayName: 'Archive', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false },
+        { id: 'manual', displayName: 'Manual', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }
+      ]}
       loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={onMoveHistoryCursor}
@@ -319,9 +334,9 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
     const menu = screen.getByRole('menu', { name: '改动记录' })
-    expect(menu.querySelector('.favorite-ledger-panel__archive-history-current')).toHaveTextContent('当前记录：人工调整：1 条 → Manual')
+    expect(menu.querySelector('.favorite-ledger-panel__archive-history-current')).toHaveTextContent('当前记录：Preview：Archive → Manual')
     expect(menu.querySelector('.favorite-ledger-panel__archive-history-divider')).not.toBeNull()
-    expect(within(menu).getByRole('menuitem', { name: 'DeepSeek：1 条 → Manual' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'DeepSeek 整理 44 条：未分类 → Manual' })).toBeInTheDocument()
     expect(menu).not.toHaveTextContent('自动分类')
     fireEvent.click(within(menu).getByRole('menuitem', { name: '恢复初始改动' }))
     expect(onMoveHistoryCursor).toHaveBeenCalledWith(1)

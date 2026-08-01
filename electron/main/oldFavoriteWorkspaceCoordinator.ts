@@ -4137,6 +4137,8 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
     const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
+    const currentSegmentItems = this.currentSegmentItems.get(workspace.accountMid) ?? []
+    const currentSegmentItemsByAid = new Map(currentSegmentItems.map((item) => [item.aid, item]))
     const tagEnrichment = this.tagEnrichments.get(workspace.accountMid)
     const pendingTagAids = new Set(tagEnrichment?.pendingAids ?? [])
     const acceptedTagSegments = new Set(tagEnrichment?.acceptedSegmentIds ?? [])
@@ -4213,7 +4215,7 @@ export class OldFavoriteWorkspaceCoordinator {
       currentSegment: currentSegment ? {
         id: currentSegment.id,
         aids: [...currentSegment.aids],
-        items: clone(this.currentSegmentItems.get(workspace.accountMid) ?? []).filter((item) => currentSegment.aids.includes(item.aid))
+        items: clone(currentSegmentItems).filter((item) => currentSegment.aids.includes(item.aid))
       } : null,
       ...(overview ? { overview } : {}),
       classifications: Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
@@ -4249,7 +4251,26 @@ export class OldFavoriteWorkspaceCoordinator {
           cursor: (workspace.historyBaselineCursor ?? 0) + index + 1,
           source: entry.source,
           changeCount: entry.changes.length,
-          targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort()
+          targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort(),
+          summary: (() => {
+            const firstChange = entry.changes[0]
+            const title = firstChange
+              ? currentSegmentItemsByAid.get(firstChange.aid)?.title?.trim().slice(0, 160)
+              : undefined
+            const reasons: Record<OldFavoriteWorkspaceClassificationSource, string> = {
+              manual: '人工调整',
+              deepseek: 'DeepSeek 整理',
+              'system-high': '高置信度自动分类',
+              'system-low': '低置信度自动分类'
+            }
+            return {
+              ...(title ? { title } : {}),
+              beforeTargetLedgerIds: [...(firstChange?.before?.targetLedgerIds ?? [])],
+              afterTargetLedgerIds: [...(firstChange?.after?.targetLedgerIds ?? [])],
+              reason: reasons[entry.source],
+              movedCount: entry.changes.length
+            }
+          })()
         })).reverse()
       },
       ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})

@@ -216,8 +216,19 @@ export function OldFavoriteArchivePreviewStep({
   } as const
   const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
-  const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) =>
-    `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${entry.targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'}`
+  const historyTargetLabel = (targetLedgerIds: string[]) =>
+    targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'
+  const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
+    if (!entry.summary) {
+      return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
+    }
+    const before = historyTargetLabel(entry.summary.beforeTargetLedgerIds)
+    const after = historyTargetLabel(entry.summary.afterTargetLedgerIds)
+    if (entry.summary.movedCount === 1 && entry.summary.title) {
+      return `${entry.summary.title}：${before} → ${after}`
+    }
+    return `${entry.summary.reason} ${entry.summary.movedCount} 条：${before} → ${after}`
+  }
   const historyBaselineCursor = snapshot.history.baselineCursor ?? 0
   const historyEntries = snapshot.history.entries ?? []
   const currentHistoryEntry = historyEntries.find((entry) => entry.cursor === snapshot.history.cursor)

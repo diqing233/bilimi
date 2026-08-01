@@ -182,6 +182,14 @@ export type OldFavoriteWorkspaceSnapshot = {
       source: OldFavoriteWorkspaceClassificationSource
       changeCount: number
       targetLedgerIds: string[]
+      /** Compact renderer projection; optional only for stale in-memory snapshots during development reloads. */
+      summary?: {
+        title?: string
+        beforeTargetLedgerIds: string[]
+        afterTargetLedgerIds: string[]
+        reason: string
+        movedCount: number
+      }
     }>
   }
   completionMode?: 'bilibili' | 'local'
