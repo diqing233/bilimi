@@ -12,6 +12,7 @@ import type {
 import type {
   FavoriteRepositoryLibraryDetail,
   FavoriteRepositoryLibraryFilter,
+  FavoriteRepositoryLibraryStateFilters,
   FavoriteRepositoryLibrarySort,
   FavoriteRepositoryTranscriptionFilter,
   FavoriteRepositoryService
@@ -38,6 +39,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
+  stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
 }
@@ -179,10 +181,20 @@ function pageOptions(value: unknown): FolderPageOptions {
 
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
-  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
   if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  if (candidate.stateFilters !== undefined && (!candidate.stateFilters || typeof candidate.stateFilters !== 'object' || Array.isArray(candidate.stateFilters))) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  const stateFilters = candidate.stateFilters as Record<string, unknown> | undefined
+  if (stateFilters && (Object.keys(stateFilters).some((key) => !['sync', 'protection', 'organization'].includes(key)) ||
+    (stateFilters.sync !== undefined && !['synced', 'unsynced'].includes(String(stateFilters.sync))) ||
+    (stateFilters.protection !== undefined && !['protected', 'unprotected'].includes(String(stateFilters.protection))) ||
+    (stateFilters.organization !== undefined && !['organized', 'unorganized'].includes(String(stateFilters.organization))))) {
     throw new Error('Favorite library page options are invalid.')
   }
   if (candidate.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(candidate.sort as string)) {
@@ -201,6 +213,7 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
     ...(candidate.page ? { page: candidate.page as number } : {}),
     ...(query ? { query } : {}),
     ...(candidate.filter ? { filter: candidate.filter as FavoriteRepositoryLibraryFilter } : {}),
+    ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}),
     ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
     ...(transcriptionFilters?.length ? { transcriptionFilters } : {})
   }

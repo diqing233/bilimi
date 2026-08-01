@@ -2477,10 +2477,10 @@ describe('FavoriteLibraryApp', () => {
   })
 
   it('renders nonempty search, status, and transcription-filter pages after a long-list offset', async () => {
-    const resultForOptions = (options: { query?: string; filter?: string; transcriptionFilters?: string[] }) => {
+    const resultForOptions = (options: { query?: string; stateFilters?: { sync?: string }; transcriptionFilters?: string[] }) => {
       const title = options.transcriptionFilters?.includes('completed')
         ? 'Transcription result'
-        : options.filter === 'pending'
+        : options.stateFilters?.sync === 'unsynced'
           ? 'Status result'
           : options.query
             ? 'Search result'
@@ -2513,8 +2513,9 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '' } })
     expect(await screen.findByText('Unfiltered result')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
-    fireEvent.click(screen.getByRole('menuitemradio', { name: '待处理' }))
+    expect(screen.queryByRole('button', { name: '状态筛选' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '同步筛选' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
     expect(await screen.findByText('Status result')).toBeInTheDocument()
     expect(list.scrollTop).toBe(0)
 

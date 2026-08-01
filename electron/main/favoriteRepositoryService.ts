@@ -77,6 +77,7 @@ type FavoriteRepositoryLibraryIndex = {
   folderAidsByFolderId: Map<string, number[]>
   folderIdsByAid: Map<number, string[]>
   pendingStatesByAid: Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>
+  protectedAids: Set<number>
 }
 
 type SyncJournalEntry = {
@@ -116,6 +117,11 @@ type EventJournalEntry = {
 }
 
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
+export type FavoriteRepositoryLibraryStateFilters = {
+  sync?: FavoriteRepositoryLibraryStates['sync']
+  protection?: FavoriteRepositoryLibraryStates['protection']
+  organization?: FavoriteRepositoryLibraryStates['organization']
+}
 export type FavoriteRepositoryLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
 export type FavoriteRepositoryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
 export type FavoriteRepositoryLibraryStates = {
@@ -133,6 +139,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
+  stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
 }
@@ -1289,7 +1296,8 @@ export class FavoriteRepositoryService {
       allAids: Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right),
       folderAidsByFolderId: new Map([...aidsByCanonicalFolderId].map(([id, aids]) => [id, [...aids].sort((left, right) => left - right)])),
       folderIdsByAid: new Map([...folderIdsByAid].map(([aid, ids]) => [aid, [...ids].sort((left, right) => left.localeCompare(right))])),
-      pendingStatesByAid: this.pendingStatesByAid(snapshot)
+      pendingStatesByAid: this.pendingStatesByAid(snapshot),
+      protectedAids: new Set((snapshot.organizationRecords ?? []).map((record) => record.aid))
     }
   }
 
@@ -1344,7 +1352,7 @@ export class FavoriteRepositoryService {
     ))
     const reliableRemoteState = position?.positionState === 'aligned' || position?.positionState === 'local-only-change'
     const organized = (index.folderIdsByAid.get(aid) ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))
-    const protectedAid = (snapshot.organizationRecords ?? []).some((record) => record.aid === aid)
+    const protectedAid = index.protectedAids.has(aid)
     return {
       sync: remoteBilimiEvidence && reliableRemoteState ? 'synced' : 'unsynced',
       protection: protectedAid ? 'protected' : 'unprotected',
@@ -1432,6 +1440,10 @@ export class FavoriteRepositoryService {
       if (!matchesQuery) return false
       if (transcriptionFilters.size > 0 && ![...(transcriptionStatesByAid?.get(aid) ?? [])]
         .some((state) => transcriptionFilters.has(state))) return false
+      const libraryStates = this.libraryStatesForAid(snapshot, index, aid)
+      if (options.stateFilters?.sync && libraryStates.sync !== options.stateFilters.sync) return false
+      if (options.stateFilters?.protection && libraryStates.protection !== options.stateFilters.protection) return false
+      if (options.stateFilters?.organization && libraryStates.organization !== options.stateFilters.organization) return false
       if (filter === 'protected') return states.has('protected')
       if (filter === 'pending') return [...states].some((state) => state !== 'protected')
       return filter !== 'unsynced' || states.has('unsynced') || states.has('failed') || states.has('result-unknown')
@@ -1477,6 +1489,7 @@ export class FavoriteRepositoryService {
       scope: scope.kind === 'folder' ? [scope.kind, scope.folderId] : [scope.kind],
       query: options.query?.trim().toLocaleLowerCase() ?? '',
       filter: options.filter ?? 'all',
+      stateFilters: options.stateFilters ?? {},
       sort: options.sort ?? '',
       transcriptionFilters: [...transcriptionFilters].sort(),
       ...(dependsOnQueue ? { transcriptionQueueRevision: normalizedQueueRevision } : {}),

@@ -895,6 +895,17 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibraryDetail('100', 4)).resolves.toMatchObject({
       libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
     })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10,
+      sort: 'title-asc',
+      stateFilters: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
+    } as never)).resolves.toMatchObject({
+      totalCount: 2,
+      items: [{ video: { aid: 3 } }, { video: { aid: 4 } }]
+    })
+    await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
+      sort: 'title-asc', stateFilters: { protection: 'protected' }
+    } as never)).resolves.toEqual([1])
   })
 
   it('reapplies an authoritative workspace transition when a retained command result no longer matches', async () => {

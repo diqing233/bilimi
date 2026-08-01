@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryVideo } from '../../src/shared/favoriteRepository'
 import type { VideoAudioTranscriptionRequest } from '../../src/shared/types'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
-import type { FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
+import type { FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryLibraryStateFilters, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
 
 const MAX_SELECTION_AIDS = 500
 
@@ -13,7 +13,7 @@ export type FavoriteLibrarySyncSelection =
 export type FavoriteLibraryScopeSelection = {
   kind: 'scope'
   scope: FavoriteRepositoryLibraryPageScope
-  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[] }
+  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; stateFilters?: FavoriteRepositoryLibraryStateFilters; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[] }
   excludedAids: number[]
 }
 
@@ -386,13 +386,19 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && Object.keys(candidate).length === 2) return { kind: 'folder', folderId: candidate.folderId.trim() }
   if (candidate.kind === 'scope' && Object.keys(candidate).length === 4 && candidate.scope && typeof candidate.scope === 'object' && candidate.options && typeof candidate.options === 'object' && Array.isArray(candidate.excludedAids)) {
     const scope = candidate.scope as { kind?: unknown; folderId?: unknown }
-    const options = candidate.options as { query?: unknown; filter?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+    const options = candidate.options as { query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
     const transcriptionFilters = options.transcriptionFilters
     if (transcriptionFilters !== undefined && (!Array.isArray(transcriptionFilters) || transcriptionFilters.length > 5 || transcriptionFilters.some((filter) =>
       !['completed', 'none', 'pending', 'running', 'failed'].includes(String(filter))))) throw new Error('Selected videos are invalid.')
     const validScope = scope.kind === 'all' || scope.kind === 'pending' || scope.kind === 'protected' || scope.kind === 'unsynced' ||
       scope.kind === 'folder' && typeof scope.folderId === 'string' && !!scope.folderId.trim()
-    if (!validScope || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||
+    const stateFilters = options.stateFilters as Record<string, unknown> | undefined
+    const validStateFilters = stateFilters === undefined || Boolean(stateFilters) && !Array.isArray(stateFilters) &&
+      Object.keys(stateFilters).every((key) => ['sync', 'protection', 'organization'].includes(key)) &&
+      (stateFilters.sync === undefined || ['synced', 'unsynced'].includes(String(stateFilters.sync))) &&
+      (stateFilters.protection === undefined || ['protected', 'unprotected'].includes(String(stateFilters.protection))) &&
+      (stateFilters.organization === undefined || ['organized', 'unorganized'].includes(String(stateFilters.organization)))
+    if (!validScope || !validStateFilters || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||
       (options.query !== undefined && typeof options.query !== 'string') ||
       (options.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(String(options.filter))) ||
       (options.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(String(options.sort)))) throw new Error('所选视频无效。')
@@ -400,7 +406,7 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
       kind: 'scope', scope: scope.kind === 'folder'
         ? { kind: 'folder', folderId: (scope.folderId as string).trim() }
         : { kind: scope.kind as Exclude<FavoriteRepositoryLibraryPageScope['kind'], 'folder'> },
-      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}) },
+      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}) },
       excludedAids: [...new Set(candidate.excludedAids as number[])].sort((left, right) => left - right)
     }
   }

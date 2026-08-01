@@ -48,10 +48,29 @@ import {
 import './FavoriteLibraryApp.css'
 
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
+type FavoriteLibraryStateFilterSelection = {
+  sync: 'all' | 'synced' | 'unsynced'
+  protection: 'all' | 'protected' | 'unprotected'
+  organization: 'all' | 'organized' | 'unorganized'
+}
+type FavoriteLibraryApiStateFilters = {
+  sync?: Exclude<FavoriteLibraryStateFilterSelection['sync'], 'all'>
+  protection?: Exclude<FavoriteLibraryStateFilterSelection['protection'], 'all'>
+  organization?: Exclude<FavoriteLibraryStateFilterSelection['organization'], 'all'>
+}
+
+function apiStateFilters(filters: FavoriteLibraryStateFilterSelection): FavoriteLibraryApiStateFilters {
+  return {
+    ...(filters.sync !== 'all' ? { sync: filters.sync } : {}),
+    ...(filters.protection !== 'all' ? { protection: filters.protection } : {}),
+    ...(filters.organization !== 'all' ? { organization: filters.organization } : {})
+  }
+}
+
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
   scope: LibraryScope
-  options: { query?: string; filter?: FavoriteLibraryFilter; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] }
+  options: { query?: string; filter?: FavoriteLibraryFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] }
   excludedAids: number[]
 }
 
@@ -141,7 +160,7 @@ type CachedFavoriteLibraryUi = {
   pageNumber: number
   pageSize: 25 | 50 | 100
   searchQuery: string
-  rowFilter: FavoriteLibraryFilter
+  libraryStateFilters: FavoriteLibraryStateFilterSelection
   rowSort: FavoriteLibrarySort
   transcriptionFilters: FavoriteLibraryTranscriptionFilter[]
   scrollTop: number
@@ -287,7 +306,7 @@ export function FavoriteLibraryApp({
   if (!selectionStoreRef.current) selectionStoreRef.current = new FavoriteLibrarySelectionStore()
   const selectionStore = selectionStoreRef.current
   const [searchQuery, setSearchQuery] = useState('')
-  const [rowFilter, setRowFilter] = useState<FavoriteLibraryFilter>('all')
+  const [libraryStateFilters, setLibraryStateFilters] = useState<FavoriteLibraryStateFilterSelection>({ sync: 'all', protection: 'all', organization: 'all' })
   const [rowSort, setRowSort] = useState<FavoriteLibrarySort>('updated-desc')
   const [transcriptionFilters, setTranscriptionFilters] = useState<FavoriteLibraryTranscriptionFilter[]>([])
   const [batchEligibilityNotice, setBatchEligibilityNotice] = useState<string>()
@@ -373,9 +392,9 @@ export function FavoriteLibraryApp({
   useEffect(() => {
     if (!accountMid || !summary || !page || scopeId !== pageScopeId) return
     viewCacheRef.current.setReady(accountMid, summary, page, {
-      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, rowFilter, rowSort, transcriptionFilters, scrollTop: listScrollTop, selected, detailOpen
+      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, libraryStateFilters, rowSort, transcriptionFilters, scrollTop: listScrollTop, selected, detailOpen
     })
-  }, [accountMid, detailOpen, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowFilter, rowSort, scopeId, searchQuery, selected, summary, transcriptionFilters])
+  }, [accountMid, detailOpen, libraryStateFilters, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowSort, scopeId, searchQuery, selected, summary, transcriptionFilters])
 
   useEffect(() => {
     onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
@@ -384,7 +403,16 @@ export function FavoriteLibraryApp({
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
   const scopeRef = useRef(scope)
   scopeRef.current = scope
-  const pageOptions = useMemo(() => ({ query: searchQuery, filter: rowFilter, sort: rowSort, transcriptionFilters }), [rowFilter, rowSort, searchQuery, transcriptionFilters])
+  const pageOptions = useMemo(() => {
+    const stateFilters = apiStateFilters(libraryStateFilters)
+    return {
+      query: searchQuery,
+      filter: 'all' as const,
+      ...(Object.keys(stateFilters).length ? { stateFilters } : {}),
+      sort: rowSort,
+      transcriptionFilters
+    }
+  }, [libraryStateFilters, rowSort, searchQuery, transcriptionFilters])
   const pageOptionsRef = useRef(pageOptions)
   pageOptionsRef.current = pageOptions
   const load = useCallback(async (
@@ -392,7 +420,7 @@ export function FavoriteLibraryApp({
     nextScope: LibraryScope,
     requestedPage = pageNumberRef.current,
     limit = pageSize,
-    options: { query?: string; filter?: FavoriteLibraryFilter; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] } = {},
+    options: { query?: string; filter?: FavoriteLibraryFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] } = {},
     preserveSelection = false
   ) => {
     const requestId = ++requestIdRef.current
@@ -403,6 +431,7 @@ export function FavoriteLibraryApp({
       page: requestedPage,
       ...(options.query?.trim() ? { query: options.query.trim() } : {}),
       ...(options.filter && options.filter !== 'all' ? { filter: options.filter } : {}),
+      ...(options.stateFilters && Object.keys(options.stateFilters).length ? { stateFilters: options.stateFilters } : {}),
       ...(options.sort && options.sort !== 'updated-desc' ? { sort: options.sort } : {}),
       ...(options.transcriptionFilters?.length ? { transcriptionFilters: options.transcriptionFilters } : {})
     })
@@ -428,7 +457,7 @@ export function FavoriteLibraryApp({
     setScopeId('pending')
     scopeRef.current = { kind: 'pending' }
     setSearchQuery('')
-    setRowFilter('all')
+    setLibraryStateFilters({ sync: 'all', protection: 'all', organization: 'all' })
     setTranscriptionFilters([])
     setPageNumber(1)
     setListScrollTop(0)
@@ -627,7 +656,12 @@ export function FavoriteLibraryApp({
         setPageNumber(cachedUi?.pageNumber ?? 1)
         setPageSize(cachedUi?.pageSize ?? 50)
         setSearchQuery(cachedUi?.searchQuery ?? '')
-        setRowFilter(cachedUi?.rowFilter ?? 'all')
+        setLibraryStateFilters((current) => {
+          const next = cachedUi?.libraryStateFilters ?? { sync: 'all' as const, protection: 'all' as const, organization: 'all' as const }
+          return current.sync === next.sync && current.protection === next.protection && current.organization === next.organization
+            ? current
+            : next
+        })
         setRowSort(cachedUi?.rowSort ?? 'updated-desc')
         setTranscriptionFilters((current) => {
           const next = cachedUi?.transcriptionFilters ?? []
@@ -643,17 +677,17 @@ export function FavoriteLibraryApp({
       const nextScope = sameAccount ? scopeRef.current : cachedUi ? scopeForNavigation(cachedUi.scopeId) : { kind: 'all' } as const
       const nextPageNumber = sameAccount ? pageNumberRef.current : cachedUi?.pageNumber ?? 1
       const nextPageSize = sameAccount ? pageSize : cachedUi?.pageSize ?? 50
-      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'rowFilter' | 'rowSort' | 'transcriptionFilters'> = sameAccount
-        ? { searchQuery, rowFilter, rowSort, transcriptionFilters }
+      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'rowSort' | 'transcriptionFilters'> = sameAccount
+        ? { searchQuery, libraryStateFilters, rowSort, transcriptionFilters }
         : cachedUi
-          ? { searchQuery: cachedUi.searchQuery, rowFilter: cachedUi.rowFilter, rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters }
-          : { searchQuery: '', rowFilter: 'all', rowSort: 'updated-desc', transcriptionFilters: [] }
+          ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters }
+          : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, rowSort: 'updated-desc', transcriptionFilters: [] }
       const pageRequestId = ++requestIdRef.current
       const pageRequest = api.getFavoriteRepositoryLibraryPage?.(mid, nextScope, {
         limit: nextPageSize,
         page: nextPageNumber,
         ...(nextOptions.searchQuery.trim() ? { query: nextOptions.searchQuery.trim() } : {}),
-        ...(nextOptions.rowFilter !== 'all' ? { filter: nextOptions.rowFilter } : {}),
+        ...(Object.keys(apiStateFilters(nextOptions.libraryStateFilters)).length ? { stateFilters: apiStateFilters(nextOptions.libraryStateFilters) } : {}),
         ...(nextOptions.rowSort !== 'updated-desc' ? { sort: nextOptions.rowSort } : {}),
         ...(nextOptions.transcriptionFilters?.length ? { transcriptionFilters: nextOptions.transcriptionFilters } : {})
       })
@@ -670,7 +704,7 @@ export function FavoriteLibraryApp({
       setPageNumber(nextPageNumber)
       viewCacheRef.current.setReady(mid, nextSummary, nextPage, cachedUi ?? {
         scopeId: navigationForScope(nextScope), pageNumber: nextPageNumber, pageSize: nextPageSize,
-        searchQuery: nextOptions.searchQuery, rowFilter: nextOptions.rowFilter, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, scrollTop: sameAccount ? listScrollTop : 0,
+        searchQuery: nextOptions.searchQuery, libraryStateFilters: nextOptions.libraryStateFilters, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, scrollTop: sameAccount ? listScrollTop : 0,
         selected: sameAccount ? selected : undefined, detailOpen: sameAccount ? detailOpen : true
       })
       if (sameAccount) {
@@ -806,7 +840,7 @@ export function FavoriteLibraryApp({
       ? summary?.folderCounts?.[pageScopeId.slice('folder:'.length)]
       : summary?.scopeCounts?.[pageScopeId as keyof typeof summary.scopeCounts]
   const displayedTotal = page?.totalCount ?? currentScopeTotal ?? rows.length
-  const hasActiveResultFilter = Boolean(searchQuery.trim()) || rowFilter !== 'all' || transcriptionFilters.length > 0
+  const hasActiveResultFilter = Boolean(searchQuery.trim()) || Object.keys(apiStateFilters(libraryStateFilters)).length > 0 || transcriptionFilters.length > 0
   const currentScopeLabel = pageScopeId === 'all'
     ? text.all
     : pageScopeId.startsWith('folder:')
@@ -1701,9 +1735,13 @@ export function FavoriteLibraryApp({
           <div className="favorite-library__row-columns">
             <span aria-hidden="true" /> <span>{`视频名称（${({ 'updated-desc': '最近更新', 'updated-asc': '最早更新', 'title-asc': '标题 A-Z', 'title-desc': '标题 Z-A' } as const)[rowSort]}）`} <FavoriteLibraryColumnMenu label="标题排序" value={rowSort} options={[{ value: 'updated-desc', label: '最近更新' }, { value: 'updated-asc', label: '最早更新' }, { value: 'title-asc', label: '标题 A-Z' }, { value: 'title-desc', label: '标题 Z-A' }]} onChange={(sort) => {
               setRowSort(sort); setPageNumber(1); setListScrollTop(0); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sort })
-            }} /></span><span>{`状态（${({ all: '全部', pending: '待处理', protected: '已保护', unsynced: '未同步' } as const)[rowFilter]}）`} <FavoriteLibraryColumnMenu label="状态筛选" value={rowFilter} options={[{ value: 'all', label: '全部状态' }, { value: 'pending', label: '待处理' }, { value: 'protected', label: '已保护' }, { value: 'unsynced', label: '未同步' }]} onChange={(filter) => {
-              setRowFilter(filter); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, filter })
-            }} /></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
+            }} /></span><span>状态 <span className="favorite-library__state-filter-controls"><FavoriteLibraryColumnMenu label="同步筛选" value={libraryStateFilters.sync} options={[{ value: 'all', label: '同步：全部' }, { value: 'synced', label: '已同步' }, { value: 'unsynced', label: '未同步' }]} onChange={(sync) => {
+              const next = { ...libraryStateFilters, sync }; setLibraryStateFilters(next); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
+            }} /><FavoriteLibraryColumnMenu label="保护筛选" value={libraryStateFilters.protection} options={[{ value: 'all', label: '保护：全部' }, { value: 'protected', label: '已保护' }, { value: 'unprotected', label: '未保护' }]} onChange={(protection) => {
+              const next = { ...libraryStateFilters, protection }; setLibraryStateFilters(next); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
+            }} /><FavoriteLibraryColumnMenu label="整理筛选" value={libraryStateFilters.organization} options={[{ value: 'all', label: '整理：全部' }, { value: 'organized', label: '已整理' }, { value: 'unorganized', label: '未整理' }]} onChange={(organization) => {
+              const next = { ...libraryStateFilters, organization }; setLibraryStateFilters(next); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
+            }} /></span></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
               setTranscriptionFilters(nextFilters); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, transcriptionFilters: nextFilters })
             }} /></span>
           </div>
@@ -1712,7 +1750,7 @@ export function FavoriteLibraryApp({
             items={rows}
             className="favorite-library__list"
             scrollTop={listScrollTop}
-            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${rowFilter}:${rowSort}:${transcriptionFilters.join(',')}`}
+            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${libraryStateFilters.sync}:${libraryStateFilters.protection}:${libraryStateFilters.organization}:${rowSort}:${transcriptionFilters.join(',')}`}
             onScrollTopChange={setListScrollTop}
             renderItem={(row) => (
               (() => {
