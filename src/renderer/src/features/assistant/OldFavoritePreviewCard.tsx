@@ -9,6 +9,8 @@ type OldFavoritePreviewCardProps = {
   item: PreviewItem
   sourceFolderTitles: string[]
   classification?: OldFavoriteWorkspaceClassification
+  currentLedgerId?: string
+  originalTargetLedgerIds?: string[]
   ledgers: FavoriteLedger[]
   loading: boolean
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
@@ -18,6 +20,8 @@ export function OldFavoritePreviewCard({
   item,
   sourceFolderTitles,
   classification,
+  currentLedgerId,
+  originalTargetLedgerIds = [],
   ledgers,
   loading,
   onApplyManualClassification
@@ -31,6 +35,8 @@ export function OldFavoritePreviewCard({
   const title = item.title?.trim() || `视频 ${item.aid}`
   const targetLedgerIds = classification?.targetLedgerIds ?? []
   const selected = targetLedgerIds.length > 0
+  const originalLedgerNames = originalTargetLedgerIds
+    .map((ledgerId) => ledgerId === 'inbox' ? '暂存' : ledgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId)
 
   useLayoutEffect(() => {
     if (!menuOpen) return
@@ -78,8 +84,19 @@ export function OldFavoritePreviewCard({
     setMultiSelectOpen(false)
   }
 
-  function applySingleTarget(targetLedgerIds: string[]) {
-    onApplyManualClassification(item.aid, targetLedgerIds)
+  function applySingleTarget(targetLedgerId?: string) {
+    const preservedTargetLedgerIds = currentLedgerId
+      ? targetLedgerIds.filter((ledgerId) => ledgerId !== currentLedgerId)
+      : []
+    const nextTargetLedgerIds = targetLedgerId
+      ? [...new Set([...preservedTargetLedgerIds, targetLedgerId])].slice(0, 3)
+      : preservedTargetLedgerIds
+    onApplyManualClassification(item.aid, nextTargetLedgerIds)
+    closeMenu()
+  }
+
+  function removeAllTargets() {
+    onApplyManualClassification(item.aid, [])
     closeMenu()
   }
 
@@ -101,6 +118,7 @@ export function OldFavoritePreviewCard({
       <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
       {item.tags?.length ? <p>标签：{item.tags.join('、')}</p> : null}
       <p>分类把握：{classification?.source === 'system-low' ? '不太稳' : '比较稳'}</p>
+      {originalLedgerNames.length ? <p>原分类：{originalLedgerNames.join('、')}</p> : null}
     </div>
     <div className="favorite-ledger-panel__preview-controls">
       <button ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={selected}
@@ -121,13 +139,19 @@ export function OldFavoritePreviewCard({
               onChange={(event) => toggleDraftTarget(ledger.id, event.currentTarget.checked)} />{ledger.displayName}</label>
           })}
           <div className="favorite-ledger-panel__target-menu-actions">
-            <button type="button" disabled={loading} onClick={() => applySingleTarget(draftTargetLedgerIds)}>确认多选</button>
+            <button type="button" disabled={loading} onClick={() => {
+              onApplyManualClassification(item.aid, draftTargetLedgerIds)
+              closeMenu()
+            }}>确认多选</button>
             <button type="button" disabled={loading} onClick={closeMenu}>取消</button>
           </div>
         </div> : <>
-          <button type="button" role="menuitem" disabled={loading} onClick={() => applySingleTarget([])}>未分类</button>
+          {currentLedgerId && targetLedgerIds.length > 1 ? <>
+            <button type="button" role="menuitem" disabled={loading} onClick={() => applySingleTarget()}>移出当前分类</button>
+            <button type="button" role="menuitem" disabled={loading} onClick={removeAllTargets}>移出全部分类</button>
+          </> : <button type="button" role="menuitem" disabled={loading} onClick={() => applySingleTarget()}>未分类</button>}
           {ledgers.map((ledger) => <button key={ledger.id} type="button" role="menuitem" disabled={loading}
-            onClick={() => applySingleTarget([ledger.id])}>{ledger.displayName}</button>)}
+            onClick={() => applySingleTarget(ledger.id)}>{ledger.displayName}</button>)}
           <button type="button" role="menuitem" disabled={loading} onClick={openMultiSelect}>多选…</button>
         </>}
       </div>, document.body) : null}

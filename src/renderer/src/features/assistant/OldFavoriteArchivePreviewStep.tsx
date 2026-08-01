@@ -1,7 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
@@ -21,12 +21,14 @@ export function groupOldFavoritePreviewItems<Item extends { aid: number }>(
 ) {
   const classified = new Map<string, Item[]>()
   for (const item of items) {
-    const targetLedgerId = classifications[String(item.aid)]?.targetLedgerIds[0]
-    if (!targetLedgerId) continue
-    const groupId = targetLedgerId === 'inbox' || knownLedgerIds.has(targetLedgerId) ? targetLedgerId : 'other'
-    const bucket = classified.get(groupId)
-    if (bucket) bucket.push(item)
-    else classified.set(groupId, [item])
+    const groupIds = new Set((classifications[String(item.aid)]?.targetLedgerIds ?? [])
+      .slice(0, 3)
+      .map((targetLedgerId) => targetLedgerId === 'inbox' || knownLedgerIds.has(targetLedgerId) ? targetLedgerId : 'other'))
+    for (const groupId of groupIds) {
+      const bucket = classified.get(groupId)
+      if (bucket) bucket.push(item)
+      else classified.set(groupId, [item])
+    }
   }
   return classified
 }
@@ -77,6 +79,10 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   onApplyManualClassifications
 }: OldFavoriteArchiveGroupsProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [recentlyMovedAidByLedgerId, setRecentlyMovedAidByLedgerId] = useState<Record<string, number>>({})
+  const groupsRootRef = useRef<HTMLDivElement>(null)
+  const pendingMoveFocusRef = useRef<{ aid: number; sourceLedgerId: string; targetLedgerId: string } | null>(null)
+  const originalTargetsRef = useRef<{ key: string; byAid: Map<number, string[]> }>({ key: '', byAid: new Map() })
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -85,6 +91,15 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     .map((folder) => folder.id))
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
+  const originalTargetsKey = `${snapshot.workspaceId}:${snapshot.currentSegment?.id ?? 'none'}`
+  if (originalTargetsRef.current.key !== originalTargetsKey) {
+    originalTargetsRef.current = { key: originalTargetsKey, byAid: new Map() }
+  }
+  for (const item of items) {
+    if (!originalTargetsRef.current.byAid.has(item.aid)) {
+      originalTargetsRef.current.byAid.set(item.aid, [...(snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? [])])
+    }
+  }
   const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
   const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
   const previewGroups = [
@@ -92,19 +107,50 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     ...[...classified.entries()].map(([id, groupedItems]) => ({
       id,
       title: id === 'inbox' ? '暂存' : id === 'other' ? '其它收藏' : ledgers.find((ledger) => ledger.id === id)?.displayName ?? '其它收藏',
-      items: groupedItems
+      items: recentlyMovedAidByLedgerId[id] === undefined
+        ? groupedItems
+        : [...groupedItems].sort((left, right) =>
+          Number(right.aid === recentlyMovedAidByLedgerId[id]) - Number(left.aid === recentlyMovedAidByLedgerId[id]))
     }))
   ]
-  const renderItem = (item: typeof items[number]) => <OldFavoritePreviewCard
+  const handleManualClassification = (aid: number, currentLedgerId: string | undefined, nextTargetLedgerIds: string[]) => {
+    const previousTargetLedgerIds = snapshot.classifications[String(aid)]?.targetLedgerIds ?? []
+    const targetLedgerId = nextTargetLedgerIds.find((ledgerId) => !previousTargetLedgerIds.includes(ledgerId))
+      ?? nextTargetLedgerIds[0]
+      ?? 'unclassified'
+    pendingMoveFocusRef.current = { aid, sourceLedgerId: currentLedgerId ?? 'unclassified', targetLedgerId }
+    setRecentlyMovedAidByLedgerId((current) => ({ ...current, [targetLedgerId]: aid }))
+    onApplyManualClassification(aid, nextTargetLedgerIds)
+  }
+  const renderItem = (item: typeof items[number], currentLedgerId?: string) => <OldFavoritePreviewCard
     item={item}
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
     classification={snapshot.classifications[String(item.aid)]}
+    currentLedgerId={currentLedgerId}
+    originalTargetLedgerIds={originalTargetsRef.current.byAid.get(item.aid)}
     ledgers={ledgers}
     loading={loading || mutationLocked}
-    onApplyManualClassification={onApplyManualClassification}
+    onApplyManualClassification={(aid, targetLedgerIds) => handleManualClassification(aid, currentLedgerId, targetLedgerIds)}
   />
 
-  return <div className="favorite-ledger-panel__preview-groups">
+  useLayoutEffect(() => {
+    const pendingMove = pendingMoveFocusRef.current
+    if (!pendingMove) return
+    const targetItems = pendingMove.targetLedgerId === 'unclassified'
+      ? unmatched
+      : classified.get(pendingMove.targetLedgerId)
+    if (!targetItems?.some((item) => item.aid === pendingMove.aid)) return
+    const rows = Array.from(groupsRootRef.current?.querySelectorAll<HTMLElement>('[data-archive-ledger-id]') ?? [])
+    const rowForLedger = (ledgerId: string) => rows.find((row) => row.dataset.archiveLedgerId === ledgerId)
+    for (const ledgerId of new Set([pendingMove.sourceLedgerId, pendingMove.targetLedgerId])) {
+      const track = rowForLedger(ledgerId)?.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')
+      if (track) track.scrollLeft = 0
+    }
+    rowForLedger(pendingMove.targetLedgerId)?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+    pendingMoveFocusRef.current = null
+  }, [classified, unmatched])
+
+  return <div ref={groupsRootRef} className="favorite-ledger-panel__preview-groups">
     {previewGroups.map((group) => {
       const expanded = expandedGroups.has(group.id)
       const visibleItems = expanded ? group.items : group.items.slice(0, INITIAL_GROUP_ITEM_LIMIT)
@@ -124,8 +170,8 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
               })))} /><span>全选</span></label>}
         </header>
         {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
-          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={renderItem} /> :
-          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item)}</div>)}
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id)} /> :
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id)}</div>)}
             {group.items.length > INITIAL_GROUP_ITEM_LIMIT && !expanded ? <button type="button" onClick={() => setExpandedGroups((current) => new Set([...current, group.id]))}>显示全部 {group.items.length} 条</button> : null}
           </div>}
       </section>
@@ -174,6 +220,27 @@ export function OldFavoriteArchivePreviewStep({
   const currentHistoryEntry = historyEntries.find((entry) => entry.cursor === snapshot.history.cursor)
   const previousHistoryEntries = historyEntries.filter((entry) => entry.cursor !== snapshot.history.cursor)
   const currentHistoryLabel = currentHistoryEntry ? historyLabel(currentHistoryEntry) : '初始自动分类'
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false
+      return target.matches('input, textarea, select, [contenteditable="true"]') || target.isContentEditable
+    }
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey || isEditableTarget(event.target)) return
+      const key = event.key.toLowerCase()
+      const wantsUndo = key === 'z' && !event.shiftKey
+      const wantsRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)
+      if (wantsUndo && !loading && !mutationLocked && snapshot.history.cursor > historyBaselineCursor) {
+        event.preventDefault()
+        onUndo()
+      } else if (wantsRedo && !loading && !mutationLocked && snapshot.history.cursor < snapshot.history.length) {
+        event.preventDefault()
+        onRedo()
+      }
+    }
+    document.addEventListener('keydown', handleHistoryShortcut)
+    return () => document.removeEventListener('keydown', handleHistoryShortcut)
+  }, [historyBaselineCursor, loading, mutationLocked, onRedo, onUndo, snapshot.history.cursor, snapshot.history.length])
   useLayoutEffect(() => {
     if (!historyOpen || !historyTriggerRef.current) return
     const updateHistoryMenuPosition = () => {

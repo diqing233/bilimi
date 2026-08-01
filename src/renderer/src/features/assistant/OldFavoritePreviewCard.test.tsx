@@ -85,6 +85,45 @@ describe('OldFavoritePreviewCard', () => {
     expect(screen.getByText('分类把握：比较稳')).toBeInTheDocument()
   })
 
+  it('replaces only the current archive target and preserves the other selected targets', () => {
+    const apply = vi.fn()
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Replace current target', sourceFolderIds: ['source'] }} sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music', 'knowledge'], source: 'manual' }}
+      currentLedgerId="music" originalTargetLedgerIds={['music']}
+      ledgers={[
+        { id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true },
+        { id: 'knowledge', displayName: 'Knowledge', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false },
+        { id: 'archive', displayName: 'Archive', keywords: [], ruleType: 'keyword', enabled: true, priority: 2, isDefault: false }
+      ]} loading={false} onApplyManualClassification={apply}
+    />)
+
+    expect(screen.getByText('原分类：Music')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '转移 Replace current target' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }))
+    expect(apply).toHaveBeenCalledWith(1, ['knowledge', 'archive'])
+  })
+
+  it('distinguishes removing the current archive target from removing every target', () => {
+    const apply = vi.fn()
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Remove targets', sourceFolderIds: ['source'] }} sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music', 'knowledge'], source: 'manual' }} currentLedgerId="music"
+      ledgers={[
+        { id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true },
+        { id: 'knowledge', displayName: 'Knowledge', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }
+      ]} loading={false} onApplyManualClassification={apply}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '转移 Remove targets' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '移出当前分类' }))
+    expect(apply).toHaveBeenLastCalledWith(1, ['knowledge'])
+
+    fireEvent.click(screen.getByRole('button', { name: '转移 Remove targets' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '移出全部分类' }))
+    expect(apply).toHaveBeenLastCalledWith(1, [])
+  })
+
   it('renders the transfer menu in an independent overlay and closes it from outside or Escape', () => {
     const { container } = render(<OldFavoritePreviewCard
       item={{ aid: 1, title: 'Floating target', sourceFolderIds: ['source'] }} sourceFolderTitles={['Source folder']}

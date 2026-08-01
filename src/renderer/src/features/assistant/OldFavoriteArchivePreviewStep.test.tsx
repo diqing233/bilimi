@@ -17,6 +17,16 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect([...groups.values()].flat()).toHaveLength(2_000)
   })
 
+  it('indexes a multi-target video into every selected archive group', () => {
+    const item = { aid: 1, sourceFolderIds: ['source'] }
+    const groups = groupOldFavoritePreviewItems([item], {
+      '1': { aid: 1, targetLedgerIds: ['music', 'knowledge'], source: 'manual' }
+    }, new Set(['music', 'knowledge']))
+
+    expect(groups.get('music')).toEqual([item])
+    expect(groups.get('knowledge')).toEqual([item])
+  })
+
   it('does not regroup a stable 2000-item snapshot when only DeepSeek progress changes', () => {
     const items = Array.from({ length: 2_000 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']
@@ -276,6 +286,81 @@ describe('OldFavoriteArchivePreviewStep', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: '恢复初始改动' }))
     expect(onMoveHistoryCursor).toHaveBeenCalledWith(1)
     expect(screen.queryByRole('button', { name: '恢复初始改动' })).not.toBeInTheDocument()
+  })
+
+  it('wires Ctrl+Z and Ctrl+Shift+Z to durable history without stealing editable shortcuts', () => {
+    const onUndo = vi.fn()
+    const onRedo = vi.fn()
+    render(<><input aria-label="history editor" /><OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 2, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={onUndo} onRedo={onRedo} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    /></>)
+
+    fireEvent.keyDown(document, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(document, { key: 'z', ctrlKey: true, shiftKey: true })
+    fireEvent.keyDown(document, { key: 'y', ctrlKey: true })
+    expect(onUndo).toHaveBeenCalledTimes(1)
+    expect(onRedo).toHaveBeenCalledTimes(2)
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'history editor' }), { key: 'z', ctrlKey: true })
+    expect(onUndo).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a moved card first, preserves its original category, and resets source and target tracks', () => {
+    const ledgers = [
+      { id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true },
+      { id: 'archive', displayName: 'Archive', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 1, isDefault: false }
+    ]
+    const items = [
+      { aid: 1, title: 'Move me', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Existing target', sourceFolderIds: ['source'] },
+      { aid: 3, title: 'Stay in source', sourceFolderIds: ['source'] }
+    ]
+    const snapshot = (classifications: Record<string, { aid: number; targetLedgerIds: string[]; source: 'manual' }>) => ({
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false, selected: true }],
+      segments: [], currentSegment: { id: 'segment-1', aids: [1, 2, 3], items }, classifications,
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    })
+    const actions = {
+      onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+      onMoveHistoryCursor: vi.fn(), onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn()
+    }
+    const view = render(<OldFavoriteArchivePreviewStep snapshot={snapshot({
+      '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' },
+      '2': { aid: 2, targetLedgerIds: ['archive'], source: 'manual' },
+      '3': { aid: 3, targetLedgerIds: ['music'], source: 'manual' }
+    })} ledgers={ledgers} loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
+    const sourceTrack = screen.getByRole('group', { name: 'Music 2 条' }).querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')!
+    const targetRow = screen.getByRole('group', { name: 'Archive 1 条' })
+    const targetTrack = targetRow.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')!
+    sourceTrack.scrollLeft = 200
+    targetTrack.scrollLeft = 160
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(targetRow, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+
+    fireEvent.click(screen.getByRole('button', { name: '转移 Move me' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }))
+    view.rerender(<OldFavoriteArchivePreviewStep snapshot={snapshot({
+      '1': { aid: 1, targetLedgerIds: ['archive'], source: 'manual' },
+      '2': { aid: 2, targetLedgerIds: ['archive'], source: 'manual' },
+      '3': { aid: 3, targetLedgerIds: ['music'], source: 'manual' }
+    })} ledgers={ledgers} loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
+
+    expect(sourceTrack.scrollLeft).toBe(0)
+    expect(targetTrack.scrollLeft).toBe(0)
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+    expect(within(screen.getByRole('group', { name: 'Archive 2 条' })).getAllByRole('link').map((link) => link.textContent)).toEqual(['Move me', 'Existing target'])
+    expect(within(screen.getByRole('link', { name: 'Move me' }).closest('article')!).getByText('原分类：Music')).toBeInTheDocument()
   })
 
   it('keeps the right-aligned change-history menu inside the viewport near its left edge', () => {
