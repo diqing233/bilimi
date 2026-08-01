@@ -50,6 +50,12 @@ function uniqueTargets(targets: string[]) {
   return [...new Set(targets.map((target) => target.trim()).filter(Boolean))]
 }
 
+function isUnavailableArchiveItem(item: { unavailable?: boolean; title?: string; author?: string }) {
+  return item.unavailable === true
+    || item.title?.trim() === '已失效视频'
+    || item.author?.trim() === '账号已注销'
+}
+
 /** Builds, validates, and applies a DeepSeek batch entirely in the main process. */
 export class OldFavoriteWorkspaceDeepSeekService {
   private destructiveMaintenance = false
@@ -331,7 +337,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
       .map((folder) => folder.id))
     const foldersById = new Map(snapshot.sourceFolders.map((folder) => [folder.id, folder]))
     const items = snapshot.currentSegment.items.filter((item) =>
-      item.sourceFolderIds.some((folderId) => selectedFolderIds.has(folderId)))
+      !isUnavailableArchiveItem(item)
+      && item.sourceFolderIds.some((folderId) => selectedFolderIds.has(folderId)))
     const scopedItems = items.filter((item) => {
       const classification = snapshot.classifications[String(item.aid)]
       if (mode === 'unclassified-only') return !classification?.targetLedgerIds.length

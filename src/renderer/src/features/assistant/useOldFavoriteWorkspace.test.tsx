@@ -687,6 +687,21 @@ describe('useOldFavoriteWorkspace', () => {
     })
   })
 
+  it('explains an Electron-wrapped selected-source validation failure in Chinese', async () => {
+    const organize = vi.fn().mockRejectedValue(new Error(
+      "Error invoking remote method 'old-favorite-workspace-v1:deepseek-current-segment': Error: Old favorite workspace classifications must target selected sources."
+    ))
+    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all') })
+
+    expect(result.current.deepSeekFeedback).toEqual({
+      status: 'failed',
+      message: '整理范围发生了变化，本次结果未覆盖现有改动；请确认已选来源后重试。'
+    })
+  })
+
   it('keeps failed DeepSeek batches retryable when a retry transport request rejects', async () => {
     const failure = { chunkIndex: 2, affectedVideoCount: 3, message: 'incomplete current-segment' }
     const organize = vi.fn().mockResolvedValue({

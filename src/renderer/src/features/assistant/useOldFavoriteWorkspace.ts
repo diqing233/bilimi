@@ -62,6 +62,9 @@ function createDraftLedgerRuleAnalysisId() {
 
 function deepSeekFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/classifications must target selected sources/i.test(detail)) {
+    return '整理范围发生了变化，本次结果未覆盖现有改动；请确认已选来源后重试。'
+  }
   if (/changed while DeepSeek/i.test(detail)) {
     return '整理期间草稿发生了变化，本次结果未覆盖现有改动；请确认当前批次后重试。'
   }

@@ -563,6 +563,72 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
       items.slice(0, 20).map((video) => ({ aid: video.aid, targetLedgerIds: ['music'] })), expect.any(Object))
   })
 
+  it('excludes unavailable videos before preserving a completed batch after cancellation', async () => {
+    const unavailableItems = [
+      { aid: 1, title: 'Unavailable flag', unavailable: true, sourceFolderIds: ['source'] },
+      { aid: 2, title: '已失效视频', sourceFolderIds: ['source'] },
+      { aid: 3, title: 'Deleted account', author: '账号已注销', sourceFolderIds: ['source'] }
+    ]
+    const validItems = Array.from({ length: 21 }, (_, index) => ({
+      aid: index + 4,
+      title: `Video ${index + 4}`,
+      sourceFolderIds: ['source']
+    }))
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing',
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [...unavailableItems, ...validItems] }, classifications: {}
+    }
+    const unavailableAids = new Set(unavailableItems.map((item) => item.aid))
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn(async (_accountMid: string, assignments: Array<{ aid: number }>) => {
+        if (assignments.some((assignment) => unavailableAids.has(assignment.aid))) {
+          throw new Error('Old favorite workspace classifications must target selected sources.')
+        }
+        return snapshot
+      })
+    }
+    const firstBatchResult = {
+      kind: 'favorite-archive-organize' as const,
+      results: validItems.slice(0, 20).map((video) => ({
+        aid: video.aid,
+        targetLedgerIds: ['music'],
+        keepOriginal: false,
+        reason: 'ok',
+        lowConfidence: false
+      })),
+      keywordSuggestions: [] as never[]
+    }
+    let resolveFirstBatch: ((value: typeof firstBatchResult) => void) | undefined
+    const generate = vi.fn((_request: { videos: Array<{ aid: number }> }) =>
+      new Promise<typeof firstBatchResult>((resolve) => { resolveFirstBatch = resolve }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({
+        deepseekArchiveOrganizationEnabled: true,
+        favoriteArchiveMultiMode: 'off' as const,
+        favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 1, isDefault: false }]
+      }),
+      generate
+    })
+
+    const pending = service.organizeCurrentSegment('100')
+    await Promise.resolve()
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(service.cancelCurrentSegment('100')).toBe(true)
+    resolveFirstBatch?.(firstBatchResult)
+
+    await expect(pending).resolves.toMatchObject({
+      canceled: true,
+      progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }
+    })
+    expect(generate.mock.calls[0]![0].videos.map((video: { aid: number }) => video.aid)).toEqual(validItems.slice(0, 20).map((item) => item.aid))
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(coordinator.applyDeepSeekClassificationBatch).toHaveBeenCalledWith('100',
+      validItems.slice(0, 20).map((video) => ({ aid: video.aid, targetLedgerIds: ['music'] })), expect.any(Object))
+  })
+
   it('serially organizes every unsaved batch and restores the user selected batch', async () => {
     let currentSegmentId = 'segment-1'
     const segmentItems = new Map([
