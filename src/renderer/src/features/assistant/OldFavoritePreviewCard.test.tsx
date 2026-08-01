@@ -16,7 +16,36 @@ describe('OldFavoritePreviewCard', () => {
     const article = screen.getByRole('article')
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-item-shell')
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-video')
-    expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).toHaveAttribute('data-selected', 'true')
+    expect(article).toHaveAttribute('data-selected', 'true')
+    expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).not.toHaveAttribute('data-selected')
+  })
+
+  it('uses one on-demand portal tooltip for complete title, source, and tag text and closes it with Escape', () => {
+    const { container } = render(<OldFavoritePreviewCard
+      item={{
+        aid: 1,
+        title: 'A complete long video title',
+        tags: ['TypeScript', 'Frontend'],
+        sourceFolderIds: ['source']
+      }}
+      sourceFolderTitles={['A complete source folder name']}
+      ledgers={[]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    fireEvent.mouseEnter(screen.getByRole('link', { name: 'A complete long video title' }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent('A complete long video title')
+    expect(container.querySelector('[role="tooltip"]')).toBeNull()
+
+    const source = screen.getByText('来源：A complete source folder name')
+    fireEvent.mouseLeave(screen.getByRole('link', { name: 'A complete long video title' }))
+    fireEvent.focus(source)
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('来源：A complete source folder name')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('shows scanned Bilibili tags from the authoritative workspace item', () => {

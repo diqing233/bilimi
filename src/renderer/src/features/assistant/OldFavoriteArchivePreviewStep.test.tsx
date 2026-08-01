@@ -461,6 +461,9 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '显示全部 51 条' }))
     expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toHaveStyle({ width: '14280px' })
+    fireEvent.click(screen.getByRole('button', { name: '收起 51 条' }))
+    expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toBeNull()
+    expect(screen.getAllByRole('link')).toHaveLength(6)
   })
 
   it('shows the legacy DeepSeek progress bar while main-process chunks are running', () => {

@@ -172,9 +172,14 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
         </header>
         {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
           ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id)} /> :
-          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id)}</div>)}
-            {group.items.length > INITIAL_GROUP_ITEM_LIMIT && !expanded ? <button type="button" onClick={() => setExpandedGroups((current) => new Set([...current, group.id]))}>显示全部 {group.items.length} 条</button> : null}
-          </div>}
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id)}</div>)}</div>}
+        {group.items.length > INITIAL_GROUP_ITEM_LIMIT ? <button type="button" className="favorite-ledger-panel__preview-expand-toggle"
+          aria-expanded={expanded} onClick={() => setExpandedGroups((current) => {
+            const next = new Set(current)
+            if (expanded) next.delete(group.id)
+            else next.add(group.id)
+            return next
+          })}>{expanded ? `收起 ${group.items.length} 条` : `显示全部 ${group.items.length} 条`}</button> : null}
       </section>
     })}
   </div>

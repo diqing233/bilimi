@@ -24,5 +24,8 @@ describe('VirtualOldFavoriteTrack', () => {
 
     expect(screen.getByText('视频 501')).toBeInTheDocument()
     expect(track.querySelectorAll('article').length).toBeLessThan(20)
+    expect(track.querySelector('.favorite-ledger-panel__virtual-track-item')).toHaveStyle({
+      height: 'var(--old-favorite-preview-card-height)'
+    })
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceClassification, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
@@ -32,7 +32,13 @@ export function OldFavoritePreviewCard({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+  const tooltipId = useId()
+  const tooltipAnchorRef = useRef<HTMLElement | null>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const [tooltip, setTooltip] = useState<{ key: 'title' | 'source' | 'tags'; text: string; top: number; left: number } | null>(null)
   const title = item.title?.trim() || `视频 ${item.aid}`
+  const sourceText = `来源：${sourceFolderTitles.join('、') || '未记录'}`
+  const tagsText = item.tags?.length ? `标签：${item.tags.join('、')}` : null
   const targetLedgerIds = classification?.targetLedgerIds ?? []
   const selected = targetLedgerIds.length > 0
   const originalLedgerNames = originalTargetLedgerIds
@@ -79,6 +85,43 @@ export function OldFavoritePreviewCard({
     }
   }, [menuOpen])
 
+  useLayoutEffect(() => {
+    if (!tooltip) return
+    const updatePosition = () => {
+      const anchor = tooltipAnchorRef.current
+      if (!anchor) return
+      const anchorRect = anchor.getBoundingClientRect()
+      const tooltipRect = tooltipRef.current?.getBoundingClientRect()
+      const gutter = 8
+      const tooltipWidth = tooltipRect?.width || 320
+      const tooltipHeight = tooltipRect?.height || 48
+      const below = anchorRect.bottom + 6
+      const above = anchorRect.top - tooltipHeight - 6
+      const top = below + tooltipHeight <= window.innerHeight || above < gutter ? below : above
+      const left = Math.max(gutter, Math.min(anchorRect.left, window.innerWidth - tooltipWidth - gutter))
+      setTooltip((current) => current && current.top === top && current.left === left
+        ? current
+        : current ? { ...current, top, left } : null)
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [tooltip?.key, tooltip?.text])
+
+  const tooltipOpen = Boolean(tooltip)
+  useEffect(() => {
+    if (!tooltipOpen) return
+    const closeTooltipFromEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTooltip(null)
+    }
+    document.addEventListener('keydown', closeTooltipFromEscape)
+    return () => document.removeEventListener('keydown', closeTooltipFromEscape)
+  }, [tooltipOpen])
+
   function closeMenu() {
     setMenuOpen(false)
     setMultiSelectOpen(false)
@@ -111,12 +154,24 @@ export function OldFavoritePreviewCard({
       : current.filter((id) => id !== ledgerId))
   }
 
-  return <article className="favorite-ledger-panel__preview-card">
-    <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending" data-selected={selected}>
-      <a href={`https://www.bilibili.com/video/av${item.aid}`} target="_blank" rel="noreferrer"><strong>{title}</strong></a>
+  function showTooltip(key: 'title' | 'source' | 'tags', text: string, anchor: HTMLElement) {
+    tooltipAnchorRef.current = anchor
+    setTooltip({ key, text, top: 0, left: 0 })
+  }
+
+  return <article className="favorite-ledger-panel__preview-card" data-selected={selected}>
+    <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending">
+      <a href={`https://www.bilibili.com/video/av${item.aid}`} target="_blank" rel="noreferrer" className="favorite-ledger-panel__preview-tooltip-trigger"
+        aria-describedby={tooltip?.key === 'title' ? tooltipId : undefined}
+        onMouseEnter={(event) => showTooltip('title', title, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+        onFocus={(event) => showTooltip('title', title, event.currentTarget)} onBlur={() => setTooltip(null)}><strong>{title}</strong></a>
       <p>UP：{item.author?.trim() || '未知 UP'}</p>
-      <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
-      {item.tags?.length ? <p>标签：{item.tags.join('、')}</p> : null}
+      <p tabIndex={0} className="favorite-ledger-panel__preview-tooltip-trigger" aria-describedby={tooltip?.key === 'source' ? tooltipId : undefined}
+        onMouseEnter={(event) => showTooltip('source', sourceText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+        onFocus={(event) => showTooltip('source', sourceText, event.currentTarget)} onBlur={() => setTooltip(null)}>{sourceText}</p>
+      {tagsText ? <p tabIndex={0} className="favorite-ledger-panel__preview-tooltip-trigger" aria-describedby={tooltip?.key === 'tags' ? tooltipId : undefined}
+        onMouseEnter={(event) => showTooltip('tags', tagsText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+        onFocus={(event) => showTooltip('tags', tagsText, event.currentTarget)} onBlur={() => setTooltip(null)}>{tagsText}</p> : null}
       <p>分类把握：{classification?.source === 'system-low' ? '不太稳' : '比较稳'}</p>
       {originalLedgerNames.length ? <p>原分类：{originalLedgerNames.join('、')}</p> : null}
     </div>
@@ -156,5 +211,7 @@ export function OldFavoritePreviewCard({
         </>}
       </div>, document.body) : null}
     </div>
+    {tooltip ? createPortal(<div ref={tooltipRef} id={tooltipId} role="tooltip" className="favorite-ledger-panel__preview-tooltip"
+      style={{ top: tooltip.top, left: tooltip.left }}>{tooltip.text}</div>, document.body) : null}
   </article>
 }

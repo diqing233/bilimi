@@ -47,7 +47,7 @@ function VirtualOldFavoriteTrackInner<T>({
         <div
           key={itemKey(item)}
           className="favorite-ledger-panel__virtual-track-item"
-          style={{ left: (start + offset) * itemWidth, width: itemWidth }}
+          style={{ left: (start + offset) * itemWidth, width: itemWidth, height: 'var(--old-favorite-preview-card-height)' }}
         >
           {renderItem(item)}
         </div>
