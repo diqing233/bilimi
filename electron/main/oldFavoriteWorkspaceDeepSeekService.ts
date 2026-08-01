@@ -11,6 +11,7 @@ import type {
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import type {
   OldFavoriteWorkspaceDeepSeekFailure,
+  OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   OldFavoriteWorkspaceDeepSeekResult,
   OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -61,10 +62,12 @@ export class OldFavoriteWorkspaceDeepSeekService {
   private destructiveMaintenance = false
   private readonly failedRuns = new Map<string, FailedDeepSeekRun>()
   private readonly activeRuns = new Map<string, ActiveDeepSeekRun>()
+  private readonly pendingAllRuns = new Map<string, OldFavoriteWorkspaceDeepSeekRunCheckpoint>()
+  private readonly pendingResumeRequests = new Map<string, Promise<OldFavoriteWorkspaceDeepSeekResult | null>>()
 
   constructor(private readonly options: {
   coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
-    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment'>>
+    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment' | 'getDeepSeekRunCheckpoint' | 'setDeepSeekRunCheckpoint'>>
     preferences: () => DeepSeekPreferences
     ledgersForAccount?: (accountMid: string, preferences: Pick<DeepSeekPreferences, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
@@ -92,6 +95,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     }
     const originalSegmentId = initial.currentSegment?.id
+    const priorCheckpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    const resumedCheckpoint = priorCheckpoint?.workspaceId === initial.workspaceId &&
+      priorCheckpoint.scope === 'all' && priorCheckpoint.mode === mode
+      ? priorCheckpoint
+      : undefined
+    if (resumedCheckpoint) this.pendingAllRuns.set(accountMid, structuredClone(resumedCheckpoint))
+    const completedSegmentIds = new Set(resumedCheckpoint?.completedSegmentIds ?? [])
     const segmentIds = initial.segments
       .filter((segment) => segment.status !== 'frozen' && segment.readiness !== 'saved')
       .map((segment) => segment.id)
@@ -113,9 +123,29 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const aggregate = { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 }
     let deferredSegmentCount = 0
     let selectedSegmentId = originalSegmentId
+    const persistCheckpoint = async (waitingSegmentIds: string[], canceled = run.cancelRequested) => {
+      if (!this.options.coordinator.setDeepSeekRunCheckpoint) return
+      await this.options.coordinator.setDeepSeekRunCheckpoint(accountMid, {
+        workspaceId: initial.workspaceId,
+        mode,
+        scope: 'all',
+        completedSegmentIds: [...completedSegmentIds].sort(),
+        waitingSegmentIds: [...new Set(waitingSegmentIds)].sort(),
+        canceled
+      })
+      this.pendingAllRuns.set(accountMid, {
+        workspaceId: initial.workspaceId,
+        mode,
+        scope: 'all',
+        completedSegmentIds: [...completedSegmentIds].sort(),
+        waitingSegmentIds: [...new Set(waitingSegmentIds)].sort(),
+        canceled
+      })
+    }
     try {
       for (const segmentId of segmentIds) {
         if (run.cancelRequested) break
+        if (completedSegmentIds.has(segmentId)) continue
         const readinessSnapshot = await this.options.coordinator.getSnapshot(accountMid)
         if (!readinessSnapshot || 'recovery' in readinessSnapshot || readinessSnapshot.workspaceId !== initial.workspaceId || readinessSnapshot.status !== 'previewing') {
           throw new Error('Old favorite workspace changed while DeepSeek was waiting for the next batch.')
@@ -155,6 +185,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
         aggregate.totalVideoCount += segmentResult.progress.totalVideoCount
         aggregate.successfulVideoCount += segmentResult.progress.successfulVideoCount
         aggregate.failedVideoCount += segmentResult.progress.failedVideoCount
+        completedSegmentIds.add(segmentId)
+        await persistCheckpoint(readinessSnapshot.segments
+          .filter((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness === 'tagging')
+          .map((segment) => segment.id))
         if (segmentResult.canceled) break
       }
     } finally {
@@ -165,6 +199,21 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }
       if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
     }
+    const latest = await this.options.coordinator.getSnapshot(accountMid)
+    const waitingSegmentIds = latest && !('recovery' in latest) && latest.workspaceId === initial.workspaceId
+      ? latest.segments
+        .filter((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness === 'tagging')
+        .map((segment) => segment.id)
+      : []
+    deferredSegmentCount = waitingSegmentIds.length
+    const hasIncompleteReadySegments = latest && !('recovery' in latest) && latest.workspaceId === initial.workspaceId
+      ? latest.segments.some((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness !== 'saved')
+      : false
+    if (run.cancelRequested || hasIncompleteReadySegments) await persistCheckpoint(waitingSegmentIds)
+    else {
+      await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, null)
+      this.pendingAllRuns.delete(accountMid)
+    }
     this.rememberFailedRun(accountMid, initial.workspaceId, mode, 'all', failedSegments)
     return {
       snapshot: final,
@@ -174,6 +223,36 @@ export class OldFavoriteWorkspaceDeepSeekService {
       canceled: run.cancelRequested,
       deferredSegmentCount
     }
+  }
+
+  /** Continues a durable all-batch intent once tag enrichment publishes a ready segment. */
+  resumePendingAllSegments(
+    accountMid: string,
+    readySegmentIds: string[],
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult | null> {
+    const existing = this.pendingResumeRequests.get(accountMid)
+    if (existing) return existing
+    const work = this.resumePendingAllSegmentsUnsafe(accountMid, readySegmentIds, onProgress)
+    this.pendingResumeRequests.set(accountMid, work)
+    const release = () => {
+      if (this.pendingResumeRequests.get(accountMid) === work) this.pendingResumeRequests.delete(accountMid)
+    }
+    void work.then(release, release)
+    return work
+  }
+
+  private async resumePendingAllSegmentsUnsafe(
+    accountMid: string,
+    readySegmentIds: string[],
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult | null> {
+    if (this.destructiveMaintenance || this.activeRuns.has(accountMid)) return null
+    const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    if (!checkpoint || checkpoint.scope !== 'all' || checkpoint.canceled ||
+      !readySegmentIds.some((segmentId) => checkpoint.waitingSegmentIds.includes(segmentId))) return null
+    this.pendingAllRuns.set(accountMid, structuredClone(checkpoint))
+    return this.organizeAllSegments(accountMid, checkpoint.mode, onProgress)
   }
 
   /** Retries only the main-process remembered failed chunk aids for the active workspace. */
@@ -196,8 +275,25 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
   cancelCurrentSegment(accountMid: string) {
     const run = this.activeRuns.get(accountMid)
-    if (!run) return false
-    run.cancelRequested = true
+    if (run) {
+      run.cancelRequested = true
+      return true
+    }
+    const checkpoint = this.pendingAllRuns.get(accountMid)
+    if (!checkpoint) return false
+    const canceled = { ...checkpoint, canceled: true }
+    this.pendingAllRuns.set(accountMid, canceled)
+    void this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, canceled).catch(() => undefined)
+    return true
+  }
+
+  async cancelPendingAllSegments(accountMid: string) {
+    if (this.cancelCurrentSegment(accountMid)) return true
+    const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    if (!checkpoint || checkpoint.scope !== 'all') return false
+    const canceled = { ...checkpoint, canceled: true }
+    this.pendingAllRuns.set(accountMid, canceled)
+    await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, canceled)
     return true
   }
 
@@ -205,6 +301,11 @@ export class OldFavoriteWorkspaceDeepSeekService {
   async quiesceForDestructiveMaintenance() {
     this.destructiveMaintenance = true
     this.failedRuns.clear()
+    for (const [accountMid, checkpoint] of this.pendingAllRuns) {
+      const canceled = { ...checkpoint, canceled: true }
+      this.pendingAllRuns.set(accountMid, canceled)
+      await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, canceled).catch(() => undefined)
+    }
     for (const run of this.activeRuns.values()) run.cancelRequested = true
     while (this.activeRuns.size) {
       const work = [...this.activeRuns.values()].flatMap((run) => run.work ? [run.work] : [])

@@ -17,6 +17,36 @@ afterEach(async () => {
 })
 
 describe('OldFavoriteWorkspaceStore', () => {
+  it('restores and clears a compact DeepSeek all-batch checkpoint across process restarts', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceStore({ root })
+    await first.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }]
+    })
+    await first.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      deepSeekRunCheckpoint: {
+        workspaceId: 'workspace-1', mode: 'all', scope: 'all',
+        completedSegmentIds: ['segment-1'], waitingSegmentIds: ['segment-2'], canceled: false
+      }
+    })
+
+    const restarted = new OldFavoriteWorkspaceStore({ root })
+    await expect(restarted.recover('100', 'workspace-1')).resolves.toMatchObject({
+      deepSeekRunCheckpoint: {
+        completedSegmentIds: ['segment-1'], waitingSegmentIds: ['segment-2'], canceled: false
+      }
+    })
+
+    await restarted.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [], deepSeekRunCheckpoint: null
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      deepSeekRunCheckpoint: undefined
+    })
+  })
+
   it('restores the manifest, baseline, classifications, history, and current segment after restart', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceStore({ root })

@@ -1,3 +1,5 @@
+import type { DeepSeekArchiveMode } from './types'
+
 export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 1_000
@@ -101,6 +103,13 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+  }
+  deepSeekRun?: {
+    mode: DeepSeekArchiveMode
+    scope: 'all'
+    status: 'running' | 'waiting' | 'canceled'
+    completedSegmentCount: number
+    waitingSegmentCount: number
   }
   sourceFolders: Array<{
     id: string
@@ -253,6 +262,15 @@ export type OldFavoriteWorkspaceDeepSeekFailure = {
   aids: number[]
   affectedVideoCount: number
   message: string
+}
+
+export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
+  workspaceId: string
+  mode: DeepSeekArchiveMode
+  scope: 'all'
+  completedSegmentIds: string[]
+  waitingSegmentIds: string[]
+  canceled: boolean
 }
 
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */

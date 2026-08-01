@@ -823,4 +823,167 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
 
     expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1], [2], [1], [2]])
   })
+
+  it('persists completed all-batch checkpoints and resumes only newly ready batches after service reconstruction', async () => {
+    let currentSegmentId = 'segment-1'
+    let secondSegmentReady = false
+    let checkpoint: {
+      workspaceId: string
+      mode: 'all'
+      scope: 'all'
+      completedSegmentIds: string[]
+      waitingSegmentIds: string[]
+      canceled: boolean
+    } | null = null
+    const segmentItems = new Map([
+      ['segment-1', [{ aid: 1, title: 'Ready now', sourceFolderIds: ['source'] }]],
+      ['segment-2', [{ aid: 2, title: 'Ready later', sourceFolderIds: ['source'] }]]
+    ])
+    const coordinator = {
+      getSnapshot: vi.fn(async () => ({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+        sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', status: 'previewing' as const, readiness: 'ready' as const },
+          { id: 'segment-2', status: 'previewing' as const, readiness: secondSegmentReady ? 'ready' as const : 'tagging' as const }
+        ],
+        currentSegment: { id: currentSegmentId, items: segmentItems.get(currentSegmentId) ?? [] },
+        classifications: {}
+      })),
+      selectSegment: vi.fn(async (_accountMid: string, segmentId: string) => { currentSegmentId = segmentId }),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: typeof checkpoint) => { checkpoint = structuredClone(next) })
+    }
+    const generate = vi.fn(async (request) => ({
+      kind: 'favorite-archive-organize' as const,
+      results: request.videos.map((video: { aid: number }) => ({
+        aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false
+      })),
+      keywordSuggestions: []
+    }))
+    const options = {
+      coordinator: coordinator as never,
+      preferences: () => ({
+        deepseekArchiveOrganizationEnabled: true,
+        favoriteArchiveMultiMode: 'off' as const,
+        favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false }]
+      }),
+      generate
+    }
+
+    const firstService = new OldFavoriteWorkspaceDeepSeekService(options)
+    await expect(firstService.organizeAllSegments('100')).resolves.toMatchObject({
+      deferredSegmentCount: 1,
+      progress: { totalVideoCount: 1, successfulVideoCount: 1 }
+    })
+    expect(checkpoint).toEqual({
+      workspaceId: 'workspace-1', mode: 'all', scope: 'all',
+      completedSegmentIds: ['segment-1'], waitingSegmentIds: ['segment-2'], canceled: false
+    })
+
+    secondSegmentReady = true
+    const reconstructedService = new OldFavoriteWorkspaceDeepSeekService(options)
+    await expect(reconstructedService.resumePendingAllSegments('100', ['segment-2'])).resolves.toMatchObject({
+      deferredSegmentCount: 0,
+      progress: { totalVideoCount: 1, successfulVideoCount: 1 }
+    })
+    expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1], [2]])
+    expect(checkpoint).toBeNull()
+  })
+
+  it('cancels a durable all-batch intent while it is waiting for tags', async () => {
+    let checkpoint: {
+      workspaceId: string
+      mode: 'all'
+      scope: 'all'
+      completedSegmentIds: string[]
+      waitingSegmentIds: string[]
+      canceled: boolean
+    } | null = null
+    const snapshot = () => ({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', status: 'previewing' as const, readiness: 'ready' as const },
+        { id: 'segment-2', status: 'previewing' as const, readiness: 'tagging' as const }
+      ],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Ready', sourceFolderIds: ['source'] }] },
+      classifications: {}
+    })
+    const coordinator = {
+      getSnapshot: vi.fn(async () => snapshot()),
+      selectSegment: vi.fn(),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: typeof checkpoint) => { checkpoint = structuredClone(next) })
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false }] }),
+      generate: vi.fn(async () => ({
+        kind: 'favorite-archive-organize' as const,
+        results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+        keywordSuggestions: []
+      }))
+    })
+
+    await service.organizeAllSegments('100')
+    const reconstructedService = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false }] }),
+      generate: vi.fn()
+    })
+    await expect(reconstructedService.cancelPendingAllSegments('100')).resolves.toBe(true)
+    await vi.waitFor(() => expect(checkpoint).toMatchObject({ canceled: true, waitingSegmentIds: ['segment-2'] }))
+    await expect(reconstructedService.resumePendingAllSegments('100', ['segment-2'])).resolves.toBeNull()
+  })
+
+  it('coalesces duplicate ready notifications into one background resume', async () => {
+    let checkpoint = {
+      workspaceId: 'workspace-1', mode: 'all' as const, scope: 'all' as const,
+      completedSegmentIds: ['segment-1'], waitingSegmentIds: ['segment-2'], canceled: false
+    }
+    const snapshot = () => ({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', status: 'previewing' as const, readiness: 'ready' as const },
+        { id: 'segment-2', status: 'previewing' as const, readiness: 'ready' as const }
+      ],
+      currentSegment: { id: 'segment-2', items: [{ aid: 2, title: 'Ready', sourceFolderIds: ['source'] }] },
+      classifications: {}
+    })
+    const coordinator = {
+      getSnapshot: vi.fn(async () => snapshot()),
+      selectSegment: vi.fn(),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: typeof checkpoint | null) => {
+        if (next) checkpoint = structuredClone(next)
+      })
+    }
+    let resolveGenerate!: (value: {
+      kind: 'favorite-archive-organize'
+      results: Array<{ aid: number; targetLedgerIds: string[]; keepOriginal: boolean; reason: string; lowConfidence: boolean }>
+      keywordSuggestions: never[]
+    }) => void
+    const generate = vi.fn(() => new Promise<Parameters<typeof resolveGenerate>[0]>((resolve) => { resolveGenerate = resolve }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false }] }),
+      generate
+    })
+
+    const first = service.resumePendingAllSegments('100', ['segment-2'])
+    const duplicate = service.resumePendingAllSegments('100', ['segment-2'])
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1))
+    resolveGenerate({
+      kind: 'favorite-archive-organize',
+      results: [{ aid: 2, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+      keywordSuggestions: []
+    })
+    await expect(Promise.all([first, duplicate])).resolves.toHaveLength(2)
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
 })

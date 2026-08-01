@@ -10,6 +10,7 @@ import {
   type ApplyWorkspaceClassificationBatchOptions,
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
+  type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceHistoryEntry,
   type OldFavoriteWorkspaceScope,
   type OldFavoriteWorkspaceRecoveryDecision,
@@ -649,6 +650,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
   private readonly overviewRuntimes = new Map<string, OverviewRuntime>()
+  private readonly deepSeekRunCheckpoints = new Map<string, OldFavoriteWorkspaceDeepSeekRunCheckpoint>()
   private readonly recommendationPreviewGenerations = new Map<string, number>()
   private readonly draftLedgerRuleAnalysisIds = new Map<string, string>()
   private operationTail = Promise.resolve()
@@ -693,6 +695,7 @@ export class OldFavoriteWorkspaceCoordinator {
     } | undefined>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
+    onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
     now?: () => string
   }) {}
 
@@ -893,6 +896,40 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.openUnsafe(accountMid)
       if (!workspace || isRecoveryRequired(workspace)) return workspace
       return this.createSnapshotWithExecutionProgress(workspace)
+    })
+  }
+
+  async getDeepSeekRunCheckpoint(accountMid: string): Promise<OldFavoriteWorkspaceDeepSeekRunCheckpoint | null> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
+      return checkpoint?.workspaceId === workspace.id ? clone(checkpoint) : null
+    })
+  }
+
+  async setDeepSeekRunCheckpoint(
+    accountMid: string,
+    checkpoint: OldFavoriteWorkspaceDeepSeekRunCheckpoint | null
+  ): Promise<void> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (checkpoint && checkpoint.workspaceId !== workspace.id) {
+        throw new Error('DeepSeek checkpoint does not match the active old favorite workspace.')
+      }
+      const knownSegmentIds = new Set((this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments).map((segment) => segment.id))
+      const normalized = checkpoint ? {
+        ...checkpoint,
+        completedSegmentIds: [...new Set(checkpoint.completedSegmentIds.filter((id) => knownSegmentIds.has(id)))].sort(),
+        waitingSegmentIds: [...new Set(checkpoint.waitingSegmentIds.filter((id) => knownSegmentIds.has(id)))].sort()
+      } : null
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace),
+        classifications: [],
+        history: [],
+        deepSeekRunCheckpoint: normalized
+      })
+      if (normalized) this.deepSeekRunCheckpoints.set(workspace.accountMid, clone(normalized))
+      else this.deepSeekRunCheckpoints.delete(workspace.accountMid)
     })
   }
 
@@ -2939,7 +2976,9 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async recordTagEnrichment(accountMid: string, aid: number, tags: string[], expectedWorkspaceId?: string) {
-    return this.queue(async () => {
+    let readyAccountMid = ''
+    let readySegmentIds: string[] = []
+    const recorded = await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
@@ -2976,6 +3015,8 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         : undefined
       const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      readyAccountMid = workspace.accountMid
+      readySegmentIds = this.newlyReadySegmentIds(workspace, enrichment.pendingAids, pendingAids)
       const activePendingAids = pendingAids.filter((pendingAid) => !workspace.segments.some((segment) =>
         enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(pendingAid)))
       const next: TagEnrichment = {
@@ -3012,16 +3053,24 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       return true
     })
+    if (recorded && readySegmentIds.length && this.options.onSegmentsReady) {
+      void Promise.resolve(this.options.onSegmentsReady(readyAccountMid, readySegmentIds)).catch(() => undefined)
+    }
+    return recorded
   }
 
   async recordTagEnrichmentFailure(accountMid: string, aid: number, _reason: string, expectedWorkspaceId?: string) {
-    return this.queue(async () => {
+    let readyAccountMid = ''
+    let readySegmentIds: string[] = []
+    const recorded = await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
       if (workspace.segments.some((segment) => enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(aid))) return false
       const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      readyAccountMid = workspace.accountMid
+      readySegmentIds = this.newlyReadySegmentIds(workspace, enrichment.pendingAids, pendingAids)
       const activePendingAids = pendingAids.filter((pendingAid) => !workspace.segments.some((segment) =>
         enrichment.acceptedSegmentIds.includes(segment.id) && segment.aids.includes(pendingAid)))
       const next: TagEnrichment = {
@@ -3048,6 +3097,22 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       return true
     })
+    if (recorded && readySegmentIds.length && this.options.onSegmentsReady) {
+      void Promise.resolve(this.options.onSegmentsReady(readyAccountMid, readySegmentIds)).catch(() => undefined)
+    }
+    return recorded
+  }
+
+  private newlyReadySegmentIds(
+    workspace: OldFavoriteWorkspace,
+    pendingAidsBefore: readonly number[],
+    pendingAidsAfter: readonly number[]
+  ) {
+    const before = new Set(pendingAidsBefore)
+    const after = new Set(pendingAidsAfter)
+    return workspace.segments
+      .filter((segment) => segment.aids.some((aid) => before.has(aid)) && !segment.aids.some((aid) => after.has(aid)))
+      .map((segment) => segment.id)
   }
 
   private completedCurrentSegmentTagEnrichment(
@@ -3278,6 +3343,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.scannedAids.delete(account)
     this.scannedTagStates.delete(account)
     this.tagEnrichments.delete(account)
+    this.deepSeekRunCheckpoints.delete(account)
     this.recommendationIndexes.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
@@ -3306,6 +3372,11 @@ export class OldFavoriteWorkspaceCoordinator {
         accountMid: marker.accountMid,
         workspaceId: marker.id
       }
+    }
+    if (recovered.deepSeekRunCheckpoint?.workspaceId === marker.id) {
+      this.deepSeekRunCheckpoints.set(marker.accountMid, clone(recovered.deepSeekRunCheckpoint))
+    } else {
+      this.deepSeekRunCheckpoints.delete(marker.accountMid)
     }
     const unavailableAids = new Set(Object.values(repositorySnapshot.videos)
       .filter((video) => isUnavailableScanItem(video))
@@ -3559,6 +3630,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.planReadiness.delete(accountMid)
     this.staleDeepSeekAids.delete(accountMid)
     this.overviewRuntimes.delete(accountMid)
+    this.deepSeekRunCheckpoints.delete(accountMid)
   }
 
   private async appendEvents(
@@ -4095,6 +4167,7 @@ export class OldFavoriteWorkspaceCoordinator {
           })()
         }))
     const overview = this.createOverviewProjection(workspace, projectedSegments)
+    const deepSeekRunCheckpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
     return {
       version: 1,
       accountMid: workspace.accountMid,
@@ -4119,6 +4192,19 @@ export class OldFavoriteWorkspaceCoordinator {
             ,confirmedUntaggedItemCount: Math.max(0, enrichment.totalItemCount - enrichment.pendingAids.length - enrichment.failedAids.length - enrichment.taggedAids.length)
           }
         })()
+      } : {}),
+      ...(deepSeekRunCheckpoint?.workspaceId === workspace.id ? {
+        deepSeekRun: {
+          mode: deepSeekRunCheckpoint.mode,
+          scope: deepSeekRunCheckpoint.scope,
+          status: deepSeekRunCheckpoint.canceled
+            ? 'canceled' as const
+            : deepSeekRunCheckpoint.waitingSegmentIds.length
+              ? 'waiting' as const
+              : 'running' as const,
+          completedSegmentCount: deepSeekRunCheckpoint.completedSegmentIds.length,
+          waitingSegmentCount: deepSeekRunCheckpoint.waitingSegmentIds.length
+        }
       } : {}),
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
       continuationCount: workspace.continuationAids.length,

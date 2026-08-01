@@ -654,7 +654,7 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
 
-  it('reports deferred tag batches after organizing every currently ready batch', async () => {
+  it('keeps all-batch DeepSeek in a waiting state until later tag batches resume', async () => {
     const organize = vi.fn().mockResolvedValue({
       snapshot: workspace('100'),
       progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 20, successfulVideoCount: 20, failedVideoCount: 0 },
@@ -667,8 +667,38 @@ describe('useOldFavoriteWorkspace', () => {
     await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('low-confidence-and-unclassified', 'all') })
 
     expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'waiting',
+      message: expect.stringContaining('标签补取完成后会自动继续')
+    })
+  })
+
+  it('reports background all-batch completion when polling observes the checkpoint clear', async () => {
+    const waitingSnapshot = {
+      ...workspace('100'),
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'waiting' as const,
+        completedSegmentCount: 1, waitingSegmentCount: 1
+      }
+    }
+    const organize = vi.fn().mockResolvedValue({
+      snapshot: waitingSnapshot,
+      progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 20, successfulVideoCount: 20, failedVideoCount: 0 },
+      failures: [], deferredSegmentCount: 1
+    })
+    const open = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = {
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize,
+      openOldFavoriteWorkspaceV1: open
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all', 'all') })
+    expect(result.current.deepSeekFeedback?.status).toBe('waiting')
+    await act(async () => { await result.current.refresh(true) })
+
+    expect(result.current.deepSeekFeedback).toMatchObject({
       status: 'completed',
-      message: expect.stringContaining('还有 1 个批次等待标签补取')
+      message: expect.stringContaining('本轮所有批次已在后台整理完成')
     })
   })
 

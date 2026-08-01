@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, rename, truncate, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { OldFavoriteWorkspaceDeepSeekRunCheckpoint } from '../../src/shared/oldFavoriteWorkspace'
 
 type ScanItem = {
   aid: number
@@ -102,6 +103,7 @@ type Overlay = {
   tagUpdates?: Array<{ aid: number; tags: string[] }>
   tagEnrichmentDelta?: TagEnrichmentDelta
   ruleAnalysisCheckpoint?: RuleAnalysisCheckpoint | null
+  deepSeekRunCheckpoint?: OldFavoriteWorkspaceDeepSeekRunCheckpoint | null
   overview?: { segments: OverviewSegmentSummary[]; unavailableItemCount: number }
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
@@ -462,6 +464,7 @@ export class OldFavoriteWorkspaceStore {
       let tagEnrichment: Overlay['tagEnrichment'] | undefined
       const tagUpdates = new Map<number, string[]>()
       let ruleAnalysisCheckpoint: RuleAnalysisCheckpoint | undefined
+      let deepSeekRunCheckpoint: OldFavoriteWorkspaceDeepSeekRunCheckpoint | undefined
       let overview: Overlay['overview'] | undefined
       const overlayHistory: OverlayHistory[] = []
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
@@ -553,6 +556,9 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.ruleAnalysisCheckpoint !== undefined) {
           ruleAnalysisCheckpoint = overlay.ruleAnalysisCheckpoint ? clone(overlay.ruleAnalysisCheckpoint) : undefined
         }
+        if (overlay.deepSeekRunCheckpoint !== undefined) {
+          deepSeekRunCheckpoint = overlay.deepSeekRunCheckpoint ? clone(overlay.deepSeekRunCheckpoint) : undefined
+        }
         if (overlay.overview) overview = clone(overlay.overview)
       }
       return {
@@ -571,6 +577,7 @@ export class OldFavoriteWorkspaceStore {
         classifications, history, recommendations, planReadiness
         ,overlayHistory
         ,ruleAnalysisCheckpoint
+        ,deepSeekRunCheckpoint
         ,overview
         ,tagEnrichment, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
@@ -778,6 +785,7 @@ export class OldFavoriteWorkspaceStore {
     let planReadiness = manifest.planReadiness ? clone(manifest.planReadiness) : undefined
     let tagEnrichment: Overlay['tagEnrichment'] | undefined
     let ruleAnalysisCheckpoint: Overlay['ruleAnalysisCheckpoint']
+    let deepSeekRunCheckpoint: Overlay['deepSeekRunCheckpoint']
 
     for (const raw of committed.split('\n').filter(Boolean)) {
       const overlay = JSON.parse(raw) as Overlay
@@ -813,6 +821,9 @@ export class OldFavoriteWorkspaceStore {
       if (overlay.ruleAnalysisCheckpoint !== undefined) {
         ruleAnalysisCheckpoint = overlay.ruleAnalysisCheckpoint ? clone(overlay.ruleAnalysisCheckpoint) : null
       }
+      if (overlay.deepSeekRunCheckpoint !== undefined) {
+        deepSeekRunCheckpoint = overlay.deepSeekRunCheckpoint ? clone(overlay.deepSeekRunCheckpoint) : null
+      }
     }
 
     const stateOverlay: Overlay = {
@@ -824,7 +835,8 @@ export class OldFavoriteWorkspaceStore {
       scanMetadata: { sourceFolders, ...scan },
       ...(tagEnrichment ? { tagEnrichment } : {}),
       ...(tagUpdates.size ? { tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags })) } : {}),
-      ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {})
+      ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {}),
+      ...(deepSeekRunCheckpoint !== undefined ? { deepSeekRunCheckpoint } : {})
     }
     const compactContent = [...historyOverlays, stateOverlay].map((overlay) => `${JSON.stringify(overlay)}\n`).join('')
     const compactFile = `overlay.compact.${randomUUID()}.jsonl`

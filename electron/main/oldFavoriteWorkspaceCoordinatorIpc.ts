@@ -268,6 +268,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   ipcMain: IpcMain
   coordinator: OldFavoriteWorkspaceCoordinator
   deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks' | 'cancelCurrentSegment'> &
+    Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'cancelPendingAllSegments'>> &
     Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeAllSegments'>>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
@@ -373,7 +374,8 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
     if (requested.type === 'cancel-deepseek-current-segment') {
       if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
-      options.deepSeekService.cancelCurrentSegment(accountMid)
+      if (options.deepSeekService.cancelPendingAllSegments) await options.deepSeekService.cancelPendingAllSegments(accountMid)
+      else options.deepSeekService.cancelCurrentSegment(accountMid)
     }
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)

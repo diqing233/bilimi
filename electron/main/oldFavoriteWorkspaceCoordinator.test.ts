@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady'> & { initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -277,6 +277,74 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
       ]
     })
+  })
+
+  it('notifies newly ready batches outside the coordinator queue exactly once', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let coordinator!: OldFavoriteWorkspaceCoordinator
+    const onSegmentsReady = vi.fn(async (accountMid: string, segmentIds: string[]) => {
+      await expect(coordinator.getSnapshot(accountMid)).resolves.toMatchObject({
+        segments: expect.arrayContaining(segmentIds.map((id) => expect.objectContaining({ id, readiness: 'ready' })))
+      })
+    })
+    coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500,
+      onSegmentsReady
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return {
+            aid,
+            title: `Video ${aid}`,
+            ...(aid === 1 || aid === 501 ? {} : { tags: ['existing'] }),
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+    const workspaceId = requireSnapshot(await coordinator.getSnapshot('100')).workspaceId
+
+    await coordinator.recordTagEnrichment('100', 1, ['ready'], workspaceId)
+    await vi.waitFor(() => expect(onSegmentsReady).toHaveBeenCalledExactlyOnceWith('100', ['segment-1']))
+    await coordinator.recordTagEnrichment('100', 501, ['ready'], workspaceId)
+    await vi.waitFor(() => expect(onSegmentsReady).toHaveBeenCalledTimes(2))
+    expect(onSegmentsReady).toHaveBeenNthCalledWith(2, '100', ['segment-2'])
+  })
+
+  it('exposes the durable DeepSeek checkpoint after coordinator reconstruction', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await first.beginScan('100', 'full')
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Ready', tags: ['existing'], sourceFolderIds: ['source'] }]
+    })
+    await first.finishScan('100')
+    const workspaceId = requireSnapshot(await first.getSnapshot('100')).workspaceId
+
+    await first.setDeepSeekRunCheckpoint('100', {
+      workspaceId, mode: 'all', scope: 'all', completedSegmentIds: [],
+      waitingSegmentIds: ['segment-1'], canceled: false
+    })
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      deepSeekRun: { status: 'waiting', completedSegmentCount: 0, waitingSegmentCount: 1 }
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getDeepSeekRunCheckpoint('100')).resolves.toEqual({
+      workspaceId, mode: 'all', scope: 'all', completedSegmentIds: [],
+      waitingSegmentIds: ['segment-1'], canceled: false
+    })
+    await restarted.setDeepSeekRunCheckpoint('100', null)
+    await expect(restarted.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
   })
 
   it('publishes a compact whole-run overview only when a complete batch is ready and restores it after restart', async () => {
