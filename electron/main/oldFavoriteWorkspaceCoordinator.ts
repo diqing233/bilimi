@@ -10,6 +10,7 @@ import {
   type ApplyWorkspaceClassificationBatchOptions,
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
+  type OldFavoriteWorkspaceClassificationSource,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceHistoryEntry,
   type OldFavoriteWorkspaceScope,
