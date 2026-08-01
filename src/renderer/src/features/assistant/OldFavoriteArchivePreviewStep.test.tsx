@@ -3,6 +3,46 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('keeps the current card tree mounted while a multi-batch archive switches to its compact whole-run overview', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current card stays mounted', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        overview: {
+          available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1,
+          sourceFolders: [{ id: 'source', title: 'Source', itemCount: 500, invalidItemCount: 1 }], recommendationCounts: [],
+          archiveTargets: [{ ledgerId: 'knowledge', itemCount: 500, segmentCounts: [{ segmentId: 'segment-1', count: 500 }] }]
+        }
+      }}
+      ledgers={[{ id: 'knowledge', displayName: '知识', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByRole('group', { name: '归档预览视图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Current card stays mounted')).toBeInTheDocument()
+    expect(screen.getByTestId('current-archive-view')).not.toHaveAttribute('hidden')
+
+    fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
+
+    expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(within(screen.getByTestId('whole-run-archive-view')).getByText('知识')).toBeInTheDocument()
+    expect(within(screen.getByTestId('whole-run-archive-view')).getByText('预计归档 500 条')).toBeInTheDocument()
+    expect(screen.getByTestId('current-archive-view')).toHaveAttribute('hidden')
+    expect(screen.getByText('Current card stays mounted')).toBeInTheDocument()
+  })
+
   it('groups 2000 preview items once while preserving source order', () => {
     const items = Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, sourceFolderIds: ['source'] }))
     const classifications = Object.fromEntries(items.map((item) => [String(item.aid), {

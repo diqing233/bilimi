@@ -1,4 +1,6 @@
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import { useState } from 'react'
+import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
@@ -37,6 +39,7 @@ export function OldFavoriteConfirmationStep({
   onExecuteFrozenPlan,
   onReconcile
 }: OldFavoriteConfirmationStepProps) {
+  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('all')
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const isMultiSegment = snapshot.hasMultipleSegments
@@ -109,7 +112,14 @@ export function OldFavoriteConfirmationStep({
       : null
 
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
-    <h4>确认执行</h4>
+    <div className="favorite-ledger-panel__step-title-row">
+      <h4>确认执行</h4>
+      {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
+    </div>
+    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} showArchiveTargets /> : null}
+    {isMultiSegment && viewScope === 'current' && currentSegmentSummary
+      ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
+      : null}
     <p>确认本轮分类结果，并选择保存到收藏库或同步到 B 站。</p>
     <p className="favorite-ledger-panel__action-explanation">{syncExplanation}</p>
     {readinessText ? <p>{readinessText}</p> : null}

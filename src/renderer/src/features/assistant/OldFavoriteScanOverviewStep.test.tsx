@@ -3,6 +3,45 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
 describe('OldFavoriteScanOverviewStep', () => {
+  it('defaults a multi-batch scan to the compact whole-run overview and keeps single batches unchanged', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 501, scannedItemCount: 501, taggedItemCount: 500, untaggedItemCount: 1 },
+      continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 501, invalidItemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 500, readiness: 'ready' as const, completedTagItemCount: 500, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current', sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1,
+        sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 500, invalidItemCount: 1 }],
+        recommendationCounts: [], archiveTargets: []
+      }
+    }
+    const props = {
+      loading: false, scanStarting: false, scanStartFailure: null, onRetry: vi.fn(), onRetryDirect: vi.fn(),
+      onRebuild: vi.fn(), onSelectSourceFolders: vi.fn(), onPauseTagEnrichment: vi.fn(), onResumeTagEnrichment: vi.fn(),
+      onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn()
+    }
+    const rendered = render(<OldFavoriteScanOverviewStep snapshot={snapshot} {...props} />)
+
+    expect(screen.getByRole('group', { name: '扫描概览视图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹500')
+
+    fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
+    expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹1')
+
+    rendered.rerender(<OldFavoriteScanOverviewStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
+    expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
+  })
+
   it('keeps the scan view mounted when a scan reports a rebuild-required recovery state', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{ recovery: 'rebuild-required', preserveCompletedLocalResults: true, accountMid: '100', workspaceId: 'workspace-100' }}

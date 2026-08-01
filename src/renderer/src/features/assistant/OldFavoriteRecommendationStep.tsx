@@ -1,6 +1,7 @@
 import type { OldFavoriteWorkspaceRecommendationCandidate, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { useState } from 'react'
+import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type OldFavoriteRecommendationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
@@ -30,9 +31,8 @@ function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) 
   return stripBilimiLedgerPrefix(candidate.displayName)
 }
 
-function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate, showBatchCount: boolean) {
-  if (!showBatchCount || candidate.currentSegmentCount === undefined) return `${candidate.count} 条适合`
-  return `当前批 ${candidate.currentSegmentCount} 条 · 全部 ${candidate.count} 条`
+function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate, count: number) {
+  return `${count} 条适合`
 }
 
 export function OldFavoriteRecommendationStep({
@@ -49,9 +49,17 @@ export function OldFavoriteRecommendationStep({
 }: OldFavoriteRecommendationStepProps) {
   const [authorCandidatesExpanded, setAuthorCandidatesExpanded] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
+  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   const adoptedCandidateIds = new Set(controlledAdoptedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)
-  const authorCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'author')
-  const tagCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'tag')
+  const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
+  const overviewCounts = new Map((snapshot.overview?.recommendationCounts ?? []).map((candidate) => [candidate.id, candidate.count]))
+  const countForCandidate = (candidate: OldFavoriteWorkspaceRecommendationCandidate) => viewScope === 'all'
+    ? overviewCounts.get(candidate.id) ?? 0
+    : candidate.currentSegmentCount ?? candidate.count
+  const overviewUnavailable = hasMultipleSegments && viewScope === 'all' && !snapshot.overview?.available
+  const scopedCandidates = overviewUnavailable ? [] : snapshot.recommendations.candidates.filter((candidate) => countForCandidate(candidate) > 0)
+  const authorCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'author')
+  const tagCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'tag')
   const groups: CandidateGroup[] = [
     {
       heading: '专属 UP 追更',
@@ -96,7 +104,11 @@ export function OldFavoriteRecommendationStep({
   }
 
   return <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
-    <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
+    <div className="favorite-ledger-panel__step-title-row">
+      <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
+      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="推荐收藏夹视图" value={viewScope} onChange={setViewScope} /> : null}
+    </div>
+    {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} /> : null}
     <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
     {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
@@ -105,7 +117,11 @@ export function OldFavoriteRecommendationStep({
       <button type="button" onClick={onCancelPreviewPreparation}>取消准备</button>
     </div> : null}
     {previewPreparationError ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{previewPreparationError}</p> : null}
-    {snapshot.recommendations.candidates.length === 0 ? <p>本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。</p> : null}
+    {!overviewUnavailable && scopedCandidates.length === 0 ? <p>{viewScope === 'current'
+      ? hasMultipleSegments
+        ? '当前批次没有足够重复的 UP 或标签，暂不生成推荐收藏夹。'
+        : '本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。'
+      : '已汇总批次没有足够重复的 UP 或标签，暂不生成推荐收藏夹。'}</p> : null}
     {groups.map((group, index) => {
       const allSelected = group.allCandidates.length > 0 && group.allCandidates.every((candidate) => adoptedCandidateIds.has(candidate.id))
       return <div key={group.heading} className="favorite-ledger-panel__candidate-section">
@@ -141,7 +157,7 @@ export function OldFavoriteRecommendationStep({
                     else next.delete(candidate.id)
                     onSetRecommendedCandidates([...next])
                   }} />
-                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate, snapshot.hasMultipleSegments)}</small></span>
+                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate, countForCandidate(candidate))}</small></span>
               </label>
             </article>
           })}

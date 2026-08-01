@@ -6,6 +6,7 @@ import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
+import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 const INITIAL_GROUP_ITEM_LIMIT = 6
@@ -196,6 +197,7 @@ export function OldFavoriteArchivePreviewStep({
   onApplyManualClassification,
   onApplyManualClassifications,
 }: OldFavoriteArchivePreviewStepProps) {
+  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
@@ -213,6 +215,7 @@ export function OldFavoriteArchivePreviewStep({
     'system-low': '低置信度自动分类'
   } as const
   const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
+  const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) =>
     `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${entry.targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'}`
   const historyBaselineCursor = snapshot.history.baselineCursor ?? 0
@@ -271,8 +274,9 @@ export function OldFavoriteArchivePreviewStep({
 
   return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
     <div className="favorite-ledger-panel__preview-topbar">
-      <div>
+      <div className="favorite-ledger-panel__step-title-row">
         <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
+        {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="归档预览视图" value={viewScope} onChange={setViewScope} /> : null}
       </div>
     </div>
     <p className="favorite-ledger-panel__step-note">检查分类结果，可手动调整或使用 DeepSeek 辅助整理。</p>
@@ -376,7 +380,12 @@ export function OldFavoriteArchivePreviewStep({
         </div>
       </div>
     </div>
-    <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
-      onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications} />
+    {hasMultipleSegments ? <div className="favorite-ledger-panel__scope-panel" hidden={viewScope !== 'all'} data-testid="whole-run-archive-view">
+      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets />
+    </div> : null}
+    <div className="favorite-ledger-panel__scope-panel" hidden={hasMultipleSegments && viewScope === 'all'} data-testid="current-archive-view">
+      <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
+        onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications} />
+    </div>
   </section>
 }

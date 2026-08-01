@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
+import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
@@ -45,6 +46,7 @@ export function OldFavoriteScanOverviewStep({
   ,onAcceptCurrentTags
 }: OldFavoriteScanOverviewStepProps) {
   const [sourceCountMode, setSourceCountMode] = useState<'selected' | 'invalid'>('selected')
+  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('all')
   if (snapshot && 'recovery' in snapshot) {
     return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
       <h4>扫描概览</h4>
@@ -53,7 +55,26 @@ export function OldFavoriteScanOverviewStep({
     </section>
   }
 
-  const folders = snapshot?.sourceFolders ?? []
+  const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
+  const overview = activeSnapshot?.overview
+  const hasMultipleSegments = Boolean(activeSnapshot?.hasMultipleSegments || (activeSnapshot?.segments.length ?? 0) > 1)
+  const currentItems = activeSnapshot?.currentSegment?.items ?? []
+  const currentItemCounts = new Map<string, { itemCount: number; invalidItemCount: number }>()
+  for (const item of currentItems) {
+    const unavailable = item.unavailable === true || item.title?.trim() === '已失效视频' || item.author?.trim() === '账号已注销'
+    for (const sourceFolderId of new Set(item.sourceFolderIds)) {
+      const counts = currentItemCounts.get(sourceFolderId) ?? { itemCount: 0, invalidItemCount: 0 }
+      if (unavailable) counts.invalidItemCount += 1
+      else counts.itemCount += 1
+      currentItemCounts.set(sourceFolderId, counts)
+    }
+  }
+  const overviewFolders = new Map((overview?.sourceFolders ?? []).map((folder) => [folder.id, folder]))
+  const folders = (activeSnapshot?.sourceFolders ?? []).map((folder) => {
+    if (!hasMultipleSegments) return folder
+    const counts = viewScope === 'all' ? overviewFolders.get(folder.id) : currentItemCounts.get(folder.id)
+    return { ...folder, itemCount: counts?.itemCount ?? 0, invalidItemCount: counts?.invalidItemCount ?? 0 }
+  })
   const userFolders = folders.filter((folder) => !folder.isBilimiWorkFolder)
   const bilimiFolders = folders.filter((folder) => folder.isBilimiWorkFolder)
   const selectedSourceIds = new Set(userFolders
@@ -87,8 +108,14 @@ export function OldFavoriteScanOverviewStep({
         ? '扫描概览：扫描中'
         : '扫描概览已完成，请从左向右依次完成本轮整理。'
 
+  const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview?.available
+
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
-    <h4>扫描概览</h4>
+    <div className="favorite-ledger-panel__step-title-row">
+      <h4>扫描概览</h4>
+      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="扫描概览视图" value={viewScope} onChange={setViewScope} /> : null}
+    </div>
+    {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={activeSnapshot!} /> : null}
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
     <div className="favorite-ledger-panel__scan-progress" aria-label="收藏扫描进度">
       <div>
@@ -154,7 +181,7 @@ export function OldFavoriteScanOverviewStep({
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading">
           <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
-            disabled={loading} onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : userFolders.map((folder) => folder.id))} /><span>全选</span></label>
+            disabled={loading || overviewReadOnly} onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : userFolders.map((folder) => folder.id))} /><span>全选</span></label>
           <span className="favorite-ledger-panel__source-heading-separator" aria-hidden="true">·</span>
           <span className="favorite-ledger-panel__source-heading-title">用户收藏夹</span>
           <small>（{userFolders.length}）</small>
@@ -177,7 +204,7 @@ export function OldFavoriteScanOverviewStep({
         {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
           <label className="favorite-ledger-panel__source-row-content">
             <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
-              disabled={loading} onChange={(event) => {
+              disabled={loading || overviewReadOnly} onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
                 onSelectSourceFolders([...next])

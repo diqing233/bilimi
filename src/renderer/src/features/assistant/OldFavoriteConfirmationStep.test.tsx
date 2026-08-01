@@ -4,6 +4,37 @@ import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteConfirmationStep', () => {
+  it('defaults multi-batch confirmation to a compact whole-run summary while single batches keep the existing page', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 500, readiness: 'ready' as const, completedTagItemCount: 500, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
+      ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 501, classifiedAidCount: 500, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1, sourceFolders: [], recommendationCounts: [],
+        archiveTargets: [{ ledgerId: 'knowledge', itemCount: 500, segmentCounts: [{ segmentId: 'segment-1', count: 500 }] }]
+      }
+    }
+    const props = {
+      loading: false, onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(), onExecuteFrozenPlan: vi.fn(), onReconcile: vi.fn()
+    }
+    const rendered = render(<OldFavoriteConfirmationStep snapshot={snapshot} {...props} />)
+
+    expect(screen.getByRole('group', { name: '确认执行视图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(screen.getByText('预计归档 500 条')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
+    expect(screen.getByText('当前批次：第 1/2 批 · 500 条')).toBeInTheDocument()
+
+    rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
+    expect(screen.queryByRole('group', { name: '确认执行视图' })).not.toBeInTheDocument()
+  })
+
   it('lets the user acknowledge a completed Bilibili sync', () => {
     const acknowledge = vi.fn()
     render(<OldFavoriteConfirmationStep
