@@ -17,6 +17,44 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect([...groups.values()].flat()).toHaveLength(2_000)
   })
 
+  it('does not regroup a stable 2000-item snapshot when only DeepSeek progress changes', () => {
+    const items = Array.from({ length: 2_000 }, (_, index) => ({
+      aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']
+    }))
+    const storedClassifications = Object.fromEntries(items.map((item) => [String(item.aid), {
+      aid: item.aid, targetLedgerIds: ['music'], source: 'system-high' as const
+    }]))
+    let classificationReads = 0
+    const classifications = new Proxy(storedClassifications, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) classificationReads += 1
+        return Reflect.get(target, property, receiver)
+      }
+    })
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_000, isBilimiWorkFolder: false, selected: true }],
+      segments: [], currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items }, classifications,
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const ledgers = [{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true }]
+    const actions = {
+      onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+      onMoveHistoryCursor: vi.fn(), onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn()
+    }
+    const view = render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={ledgers} loading deepSeekAvailable
+      deepSeekFeedback={{ status: 'running', message: 'Running', progress: { totalChunks: 100, completedChunks: 1, totalVideoCount: 2_000, successfulVideoCount: 20, failedVideoCount: 0 } }}
+      {...actions} />)
+    classificationReads = 0
+
+    view.rerender(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={ledgers} loading deepSeekAvailable
+      deepSeekFeedback={{ status: 'running', message: 'Running', progress: { totalChunks: 100, completedChunks: 2, totalVideoCount: 2_000, successfulVideoCount: 40, failedVideoCount: 0 } }}
+      {...actions} />)
+
+    expect(classificationReads).toBe(0)
+  })
+
   it('uses the legacy preview title bar and content shell around current workspace data', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{

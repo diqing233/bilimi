@@ -654,6 +654,39 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
 
+  it('reports deferred tag batches after organizing every currently ready batch', async () => {
+    const organize = vi.fn().mockResolvedValue({
+      snapshot: workspace('100'),
+      progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 20, successfulVideoCount: 20, failedVideoCount: 0 },
+      failures: [],
+      deferredSegmentCount: 1
+    })
+    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('low-confidence-and-unclassified', 'all') })
+
+    expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'completed',
+      message: expect.stringContaining('还有 1 个批次等待标签补取')
+    })
+  })
+
+  it('keeps an Electron-wrapped workspace change error distinct from DeepSeek service settings failures', async () => {
+    const organize = vi.fn().mockRejectedValue(new Error(
+      "Error invoking remote method 'old-favorite-workspace-v1:deepseek-current-segment': Error: Old favorite workspace changed while DeepSeek was running."
+    ))
+    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all') })
+
+    expect(result.current.deepSeekFeedback).toEqual({
+      status: 'failed',
+      message: '整理期间草稿发生了变化，本次结果未覆盖现有改动；请确认当前批次后重试。'
+    })
+  })
+
   it('keeps failed DeepSeek batches retryable when a retry transport request rejects', async () => {
     const failure = { chunkIndex: 2, affectedVideoCount: 3, message: 'incomplete current-segment' }
     const organize = vi.fn().mockResolvedValue({

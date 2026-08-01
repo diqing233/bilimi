@@ -62,10 +62,17 @@ function createDraftLedgerRuleAnalysisId() {
 
 function deepSeekFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
-  if (/DeepSeekServiceError|DeepSeek returned invalid JSON|Error invoking remote method/i.test(detail)) {
+  if (/changed while DeepSeek/i.test(detail)) {
+    return '整理期间草稿发生了变化，本次结果未覆盖现有改动；请确认当前批次后重试。'
+  }
+  if (/requires rebuild|batch selection|workspace.*not ready/i.test(detail)) {
+    return '整理草稿状态已变化，请返回扫描概览确认当前批次后重试。'
+  }
+  if (/DeepSeekServiceError|DeepSeek returned invalid JSON|authentication|model|API/i.test(detail)) {
     return 'DeepSeek 整理失败，请检查服务设置后重试。'
   }
-  return detail || 'DeepSeek 整理失败，请稍后重试。'
+  const wrapped = /^Error invoking remote method '.+':\s*Error:\s*(.+)$/i.exec(detail)?.[1]
+  return wrapped || detail || 'DeepSeek 整理失败，请稍后重试。'
 }
 
 function executionFailureMessage(error: unknown) {
@@ -466,11 +473,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         const referencedConstraints = referencedConstraintLedgerNames.length
           ? `本次整理参考了 DeepSeek 约束收藏夹：${referencedConstraintLedgerNames.join('、')}。`
           : '本次整理未带入 DeepSeek 约束收藏夹。'
+        const deferredSegments = result.deferredSegmentCount
+          ? `还有 ${result.deferredSegmentCount} 个批次等待标签补取，完成后可继续整理。`
+          : ''
         setDeepSeekFeedback(result.canceled
-          ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${referencedConstraints}`, progress: result.progress, failures: result.failures }
+          ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: result.failures }
           : result.failures.length
-            ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${referencedConstraints}`, progress: result.progress, failures: result.failures }
-            : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${referencedConstraints}`, progress: result.progress, failures: [] })
+            ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: result.failures }
+            : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: [] })
       }
       return next
     } catch (error) {

@@ -2,7 +2,7 @@ import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import type { OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
@@ -118,6 +118,12 @@ export function ControlledFavoriteLedgerPanel({
   openOrganizationSelection
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
+  const applyManualClassification = useCallback((aid: number, targetLedgerIds: string[]) => {
+    void workspace.applyManualClassifications([{ aid, targetLedgerIds }])
+  }, [workspace.applyManualClassifications])
+  const applyManualClassifications = useCallback((assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => {
+    void workspace.applyManualClassifications(assignments)
+  }, [workspace.applyManualClassifications])
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
@@ -556,8 +562,8 @@ export function ControlledFavoriteLedgerPanel({
         onUndoClassification={() => void workspace.undoClassification()}
         onRedoClassification={() => void workspace.redoClassification()}
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
-        onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
-        onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
+        onApplyManualClassification={applyManualClassification}
+        onApplyManualClassifications={applyManualClassifications}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}

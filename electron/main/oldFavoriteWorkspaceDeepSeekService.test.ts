@@ -602,7 +602,59 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
       snapshot: { currentSegment: { id: 'segment-1' } }
     })
     expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1], [2]])
-    expect(coordinator.selectSegment.mock.calls.map(([, segmentId]) => segmentId)).toEqual(['segment-1', 'segment-2', 'segment-1'])
+    expect(coordinator.selectSegment.mock.calls.map(([, segmentId]) => segmentId)).toEqual(['segment-2', 'segment-1'])
+  })
+
+  it('finishes ready batches without polling a later batch that is still waiting for tags', async () => {
+    let currentSegmentId = 'segment-1'
+    const getSnapshot = vi.fn(async () => ({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', status: 'previewing' as const, readiness: 'ready' as const },
+        { id: 'segment-2', status: 'previewing' as const, readiness: 'tagging' as const }
+      ],
+      currentSegment: {
+        id: currentSegmentId,
+        items: currentSegmentId === 'segment-1'
+          ? [{ aid: 1, title: 'Ready', sourceFolderIds: ['source'] }]
+          : [{ aid: 2, title: 'Waiting for tags', sourceFolderIds: ['source'] }]
+      },
+      classifications: {}
+    }))
+    const coordinator = {
+      getSnapshot,
+      selectSegment: vi.fn(async (_accountMid: string, segmentId: string) => { currentSegmentId = segmentId }),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({})
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate: vi.fn(async () => ({
+        kind: 'favorite-archive-organize' as const,
+        results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+        keywordSuggestions: []
+      }))
+    })
+
+    const pending = service.organizeAllSegments('100')
+    const outcome = await Promise.race([
+      pending.then((result) => ({ kind: 'result' as const, result })),
+      new Promise<{ kind: 'timeout' }>((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), 30))
+    ])
+    if (outcome.kind === 'timeout') {
+      service.cancelCurrentSegment('100')
+      await pending
+    }
+
+    expect(outcome.kind).toBe('result')
+    if (outcome.kind === 'result') {
+      expect(outcome.result).toMatchObject({
+        deferredSegmentCount: 1,
+        progress: { totalVideoCount: 1, successfulVideoCount: 1 }
+      })
+    }
+    expect(coordinator.selectSegment).not.toHaveBeenCalled()
   })
 
   it('retains failed aids from earlier batches when a later batch succeeds and retries only their batch', async () => {
@@ -650,7 +702,7 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
 
     expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1], [2], [1]])
     expect(coordinator.selectSegment.mock.calls.map(([, segmentId]) => segmentId)).toEqual([
-      'segment-1', 'segment-2', 'segment-1',
+      'segment-2', 'segment-1',
       'segment-1', 'segment-1'
     ])
   })

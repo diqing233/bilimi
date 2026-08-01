@@ -247,6 +247,8 @@ export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
   /** Cancellation waits for the in-flight request, then applies only completed batches. */
   canceled?: boolean
+  /** Unsaved batches skipped because their tags are not ready yet. */
+  deferredSegmentCount?: number
   /** Enabled DeepSeek-constraint ledgers sent with this archive organization request. */
   referencedConstraintLedgerNames: string[]
   progress: {

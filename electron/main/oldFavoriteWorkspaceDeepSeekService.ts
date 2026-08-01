@@ -105,23 +105,26 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const failedSegments: FailedDeepSeekSegment[] = []
     const referencedConstraintLedgerNames = new Set<string>()
     const aggregate = { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 }
+    let deferredSegmentCount = 0
+    let selectedSegmentId = originalSegmentId
     try {
       for (const segmentId of segmentIds) {
         if (run.cancelRequested) break
-        while (!run.cancelRequested) {
-          const readinessSnapshot = await this.options.coordinator.getSnapshot(accountMid)
-          if (!readinessSnapshot || 'recovery' in readinessSnapshot || readinessSnapshot.workspaceId !== initial.workspaceId || readinessSnapshot.status !== 'previewing') {
-            throw new Error('Old favorite workspace changed while DeepSeek was waiting for the next batch.')
-          }
-          const summary = readinessSnapshot.segments.find((segment) => segment.id === segmentId)
-          if (!summary || summary.status === 'frozen' || summary.readiness === 'saved') break
-          if (summary.readiness === 'ready') {
-            await this.options.coordinator.selectSegment(accountMid, segmentId)
-            break
-          }
-          await new Promise<void>((resolve) => setTimeout(resolve, 250))
+        const readinessSnapshot = await this.options.coordinator.getSnapshot(accountMid)
+        if (!readinessSnapshot || 'recovery' in readinessSnapshot || readinessSnapshot.workspaceId !== initial.workspaceId || readinessSnapshot.status !== 'previewing') {
+          throw new Error('Old favorite workspace changed while DeepSeek was waiting for the next batch.')
         }
-        if (run.cancelRequested) break
+        const summary = readinessSnapshot.segments.find((segment) => segment.id === segmentId)
+        if (!summary || summary.status === 'frozen' || summary.readiness === 'saved') continue
+        if (summary.readiness !== 'ready') {
+          deferredSegmentCount += 1
+          continue
+        }
+        selectedSegmentId = readinessSnapshot.currentSegment?.id ?? selectedSegmentId
+        if (selectedSegmentId !== segmentId) {
+          await this.options.coordinator.selectSegment(accountMid, segmentId)
+          selectedSegmentId = segmentId
+        }
         const selected = await this.options.coordinator.getSnapshot(accountMid)
         const selectedSummary = selected && !('recovery' in selected)
           ? selected.segments.find((segment) => segment.id === segmentId)
@@ -149,9 +152,11 @@ export class OldFavoriteWorkspaceDeepSeekService {
         if (segmentResult.canceled) break
       }
     } finally {
-      await this.options.coordinator.selectSegment(accountMid, originalSegmentId).catch(() => undefined)
-      const restored = await this.options.coordinator.getSnapshot(accountMid)
-      if (restored && !('recovery' in restored)) final = restored
+      if (selectedSegmentId !== originalSegmentId) {
+        await this.options.coordinator.selectSegment(accountMid, originalSegmentId).catch(() => undefined)
+        const restored = await this.options.coordinator.getSnapshot(accountMid)
+        if (restored && !('recovery' in restored)) final = restored
+      }
       if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
     }
     this.rememberFailedRun(accountMid, initial.workspaceId, mode, 'all', failedSegments)
@@ -160,7 +165,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
       referencedConstraintLedgerNames: [...referencedConstraintLedgerNames],
       progress: aggregate,
       failures,
-      canceled: run.cancelRequested
+      canceled: run.cancelRequested,
+      deferredSegmentCount
     }
   }
 

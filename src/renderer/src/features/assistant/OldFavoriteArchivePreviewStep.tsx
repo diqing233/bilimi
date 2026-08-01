@@ -1,7 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
@@ -65,6 +65,74 @@ type OldFavoriteArchivePreviewStepProps = {
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
 }
 
+type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
+  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications'>
+
+const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
+  snapshot,
+  ledgers,
+  loading,
+  mutationLocked = false,
+  onApplyManualClassification,
+  onApplyManualClassifications
+}: OldFavoriteArchiveGroupsProps) {
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const sourceFolderTitles = new Map(snapshot.sourceFolders
+    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    .map((folder) => [folder.id, folder.title]))
+  const selectedSourceIds = new Set(snapshot.sourceFolders
+    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    .map((folder) => folder.id))
+  const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
+    !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
+  const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
+  const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
+  const previewGroups = [
+    ...(unmatched.length ? [{ id: 'unclassified', title: '未匹配到合适分类', items: unmatched }] : []),
+    ...[...classified.entries()].map(([id, groupedItems]) => ({
+      id,
+      title: id === 'inbox' ? '暂存' : id === 'other' ? '其它收藏' : ledgers.find((ledger) => ledger.id === id)?.displayName ?? '其它收藏',
+      items: groupedItems
+    }))
+  ]
+  const renderItem = (item: typeof items[number]) => <OldFavoritePreviewCard
+    item={item}
+    sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
+    classification={snapshot.classifications[String(item.aid)]}
+    ledgers={ledgers}
+    loading={loading || mutationLocked}
+    onApplyManualClassification={onApplyManualClassification}
+  />
+
+  return <div className="favorite-ledger-panel__preview-groups">
+    {previewGroups.map((group) => {
+      const expanded = expandedGroups.has(group.id)
+      const visibleItems = expanded ? group.items : group.items.slice(0, INITIAL_GROUP_ITEM_LIMIT)
+      const stageAll = group.id === 'unclassified' && group.items.length > 0 && group.items.every((item) =>
+        snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes('inbox'))
+      const groupAll = group.id !== 'unclassified' && group.items.length > 0 && group.items.every((item) =>
+        snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes(group.id))
+      return <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
+        data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
+        <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span>
+          {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading || mutationLocked}
+            onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
+              aid: item.aid, targetLedgerIds: event.currentTarget.checked ? ['inbox'] : []
+            })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading || mutationLocked}
+              onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
+                aid: item.aid, targetLedgerIds: event.currentTarget.checked ? [group.id] : []
+              })))} /><span>全选</span></label>}
+        </header>
+        {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={renderItem} /> :
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item)}</div>)}
+            {group.items.length > INITIAL_GROUP_ITEM_LIMIT && !expanded ? <button type="button" onClick={() => setExpandedGroups((current) => new Set([...current, group.id]))}>显示全部 {group.items.length} 条</button> : null}
+          </div>}
+      </section>
+    })}
+  </div>
+})
+
 export function OldFavoriteArchivePreviewStep({
   snapshot,
   ledgers,
@@ -88,7 +156,6 @@ export function OldFavoriteArchivePreviewStep({
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
   const [historyMenuPosition, setHistoryMenuPosition] = useState({ top: 0, left: 0 })
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const deepSeekFeedbackView = deepSeekFeedback
     ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
     : null
@@ -127,34 +194,13 @@ export function OldFavoriteArchivePreviewStep({
       window.removeEventListener('scroll', updateHistoryMenuPosition, true)
     }
   }, [historyOpen])
-  const sourceFolderTitles = new Map(snapshot.sourceFolders
-    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
-    .map((folder) => [folder.id, folder.title]))
-  const selectedSourceIds = new Set(snapshot.sourceFolders
-    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
-    .map((folder) => folder.id))
-  const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
-    !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
-  const previewGroups = (() => {
-    const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
-    const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
-    return [
-      ...(unmatched.length ? [{ id: 'unclassified', title: '未匹配到合适分类', items: unmatched }] : []),
-      ...[...classified.entries()].map(([id, groupedItems]) => ({
-        id,
-        title: id === 'inbox' ? '暂存' : id === 'other' ? '其它收藏' : ledgers.find((ledger) => ledger.id === id)?.displayName ?? '其它收藏',
-        items: groupedItems
-      }))
-    ]
-  })()
-  const renderItem = (item: typeof items[number]) => <OldFavoritePreviewCard
-    item={item}
-    sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
-    classification={snapshot.classifications[String(item.aid)]}
-    ledgers={ledgers}
-    loading={loading || mutationLocked}
-    onApplyManualClassification={onApplyManualClassification}
-  />
+  const hasPreviewItems = useMemo(() => {
+    const selectedSourceIds = new Set(snapshot.sourceFolders
+      .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+      .map((folder) => folder.id))
+    return (snapshot.currentSegment?.items ?? []).some((item) =>
+      !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
+  }, [snapshot])
 
   return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
     <div className="favorite-ledger-panel__preview-topbar">
@@ -202,7 +248,7 @@ export function OldFavoriteArchivePreviewStep({
                 disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
                 {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
               </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
-                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode, snapshot.hasMultipleSegments ? deepSeekScope : 'current')}>
+                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || !hasPreviewItems} onClick={() => onOrganizeWithDeepSeek(deepSeekMode, snapshot.hasMultipleSegments ? deepSeekScope : 'current')}>
                 DeepSeek 整理
               </button>}
             </div>
@@ -263,32 +309,7 @@ export function OldFavoriteArchivePreviewStep({
         </div>
       </div>
     </div>
-    <div className="favorite-ledger-panel__preview-groups">
-      {previewGroups.map((group) => {
-        const expanded = expandedGroups.has(group.id)
-        const visibleItems = expanded ? group.items : group.items.slice(0, INITIAL_GROUP_ITEM_LIMIT)
-        const stageAll = group.id === 'unclassified' && group.items.length > 0 && group.items.every((item) =>
-          snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes('inbox'))
-        const groupAll = group.id !== 'unclassified' && group.items.length > 0 && group.items.every((item) =>
-          snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes(group.id))
-        return <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
-          data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
-          <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span>
-            {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading || mutationLocked}
-              onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
-                aid: item.aid, targetLedgerIds: event.currentTarget.checked ? ['inbox'] : []
-              })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading || mutationLocked}
-                onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
-                  aid: item.aid, targetLedgerIds: event.currentTarget.checked ? [group.id] : []
-                })))} /><span>全选</span></label>}
-          </header>
-          {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
-            ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={renderItem} /> :
-            <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item)}</div>)}
-              {group.items.length > INITIAL_GROUP_ITEM_LIMIT && !expanded ? <button type="button" onClick={() => setExpandedGroups((current) => new Set([...current, group.id]))}>显示全部 {group.items.length} 条</button> : null}
-            </div>}
-        </section>
-      })}
-    </div>
+    <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
+      onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications} />
   </section>
 }
