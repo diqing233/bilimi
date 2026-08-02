@@ -217,10 +217,11 @@ export function ControlledFavoriteLedgerPanel({
     setStep((currentStep) => {
       if ('recovery' in snapshot) return 'scan'
       if (snapshot.status === 'scanning') return 'scan'
+      if (snapshot.executionIntent) return 'confirm'
       if (snapshot.status !== 'previewing') return 'confirm'
       return currentStep
     })
-  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus])
+  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus, activeSnapshot?.executionIntent])
 
   const startScan = async (mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => {
     if (scanStarting) return
@@ -324,9 +325,9 @@ export function ControlledFavoriteLedgerPanel({
     await startScan('incremental')
   }
   const continueConfirmAndSync = async () => {
-    if (!snapshot || recovery) return
+    if (!activeSnapshot) return
     try {
-      if (confirmationNeedsBackup(snapshot, ledgers, missingLedgerIds)) {
+      if (confirmationNeedsBackup(activeSnapshot, ledgers, missingLedgerIds)) {
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
@@ -334,7 +335,8 @@ export function ControlledFavoriteLedgerPanel({
           return
         }
       }
-      await workspace.confirmAndExecuteBilibiliPlan()
+      if (activeSnapshot.hasMultipleSegments) await workspace.setWholeRunExecutionIntent('bilibili')
+      else await workspace.confirmAndExecuteBilibiliPlan()
     } catch (error) {
       setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
     } finally {
@@ -516,7 +518,7 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
-        mutationLocked={Boolean(workspace.draftRuleAnalysis)}
+        mutationLocked={Boolean(workspace.draftRuleAnalysis || activeSnapshot?.executionIntent)}
         reconciling={workspace.reconciling}
         preparationStatus={confirmationPreparationStatus}
         executionError={confirmationPreparationError ?? workspace.executionError}
@@ -564,7 +566,10 @@ export function ControlledFavoriteLedgerPanel({
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
         onApplyManualClassification={applyManualClassification}
         onApplyManualClassifications={applyManualClassifications}
-        onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
+        onSaveLocally={() => void (activeSnapshot?.hasMultipleSegments
+          ? workspace.setWholeRunExecutionIntent('local')
+          : workspace.saveCurrentSegmentLocally())}
+        onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={() => void confirmAndSync()}

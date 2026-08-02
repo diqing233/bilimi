@@ -1977,6 +1977,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     segmentSize: () => loadAssistantPreferences(getDesktopStore()).oldFavoriteWorkspaceSegmentSize,
     onSegmentsReady: async (accountMid, segmentIds) => {
       await oldFavoriteWorkspaceDeepSeekService?.resumePendingAllSegments(accountMid, segmentIds)
+      await oldFavoriteWorkspaceCoordinator?.continueExecutionIntent(accountMid)
     },
     refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
     syncService: favoriteRepositorySyncService,

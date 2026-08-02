@@ -718,6 +718,54 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('queues and cancels an exact whole-run execution intent in the main process', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      setExecutionIntent: vi.fn().mockResolvedValue(undefined),
+      continueExecutionIntent: vi.fn().mockResolvedValue(false),
+      getSnapshot: vi.fn().mockResolvedValue({
+        ...snapshot, executionIntent: { mode: 'local', status: 'waiting', waitingSegmentCount: 1, waitingForDeepSeek: false }
+      })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-whole-run-execution-intent', mode: 'local'
+    })).resolves.toMatchObject({ executionIntent: { mode: 'local', status: 'waiting' } })
+    expect(coordinator.setExecutionIntent).toHaveBeenNthCalledWith(1, '100', 'local')
+    expect(coordinator.continueExecutionIntent).toHaveBeenCalledWith('100')
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'cancel-whole-run-execution-intent'
+    })
+    expect(coordinator.setExecutionIntent).toHaveBeenNthCalledWith(2, '100', null)
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-whole-run-execution-intent', mode: 'local', operations: []
+    })).rejects.toThrow('command is invalid')
+  })
+
+  it('resumes a persisted whole-run execution intent when the workspace is reopened', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue({
+        ...snapshot, executionIntent: { mode: 'local', status: 'waiting', waitingSegmentCount: 0, waitingForDeepSeek: false }
+      }),
+      continueExecutionIntent: vi.fn().mockResolvedValue(true)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 7, '100')).resolves.toMatchObject({
+      executionIntent: { mode: 'local', status: 'waiting' }
+    })
+    expect(coordinator.continueExecutionIntent).toHaveBeenCalledWith('100')
+  })
+
   it('prepares recommendation preview with progress and cancels it through an out-of-band command', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

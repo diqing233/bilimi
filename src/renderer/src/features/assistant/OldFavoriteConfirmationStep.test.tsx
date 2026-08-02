@@ -15,7 +15,11 @@ describe('OldFavoriteConfirmationStep', () => {
       planReadiness: { selectedAidCount: 501, classifiedAidCount: 500, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] },
       overview: {
         available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1, sourceFolders: [], recommendationCounts: [],
-        archiveTargets: [{ ledgerId: 'knowledge', itemCount: 500, segmentCounts: [{ segmentId: 'segment-1', count: 500 }] }]
+        processedItemCount: 500, classifiedItemCount: 499, unmatchedItemCount: 1, waitingItemCount: 1,
+        archiveTargets: [
+          { ledgerId: 'knowledge', itemCount: 499, segmentCounts: [{ segmentId: 'segment-1', count: 499 }] },
+          { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] }
+        ]
       }
     }
     const props = {
@@ -27,7 +31,11 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('group', { name: '确认执行视图' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
-    expect(screen.getByText('预计归档 500 条')).toBeInTheDocument()
+    expect(screen.getByText('已处理 500 条 · 已分类 499 条 · 未匹配 1 条')).toBeInTheDocument()
+    expect(screen.getByText('等待预处理 1 条')).toBeInTheDocument()
+    expect(screen.getByText('预计归档 499 条')).toBeInTheDocument()
+    expect(screen.getByText('暂存')).toBeInTheDocument()
+    expect(screen.getByText('预计归档 1 条')).toBeInTheDocument()
     expect(screen.getByText('知识学习')).toBeInTheDocument()
     expect(screen.queryByText('knowledge')).not.toBeInTheDocument()
 
@@ -53,6 +61,76 @@ describe('OldFavoriteConfirmationStep', () => {
 
     screen.getByRole('button', { name: '好的' }).click()
     expect(acknowledge).toHaveBeenCalledOnce()
+  })
+
+  it('shows a cancellable whole-run wait instead of executing incomplete batches', () => {
+    const cancel = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 500, readiness: 'tagging', completedTagItemCount: 100, pendingTagItemCount: 400 }
+        ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1000, classifiedAidCount: 400, unclassifiedAidCount: 600 }, history: { cursor: 0, length: 0, entries: [] },
+        executionIntent: { mode: 'bilibili', status: 'waiting', waitingSegmentCount: 1, waitingForDeepSeek: true }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={cancel}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('等待 1 个批次完成预处理')
+    expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 全轮整理完成后会自动继续')
+    expect(screen.queryByRole('button', { name: '保存本轮到收藏库' })).not.toBeInTheDocument()
+    screen.getByRole('button', { name: '取消等待执行' }).click()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('shows a claimed whole-run execution without offering a misleading cancel action', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] },
+        executionIntent: { mode: 'local', status: 'running', waitingSegmentCount: 0, waitingForDeepSeek: false }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在执行本轮保存计划')
+    expect(screen.queryByRole('button', { name: '取消等待执行' })).not.toBeInTheDocument()
+  })
+
+  it('queues whole-run actions without requiring every batch to be ready first', () => {
+    const save = vi.fn()
+    const sync = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 500, readiness: 'tagging', completedTagItemCount: 100, pendingTagItemCount: 400 }
+        ], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1000, classifiedAidCount: 1, unclassifiedAidCount: 999 }, history: { cursor: 0, length: 0, entries: [] },
+        overview: { available: true, completedSegmentCount: 1, totalSegmentCount: 2, sourceFolders: [], unavailableItemCount: 0,
+          processedItemCount: 500, classifiedItemCount: 499, unmatchedItemCount: 1, waitingItemCount: 500,
+          recommendationCounts: [], archiveTargets: [] }
+      }}
+      loading={false} onSaveLocally={save} onConfirmAndSync={sync} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('1 条未匹配视频会保存到本地暂存')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('999 条未分类')
+    screen.getByRole('button', { name: '保存本轮到收藏库' }).click()
+    screen.getByRole('button', { name: '确认并同步到 B 站' }).click()
+    expect(save).toHaveBeenCalledOnce()
+    expect(sync).toHaveBeenCalledOnce()
   })
 
   it('lets the user abandon a previewed organization round before any sync starts', () => {

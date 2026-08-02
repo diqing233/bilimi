@@ -38,6 +38,8 @@ export function OldFavoriteWholeRunOverview({
     <p className="favorite-ledger-panel__whole-run-status" role="status">
       已汇总 {overview.completedSegmentCount}/{overview.totalSegmentCount} 批
     </p>
+    <p>已处理 {overview.processedItemCount} 条 · 已分类 {overview.classifiedItemCount} 条 · 未匹配 {overview.unmatchedItemCount} 条</p>
+    {overview.waitingItemCount ? <p>等待预处理 {overview.waitingItemCount} 条</p> : null}
     {showArchiveTargets ? <div className="favorite-ledger-panel__whole-run-targets" aria-label="本轮归档目标总览">
       {overview.archiveTargets.map((target) => <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row">
         <div><strong>{ledgerNames.get(target.ledgerId) ?? target.ledgerId}</strong><span>预计归档 {target.itemCount} 条</span></div>

@@ -17,6 +17,30 @@ afterEach(async () => {
 })
 
 describe('OldFavoriteWorkspaceStore', () => {
+  it('restores and clears a whole-run execution intent across process restarts', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceStore({ root })
+    await first.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }]
+    })
+    await first.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      executionIntent: { workspaceId: 'workspace-1', mode: 'bilibili', status: 'waiting' }
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      executionIntent: { workspaceId: 'workspace-1', mode: 'bilibili', status: 'waiting' }
+    })
+
+    await first.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [], executionIntent: null
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      executionIntent: undefined
+    })
+  })
+
   it('restores and clears a compact DeepSeek all-batch checkpoint across process restarts', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceStore({ root })

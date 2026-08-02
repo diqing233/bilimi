@@ -107,9 +107,15 @@ export type OldFavoriteWorkspaceSnapshot = {
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
-    status: 'running' | 'waiting' | 'canceled'
+    status: 'running' | 'waiting' | 'failed' | 'canceled'
     completedSegmentCount: number
     waitingSegmentCount: number
+  }
+  executionIntent?: {
+    mode: 'local' | 'bilibili'
+    status: 'waiting' | 'running' | 'blocked'
+    waitingSegmentCount: number
+    waitingForDeepSeek: boolean
   }
   sourceFolders: Array<{
     id: string
@@ -152,6 +158,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     available: boolean
     sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount: number }>
     unavailableItemCount: number
+    processedItemCount: number
+    classifiedItemCount: number
+    unmatchedItemCount: number
+    waitingItemCount: number
     recommendationCounts: Array<{ id: string; count: number }>
     archiveTargets: Array<{
       ledgerId: string
@@ -281,6 +291,13 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
   completedSegmentIds: string[]
   waitingSegmentIds: string[]
   canceled: boolean
+  failed?: boolean
+}
+
+export type OldFavoriteWorkspaceExecutionIntent = {
+  workspaceId: string
+  mode: 'local' | 'bilibili'
+  status: 'waiting' | 'running' | 'blocked'
 }
 
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */

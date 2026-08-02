@@ -65,6 +65,8 @@ type WorkspaceCommand =
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
+  | { type: 'set-whole-run-execution-intent'; mode: 'local' | 'bilibili' }
+  | { type: 'cancel-whole-run-execution-intent' }
   | {
       type: 'select-recovery-decision'
       workspaceId: string
@@ -234,6 +236,13 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
     return { type: 'save-current-segment-locally' }
   }
+  if (candidate.type === 'set-whole-run-execution-intent' &&
+    (candidate.mode === 'local' || candidate.mode === 'bilibili') && Object.keys(candidate).length === 2) {
+    return { type: 'set-whole-run-execution-intent', mode: candidate.mode }
+  }
+  if (candidate.type === 'cancel-whole-run-execution-intent' && Object.keys(candidate).length === 1) {
+    return { type: 'cancel-whole-run-execution-intent' }
+  }
   if (candidate.type === 'select-recovery-decision' && typeof candidate.workspaceId === 'string' && candidate.workspaceId.trim().length > 0 &&
     candidate.workspaceId.trim().length <= 256 &&
     (candidate.choice === 'continue-original' || candidate.choice === 'merge-latest' || candidate.choice === 'rescan') &&
@@ -269,7 +278,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   coordinator: OldFavoriteWorkspaceCoordinator
   deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks' | 'cancelCurrentSegment'> &
     Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'cancelPendingAllSegments'>> &
-    Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeAllSegments'>>
+    Partial<Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeAllSegments' | 'resumePendingAllSegments'>>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
@@ -289,7 +298,18 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   }
   const snapshot = async (value: Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>) => value
   options.ipcMain.handle('old-favorite-workspace-v1:open', async (event, requestedAccountMid: string) => {
-    return snapshot(await options.coordinator.getSnapshot(await assertAccount(event, requestedAccountMid)))
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    const opened = await options.coordinator.getSnapshot(accountMid)
+    if (opened && !('recovery' in opened) && opened.executionIntent) {
+      void (async () => {
+        const readySegmentIds = opened.segments
+          .filter((segment) => segment.readiness === 'ready')
+          .map((segment) => segment.id)
+        await options.deepSeekService?.resumePendingAllSegments?.(accountMid, readySegmentIds)
+        await options.coordinator.continueExecutionIntent(accountMid)
+      })().catch(() => undefined)
+    }
+    return snapshot(opened)
   })
   // Reading a recovery summary never resumes scanning, reconciliation, or remote writes.
   options.ipcMain.handle('old-favorite-workspace-v1:recovery-summary', async (event, requestedAccountMid: string, ...args: unknown[]) => {
@@ -317,9 +337,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       ? options.deepSeekService.organizeAllSegments
       : options.deepSeekService.organizeCurrentSegment
     if (!organize) throw new Error('Old favorite workspace DeepSeek batch organization is unavailable.')
-    return organize.call(options.deepSeekService, accountMid, mode ?? 'all', (progress) => {
+    const result = await organize.call(options.deepSeekService, accountMid, mode ?? 'all', (progress) => {
       event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, workspaceId, ...progress })
     })
+    await (options.coordinator.continueExecutionIntent?.(accountMid) ?? Promise.resolve(false))
+    return result
   })
   options.ipcMain.handle('old-favorite-workspace-v1:retry-failed-deepseek', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
@@ -328,13 +350,28 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     const workspace = await options.coordinator.getSnapshot(accountMid)
     if (!workspace || 'recovery' in workspace) throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     const workspaceId = workspace.workspaceId
-    return options.deepSeekService.retryFailedChunks(accountMid, (progress) => {
+    const result = await options.deepSeekService.retryFailedChunks(accountMid, (progress) => {
       event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, workspaceId, ...progress })
     })
+    await (options.coordinator.continueExecutionIntent?.(accountMid) ?? Promise.resolve(false))
+    return result
   })
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
     const requested = command(value)
+    const commandsLockedByExecutionIntent = new Set<WorkspaceCommand['type']>([
+      'select-source-folders', 'select-segment', 'undo-classification', 'redo-classification',
+      'pause-tag-enrichment', 'resume-tag-enrichment', 'retry-failed-tag-enrichment', 'accept-current-tags',
+      'move-history-cursor', 'auto-classify-current-segment', 'reclassify-favorite-configuration',
+      'set-recommended-candidates', 'prepare-recommendation-preview', 'create-local-ledger-and-reclassify',
+      'freeze-segment', 'save-current-segment-locally', 'freeze-bilibili-execution', 'apply-classifications'
+    ])
+    if (commandsLockedByExecutionIntent.has(requested.type)) {
+      const active = await options.coordinator.getSnapshot(accountMid)
+      if (active && !('recovery' in active) && active.executionIntent) {
+        throw new Error('Old favorite workspace is waiting for whole-run execution.')
+      }
+    }
     if (requested.type === 'start-scan') return options.startScan
       ? requested.clearBilibiliMirror
         ? options.startScan(accountMid, requested.mode, { clearBilibiliMirror: true })
@@ -416,6 +453,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     }
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
+    if (requested.type === 'set-whole-run-execution-intent') {
+      await options.coordinator.setExecutionIntent(accountMid, requested.mode)
+      await options.coordinator.continueExecutionIntent(accountMid)
+    }
+    if (requested.type === 'cancel-whole-run-execution-intent') await options.coordinator.setExecutionIntent(accountMid, null)
     if (requested.type === 'select-recovery-decision') {
       return options.coordinator.selectRecoveryDecision(accountMid, {
         workspaceId: requested.workspaceId,

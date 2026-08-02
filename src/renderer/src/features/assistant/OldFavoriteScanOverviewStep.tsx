@@ -15,6 +15,8 @@ type OldFavoriteScanOverviewStepProps = {
   onResumeTagEnrichment: () => void
   onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
+  viewScope?: OldFavoriteViewScope
+  onViewScopeChange?: (scope: OldFavoriteViewScope) => void
 }
 
 function scanFailureGuidance(reason: string | null | undefined) {
@@ -44,9 +46,13 @@ export function OldFavoriteScanOverviewStep({
   ,onResumeTagEnrichment
   ,onRetryFailedTagEnrichment
   ,onAcceptCurrentTags
+  ,viewScope: controlledViewScope
+  ,onViewScopeChange
 }: OldFavoriteScanOverviewStepProps) {
   const [sourceCountMode, setSourceCountMode] = useState<'selected' | 'invalid'>('selected')
-  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('all')
+  const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
+  const viewScope = controlledViewScope ?? localViewScope
+  const setViewScope = onViewScopeChange ?? setLocalViewScope
   if (snapshot && 'recovery' in snapshot) {
     return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
       <h4>扫描概览</h4>

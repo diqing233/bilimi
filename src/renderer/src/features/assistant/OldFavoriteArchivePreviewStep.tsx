@@ -67,6 +67,8 @@ type OldFavoriteArchivePreviewStepProps = {
   onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
+  viewScope?: OldFavoriteViewScope
+  onViewScopeChange?: (scope: OldFavoriteViewScope) => void
 }
 
 type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
@@ -293,8 +295,12 @@ export function OldFavoriteArchivePreviewStep({
   onMoveHistoryCursor,
   onApplyManualClassification,
   onApplyManualClassifications,
+  viewScope: controlledViewScope,
+  onViewScopeChange,
 }: OldFavoriteArchivePreviewStepProps) {
-  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
+  const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('current')
+  const viewScope = controlledViewScope ?? localViewScope
+  const setViewScope = onViewScopeChange ?? setLocalViewScope
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)

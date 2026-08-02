@@ -14,6 +14,8 @@ type OldFavoriteRecommendationStepProps = {
   onCancelPreviewPreparation?: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
+  viewScope?: OldFavoriteViewScope
+  onViewScopeChange?: (scope: OldFavoriteViewScope) => void
 }
 
 type CandidateGroup = {
@@ -45,11 +47,15 @@ export function OldFavoriteRecommendationStep({
   previewPreparationError,
   onCancelPreviewPreparation = () => undefined,
   onSetRecommendedCandidates,
-  onUpdateRecommendedCandidates
+  onUpdateRecommendedCandidates,
+  viewScope: controlledViewScope,
+  onViewScopeChange
 }: OldFavoriteRecommendationStepProps) {
   const [authorCandidatesExpanded, setAuthorCandidatesExpanded] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
-  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
+  const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('current')
+  const viewScope = controlledViewScope ?? localViewScope
+  const setViewScope = onViewScopeChange ?? setLocalViewScope
   const adoptedCandidateIds = new Set(controlledAdoptedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const overviewCounts = new Map((snapshot.overview?.recommendationCounts ?? []).map((candidate) => [candidate.id, candidate.count]))

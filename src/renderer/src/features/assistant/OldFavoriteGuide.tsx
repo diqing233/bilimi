@@ -7,6 +7,7 @@ import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
 import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
+import type { OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 
@@ -53,6 +54,7 @@ type OldFavoriteGuideProps = {
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
   onSaveLocally: () => void
+  onCancelExecutionIntent?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
   onConfirmAndSync: () => void
@@ -115,6 +117,7 @@ export function OldFavoriteGuide({
   onApplyManualClassification,
   onApplyManualClassifications,
   onSaveLocally,
+  onCancelExecutionIntent = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
@@ -122,6 +125,7 @@ export function OldFavoriteGuide({
   onReconcile
 }: OldFavoriteGuideProps) {
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
+  const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
   const currentSegmentSummary = snapshot && !('recovery' in snapshot)
@@ -159,6 +163,7 @@ export function OldFavoriteGuide({
           onChange={(event) => {
             const segment = snapshot.segments.find((candidate) => candidate.id === event.currentTarget.value)
             if (!segment) return
+            setViewScope('current')
             onSelectSegment(segment.id)
             if (segment.readiness === 'tagging') onStepChange('scan')
           }}>
@@ -186,6 +191,8 @@ export function OldFavoriteGuide({
       onResumeTagEnrichment={onResumeTagEnrichment}
       onRetryFailedTagEnrichment={onRetryFailedTagEnrichment}
       onAcceptCurrentTags={onAcceptCurrentTags}
+      viewScope={viewScope}
+      onViewScopeChange={setViewScope}
     /> : null}
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={snapshot}
@@ -198,6 +205,8 @@ export function OldFavoriteGuide({
       onCancelPreviewPreparation={onCancelPreviewPreparation}
       onSetRecommendedCandidates={onSetRecommendedCandidates}
       onUpdateRecommendedCandidates={onUpdateRecommendedCandidates}
+      viewScope={viewScope}
+      onViewScopeChange={setViewScope}
     /> : null}
     {!recovery && snapshot && step === 'preview' ? <OldFavoriteArchivePreviewStep
       snapshot={snapshot}
@@ -215,20 +224,25 @@ export function OldFavoriteGuide({
       onMoveHistoryCursor={onMoveHistoryCursor}
       onApplyManualClassification={onApplyManualClassification}
       onApplyManualClassifications={onApplyManualClassifications}
+      viewScope={viewScope}
+      onViewScopeChange={setViewScope}
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}
       ledgers={ledgers}
-      loading={loading || mutationLocked}
+      loading={loading}
       reconciling={reconciling}
       preparationStatus={preparationStatus}
       executionError={executionError}
       onSaveLocally={onSaveLocally}
+      onCancelExecutionIntent={onCancelExecutionIntent}
       onAbandonCurrentWorkspace={onAbandonCurrentWorkspace}
       onAcknowledgeCompletion={onAcknowledgeCompletion}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}
       onReconcile={onReconcile}
+      viewScope={viewScope}
+      onViewScopeChange={setViewScope}
     /> : null}
   </section>
 }
