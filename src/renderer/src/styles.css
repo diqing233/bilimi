@@ -7619,7 +7619,6 @@ body[data-floating-window="true"],
   top: 0;
   height: var(--old-favorite-preview-card-height);
   box-sizing: border-box;
-  padding-inline: 4px;
 }
 
 .favorite-ledger-panel__virtual-track-item > article {

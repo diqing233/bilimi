@@ -280,7 +280,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
           </div>
         </header>
         {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
-          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id, batchActive)} /> :
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id, batchActive)} /> :
           <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id, batchActive)}</div>)}</div>}
       </section>
     })}

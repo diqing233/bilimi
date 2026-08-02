@@ -11,15 +11,18 @@ describe('VirtualOldFavoriteTrack', () => {
         ariaLabel="三万条展开预览"
         items={items}
         itemKey={(item) => item.aid}
-        itemWidth={280}
         renderItem={(item) => <article>视频 {item.aid}</article>}
       />
     )
     const track = screen.getByLabelText('三万条展开预览')
-    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 560 })
+    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 336 })
+    track.style.paddingLeft = '12px'
+    track.style.paddingRight = '12px'
+    fireEvent.scroll(track)
     expect(track.querySelectorAll('article').length).toBeLessThan(20)
+    expect(track.querySelector('.favorite-ledger-panel__virtual-track-item')).toHaveStyle({ width: '256px' })
 
-    track.scrollLeft = 280 * 500
+    track.scrollLeft = (256 + 18) * 500
     fireEvent.scroll(track)
 
     expect(screen.getByText('视频 501')).toBeInTheDocument()

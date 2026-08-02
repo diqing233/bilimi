@@ -518,7 +518,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('menu', { name: '改动记录' })).toHaveStyle({ left: '8px' })
   })
 
-  it('uses the legacy 280px virtual track width for large preview groups', () => {
+  it('lets large preview groups derive the same compact width as ordinary cards', () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']
     }))
@@ -538,7 +538,12 @@ describe('OldFavoriteArchivePreviewStep', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '显示全部 51 条' }))
-    expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toHaveStyle({ width: '14280px' })
+    const virtualTrack = document.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos--virtual')!
+    Object.defineProperty(virtualTrack, 'clientWidth', { configurable: true, value: 320 })
+    virtualTrack.style.paddingLeft = '12px'
+    virtualTrack.style.paddingRight = '12px'
+    fireEvent.scroll(virtualTrack)
+    expect(virtualTrack.querySelector('.favorite-ledger-panel__virtual-track-item')).toHaveStyle({ width: '240px' })
     fireEvent.click(screen.getByRole('button', { name: '收起 51 条' }))
     expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toBeNull()
     expect(screen.getAllByRole('link')).toHaveLength(6)
