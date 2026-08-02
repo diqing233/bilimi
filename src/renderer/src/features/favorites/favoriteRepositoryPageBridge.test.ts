@@ -62,6 +62,35 @@ describe('favorite repository page bridge', () => {
     expect(script).toContain(JSON.stringify(input))
   })
 
+  it('falls back to the account folder list when the direct membership response is not JSON', async () => {
+    document.cookie = 'DedeUserID=100'
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockRejectedValue(new SyntaxError('invalid json')) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({
+          code: 0,
+          data: { list: [
+            { id: 11, fav_state: 1 },
+            { id: 12, fav_state: 0 }
+          ] }
+        })
+      })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    const result = await bridge.readMembers(input)
+    expect(result).toEqual({
+      status: 'ok', observedAccountMid: '100', members: { '11': [42], '12': [] }
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, expect.stringContaining('/x/v3/fav/folder/created/list-all?'), expect.anything())
+    expect(fetch.mock.calls[1][0]).toContain('rid=42')
+  })
+
   it('reads the account-scoped remote folder inventory through a fixed page primitive', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({
       status: 'ok', observedAccountMid: '100', folders: [{ id: '11', title: 'B-music-001-a1b2c3', memberCount: 2 }]

@@ -202,13 +202,26 @@ function createConfirmedDailyReviewCommands(args: {
   adjustmentResult: AssistantAutomationResult
   occurredAt: string
   operationId: string
-}): FavoriteRepositoryCommand[] {
+}): { commands: FavoriteRepositoryCommand[]; evidenceComplete: boolean } {
   const accountMid = args.accountMid.trim()
   const targetLedgerIds = Array.from(new Set(args.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))
+  const removedLedgerIds = Array.from(
+    new Set(
+      args.previousTargetLedgerIds
+        .map((id) => id.trim())
+        .filter((id) => id && !targetLedgerIds.includes(id))
+    )
+  )
   const remoteFolderIdsByLedgerId = {
     ...(args.initialResult.favoriteFolderIdsByLedgerId ?? {}),
     ...(args.adjustmentResult.favoriteFolderIdsByLedgerId ?? {})
   }
+  const evidencedLedgerIds = [...targetLedgerIds, ...removedLedgerIds]
+  const localDesiredFolderIds = targetLedgerIds.map((ledgerId) => `bilimi-logical:${ledgerId}`)
+  const adjustmentFolderIdsByLedgerId = args.adjustmentResult.favoriteFolderIdsByLedgerId ?? {}
+  const evidenceComplete = evidencedLedgerIds.every(
+    (ledgerId) => String(adjustmentFolderIdsByLedgerId[ledgerId] ?? '').trim()
+  )
 
   if (
     !/^\d+$/.test(accountMid) ||
@@ -216,13 +229,45 @@ function createConfirmedDailyReviewCommands(args: {
     args.aid <= 0 ||
     !args.adjustmentResult.ok ||
     !args.adjustmentResult.steps.includes('api:favorite:adjust') ||
-    targetLedgerIds.length === 0 ||
-    targetLedgerIds.some((ledgerId) => !String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
+    targetLedgerIds.length === 0
   ) {
-    return []
+    return { commands: [], evidenceComplete }
   }
 
-  const localDesiredFolderIds = targetLedgerIds.map((ledgerId) => `bilimi-logical:${ledgerId}`)
+  if (!evidenceComplete) {
+    return {
+      evidenceComplete: false,
+      commands: [{
+        id: `${args.operationId}:position`,
+        accountMid,
+        issuedAt: args.occurredAt,
+        type: 'set-favorite-position',
+        payload: {
+          aid: args.aid,
+          localDesiredFolderIds,
+          remoteObservedPhysicalFolderIds: Array.from(
+            new Set(
+              evidencedLedgerIds
+                .map((ledgerId) => String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
+                .filter(Boolean)
+            )
+          ),
+          remoteObservedLogicalFolderIds: Array.from(
+            new Set(
+              evidencedLedgerIds
+                .filter((ledgerId) => String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
+                .map((ledgerId) => `bilimi-logical:${ledgerId}`)
+            )
+          ),
+          positionState: 'result-unknown',
+          observedAt: args.occurredAt,
+          updatedAt: args.occurredAt,
+          reason: 'daily-review remote adjustment evidence incomplete'
+        }
+      }]
+    }
+  }
+
   const folderTitlesAtTime = targetLedgerIds.map(
     (ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName?.trim() || ledgerId
   )
@@ -230,8 +275,9 @@ function createConfirmedDailyReviewCommands(args: {
     (ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName?.trim() || ledgerId
   )
 
-  return [
-    {
+  return {
+    evidenceComplete: true,
+    commands: [{
       id: `${args.operationId}:position`,
       accountMid,
       issuedAt: args.occurredAt,
@@ -240,7 +286,7 @@ function createConfirmedDailyReviewCommands(args: {
         aid: args.aid,
         localDesiredFolderIds,
         remoteObservedPhysicalFolderIds: targetLedgerIds.map(
-          (ledgerId) => String(remoteFolderIdsByLedgerId[ledgerId]).trim()
+          (ledgerId) => String(adjustmentFolderIdsByLedgerId[ledgerId]).trim()
         ),
         remoteObservedLogicalFolderIds: localDesiredFolderIds,
         positionState: 'aligned',
@@ -264,8 +310,8 @@ function createConfirmedDailyReviewCommands(args: {
         folderTitlesAtTime,
         detail: `DeepSeek 批阅二审将归属从「${previousTitles.join('、')}」调整为「${folderTitlesAtTime.join('、')}」。`
       }
-    }
-  ]
+    }]
+  }
 }
 
 type StartupPermissionGateProps = {
@@ -2137,7 +2183,7 @@ export default function App() {
           }
 
           const removeLedgerIds = localTargetLedgerIds.filter(
-            (ledgerId) => ledgerId !== 'inbox' && !correction.targetLedgerIds.includes(ledgerId)
+            (ledgerId) => !correction.targetLedgerIds.includes(ledgerId)
           )
           let adjustmentResult: AssistantAutomationResult
           try {
@@ -2185,7 +2231,7 @@ export default function App() {
 
           const reviewOccurredAt = new Date().toISOString()
           const reviewOperationId = `daily-review:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
-          const reviewCommands = createConfirmedDailyReviewCommands({
+          const reviewCommandResult = createConfirmedDailyReviewCommands({
             accountMid: actionAccountMid,
             aid: Number(videoContentContext.aid),
             title: videoContentContext.title?.trim() || `Video ${videoContentContext.aid}`,
@@ -2197,6 +2243,7 @@ export default function App() {
             occurredAt: reviewOccurredAt,
             operationId: reviewOperationId
           })
+          const reviewCommands = reviewCommandResult.commands
           let repositoryReviewPersisted = true
           if (reviewCommands.length > 0) {
             try {
@@ -2223,13 +2270,23 @@ export default function App() {
             setPreferences(createInitialAssistantPreferences(saved))
             window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
           }
-          publishRuntimeFeedback(repositoryReviewPersisted
-            ? `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
-            : `DeepSeek 二判完成：远端已改归「${targetNames}」，但收藏库记录待核对。`)
-          window.bilimiDesktop?.setAssistantPetHint?.({
-            tone: 'happy',
-            message: `主人，DeepSeek重新判断有调整哦～已从「${ledgerNames(localTargetLedgerIds)}」改存到「${targetNames}」。`
-          })
+          if (!reviewCommandResult.evidenceComplete) {
+            publishRuntimeFeedback(repositoryReviewPersisted
+              ? `DeepSeek 二判完成：建议改归「${targetNames}」，但远端调整结果待核对。`
+              : `DeepSeek 二判完成：远端调整结果与收藏库记录均待核对。`)
+            window.bilimiDesktop?.setAssistantPetHint?.({
+              tone: 'error',
+              message: `主人，DeepSeek建议归入「${targetNames}」，但远端调整结果待核对。`
+            })
+          } else {
+            publishRuntimeFeedback(repositoryReviewPersisted
+              ? `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
+              : `DeepSeek 二判完成：远端已改归「${targetNames}」，但收藏库记录待核对。`)
+            window.bilimiDesktop?.setAssistantPetHint?.({
+              tone: 'happy',
+              message: `主人，DeepSeek重新判断有调整哦～已从「${ledgerNames(localTargetLedgerIds)}」改存到「${targetNames}」。`
+            })
+          }
         })()
       }
     }

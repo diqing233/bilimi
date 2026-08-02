@@ -2,7 +2,7 @@ export const REMOTE_FAVORITE_FOLDER_LIMIT = 99
 export const REMOTE_FAVORITE_SHARD_CAPACITY = 1_000
 export const REMOTE_FAVORITE_INBOX_CAPACITY = 50_000
 
-export type RepositoryTargetSource = 'manual' | 'deepseek' | 'system-high' | 'system-low'
+export type RepositoryTargetSource = 'manual' | 'fallback' | 'deepseek' | 'system-high' | 'system-low'
 
 export type RepositoryTargetCandidate = {
   ledgerId: string
@@ -20,7 +20,8 @@ export type RepositoryTargetResolution = {
 }
 
 const targetSourcePriority: Record<RepositoryTargetSource, number> = {
-  manual: 4,
+  manual: 5,
+  fallback: 4,
   deepseek: 3,
   'system-high': 2,
   'system-low': 1

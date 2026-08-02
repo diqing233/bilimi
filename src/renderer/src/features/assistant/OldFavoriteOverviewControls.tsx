@@ -38,18 +38,21 @@ export function OldFavoriteWholeRunOverview({
     <p className="favorite-ledger-panel__whole-run-status" role="status">
       已汇总 {overview.completedSegmentCount}/{overview.totalSegmentCount} 批
     </p>
-    <p>已处理 {overview.processedItemCount} 条 · 已分类 {overview.classifiedItemCount} 条 · 未匹配 {overview.unmatchedItemCount} 条</p>
+    <p>已处理 {overview.processedItemCount} 条 · 已分类 {overview.classifiedItemCount} 条 · 暂存 {overview.unmatchedItemCount} 条</p>
     {overview.waitingItemCount ? <p>等待预处理 {overview.waitingItemCount} 条</p> : null}
     {showArchiveTargets ? <div className="favorite-ledger-panel__whole-run-targets" aria-label="本轮归档目标总览">
-      {overview.archiveTargets.map((target) => <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row">
-        <div><strong>{ledgerNames.get(target.ledgerId) ?? target.ledgerId}</strong><span>预计归档 {target.itemCount} 条</span></div>
+      {overview.archiveTargets.map((target) => {
+        const localOnly = target.ledgerId === 'inbox'
+        return <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row">
+        <div><strong>{ledgerNames.get(target.ledgerId) ?? target.ledgerId}</strong><span>{localOnly ? '本地保存' : '预计归档'} {target.itemCount} 条</span></div>
         <ul>
           {target.segmentCounts.map((segment) => {
             const descriptor = snapshot.segments.find((item) => item.id === segment.segmentId)
             return <li key={segment.segmentId}>第 {(descriptor?.index ?? 0) + 1} 批 · {segment.count} 条</li>
           })}
         </ul>
-      </article>)}
+        {localOnly ? <p>默认不同步到 B 站</p> : null}
+      </article>})}
       {overview.archiveTargets.length === 0 ? <p>已完成批次暂时没有可归档分类。</p> : null}
     </div> : null}
   </div>

@@ -9,7 +9,7 @@ export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
 export type OldFavoriteWorkspaceScope = { kind: 'account' } | { kind: 'selection'; aids: number[] }
-export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'deepseek' | 'system-high' | 'system-low'
+export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'fallback' | 'deepseek' | 'system-high' | 'system-low'
 
 export type OldFavoriteWorkspaceBaseline = {
   revision: number
@@ -110,6 +110,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     status: 'running' | 'waiting' | 'failed' | 'canceled'
     completedSegmentCount: number
     waitingSegmentCount: number
+    totalVideoCount?: number
+    successfulVideoCount?: number
+    pendingVideoCount?: number
+    failedVideoCount?: number
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
@@ -282,12 +286,33 @@ export type OldFavoriteWorkspaceDeepSeekFailure = {
   aids: number[]
   affectedVideoCount: number
   message: string
+  category?: 'timeout' | 'rate-limit' | 'server' | 'network' | 'invalid' | 'unavailable' | 'incomplete'
+}
+
+export type OldFavoriteWorkspaceDeepSeekRequestGroup = {
+  id: string
+  segmentId: string
+  aids: number[]
+  status: 'pending' | 'successful' | 'failed' | 'split'
+  timeoutCount: number
+  parentId?: string
+  failureCategory?: OldFavoriteWorkspaceDeepSeekFailure['category']
 }
 
 export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
+  /** Legacy checkpoints are upgraded when the next run claims them. */
+  version?: 1
   workspaceId: string
   mode: DeepSeekArchiveMode
   scope: 'all'
+  sourceFolderRevision?: string
+  segmentWork?: Array<{ segmentId: string; index: number; aids: number[] }>
+  totalVideoCount?: number
+  originalTargetLedgerIdsByAid?: Record<string, string[]>
+  requestGroups?: OldFavoriteWorkspaceDeepSeekRequestGroup[]
+  successfulAids?: number[]
+  pendingAids?: number[]
+  failedAids?: number[]
   completedSegmentIds: string[]
   waitingSegmentIds: string[]
   canceled: boolean
@@ -422,7 +447,7 @@ function isClassificationEqual(
 }
 
 function classificationPriority(source: OldFavoriteWorkspaceClassificationSource) {
-  return { 'system-low': 0, 'system-high': 1, deepseek: 2, manual: 3 }[source]
+  return { 'system-low': 0, 'system-high': 1, deepseek: 2, fallback: 3, manual: 4 }[source]
 }
 
 function segmentForAid(workspace: OldFavoriteWorkspace, aid: number) {
@@ -563,7 +588,7 @@ export function applyWorkspaceClassificationBatch(
   if (workspace.status !== 'previewing') {
     throw new Error('Old favorite workspace is frozen.')
   }
-  if (!['manual', 'deepseek', 'system-high', 'system-low'].includes(options.source) || !Array.isArray(options.assignments)) {
+  if (!['manual', 'fallback', 'deepseek', 'system-high', 'system-low'].includes(options.source) || !Array.isArray(options.assignments)) {
     throw new Error('Old favorite workspace classification is invalid.')
   }
 

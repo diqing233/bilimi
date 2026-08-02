@@ -5,9 +5,11 @@ export type DeepSeekFeedbackView = {
   action: 'cancel' | 'cancelling' | 'retry' | 'none'
   summary: string
   progress?: {
-    completedChunks: number
-    totalChunks: number
-    completedVideos: number
+    settledGroups: number
+    totalGroups: number
+    appliedVideos: number
+    pendingVideos: number
+    failedVideos: number
     totalVideos: number
     value: number
   }
@@ -19,15 +21,22 @@ export function toDeepSeekFeedbackView(
   cancelRequested: boolean
 ): DeepSeekFeedbackView {
   const failures = feedback.failures ?? []
-  const progress = feedback.progress ? {
-    completedChunks: feedback.progress.completedChunks,
-    totalChunks: feedback.progress.totalChunks,
-    completedVideos: feedback.progress.successfulVideoCount + feedback.progress.failedVideoCount,
-    totalVideos: feedback.progress.totalVideoCount,
-    value: feedback.progress.totalChunks > 0
-      ? Math.round((feedback.progress.completedChunks / feedback.progress.totalChunks) * 100)
-      : 0
-  } : undefined
+  const progress = feedback.progress ? (() => {
+    const appliedVideos = feedback.progress.successfulVideoCount
+    const failedVideos = feedback.progress.failedVideoCount
+    const pendingVideos = Math.max(0, feedback.progress.totalVideoCount - appliedVideos - failedVideos)
+    return {
+      settledGroups: feedback.progress.completedChunks,
+      totalGroups: feedback.progress.totalChunks,
+      appliedVideos,
+      pendingVideos,
+      failedVideos,
+      totalVideos: feedback.progress.totalVideoCount,
+      value: feedback.progress.totalVideoCount > 0
+        ? Math.round((appliedVideos / feedback.progress.totalVideoCount) * 100)
+        : 0
+    }
+  })() : undefined
 
   if (feedback.status === 'running') {
     return {

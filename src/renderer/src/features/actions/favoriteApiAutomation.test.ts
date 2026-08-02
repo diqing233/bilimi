@@ -187,14 +187,14 @@ describe('buildFavoriteApiFallbackScript', () => {
     expect(requests[1].body).toContain('del_media_ids=')
   })
 
-  it('adjusts an already-favorited video by adding DeepSeek targets and removing local targets', async () => {
+  it('replaces the bilimi temporary folder while preserving ordinary user favorites', async () => {
     installBilibiliPageState()
 
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'game'
-        ? { ...ledger, bilibiliFolderId: '91000002' }
-        : ledger.id === 'life-interest'
-          ? { ...ledger, bilibiliFolderId: '91000005' }
+      ledger.id === 'knowledge'
+        ? { ...ledger, bilibiliFolderId: '91000001' }
+        : ledger.id === 'inbox'
+          ? { ...ledger, bilibiliFolderId: '91000008' }
           : ledger
     )
     const requests: Array<{ body?: string; method?: string; url: string }> = []
@@ -212,8 +212,9 @@ describe('buildFavoriteApiFallbackScript', () => {
             code: 0,
             data: {
               list: [
-                { id: 91000002, title: 'bilimi·游戏专区' },
-                { id: 91000005, title: 'bilimi·生活日常' }
+                { id: 91000001, title: 'bilimi·知识学习' },
+                { id: 91000008, title: 'bilimi·暂存' },
+                { id: 92000000, title: 'My personal favorites' }
               ]
             },
             message: 'OK'
@@ -230,8 +231,8 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     const result = await window.eval(
       buildFavoriteApiAdjustmentScript(ledgers, {
-        addLedgerIds: ['game'],
-        removeLedgerIds: ['life-interest'],
+        addLedgerIds: ['knowledge'],
+        removeLedgerIds: ['inbox'],
         aid: 710,
         accountMid: '42'
       })
@@ -239,10 +240,14 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:adjust-list', 'api:favorite:adjust'])
-    expect(result.favoriteFolderIdsByLedgerId).toEqual({ game: '91000002' })
+    expect(result.favoriteFolderIdsByLedgerId).toEqual({
+      inbox: '91000008',
+      knowledge: '91000001'
+    })
     expect(requests[1].body).toContain('rid=710')
-    expect(requests[1].body).toContain('add_media_ids=91000002')
-    expect(requests[1].body).toContain('del_media_ids=91000005')
+    expect(requests[1].body).toContain('add_media_ids=91000001')
+    expect(requests[1].body).toContain('del_media_ids=91000008')
+    expect(requests[1].body).not.toContain('92000000')
   })
 
   it('marks the Bilibili toolbar favorite button active after API favorite succeeds', async () => {

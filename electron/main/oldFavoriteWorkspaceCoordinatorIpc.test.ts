@@ -601,6 +601,28 @@ describe('old favorite workspace coordinator IPC', () => {
       .rejects.toThrow('arguments are invalid')
   })
 
+  it('routes the payload-free original-classification fallback command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      useOriginalClassificationsForFailedDeepSeekAids: vi.fn().mockResolvedValue(snapshot),
+      continueExecutionIntent: vi.fn().mockResolvedValue(undefined),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'use-original-classifications-for-failed-deepseek'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.useOriginalClassificationsForFailedDeepSeekAids).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.continueExecutionIntent).toHaveBeenCalledExactlyOnceWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'use-original-classifications-for-failed-deepseek', aids: [1]
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes a bounded history cursor jump without accepting renderer classifications', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

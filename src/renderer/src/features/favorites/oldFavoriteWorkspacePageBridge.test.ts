@@ -217,14 +217,58 @@ describe('old favorite workspace page bridge', () => {
   })
 
   it('preserves remote HTTP and Bilibili API codes in the controlled diagnostic reason', async () => {
-    const execute = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-412-412' })
+    const execute = vi.fn(async (_target, script: string) => {
+      const pageDocument = { cookie: 'DedeUserID=100; bili_jct=secret-cookie' }
+      const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: -352, message: 'risk control' }), {
+        status: 412,
+        headers: { 'content-type': 'application/json; charset=utf-8' }
+      }))
+      return new Function('document', 'fetch', `return ${script}`)(pageDocument, fetch)
+    })
     const bridge = createOldFavoriteWorkspacePageBridge({ execute })
 
     await expect(bridge.run(target, {
       type: 'read-source-page', accountMid: '100', folderId: '11', page: 1, pageSize: 20
-    })).resolves.toEqual({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-412-412' })
+    })).resolves.toEqual({
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-api-412--352',
+      httpStatus: 412, contentType: 'application/json; charset=utf-8', bilibiliCode: -352,
+      responseCategory: 'precondition-failed'
+    })
 
-    expect(execute.mock.calls[0][1]).toContain("'remote-api-' + String(response.status) + '-' + String(json?.code ?? 'no-code')")
+    expect(JSON.stringify(await execute.mock.results[0].value)).not.toContain('secret-cookie')
+  })
+
+  it('returns sanitized diagnostics for a non-JSON inventory response without retaining its body or cookies', async () => {
+    const execute = vi.fn(async (_target, script: string) => {
+      const pageDocument = { cookie: 'DedeUserID=100; SESSDATA=private-session' }
+      const fetch = vi.fn().mockResolvedValue(new Response('<html>private challenge body</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' }
+      }))
+      return new Function('document', 'fetch', `return ${script}`)(pageDocument, fetch)
+    })
+    const bridge = createOldFavoriteWorkspacePageBridge({ execute })
+
+    const result = await bridge.run(target, { type: 'inventory', accountMid: '100' })
+
+    expect(result).toEqual({
+      status: 'unknown', observedAccountMid: '100', reason: 'invalid-response',
+      httpStatus: 200, contentType: 'text/html; charset=utf-8', responseCategory: 'non-json'
+    })
+    expect(JSON.stringify(result)).not.toContain('private challenge body')
+    expect(JSON.stringify(result)).not.toContain('private-session')
+  })
+
+  it('rejects diagnostic categories and content types outside the sanitized contract', async () => {
+    const execute = vi.fn().mockResolvedValue({
+      status: 'unknown', observedAccountMid: '100', reason: 'invalid-response',
+      httpStatus: 200, contentType: 'text/html\r\nset-cookie: private', responseCategory: 'cookie-dump'
+    })
+    const bridge = createOldFavoriteWorkspacePageBridge({ execute })
+
+    await expect(bridge.run(target, { type: 'inventory', accountMid: '100' })).resolves.toEqual({
+      status: 'unknown', observedAccountMid: '', reason: 'invalid-page-result'
+    })
   })
 
   it('fails closed when a scan result includes fields outside the lightweight command contract', async () => {

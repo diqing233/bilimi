@@ -39,6 +39,7 @@ type DeepSeekChoiceResponse = {
 
 const REVIEW_COMMENT_CHARACTER_LIMIT = 100
 const DEFAULT_DEEPSEEK_REQUEST_TIMEOUT_MS = 90_000
+const DEFAULT_OLD_FAVORITE_REQUEST_TIMEOUT_MS = 180_000
 const DEFAULT_PROOFREADING_REQUEST_TIMEOUT_MS = 20_000
 const DEFAULT_SUMMARY_REQUEST_TIMEOUT_MS = 300_000
 
@@ -619,7 +620,9 @@ export async function generateDeepSeekResult(options: {
   }
 
   const fetchImpl = options.fetchImpl ?? fetch
-  const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_DEEPSEEK_REQUEST_TIMEOUT_MS
+  const requestTimeoutMs = options.requestTimeoutMs ?? (options.request.kind === 'favorite-archive-organize'
+    ? DEFAULT_OLD_FAVORITE_REQUEST_TIMEOUT_MS
+    : DEFAULT_DEEPSEEK_REQUEST_TIMEOUT_MS)
 
   const requestMessages = async (
     messages: DeepSeekMessage[],

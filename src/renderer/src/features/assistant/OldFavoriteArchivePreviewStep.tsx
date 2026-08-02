@@ -314,6 +314,7 @@ export function OldFavoriteArchivePreviewStep({
   const deepSeekCancellationAction = deepSeekFeedbackView?.action === 'cancel' || deepSeekFeedbackView?.action === 'cancelling'
   const historySourceLabels = {
     manual: '人工调整',
+    fallback: '沿用原自动分类',
     deepseek: 'DeepSeek',
     'system-high': '高置信度自动分类',
     'system-low': '低置信度自动分类'
@@ -450,8 +451,10 @@ export function OldFavoriteArchivePreviewStep({
             <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
             {deepSeekFeedbackView.progress ? <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedbackView.kind === 'running'}>
               <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
-                <span>第 {deepSeekFeedbackView.progress.completedChunks} / {deepSeekFeedbackView.progress.totalChunks} 批</span>
-                <span>已完成 {deepSeekFeedbackView.progress.completedVideos} / {deepSeekFeedbackView.progress.totalVideos} 条视频</span>
+                <span>DeepSeek 请求组 {deepSeekFeedbackView.progress.settledGroups} / {deepSeekFeedbackView.progress.totalGroups} 已结算</span>
+                <span>已应用 {deepSeekFeedbackView.progress.appliedVideos} / {deepSeekFeedbackView.progress.totalVideos} 条视频</span>
+                {deepSeekFeedbackView.progress.pendingVideos ? <span>{deepSeekFeedbackView.progress.pendingVideos} 条等待处理</span> : null}
+                {deepSeekFeedbackView.progress.failedVideos ? <span>{deepSeekFeedbackView.progress.failedVideos} 条等待重试</span> : null}
               </div>
               <div aria-label="DeepSeek 整理进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={deepSeekFeedbackView.progress.value}
                 className="favorite-ledger-panel__deepseek-archive-progress-track" role="progressbar">

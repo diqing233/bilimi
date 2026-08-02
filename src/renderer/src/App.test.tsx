@@ -2283,13 +2283,17 @@ describe('App runtime integration', () => {
       }
 
       if (script.includes('/x/v3/fav/resource/deal')) {
+        const isAdjustment = script.includes('api:favorite:adjust')
         return {
           ok: true,
-          steps: script.includes('api:favorite:adjust')
+          steps: isAdjustment
             ? ['api:favorite:adjust-list', 'api:favorite:adjust']
             : ['api:favorite:list', 'api:favorite:add'],
           missingTargets: [],
-          message: script.includes('api:favorite:adjust')
+          favoriteFolderIdsByLedgerId: isAdjustment
+            ? { game: '9002', 'life-interest': '9005' }
+            : { 'life-interest': '9005' },
+          message: isAdjustment
             ? 'DeepSeek 后台归类调整已完成。'
             : '已用 B 站接口归入 bilimi 收藏夹。'
         }
@@ -2370,6 +2374,252 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('replaces an initial inbox favorite with the DeepSeek knowledge correction', async () => {
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                kind: 'favorite-daily-classify-review',
+                targetLedgerIds: ['knowledge'],
+                corrected: true,
+                reason: 'DeepSeek review found durable learning value.',
+                confidence: 0.8,
+                keywordSuggestions: []
+              }),
+            5
+          )
+        })
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off'
+    })
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitFavoriteRepositoryCommand
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 712,
+          title: 'A video pending classification',
+          pageText: 'Save this for later review.',
+          tags: [],
+          category: ''
+        }
+      }
+
+      if (script.includes('api:favorite:adjust-list')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:adjust-list', 'api:favorite:adjust'],
+          missingTargets: [],
+          favoriteFolderIdsByLedgerId: { inbox: '9008', knowledge: '9001' },
+          message: 'DeepSeek adjustment completed.'
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          favoriteFolderIdsByLedgerId: { inbox: '9008' },
+          message: 'Saved to bilimi temporary.'
+        }
+      }
+
+      return { ok: true, steps: ['favorite'], missingTargets: [], message: 'Favorite completed.' }
+    })
+    Object.assign(webview, { executeJavaScript })
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1dailyinboxknowledge' }
+        })
+      )
+    })
+
+    await requestRuntime({ id: 'run-daily-inbox-knowledge', type: 'run-action', action: '藏' })
+    await waitFor(async () =>
+      expect(
+        executeJavaScript.mock.calls
+          .map(([script]) => String(script))
+          .filter((script) => script.includes('api:favorite:adjust'))
+      ).toHaveLength(1)
+    )
+    const adjustmentScript = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .find((script) => script.includes('api:favorite:adjust'))
+
+    expect(adjustmentScript).toContain('"addLedgerIds":["knowledge"]')
+    expect(adjustmentScript).toContain('"removeLedgerIds":["inbox"]')
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        type: 'set-favorite-position',
+        payload: expect.objectContaining({
+          aid: 712,
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: ['9001'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+          positionState: 'aligned'
+        })
+      })
+    )
+  })
+
+  it('persists a result-unknown daily-review position without removal evidence', async () => {
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                kind: 'favorite-daily-classify-review',
+                targetLedgerIds: ['knowledge'],
+                corrected: true,
+                reason: 'DeepSeek review found durable learning value.',
+                confidence: 0.8,
+                keywordSuggestions: []
+              }),
+            5
+          )
+        })
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off'
+    })
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitFavoriteRepositoryCommand
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 713,
+            title: 'A video pending classification',
+            pageText: 'Save this for later review.',
+            tags: [],
+            category: ''
+          }
+        }
+
+        if (script.includes('api:favorite:adjust-list')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:adjust-list', 'api:favorite:adjust'],
+            missingTargets: [],
+            favoriteFolderIdsByLedgerId: { knowledge: '9001' },
+            message: 'DeepSeek adjustment completed without removal evidence.'
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            favoriteFolderIdsByLedgerId: { inbox: '9008' },
+            message: 'Saved to bilimi temporary.'
+          }
+        }
+
+        return { ok: true, steps: ['favorite'], missingTargets: [], message: 'Favorite completed.' }
+      })
+    })
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1dailyincomplete' }
+        })
+      )
+    })
+
+    await requestRuntime({ id: 'run-daily-incomplete', type: 'run-action', action: '藏' })
+    await waitFor(() => expect(generateDeepSeek).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        type: 'set-favorite-position',
+        payload: expect.objectContaining({
+          aid: 713,
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: ['9001', '9008'],
+          remoteObservedLogicalFolderIds: [
+            'bilimi-logical:knowledge',
+            'bilimi-logical:inbox'
+          ],
+          positionState: 'result-unknown'
+        })
+      })
+    )
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        type: 'set-favorite-position',
+        payload: expect.objectContaining({
+          aid: 713,
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          positionState: 'aligned'
+        })
+      })
+    )
+    await waitFor(async () =>
+      expect(
+        await requestRuntime({ id: 'snapshot-daily-incomplete', type: 'snapshot' })
+      ).toEqual(
+        expect.objectContaining({
+          runtimeFeedback: expect.stringContaining('待核对')
+        })
+      )
+    )
+    const incompleteFeedback = (
+      await requestRuntime({ id: 'snapshot-daily-incomplete-copy', type: 'snapshot' })
+    )?.runtimeFeedback
+    expect(incompleteFeedback).not.toContain('已完成调整')
+    expect(window.bilimiDesktop.setAssistantPetHint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        message: expect.stringContaining('待核对')
+      })
+    )
+    expect(window.bilimiDesktop.setAssistantPetHint).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'happy',
+        message: expect.stringContaining('改存到')
+      })
+    )
+  })
+
   it('continues a delayed DeepSeek adjustment for the frozen video after the active tab changes', async () => {
     let resolveReview: ((result: DeepSeekGenerateResult) => void) | undefined
     const generateDeepSeek = vi.fn<
@@ -2423,7 +2673,7 @@ describe('App runtime integration', () => {
           ok: true,
           steps: ['api:favorite:adjust-list', 'api:favorite:adjust'],
           missingTargets: [],
-          favoriteFolderIdsByLedgerId: { game: '9002' },
+          favoriteFolderIdsByLedgerId: { game: '9002', 'life-interest': '9005' },
           message: 'DeepSeek 后台归类调整已完成。'
         }
       }

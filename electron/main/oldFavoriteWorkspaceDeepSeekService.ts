@@ -30,6 +30,17 @@ type ActiveDeepSeekRun = {
   cancelRequested: boolean
   work?: Promise<OldFavoriteWorkspaceDeepSeekResult>
 }
+type DurableWorkPlan = Required<Pick<OldFavoriteWorkspaceDeepSeekRunCheckpoint,
+  'version' | 'sourceFolderRevision' | 'segmentWork' | 'totalVideoCount' | 'requestGroups' |
+  'originalTargetLedgerIdsByAid' | 'successfulAids' | 'pendingAids' | 'failedAids'>> & OldFavoriteWorkspaceDeepSeekRunCheckpoint
+type SegmentOrganizeResult = OldFavoriteWorkspaceDeepSeekResult & {
+  requestGroupUpdates?: NonNullable<OldFavoriteWorkspaceDeepSeekRunCheckpoint['requestGroups']>
+}
+type SettledDeepSeekGroup = {
+  successfulAids: number[]
+  failedAids: number[]
+  requestGroupUpdates: NonNullable<OldFavoriteWorkspaceDeepSeekRunCheckpoint['requestGroups']>
+}
 type FailedDeepSeekSegment = { segmentId: string; aids: number[] }
 type FailedDeepSeekRun = {
   workspaceId: string
@@ -71,6 +82,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     preferences: () => DeepSeekPreferences
     ledgersForAccount?: (accountMid: string, preferences: Pick<DeepSeekPreferences, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
+    retryDelay?: (milliseconds: number) => Promise<void>
   }) {}
 
   async organizeCurrentSegment(
@@ -100,8 +112,6 @@ export class OldFavoriteWorkspaceDeepSeekService {
       priorCheckpoint.scope === 'all' && priorCheckpoint.mode === mode
       ? priorCheckpoint
       : undefined
-    if (resumedCheckpoint) this.pendingAllRuns.set(accountMid, structuredClone(resumedCheckpoint))
-    const completedSegmentIds = new Set(resumedCheckpoint?.completedSegmentIds ?? [])
     const segmentIds = initial.segments
       .filter((segment) => segment.status !== 'frozen' && segment.readiness !== 'saved')
       .map((segment) => segment.id)
@@ -113,6 +123,34 @@ export class OldFavoriteWorkspaceDeepSeekService {
         failures: []
       }
     }
+    const frozenSegmentIds = new Set(resumedCheckpoint?.version === 1 && resumedCheckpoint.segmentWork
+      ? resumedCheckpoint.segmentWork.map((segment) => segment.segmentId)
+      : resumedCheckpoint?.completedSegmentIds ?? [])
+    const currentReadyPlan = await this.buildAllRunPlan(accountMid, initial, mode, originalSegmentId, frozenSegmentIds)
+    const plan = resumedCheckpoint?.version === 1 && resumedCheckpoint.segmentWork && resumedCheckpoint.requestGroups &&
+      resumedCheckpoint.sourceFolderRevision !== undefined && resumedCheckpoint.totalVideoCount !== undefined &&
+      resumedCheckpoint.successfulAids && resumedCheckpoint.pendingAids && resumedCheckpoint.failedAids
+      ? this.mergeReadyWork(this.normalizePlan({
+          ...resumedCheckpoint,
+          version: 1,
+          sourceFolderRevision: resumedCheckpoint.sourceFolderRevision,
+          segmentWork: resumedCheckpoint.segmentWork,
+          totalVideoCount: resumedCheckpoint.totalVideoCount,
+          originalTargetLedgerIdsByAid: resumedCheckpoint.originalTargetLedgerIdsByAid ?? currentReadyPlan.originalTargetLedgerIdsByAid,
+          requestGroups: resumedCheckpoint.requestGroups,
+          successfulAids: resumedCheckpoint.successfulAids,
+          pendingAids: resumedCheckpoint.pendingAids,
+          failedAids: resumedCheckpoint.failedAids,
+          canceled: false
+        }), currentReadyPlan)
+      : resumedCheckpoint
+        ? this.upgradeLegacyPlan(currentReadyPlan, resumedCheckpoint)
+        : currentReadyPlan
+    await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, plan)
+    this.pendingAllRuns.set(accountMid, structuredClone(plan))
+    const completedSegmentIds = new Set(plan.completedSegmentIds)
+    const successfulAids = new Set(plan.successfulAids)
+    const failedAids = new Set(plan.failedAids)
     const run: ActiveDeepSeekRun = { cancelRequested: false }
     const frozenPreferences = this.options.preferences()
     this.activeRuns.set(accountMid, run)
@@ -120,34 +158,38 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const failedSegments: FailedDeepSeekSegment[] = []
     const referencedConstraintLedgerNames = new Set<string>()
-    const aggregate = { totalChunks: 0, completedChunks: 0, totalVideoCount: 0, successfulVideoCount: 0, failedVideoCount: 0 }
+    const aggregate = {
+      totalChunks: plan.requestGroups.length,
+      completedChunks: plan.requestGroups.filter((group) => group.status !== 'pending').length,
+      totalVideoCount: plan.totalVideoCount,
+      successfulVideoCount: successfulAids.size,
+      failedVideoCount: failedAids.size
+    }
     let deferredSegmentCount = 0
     let selectedSegmentId = originalSegmentId
     const persistCheckpoint = async (waitingSegmentIds: string[], canceled = run.cancelRequested, failed = false) => {
       if (!this.options.coordinator.setDeepSeekRunCheckpoint) return
-      await this.options.coordinator.setDeepSeekRunCheckpoint(accountMid, {
-        workspaceId: initial.workspaceId,
-        mode,
-        scope: 'all',
+      const pendingAids = plan.segmentWork.flatMap((segment) => segment.aids)
+        .filter((aid) => !successfulAids.has(aid) && !failedAids.has(aid))
+      const next: DurableWorkPlan = this.normalizePlan({
+        ...plan,
         completedSegmentIds: [...completedSegmentIds].sort(),
         waitingSegmentIds: [...new Set(waitingSegmentIds)].sort(),
+        successfulAids: [...successfulAids],
+        pendingAids,
+        failedAids: [...failedAids],
         canceled,
         ...(failed ? { failed: true } : {})
       })
-      this.pendingAllRuns.set(accountMid, {
-        workspaceId: initial.workspaceId,
-        mode,
-        scope: 'all',
-        completedSegmentIds: [...completedSegmentIds].sort(),
-        waitingSegmentIds: [...new Set(waitingSegmentIds)].sort(),
-        canceled,
-        ...(failed ? { failed: true } : {})
-      })
+      await this.options.coordinator.setDeepSeekRunCheckpoint(accountMid, next)
+      this.pendingAllRuns.set(accountMid, structuredClone(next))
     }
     try {
-      for (const segmentId of segmentIds) {
+      for (const segmentWork of plan.segmentWork) {
+        const segmentId = segmentWork.segmentId
         if (run.cancelRequested) break
-        if (completedSegmentIds.has(segmentId)) continue
+        const remainingAids = segmentWork.aids.filter((aid) => !successfulAids.has(aid))
+        if (completedSegmentIds.has(segmentId) || !remainingAids.length) continue
         const readinessSnapshot = await this.options.coordinator.getSnapshot(accountMid)
         if (!readinessSnapshot || 'recovery' in readinessSnapshot || readinessSnapshot.workspaceId !== initial.workspaceId || readinessSnapshot.status !== 'previewing') {
           throw new Error('Old favorite workspace changed while DeepSeek was waiting for the next batch.')
@@ -168,26 +210,49 @@ export class OldFavoriteWorkspaceDeepSeekService {
           ? selected.segments.find((segment) => segment.id === segmentId)
           : undefined
         if (!selectedSummary || selectedSummary.status === 'frozen' || selectedSummary.readiness === 'saved') continue
-        const segmentResult = await this.organize(accountMid, mode, undefined, (progress) => {
+        const beforeSuccessful = aggregate.successfulVideoCount
+        const beforeFailed = aggregate.failedVideoCount
+        const waitingSegmentIds = readinessSnapshot.segments
+          .filter((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness === 'tagging')
+          .map((segment) => segment.id)
+        const segmentResult = await this.organize(accountMid, mode, {
+          workspaceId: initial.workspaceId,
+          segmentId,
+          mode,
+          aids: remainingAids
+        }, (progress) => {
           onProgress?.({
-            totalChunks: aggregate.totalChunks + progress.totalChunks,
-            completedChunks: aggregate.completedChunks + progress.completedChunks,
-            totalVideoCount: aggregate.totalVideoCount + progress.totalVideoCount,
-            successfulVideoCount: aggregate.successfulVideoCount + progress.successfulVideoCount,
-            failedVideoCount: aggregate.failedVideoCount + progress.failedVideoCount
+            totalChunks: aggregate.totalChunks,
+            completedChunks: Math.min(aggregate.totalChunks, aggregate.completedChunks + progress.completedChunks),
+            totalVideoCount: aggregate.totalVideoCount,
+            successfulVideoCount: beforeSuccessful + progress.successfulVideoCount,
+            failedVideoCount: beforeFailed + progress.failedVideoCount
           })
-        }, run, frozenPreferences)
+        }, run, frozenPreferences, async (settled) => {
+          settled.successfulAids.forEach((aid) => {
+            failedAids.delete(aid)
+            successfulAids.add(aid)
+          })
+          settled.failedAids.forEach((aid) => {
+            successfulAids.delete(aid)
+            failedAids.add(aid)
+          })
+          this.mergeRequestGroupUpdates(plan.requestGroups, settled.requestGroupUpdates)
+          await persistCheckpoint(waitingSegmentIds)
+        })
         final = segmentResult.snapshot
         segmentResult.failures.forEach((failure) => failures.push({ ...failure, chunkIndex: failures.length + failure.chunkIndex }))
-        const failedAids = segmentResult.failures.flatMap((failure) => failure.aids)
-        if (failedAids.length) failedSegments.push({ segmentId, aids: this.normalizeAids(failedAids) })
+        const failedSegmentAids = segmentResult.failures.flatMap((failure) => failure.aids)
+        if (failedSegmentAids.length) failedSegments.push({ segmentId, aids: this.normalizeAids(failedSegmentAids) })
         segmentResult.referencedConstraintLedgerNames.forEach((name) => referencedConstraintLedgerNames.add(name))
-        aggregate.totalChunks += segmentResult.progress.totalChunks
-        aggregate.completedChunks += segmentResult.progress.completedChunks
-        aggregate.totalVideoCount += segmentResult.progress.totalVideoCount
-        aggregate.successfulVideoCount += segmentResult.progress.successfulVideoCount
-        aggregate.failedVideoCount += segmentResult.progress.failedVideoCount
-        completedSegmentIds.add(segmentId)
+        const segmentFailedAids = new Set(segmentResult.failures.flatMap((failure) => failure.aids))
+        remainingAids.filter((aid) => !segmentFailedAids.has(aid)).forEach((aid) => successfulAids.add(aid))
+        segmentFailedAids.forEach((aid) => failedAids.add(aid))
+        aggregate.completedChunks = Math.min(aggregate.totalChunks, aggregate.completedChunks + segmentResult.progress.completedChunks)
+        aggregate.successfulVideoCount = successfulAids.size
+        aggregate.failedVideoCount = failedAids.size
+        this.mergeRequestGroupUpdates(plan.requestGroups, segmentResult.requestGroupUpdates ?? [])
+        if (!segmentFailedAids.size) completedSegmentIds.add(segmentId)
         await persistCheckpoint(readinessSnapshot.segments
           .filter((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness === 'tagging')
           .map((segment) => segment.id))
@@ -229,6 +294,148 @@ export class OldFavoriteWorkspaceDeepSeekService {
     }
   }
 
+  private async buildAllRunPlan(
+    accountMid: string,
+    initial: OldFavoriteWorkspaceSnapshot,
+    mode: DeepSeekArchiveMode,
+    originalSegmentId: string,
+    excludedSegmentIds = new Set<string>()
+  ): Promise<DurableWorkPlan> {
+    const segmentWork: DurableWorkPlan['segmentWork'] = []
+    const originalTargetLedgerIdsByAid: Record<string, string[]> = {}
+    const waitingSegmentIds: string[] = []
+    let selectedSegmentId = initial.currentSegment?.id ?? originalSegmentId
+    try {
+      for (const summary of initial.segments) {
+        if (summary.status === 'frozen' || summary.readiness === 'saved') continue
+        if (excludedSegmentIds.has(summary.id)) continue
+        if (summary.readiness !== 'ready') {
+          waitingSegmentIds.push(summary.id)
+          continue
+        }
+        if (selectedSegmentId !== summary.id) {
+          await this.options.coordinator.selectSegment?.(accountMid, summary.id)
+          selectedSegmentId = summary.id
+        }
+        const snapshot = await this.options.coordinator.getSnapshot(accountMid)
+        if (!snapshot || 'recovery' in snapshot || snapshot.workspaceId !== initial.workspaceId || !snapshot.currentSegment) {
+          throw new Error('Old favorite workspace changed while the DeepSeek work plan was being created.')
+        }
+        const selectedFolderIds = new Set(snapshot.sourceFolders
+          .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+          .map((folder) => folder.id))
+        const aids = snapshot.currentSegment.items.filter((item) =>
+          !isUnavailableArchiveItem(item) && item.sourceFolderIds.some((folderId) => selectedFolderIds.has(folderId)))
+          .filter((item) => {
+            const classification = snapshot.classifications[String(item.aid)]
+            if (mode === 'unclassified-only') return !classification?.targetLedgerIds.length
+            if (mode === 'low-confidence-and-unclassified') return !classification?.targetLedgerIds.length || classification.source === 'system-low'
+            return true
+          }).map((item) => item.aid)
+        const normalizedAids = this.normalizeAids(aids)
+        segmentWork.push({ segmentId: summary.id, index: summary.index, aids: normalizedAids })
+        for (const aid of normalizedAids) {
+          originalTargetLedgerIdsByAid[String(aid)] = [
+            ...(snapshot.classifications[String(aid)]?.targetLedgerIds ?? [])
+          ]
+        }
+      }
+    } finally {
+      if (selectedSegmentId !== originalSegmentId) await this.options.coordinator.selectSegment?.(accountMid, originalSegmentId)
+    }
+    const requestGroups = segmentWork.flatMap((segment) => {
+      const groups = []
+      for (let offset = 0; offset < segment.aids.length; offset += archiveChunkSize) {
+        const aids = segment.aids.slice(offset, offset + archiveChunkSize)
+        groups.push({
+          id: `${segment.segmentId}:group:${offset / archiveChunkSize + 1}:${aids[0] ?? 0}-${aids.at(-1) ?? 0}`,
+          segmentId: segment.segmentId,
+          aids,
+          status: 'pending' as const,
+          timeoutCount: 0
+        })
+      }
+      return groups
+    })
+    const pendingAids = segmentWork.flatMap((segment) => segment.aids)
+    return this.normalizePlan({
+      version: 1,
+      workspaceId: initial.workspaceId,
+      mode,
+      scope: 'all',
+      sourceFolderRevision: initial.sourceFolders.filter((folder) => folder.selected).map((folder) => folder.id).sort().join('|'),
+      segmentWork,
+      totalVideoCount: pendingAids.length,
+      originalTargetLedgerIdsByAid,
+      requestGroups,
+      successfulAids: [],
+      pendingAids,
+      failedAids: [],
+      completedSegmentIds: [],
+      waitingSegmentIds,
+      canceled: false
+    })
+  }
+
+  private normalizePlan(plan: DurableWorkPlan): DurableWorkPlan {
+    return {
+      ...plan,
+      version: 1,
+      segmentWork: plan.segmentWork.map((segment) => ({ ...segment, aids: this.normalizeAids(segment.aids) })),
+      requestGroups: plan.requestGroups.map((group) => ({ ...group, aids: this.normalizeAids(group.aids) })),
+      originalTargetLedgerIdsByAid: Object.fromEntries(Object.entries(plan.originalTargetLedgerIdsByAid)
+        .map(([aid, targets]) => [aid, uniqueTargets(targets).sort()])),
+      successfulAids: this.normalizeAids(plan.successfulAids),
+      pendingAids: this.normalizeAids(plan.pendingAids),
+      failedAids: this.normalizeAids(plan.failedAids),
+      completedSegmentIds: [...new Set(plan.completedSegmentIds)].sort(),
+      waitingSegmentIds: [...new Set(plan.waitingSegmentIds)].sort()
+    }
+  }
+
+  private upgradeLegacyPlan(
+    current: DurableWorkPlan,
+    legacy: OldFavoriteWorkspaceDeepSeekRunCheckpoint
+  ): DurableWorkPlan {
+    const completed = new Set(legacy.completedSegmentIds)
+    const successfulAids = current.segmentWork
+      .filter((segment) => completed.has(segment.segmentId))
+      .flatMap((segment) => segment.aids)
+    return this.normalizePlan({
+      ...current,
+      completedSegmentIds: legacy.completedSegmentIds,
+      waitingSegmentIds: current.waitingSegmentIds,
+      successfulAids,
+      pendingAids: current.pendingAids.filter((aid) => !successfulAids.includes(aid)),
+      canceled: false,
+      failed: legacy.failed
+    })
+  }
+
+  private mergeReadyWork(existing: DurableWorkPlan, current: DurableWorkPlan): DurableWorkPlan {
+    const knownSegments = new Set(existing.segmentWork.map((segment) => segment.segmentId))
+    const newSegments = current.segmentWork.filter((segment) => !knownSegments.has(segment.segmentId))
+    const knownGroups = new Set(existing.requestGroups.map((group) => group.id))
+    const newGroups = current.requestGroups.filter((group) => !knownGroups.has(group.id))
+    const successful = new Set(existing.successfulAids)
+    const failed = new Set(existing.failedAids)
+    const segmentWork = [...existing.segmentWork, ...newSegments].sort((left, right) => left.index - right.index)
+    const allAids = segmentWork.flatMap((segment) => segment.aids)
+    return this.normalizePlan({
+      ...existing,
+      segmentWork,
+      requestGroups: [...existing.requestGroups, ...newGroups],
+      originalTargetLedgerIdsByAid: {
+        ...current.originalTargetLedgerIdsByAid,
+        ...existing.originalTargetLedgerIdsByAid
+      },
+      totalVideoCount: allAids.length,
+      pendingAids: allAids.filter((aid) => !successful.has(aid) && !failed.has(aid)),
+      waitingSegmentIds: current.waitingSegmentIds,
+      canceled: false
+    })
+  }
+
   /** Continues a durable all-batch intent once tag enrichment publishes a ready segment. */
   resumePendingAllSegments(
     accountMid: string,
@@ -263,8 +470,21 @@ export class OldFavoriteWorkspaceDeepSeekService {
   async retryFailedChunks(
     accountMid: string,
     onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
-  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
-    const failedRun = this.failedRuns.get(accountMid)
+  ): Promise<SegmentOrganizeResult> {
+    let failedRun = this.failedRuns.get(accountMid)
+    if (!failedRun?.segments.some((segment) => segment.aids.length)) {
+      const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+      if (checkpoint?.version === 1 && checkpoint.scope === 'all' && checkpoint.segmentWork && checkpoint.failedAids?.length) {
+        const failedAids = new Set(checkpoint.failedAids)
+        const segments = checkpoint.segmentWork
+          .map((segment) => ({ segmentId: segment.segmentId, aids: segment.aids.filter((aid) => failedAids.has(aid)) }))
+          .filter((segment) => segment.aids.length)
+        if (segments.length) {
+          failedRun = { workspaceId: checkpoint.workspaceId, mode: checkpoint.mode, scope: 'all', segments }
+          this.failedRuns.set(accountMid, failedRun)
+        }
+      }
+    }
     if (!failedRun?.segments.some((segment) => segment.aids.length)) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
     if (failedRun.scope === 'all') return this.retryFailedSegments(accountMid, failedRun, onProgress)
     const [segment] = failedRun.segments
@@ -359,6 +579,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const remainingFailures: FailedDeepSeekSegment[] = []
     const referencedConstraintLedgerNames = new Set<string>()
+    let durableCheckpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    const checkpointSuccessfulAids = new Set(durableCheckpoint?.successfulAids ?? [])
+    const checkpointFailedAids = new Set(durableCheckpoint?.failedAids ?? [])
     let final = initial
     this.activeRuns.set(accountMid, run)
     try {
@@ -388,7 +611,31 @@ export class OldFavoriteWorkspaceDeepSeekService {
             successfulVideoCount: aggregate.successfulVideoCount + progress.successfulVideoCount,
             failedVideoCount: aggregate.failedVideoCount + progress.failedVideoCount
           })
-        }, run, frozenPreferences)
+        }, run, frozenPreferences, async (settled) => {
+          if (!durableCheckpoint || durableCheckpoint.workspaceId !== failedRun.workspaceId || durableCheckpoint.scope !== 'all') return
+          settled.successfulAids.forEach((aid) => {
+            checkpointFailedAids.delete(aid)
+            checkpointSuccessfulAids.add(aid)
+          })
+          settled.failedAids.forEach((aid) => {
+            checkpointSuccessfulAids.delete(aid)
+            checkpointFailedAids.add(aid)
+          })
+          const requestGroups = [...(durableCheckpoint.requestGroups ?? [])]
+          this.mergeRequestGroupUpdates(requestGroups, settled.requestGroupUpdates)
+          const allAids = durableCheckpoint.segmentWork?.flatMap((segment) => segment.aids) ?? []
+          durableCheckpoint = {
+            ...durableCheckpoint,
+            requestGroups,
+            successfulAids: this.normalizeAids([...checkpointSuccessfulAids]),
+            pendingAids: this.normalizeAids(allAids.filter((aid) => !checkpointSuccessfulAids.has(aid) && !checkpointFailedAids.has(aid))),
+            failedAids: this.normalizeAids([...checkpointFailedAids]),
+            canceled: false,
+            failed: checkpointFailedAids.size > 0
+          }
+          await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, durableCheckpoint)
+          this.pendingAllRuns.set(accountMid, structuredClone(durableCheckpoint))
+        })
         final = segmentResult.snapshot
         const failedAids = segmentResult.failures.flatMap((failure) => failure.aids)
         if (failedAids.length) remainingFailures.push({ segmentId: failedSegment.segmentId, aids: this.normalizeAids(failedAids) })
@@ -405,13 +652,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
         }
       }
     } finally {
-      await this.options.coordinator.selectSegment(accountMid, originalSegmentId).catch(() => undefined)
+      await Promise.resolve(this.options.coordinator.selectSegment(accountMid, originalSegmentId)).catch(() => undefined)
       const restored = await this.options.coordinator.getSnapshot(accountMid)
       if (restored && !('recovery' in restored)) final = restored
       if (this.activeRuns.get(accountMid) === run) this.activeRuns.delete(accountMid)
     }
     this.rememberFailedRun(accountMid, failedRun.workspaceId, failedRun.mode, 'all', remainingFailures)
-    const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    const checkpoint = durableCheckpoint ?? await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
     if (checkpoint?.workspaceId === failedRun.workspaceId && checkpoint.scope === 'all') {
       if (remainingFailures.length) {
         await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, { ...checkpoint, canceled: false, failed: true })
@@ -436,8 +683,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
     retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] },
     onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void,
     run?: ActiveDeepSeekRun,
-    frozenPreferences?: DeepSeekPreferences
-  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    frozenPreferences?: DeepSeekPreferences,
+    onSettledGroup?: (settled: SettledDeepSeekGroup) => Promise<void>
+  ): Promise<SegmentOrganizeResult> {
     const preferences = frozenPreferences ?? this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
@@ -502,113 +750,154 @@ export class OldFavoriteWorkspaceDeepSeekService {
       .filter((ledger) => Boolean(ledger.deepSeekConstraint?.trim()))
       .map((ledger) => ledger.displayName)
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
-    const results: DeepSeekArchiveVideoResult[] = []
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
+    const requestGroupUpdates: NonNullable<OldFavoriteWorkspaceDeepSeekRunCheckpoint['requestGroups']> = []
     const totalChunks = Math.ceil(request.videos.length / archiveChunkSize)
     let successfulVideoCount = 0
     let failedVideoCount = 0
     let completedChunks = 0
+    let authoritativeSnapshot = snapshot
     onProgress?.({ totalChunks, completedChunks: 0, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
+    const delayRetry = () => this.options.retryDelay?.(1_000) ?? new Promise<void>((resolve) => setTimeout(resolve, 1_000))
+    const runGroup = async (
+      chunk: ArchiveRequest,
+      chunkIndex: number,
+      groupId: string,
+      timeoutAttempt = 0,
+      retryIncomplete = true
+    ): Promise<{ accepted: DeepSeekArchiveVideoResult[]; failures: OldFavoriteWorkspaceDeepSeekFailure[] }> => {
+      let result: DeepSeekGenerateResult
+      try {
+        result = await this.options.generate(chunk)
+      } catch (error) {
+        const category = this.failureCategory(error)
+        if (category === 'timeout') {
+          if ((chunk.videos.length === archiveChunkSize || chunk.videos.length <= 5) && timeoutAttempt === 0) {
+            await delayRetry()
+            return runGroup(chunk, chunkIndex, groupId, 1, retryIncomplete)
+          }
+          if (chunk.videos.length > 5) {
+            const midpoint = Math.ceil(chunk.videos.length / 2)
+            requestGroupUpdates.push({ id: groupId, segmentId: snapshot.currentSegment!.id, aids: chunk.videos.map((video) => video.aid), status: 'split', timeoutCount: timeoutAttempt + 1, failureCategory: 'timeout' })
+            const leftId = `${groupId}:left`
+            const rightId = `${groupId}:right`
+            requestGroupUpdates.push(
+              { id: leftId, parentId: groupId, segmentId: snapshot.currentSegment!.id, aids: chunk.videos.slice(0, midpoint).map((video) => video.aid), status: 'pending', timeoutCount: 0 },
+              { id: rightId, parentId: groupId, segmentId: snapshot.currentSegment!.id, aids: chunk.videos.slice(midpoint).map((video) => video.aid), status: 'pending', timeoutCount: 0 }
+            )
+            const left = await runGroup({ ...chunk, videos: chunk.videos.slice(0, midpoint) }, chunkIndex, leftId, 0, retryIncomplete)
+            const right = await runGroup({ ...chunk, videos: chunk.videos.slice(midpoint) }, chunkIndex, rightId, 0, retryIncomplete)
+            return { accepted: [...left.accepted, ...right.accepted], failures: [...left.failures, ...right.failures] }
+          }
+        }
+        const aids = chunk.videos.map((video) => video.aid).filter((aid): aid is number => Number.isSafeInteger(aid)).sort((left, right) => left - right)
+        requestGroupUpdates.push({ id: groupId, segmentId: snapshot.currentSegment!.id, aids, status: 'failed', timeoutCount: category === 'timeout' ? timeoutAttempt + 1 : timeoutAttempt, failureCategory: category })
+        return { accepted: [], failures: [{ chunkIndex, aids, affectedVideoCount: aids.length, category, message: error instanceof Error ? error.message : 'DeepSeek request failed.' }] }
+      }
+      if (result.kind !== 'favorite-archive-organize') {
+        const aids = chunk.videos.map((video) => video.aid).filter((aid): aid is number => Number.isSafeInteger(aid)).sort((left, right) => left - right)
+        requestGroupUpdates.push({ id: groupId, segmentId: snapshot.currentSegment!.id, aids, status: 'failed', timeoutCount: timeoutAttempt, failureCategory: 'invalid' })
+        return { accepted: [], failures: [{ chunkIndex, aids, affectedVideoCount: aids.length, category: 'invalid', message: 'DeepSeek returned an invalid favorite workspace result.' }] }
+      }
+      const expectedAids = new Set(chunk.videos.map((video) => video.aid))
+      const acceptedByAid = new Map<number, DeepSeekArchiveVideoResult>()
+      const unavailableTargetAids = new Set<number>()
+      const invalidAids = new Set<number>()
+      for (const row of result.results) {
+        if (!Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!) || acceptedByAid.has(row.aid!)) continue
+        if (row.invalid) {
+          invalidAids.add(row.aid!)
+          continue
+        }
+        if (!this.hasApplicableTargets(row, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)) {
+          unavailableTargetAids.add(row.aid!)
+          continue
+        }
+        acceptedByAid.set(row.aid!, row)
+      }
+      const groupFailures: OldFavoriteWorkspaceDeepSeekFailure[] = []
+      const failure = (aids: number[], category: NonNullable<OldFavoriteWorkspaceDeepSeekFailure['category']>, message: string) => {
+        if (aids.length) groupFailures.push({ chunkIndex, aids: [...aids].sort((left, right) => left - right), affectedVideoCount: aids.length, category, message })
+      }
+      failure([...invalidAids], 'invalid', 'DeepSeek returned invalid structured results.')
+      failure([...unavailableTargetAids], 'unavailable', 'DeepSeek returned unavailable favorite targets.')
+      const accountedAids = new Set([...acceptedByAid.keys(), ...invalidAids, ...unavailableTargetAids])
+      const missing = chunk.videos.filter((video) => !accountedAids.has(video.aid))
+      if (missing.length) {
+        if (retryIncomplete && !run?.cancelRequested) {
+          const retried = await runGroup({ ...chunk, videos: missing }, chunkIndex, `${groupId}:missing`, 0, false)
+          retried.accepted.forEach((row) => acceptedByAid.set(row.aid!, row))
+          groupFailures.push(...retried.failures)
+        } else {
+          failure(missing.map((video) => video.aid), 'incomplete', 'DeepSeek returned an incomplete current-segment result.')
+        }
+      }
+      requestGroupUpdates.push({
+        id: groupId,
+        segmentId: snapshot.currentSegment!.id,
+        aids: chunk.videos.map((video) => video.aid),
+        status: groupFailures.length ? 'failed' : 'successful',
+        timeoutCount: timeoutAttempt,
+        ...(groupFailures[0]?.category ? { failureCategory: groupFailures[0].category } : {})
+      })
+      return { accepted: [...acceptedByAid.values()], failures: groupFailures }
+    }
     for (let offset = 0; offset < request.videos.length; offset += archiveChunkSize) {
       if (run?.cancelRequested) break
       const chunk = { ...request, videos: request.videos.slice(offset, offset + archiveChunkSize) }
-      try {
-        const result = await this.options.generate(chunk)
-        if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
-        const expectedAids = new Set(chunk.videos.map((video) => video.aid))
-        const acceptedByAid = new Map<number, DeepSeekArchiveVideoResult>()
-        const unavailableTargetAids = new Set<number>()
-        for (const row of result.results) {
-          if (row.invalid || !Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!) || acceptedByAid.has(row.aid!)) continue
-          if (!this.hasApplicableTargets(row, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)) {
-            unavailableTargetAids.add(row.aid!)
-            continue
+      const stableGroupId = `${snapshot.currentSegment.id}:group:${offset / archiveChunkSize + 1}:${chunk.videos[0]?.aid ?? 0}-${chunk.videos.at(-1)?.aid ?? 0}`
+      const updateStart = requestGroupUpdates.length
+      const outcome = await runGroup(chunk, offset / archiveChunkSize + 1, stableGroupId)
+      failures.push(...outcome.failures)
+      successfulVideoCount += outcome.accepted.length
+      failedVideoCount += outcome.failures.reduce((count, failure) => count + failure.affectedVideoCount, 0)
+      if (!this.destructiveMaintenance && outcome.accepted.length) {
+        const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
+        const assignments = this.assignmentsFromResult(outcome.accepted, itemByAid, authoritativeSnapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
+        if (assignments.length) {
+          const expected: WorkspaceExpectation = {
+            workspaceId: authoritativeSnapshot.workspaceId,
+            currentSegmentId: authoritativeSnapshot.currentSegment!.id,
+            selectedSourceFolderIds: [...selectedFolderIds].sort(),
+            classifications: Object.fromEntries(Object.entries(authoritativeSnapshot.classifications).map(([aid, classification]) => [aid, {
+              targetLedgerIds: [...classification.targetLedgerIds].sort(),
+              source: classification.source
+            }]))
           }
-          acceptedByAid.set(row.aid!, row)
+          await this.options.coordinator.applyDeepSeekClassificationBatch(authoritativeSnapshot.accountMid, assignments, expected)
+          const next = await this.options.coordinator.getSnapshot(authoritativeSnapshot.accountMid)
+          if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
+          authoritativeSnapshot = next
         }
-        const accepted = [...acceptedByAid.values()]
-        const acceptedAids = new Set(acceptedByAid.keys())
-        results.push(...accepted)
-        successfulVideoCount += accepted.length
-        if (unavailableTargetAids.size) {
-          const aids = [...unavailableTargetAids].sort((left, right) => left - right)
-          failures.push({
-            chunkIndex: offset / archiveChunkSize + 1,
-            aids,
-            affectedVideoCount: aids.length,
-            message: 'DeepSeek returned unavailable favorite targets.'
-          })
-          failedVideoCount += aids.length
-        }
-        const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid) && !unavailableTargetAids.has(video.aid))
-        if (missing.length && !run?.cancelRequested) {
-          const retry = { ...chunk, videos: missing }
-          try {
-            const retried = await this.options.generate(retry)
-            if (retried.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
-            this.assertCompleteChunk(retry, retried.results)
-            const applicable: DeepSeekArchiveVideoResult[] = []
-            const rejectedAids: number[] = []
-            for (const row of retried.results) {
-              if (this.hasApplicableTargets(row, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)) applicable.push(row)
-              else rejectedAids.push(row.aid!)
-            }
-            rejectedAids.sort((left, right) => left - right)
-            results.push(...applicable)
-            successfulVideoCount += applicable.length
-            if (rejectedAids.length) {
-              failures.push({
-                chunkIndex: offset / archiveChunkSize + 1,
-                aids: rejectedAids,
-                affectedVideoCount: rejectedAids.length,
-                message: 'DeepSeek returned unavailable favorite targets.'
-              })
-              failedVideoCount += rejectedAids.length
-            }
-          } catch (error) {
-            failures.push({
-              chunkIndex: offset / archiveChunkSize + 1,
-              aids: missing.map((video) => video.aid).sort((left, right) => left - right),
-              affectedVideoCount: missing.length,
-              message: error instanceof Error ? error.message : 'DeepSeek request failed.'
-            })
-            failedVideoCount += missing.length
-          }
-        }
-      } catch (error) {
-        failures.push({
-          chunkIndex: offset / archiveChunkSize + 1,
-          aids: chunk.videos.map((video) => video.aid).filter((aid): aid is number => Number.isSafeInteger(aid)).sort((left, right) => left - right),
-          affectedVideoCount: chunk.videos.length,
-          message: error instanceof Error ? error.message : 'DeepSeek request failed.'
-        })
-        failedVideoCount += chunk.videos.length
       }
+      const settledSuccessfulAids = outcome.accepted
+        .map((row) => row.aid)
+        .filter((aid): aid is number => Number.isSafeInteger(aid))
+      const settledFailedAids = outcome.failures.flatMap((failure) => failure.aids)
+      await onSettledGroup?.({
+        successfulAids: this.normalizeAids(settledSuccessfulAids),
+        failedAids: this.normalizeAids(settledFailedAids),
+        requestGroupUpdates: requestGroupUpdates.slice(updateStart)
+      })
       completedChunks = offset / archiveChunkSize + 1
       onProgress?.({ totalChunks, completedChunks, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     }
 
-    const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
-    const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
     if (this.destructiveMaintenance) {
-      return this.result(snapshot, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, true)
+      return { ...this.result(authoritativeSnapshot, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, true), requestGroupUpdates }
     }
-    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested))
-    const expected: WorkspaceExpectation = {
-      workspaceId: snapshot.workspaceId,
-      currentSegmentId: snapshot.currentSegment.id,
-      selectedSourceFolderIds: [...selectedFolderIds].sort(),
-      classifications: Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => [aid, {
-        targetLedgerIds: [...classification.targetLedgerIds].sort(),
-        source: classification.source
-      }]))
+    return { ...this.finish(accountMid, authoritativeSnapshot, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested)), requestGroupUpdates }
+  }
+
+  private mergeRequestGroupUpdates(
+    requestGroups: NonNullable<OldFavoriteWorkspaceDeepSeekRunCheckpoint['requestGroups']>,
+    updates: NonNullable<OldFavoriteWorkspaceDeepSeekRunCheckpoint['requestGroups']>
+  ) {
+    for (const update of updates) {
+      const index = requestGroups.findIndex((group) => group.id === update.id)
+      if (index >= 0) requestGroups[index] = { ...requestGroups[index]!, ...update }
+      else requestGroups.push(update)
     }
-    await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
-    // The mutation returns the internal workspace model. Re-open the authoritative
-    // renderer snapshot so post-run UI retains source folders and segment items.
-    const next = await this.options.coordinator.getSnapshot(snapshot.accountMid)
-    if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
-    return this.finish(accountMid, next, mode, totalChunks, completedChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames, Boolean(run?.cancelRequested))
   }
 
   private finish(
@@ -638,6 +927,17 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
   private normalizeAids(aids: number[]) {
     return [...new Set(aids)].sort((left, right) => left - right)
+  }
+
+  private failureCategory(error: unknown): NonNullable<OldFavoriteWorkspaceDeepSeekFailure['category']> {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/timed out|timeout/i.test(message)) return 'timeout'
+    if (/\b429\b|rate.?limit/i.test(message)) return 'rate-limit'
+    if (/\b5\d\d\b/i.test(message)) return 'server'
+    if (/invalid|structured|JSON/i.test(message)) return 'invalid'
+    if (/unavailable target|target ledger/i.test(message)) return 'unavailable'
+    if (/incomplete|coverage/i.test(message)) return 'incomplete'
+    return 'network'
   }
 
   private rememberFailedRun(

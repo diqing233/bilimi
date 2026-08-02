@@ -164,6 +164,12 @@ export class FavoriteRepositorySyncService {
     await this.options.pageBridgeManager?.bind(account, runId)
   }
 
+  async rebindPageTarget(accountMid: string, runId: string) {
+    const account = normalizeAccountMid(accountMid)
+    this.options.pageBridgeManager?.release(account, runId)
+    await this.options.pageBridgeManager?.bind(account, runId)
+  }
+
   /** Discards only the local execution plan; already completed remote writes remain untouched. */
   async abandonFrozenPlan(accountMid: string): Promise<void> {
     const account = normalizeAccountMid(accountMid)
@@ -298,61 +304,10 @@ export class FavoriteRepositorySyncService {
       }
 
       for (const operation of plan.operations) {
-      const record = records.get(operation.operationKey)
-      if (!record || record.status === 'succeeded' || (record.status === 'pending' && record.reason === retryReadyReason)) continue
-      if (record.status === 'failed') continue
-      let result: PageBridgeResult & { members: Record<string, number[]> }
-      try {
-        result = await this.readMembersForReconciliation(() => this.pageBridge(account, plan.id).readMembers({
-          accountMid: account,
-          operationKey: operation.operationKey,
-          aid: operation.aid,
-          folderIds: operation.folderIds
-        }))
-      } catch (error) {
-        records.set(operation.operationKey, await this.writeRecord(
-          account,
-          plan,
-          operation,
-          'result-unknown',
-          record.attempt ?? 1,
-          error instanceof Error ? error.message : String(error),
-          'reconciled'
-        ))
-        continue
-      }
-      try {
-        this.assertObservedAccount(account, result.observedAccountMid)
-      } catch (error) {
-        records.set(operation.operationKey, await this.writeRecord(
-          account,
-          plan,
-          operation,
-          'result-unknown',
-          record.attempt ?? 1,
-          error instanceof Error ? error.message : String(error),
-          'reconciled'
-        ))
-        continue
-      }
-      if (!operation.folderIds.every((folderId) => Array.isArray(result.members[folderId]))) {
-        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'result-unknown', record.attempt ?? 1, 'reconciliation-membership-incomplete', 'reconciled'))
-        continue
-      }
-      const membership = operation.folderIds.map((folderId) => result.members[folderId]?.includes(operation.aid) === true)
-      const allMember = membership.every(Boolean)
-      const noMembers = membership.every((value) => !value)
-      const desiredState = operation.kind === 'append' ? allMember : noMembers
-      const safeToRepeat = operation.kind === 'append' ? noMembers : allMember
-      const attempt = record.attempt ?? 1
-      if (desiredState) {
-        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'succeeded', attempt, 'reconciled-confirmed', 'reconciled'))
-        await this.projectConfirmedOperation(account, plan, operation, 'succeeded')
-      } else if (safeToRepeat) {
-        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'pending', attempt, retryReadyReason, 'reconciled'))
-      } else {
-        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'result-unknown', attempt, 'reconciled-partial-state', 'reconciled'))
-      }
+        const record = records.get(operation.operationKey)
+        if (!record || record.status === 'succeeded' || (record.status === 'pending' && record.reason === retryReadyReason)) continue
+        if (record.status === 'failed') continue
+        records.set(operation.operationKey, await this.reconcileOperation(account, plan, operation, record))
       }
 
       const run = this.summarize(plan, Array.from(records.values()))
@@ -372,6 +327,7 @@ export class FavoriteRepositorySyncService {
   private async drive(accountMid: string, plan: FavoriteRepositoryFrozenSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(accountMid, plan.id))
+    const automaticRetries = new Set<string>()
     for (let index = 0; index < plan.operations.length; index++) {
       const operation = plan.operations[index]
       const record = records.get(operation.operationKey)
@@ -392,10 +348,10 @@ export class FavoriteRepositorySyncService {
           : this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds }))
         this.assertObservedAccount(accountMid, result.observedAccountMid)
         records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
-        await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded')
+        await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded', attempt)
       } catch (error) {
         const status = isConfirmedRemoteRejection(error) ? 'failed' : 'result-unknown'
-        records.set(operation.operationKey, await this.writeRecord(
+        let stoppedRecord = await this.writeRecord(
           accountMid,
           plan,
           operation,
@@ -403,8 +359,20 @@ export class FavoriteRepositorySyncService {
           attempt,
           error instanceof Error ? error.message : String(error),
           'result'
-        ))
-        await this.projectConfirmedOperation(accountMid, plan, operation, status)
+        )
+        records.set(operation.operationKey, stoppedRecord)
+        await this.projectConfirmedOperation(accountMid, plan, operation, status, attempt)
+        if (status === 'result-unknown') {
+          stoppedRecord = await this.reconcileOperation(accountMid, plan, operation, stoppedRecord)
+          records.set(operation.operationKey, stoppedRecord)
+          if (stoppedRecord.status === 'succeeded') continue
+          if (stoppedRecord.status === 'pending' && stoppedRecord.reason === retryReadyReason &&
+            !automaticRetries.has(operation.operationKey)) {
+            automaticRetries.add(operation.operationKey)
+            index--
+            continue
+          }
+        }
         const run = this.summarize(plan, Array.from(records.values()))
         const workspaceStatus = run.status === 'result-unknown' ? 'reconciling' : 'frozen'
         await this.writeWorkspace(accountMid, withWorkspaceStatus(
@@ -420,6 +388,47 @@ export class FavoriteRepositorySyncService {
     await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'completed', plan), `complete:${plan.id}`)
     this.options.pageBridgeManager?.release(accountMid, plan.id)
     return complete
+  }
+
+  private async reconcileOperation(
+    accountMid: string,
+    plan: FavoriteRepositoryFrozenSyncPlan,
+    operation: FavoriteRepositoryFrozenSyncOperation,
+    record: FavoriteRepositorySyncRecord
+  ) {
+    const attempt = record.attempt ?? 1
+    let result: PageBridgeResult & { members: Record<string, number[]> }
+    try {
+      result = await this.readMembersForReconciliation(() => this.pageBridge(accountMid, plan.id).readMembers({
+        accountMid,
+        operationKey: operation.operationKey,
+        aid: operation.aid,
+        folderIds: operation.folderIds
+      }))
+      this.assertObservedAccount(accountMid, result.observedAccountMid)
+    } catch (error) {
+      return this.writeRecord(
+        accountMid, plan, operation, 'result-unknown', attempt,
+        error instanceof Error ? error.message : String(error), 'reconciled'
+      )
+    }
+    if (!operation.folderIds.every((folderId) => Array.isArray(result.members[folderId]))) {
+      return this.writeRecord(accountMid, plan, operation, 'result-unknown', attempt, 'reconciliation-membership-incomplete', 'reconciled')
+    }
+    const membership = operation.folderIds.map((folderId) => result.members[folderId].includes(operation.aid))
+    const allMember = membership.every(Boolean)
+    const noMembers = membership.every((value) => !value)
+    const desiredState = operation.kind === 'append' ? allMember : noMembers
+    const safeToRepeat = operation.kind === 'append' ? noMembers : allMember
+    if (desiredState) {
+      const reconciled = await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, 'reconciled-confirmed', 'reconciled')
+      await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded', attempt)
+      return reconciled
+    }
+    if (safeToRepeat) {
+      return this.writeRecord(accountMid, plan, operation, 'pending', attempt, retryReadyReason, 'reconciled')
+    }
+    return this.writeRecord(accountMid, plan, operation, 'result-unknown', attempt, 'reconciled-partial-state', 'reconciled')
   }
 
   private async recordOrganizationProtections(accountMid: string, plan: FavoriteRepositoryFrozenSyncPlan) {
@@ -780,7 +789,8 @@ export class FavoriteRepositorySyncService {
     accountMid: string,
     plan: FavoriteRepositoryFrozenSyncPlan,
     operation: FavoriteRepositoryFrozenSyncOperation,
-    status: FavoriteRepositoryOrganizationChange['status']
+    status: FavoriteRepositoryOrganizationChange['status'],
+    attempt = 1
   ) {
     const beforeFolderIds = [...new Set(operation.beforeFolderIds ?? [])].sort()
     const afterFolderIds = status === 'succeeded'
@@ -789,7 +799,7 @@ export class FavoriteRepositorySyncService {
         : beforeFolderIds.filter((folderId) => !operation.folderIds.includes(folderId))
       : beforeFolderIds
     const change: FavoriteRepositoryOrganizationChange = {
-      id: `${plan.id}:${operation.operationKey}:${status}`,
+      id: `${plan.id}:${operation.operationKey}:${status}:${attempt}`,
       runId: plan.id,
       workspaceId: plan.workspaceId,
       accountMid,

@@ -39,6 +39,7 @@ type WorkspaceCommand =
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
+  | { type: 'view-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
   | { type: 'pause-tag-enrichment' }
@@ -67,6 +68,7 @@ type WorkspaceCommand =
   | { type: 'save-current-segment-locally' }
   | { type: 'set-whole-run-execution-intent'; mode: 'local' | 'bilibili' }
   | { type: 'cancel-whole-run-execution-intent' }
+  | { type: 'use-original-classifications-for-failed-deepseek' }
   | {
       type: 'select-recovery-decision'
       workspaceId: string
@@ -162,6 +164,9 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'select-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'select-segment', segmentId: candidate.segmentId.trim() }
   }
+  if (candidate.type === 'view-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
+    return { type: 'view-segment', segmentId: candidate.segmentId.trim() }
+  }
   if ((candidate.type === 'undo-classification' || candidate.type === 'redo-classification') &&
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
@@ -242,6 +247,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'cancel-whole-run-execution-intent' && Object.keys(candidate).length === 1) {
     return { type: 'cancel-whole-run-execution-intent' }
+  }
+  if (candidate.type === 'use-original-classifications-for-failed-deepseek' && Object.keys(candidate).length === 1) {
+    return { type: 'use-original-classifications-for-failed-deepseek' }
   }
   if (candidate.type === 'select-recovery-decision' && typeof candidate.workspaceId === 'string' && candidate.workspaceId.trim().length > 0 &&
     candidate.workspaceId.trim().length <= 256 &&
@@ -397,6 +405,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       : options.coordinator.rebuildAfterRecovery(accountMid)
     if (requested.type === 'select-source-folders') await options.coordinator.selectSourceFolders(accountMid, requested.folderIds)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
+    if (requested.type === 'view-segment') return options.coordinator.getSegmentSnapshot(accountMid, requested.segmentId)
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
     if (requested.type === 'pause-tag-enrichment') await options.coordinator.pauseTagEnrichment(accountMid)
@@ -458,6 +467,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       await options.coordinator.continueExecutionIntent(accountMid)
     }
     if (requested.type === 'cancel-whole-run-execution-intent') await options.coordinator.setExecutionIntent(accountMid, null)
+    if (requested.type === 'use-original-classifications-for-failed-deepseek') {
+      await options.coordinator.useOriginalClassificationsForFailedDeepSeekAids(accountMid)
+      await options.coordinator.continueExecutionIntent(accountMid)
+    }
     if (requested.type === 'select-recovery-decision') {
       return options.coordinator.selectRecoveryDecision(accountMid, {
         workspaceId: requested.workspaceId,

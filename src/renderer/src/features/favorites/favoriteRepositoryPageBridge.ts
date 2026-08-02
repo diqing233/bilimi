@@ -174,7 +174,26 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid)) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
         if (!String(input.operationKey || '').trim() || !Number.isSafeInteger(input.aid) || input.aid <= 0 || !Array.isArray(input.folderIds) || input.folderIds.length === 0 || input.folderIds.some((id) => !String(id || '').trim())) return reject('invalid-operation');
         const members = {};
-        for (const folderId of [...new Set(input.folderIds.map((id) => String(id).trim()))]) {
+        const folderIds = [...new Set(input.folderIds.map((id) => String(id).trim()))];
+        const readMembershipFromFolderList = async () => {
+          let fallbackResponse;
+          try {
+            fallbackResponse = await fetchWithTimeout('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2&rid=' + encodeURIComponent(String(input.aid)), { credentials: 'include' });
+          } catch (error) {
+            return { status: 'unknown', observedAccountMid, reason: error?.message === 'remote-timeout' ? 'remote-timeout' : 'network-failure' };
+          }
+          let fallbackJson;
+          try { fallbackJson = await fallbackResponse.json(); }
+          catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
+          if (!fallbackResponse.ok || fallbackJson?.code !== 0 || !Array.isArray(fallbackJson?.data?.list)) return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+          const foldersById = new Map(fallbackJson.data.list.map((folder) => [String(folder?.id ?? folder?.fid ?? '').trim(), folder]));
+          if (folderIds.some((folderId) => !foldersById.has(folderId))) return { status: 'unknown', observedAccountMid, reason: 'reconciliation-membership-incomplete' };
+          for (const folderId of folderIds) members[folderId] = Number(foldersById.get(folderId)?.fav_state ?? 0) === 1 ? [input.aid] : [];
+          return normalizeMid(readCookie('DedeUserID')) === observedAccountMid
+            ? { status: 'ok', observedAccountMid, members }
+            : { status: 'unknown', observedAccountMid: normalizeMid(readCookie('DedeUserID')), reason: 'account-mismatch' };
+        };
+        for (const folderId of folderIds) {
           let response;
           try {
             response = await fetchWithTimeout('https://api.bilibili.com/x/v3/fav/resource/ids?media_id=' + encodeURIComponent(folderId), { credentials: 'include' });
@@ -185,7 +204,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
           try {
             json = await response.json();
           } catch {
-            return { status: response.status >= 500 ? 'unknown' : 'rejected', observedAccountMid, reason: 'invalid-response' };
+            return readMembershipFromFolderList();
           }
           if (!response.ok || json?.code !== 0) {
             return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   FavoriteRepositoryRemoteOperationArbiter,
   FavoriteRepositoryRemoteOperationUnavailableError
@@ -41,6 +41,42 @@ describe('FavoriteRepositoryRemoteOperationArbiter', () => {
     releaseFirst?.()
     await Promise.all([first, second])
     expect(events).toEqual(['first-start', 'other', 'first-end', 'second'])
+  })
+
+  it('keeps scan, reconciliation, and Bilibili writes from overlapping on one remote channel', async () => {
+    const arbiter = new FavoriteRepositoryRemoteOperationArbiter()
+    const events: string[] = []
+    let activeRemoteOperations = 0
+    let maximumConcurrency = 0
+    const gates = new Map<string, () => void>()
+    const operation = (name: string) => async () => {
+      activeRemoteOperations += 1
+      maximumConcurrency = Math.max(maximumConcurrency, activeRemoteOperations)
+      events.push(`${name}-start`)
+      await new Promise<void>((resolve) => { gates.set(name, resolve) })
+      events.push(`${name}-end`)
+      activeRemoteOperations -= 1
+    }
+
+    const scan = arbiter.run('100', operation('scan'))
+    const write = arbiter.enqueue('100', { priority: 'user-single', videoKey: 'placement:42' }, operation('write'))
+    const reconcile = arbiter.enqueue('100', { priority: 'reconcile' }, operation('reconcile'))
+
+    await vi.waitFor(() => expect(events).toEqual(['scan-start']))
+    gates.get('scan')?.()
+    await vi.waitFor(() => expect(events).toContain('reconcile-start'))
+    expect(events).not.toContain('write-start')
+    gates.get('reconcile')?.()
+    await vi.waitFor(() => expect(events).toContain('write-start'))
+    gates.get('write')?.()
+    await Promise.all([scan, reconcile, write])
+
+    expect(maximumConcurrency).toBe(1)
+    expect(events).toEqual([
+      'scan-start', 'scan-end',
+      'reconcile-start', 'reconcile-end',
+      'write-start', 'write-end'
+    ])
   })
 
   it('runs queued operations by priority after the active operation finishes', async () => {

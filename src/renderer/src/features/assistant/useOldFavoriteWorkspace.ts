@@ -80,8 +80,14 @@ function deepSeekFailureMessage(error: unknown) {
 
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/Old favorite workspace command is invalid/i.test(detail)) {
+    return '开发版主进程仍是旧版本，请重启开发项目后再试；本轮整理草稿不会丢失。'
+  }
   if (/remote-timeout|page-execution-timeout/i.test(detail)) {
     return 'B 站结果暂时无法确认，请检查已登录页面和网络后重试；系统不会重复提交未确认的操作。'
+  }
+  if (/target-unavailable|page target is unavailable/i.test(detail)) {
+    return '无法连接当前 B 站页面，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。'
   }
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) {
     return '无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
@@ -212,7 +218,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [accountMid])
 
   useEffect(() => {
-    if (!snapshot || 'recovery' in snapshot || activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) return
+    if (!snapshot || 'recovery' in snapshot) return
+    if (snapshot.deepSeekRun?.status === 'running' && activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) {
+      activeDeepSeekWorkspaceId.current = snapshot.workspaceId
+      observedDeepSeekCheckpointRef.current = true
+      setDeepSeekCancelRequested(false)
+      setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在依次整理本轮所有批次…' })
+      return
+    }
+    if (activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) return
     if (snapshot.deepSeekRun) observedDeepSeekCheckpointRef.current = true
     if (snapshot.deepSeekRun?.status === 'canceled' && (deepSeekFeedback?.status === 'waiting' || deepSeekFeedback?.status === 'running')) {
       setDeepSeekFeedback((current) => current ? {
@@ -799,18 +813,33 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const cancelWholeRunExecutionIntent = useCallback(() => sendCommand({
     type: 'cancel-whole-run-execution-intent'
   }), [sendCommand])
+  const useOriginalClassificationsForFailedDeepSeek = useCallback(() => sendCommand({
+    type: 'use-original-classifications-for-failed-deepseek'
+  }), [sendCommand])
   const abandonCurrentWorkspace = useCallback(async () => {
     const result = await sendCommand({ type: 'abandon-current-workspace' })
     if (!result) setSnapshot(null)
     return result
   }, [sendCommand])
+  const viewSegment = useCallback(async (segmentId: string) => {
+    const normalized = segmentId.trim()
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!normalized || !accountMid || !command) return null
+    const next = await command(accountMid, { type: 'view-segment', segmentId: normalized })
+    return next && !('recovery' in next) ? next : null
+  }, [accountMid])
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }, true), [sendCommand])
   const reconcileFrozenBilibiliPlan = useCallback(async () => {
+    const generation = accountGeneration.current
     setReconciling(true)
     try {
-      return await sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true)
+      const next = await sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true)
+      if (next && !('recovery' in next) && next.status === 'reconciling' && accountGeneration.current === generation) {
+        setExecutionError('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。')
+      }
+      return next
     } finally {
-      setReconciling(false)
+      if (accountGeneration.current === generation) setReconciling(false)
     }
   }, [sendCommand])
   const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
@@ -831,8 +860,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

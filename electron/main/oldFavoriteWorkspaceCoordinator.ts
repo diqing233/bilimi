@@ -107,6 +107,8 @@ type PlanReadiness = { selectedAidCount: number; classifiedAidCount: number }
 type OverviewRuntime = {
   aidRangeBySegment: Map<string, { firstAid?: number; lastAid?: number }>
   sourceCountsBySegment: Map<string, Map<string, number>>
+  selectedAidsBySegment: Map<string, Set<number>>
+  selectedItemCountsBySegment: Map<string, number>
   classificationsBySegment: Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>
   unavailableItemCount: number
 }
@@ -903,6 +905,28 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  async getSegmentSnapshot(accountMid: string, segmentId: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const descriptor = (this.segmentDescriptors.get(workspace.accountMid) ?? []).find((candidate) => candidate.id === segmentId)
+      const segment = workspace.segments.find((candidate) => candidate.id === segmentId)
+      if (!descriptor || !segment) throw new Error('Old favorite workspace segment is invalid.')
+      const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segmentId)
+      const runtimeClassifications = this.overviewRuntimes.get(workspace.accountMid)?.classificationsBySegment.get(segmentId)
+      const classifications = runtimeClassifications
+        ? Object.fromEntries([...runtimeClassifications].map(([aid, classification]) => [String(aid), clone(classification)]))
+        : Object.fromEntries(Object.entries(workspace.classifications)
+          .filter(([aid]) => segment.aids.includes(Number(aid)))
+          .map(([aid, classification]) => [aid, clone(classification)]))
+      return {
+        ...this.createSnapshot(workspace),
+        currentSegment: { id: segmentId, aids: [...segment.aids], items: (stored.items ?? []).map(clone) },
+        classifications,
+        history: { cursor: 0, length: 0, entries: [] }
+      }
+    })
+  }
+
   async getDeepSeekRunCheckpoint(accountMid: string): Promise<OldFavoriteWorkspaceDeepSeekRunCheckpoint | null> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -924,7 +948,20 @@ export class OldFavoriteWorkspaceCoordinator {
       const normalized = checkpoint ? {
         ...checkpoint,
         completedSegmentIds: [...new Set(checkpoint.completedSegmentIds.filter((id) => knownSegmentIds.has(id)))].sort(),
-        waitingSegmentIds: [...new Set(checkpoint.waitingSegmentIds.filter((id) => knownSegmentIds.has(id)))].sort()
+        waitingSegmentIds: [...new Set(checkpoint.waitingSegmentIds.filter((id) => knownSegmentIds.has(id)))].sort(),
+        ...(checkpoint.segmentWork ? { segmentWork: checkpoint.segmentWork
+          .filter((segment) => knownSegmentIds.has(segment.segmentId))
+          .map((segment) => ({ ...segment, aids: [...new Set(segment.aids)].sort((left, right) => left - right) })) } : {}),
+        ...(checkpoint.requestGroups ? { requestGroups: checkpoint.requestGroups
+          .filter((group) => knownSegmentIds.has(group.segmentId))
+          .map((group) => ({ ...group, aids: [...new Set(group.aids)].sort((left, right) => left - right) })) } : {}),
+        ...(checkpoint.originalTargetLedgerIdsByAid ? {
+          originalTargetLedgerIdsByAid: Object.fromEntries(Object.entries(checkpoint.originalTargetLedgerIdsByAid)
+            .map(([aid, targets]) => [aid, [...new Set(targets)].sort()]))
+        } : {}),
+        ...(checkpoint.successfulAids ? { successfulAids: [...new Set(checkpoint.successfulAids)].sort((left, right) => left - right) } : {}),
+        ...(checkpoint.pendingAids ? { pendingAids: [...new Set(checkpoint.pendingAids)].sort((left, right) => left - right) } : {}),
+        ...(checkpoint.failedAids ? { failedAids: [...new Set(checkpoint.failedAids)].sort((left, right) => left - right) } : {})
       } : null
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace),
@@ -935,6 +972,67 @@ export class OldFavoriteWorkspaceCoordinator {
       if (normalized) this.deepSeekRunCheckpoints.set(workspace.accountMid, clone(normalized))
       else this.deepSeekRunCheckpoints.delete(workspace.accountMid)
     })
+  }
+
+  async useOriginalClassificationsForFailedDeepSeekAids(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
+      const failedAids = [...new Set(checkpoint?.failedAids ?? [])].sort((left, right) => left - right)
+      if (!checkpoint || checkpoint.workspaceId !== workspace.id || !failedAids.length) {
+        throw new Error('DeepSeek failed classifications are unavailable for fallback.')
+      }
+      const failedSet = new Set(failedAids)
+      const originalTargets = new Map<number, string[]>()
+      for (const aid of failedAids) {
+        const targets = checkpoint.originalTargetLedgerIdsByAid?.[String(aid)]
+        if (targets) originalTargets.set(aid, [...targets])
+      }
+      for (let index = workspace.historyBaselineCursor ?? 0; index < workspace.historyCursor; index += 1) {
+        for (const change of workspace.history[index]?.changes ?? []) {
+          if (failedSet.has(change.aid) && !originalTargets.has(change.aid)) {
+            originalTargets.set(change.aid, [...(change.before?.targetLedgerIds ?? [])])
+          }
+        }
+      }
+      if (failedAids.some((aid) => !originalTargets.has(aid))) {
+        throw new Error('DeepSeek original automatic classifications are incomplete.')
+      }
+      const updated = applyWorkspaceClassificationBatch(workspace, {
+        source: 'fallback',
+        assignments: failedAids.map((aid) => ({ aid, targetLedgerIds: originalTargets.get(aid)! }))
+      })
+      const entry = updated.history[updated.history.length - 1]
+      if (updated === workspace || !entry) throw new Error('DeepSeek fallback did not change the workspace.')
+      const readiness = await this.applyReadinessHistoryChange(workspace, entry, 'forward')
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace),
+        classifications: entry.changes.flatMap((change) => change.after ? [{
+          aid: change.after.aid,
+          targetLedgerIds: [...change.after.targetLedgerIds],
+          source: change.after.source
+        }] : []),
+        history: [encodeJournalEvent({
+          type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
+        })],
+        planReadiness: readiness,
+        deepSeekRunCheckpoint: null
+      })
+      this.planReadiness.set(workspace.accountMid, readiness)
+      this.deepSeekRunCheckpoints.delete(workspace.accountMid)
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
+  }
+
+  private assertDeepSeekExecutionReady(workspace: OldFavoriteWorkspace) {
+    const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
+    if (!checkpoint || checkpoint.workspaceId !== workspace.id) return
+    throw new Error('DeepSeek organization must be completed or explicitly resolved before saving or syncing.')
+  }
+
+  private async assertDeepSeekExecutionReadyForAccount(accountMid: string) {
+    await this.queue(async () => this.assertDeepSeekExecutionReady(await this.requireWorkspace(accountMid)))
   }
 
   async setExecutionIntent(accountMid: string, mode: 'local' | 'bilibili' | null): Promise<void> {
@@ -1211,6 +1309,10 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace sources are not ready.')
+      const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
+      if (checkpoint?.workspaceId === workspace.id) {
+        throw new Error('Old favorite workspace sources cannot change while DeepSeek owns the draft.')
+      }
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
       const validIds = new Set(sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).map((folder) => folder.id))
       if (!folderIds.every((folderId) => validIds.has(folderId))) throw new Error('Old favorite workspace source selection is invalid.')
@@ -1223,6 +1325,18 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceFolders: updatedFolders,
         scan: this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: 'complete', failureCount: 0, mode: workspace.mode }
       })
+      const overviewRuntime = this.overviewRuntimes.get(workspace.accountMid)
+      if (overviewRuntime) {
+        overviewRuntime.selectedAidsBySegment.clear()
+        for (const descriptor of this.segmentDescriptors.get(workspace.accountMid) ?? []) {
+          const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+          const selectedAids = new Set((stored.items ?? [])
+            .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedIds.has(folderId)))
+            .map((item) => item.aid))
+          overviewRuntime.selectedAidsBySegment.set(descriptor.id, selectedAids)
+          overviewRuntime.selectedItemCountsBySegment.set(descriptor.id, selectedAids.size)
+        }
+      }
       const readiness = await this.calculatePlanReadiness(workspace)
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
@@ -2741,6 +2855,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async saveCurrentSegmentToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertDeepSeekExecutionReady(workspace)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
       const currentSegmentId = this.currentSegment(workspace)
       if (this.frozenSegments.get(workspace.accountMid)?.has(currentSegmentId)) return clone(workspace)
@@ -2868,6 +2983,7 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async saveWholeRunToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
+    await this.assertDeepSeekExecutionReadyForAccount(accountMid)
     const snapshot = await this.getSnapshot(accountMid)
     if (!snapshot || 'recovery' in snapshot) throw new Error('Old favorite workspace is not ready for local saving.')
     const originalSegmentId = snapshot.currentSegment?.id
@@ -2910,6 +3026,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
+    await this.assertDeepSeekExecutionReadyForAccount(accountMid)
     await this.stageUnclassifiedSelectedVideos(accountMid)
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const preparation = await this.queue(async () => {
@@ -3377,6 +3494,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /** Claims a frozen plan synchronously, then drives Bilibili in one main-process background task. */
   async beginBilibiliExecution(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    await this.commitCompleteLocalResultForRemoteExecution(accountMid)
     const frozen = await this.freezeForBilibiliExecution(accountMid)
     if (!frozen.frozenSyncPlan || !this.options.syncService) {
       throw new Error('Old favorite workspace sync service is unavailable.')
@@ -3384,6 +3502,102 @@ export class OldFavoriteWorkspaceCoordinator {
     await this.options.syncService.claimFrozenPlan(frozen.accountMid, frozen.frozenSyncPlan)
     void this.executeFrozenBilibiliPlan(frozen.accountMid).catch(() => undefined)
     return this.getSnapshot(frozen.accountMid) as Promise<OldFavoriteWorkspaceSnapshot>
+  }
+
+  private async commitCompleteLocalResultForRemoteExecution(accountMid: string) {
+    await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      this.assertDeepSeekExecutionReady(workspace)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
+      const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
+      const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
+      const overview = this.scanOverviews.get(workspace.accountMid)
+      const selectable = overview?.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder) ?? []
+      const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
+      const items: CurrentSegmentItem[] = []
+      const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
+        workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+      for (const descriptor of descriptors) {
+        const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+        items.push(...(segment.items ?? []))
+      }
+      const selectedItems = items.filter((item) => !isUnavailableScanItem(item) &&
+        (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
+      if (!selectedItems.length) throw new Error('Old favorite workspace selected plan is empty.')
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      const existingLogicalFolderIds = new Set(repository.folders
+        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+        .map((folder) => folder.logicalLedgerId!))
+      const localFolderIdForLedger = (logicalLedgerId: string) => existingLogicalFolderIds.has(logicalLedgerId)
+        ? `bilimi-logical:${logicalLedgerId}`
+        : `local:${logicalLedgerId}`
+      const memberAidsByFolderId: Record<string, number[]> = { 'local:inbox': [] }
+      const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string }> = []
+      for (const item of selectedItems) {
+        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
+        if (!targets.length) memberAidsByFolderId['local:inbox'].push(item.aid)
+        else {
+          const targetFolderIds = targets.map(localFolderIdForLedger)
+          for (const folderId of targetFolderIds) memberAidsByFolderId[folderId] = [...(memberAidsByFolderId[folderId] ?? []), item.aid]
+          organizationRecords.push({ accountMid: workspace.accountMid, aid: item.aid, targetFolderIds, completedAt: this.now() })
+        }
+      }
+      const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
+        .map((candidate) => [candidate.id, candidate.sourceName] as const))
+      const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+      const folders = await Promise.all(Object.keys(memberAidsByFolderId).filter((folderId) => folderId.startsWith('local:')).map(async (folderId) => {
+        if (folderId === 'local:inbox') return { id: folderId, title: '暂存', kind: 'local' as const, syncState: 'local-only' as const }
+        const ledgerId = folderId.slice('local:'.length)
+        return {
+          id: folderId,
+          title: repository.folders.find((folder) => folder.id === folderId)?.title ?? recommendationTitles.get(ledgerId) ??
+            await this.options.resolveLedgerTitle?.(workspace.accountMid, ledgerId) ?? defaultTitles.get(ledgerId) ?? ledgerId,
+          kind: 'local' as const,
+          syncState: 'local-only' as const
+        }
+      }))
+      await this.options.repository.commit(workspace.accountMid, {
+        id: `old-favorite-workspace:remote-local:${workspace.id}`,
+        accountMid: workspace.accountMid,
+        issuedAt: this.now(),
+        type: 'commit-local-plan',
+        payload: {
+          workspaceId: workspace.id,
+          memberAidsByFolderId: Object.fromEntries(Object.entries(memberAidsByFolderId)
+            .map(([folderId, aids]) => [folderId, [...new Set(aids)].sort((left, right) => left - right)])),
+          folders,
+          videos: selectedItems.map((item) => ({
+            aid: item.aid,
+            title: item.title?.trim() || `Video ${item.aid}`,
+            ...(item.author?.trim() ? { author: item.author.trim() } : {}),
+            ...(item.description?.trim() ? { description: item.description.trim() } : {}),
+            tags: [...(item.tags ?? [])],
+            updatedAt: this.now()
+          })),
+          organizationRecords
+        }
+      })
+      const afterCommit = await this.options.repository.getSnapshot(workspace.accountMid)
+      for (const item of selectedItems) {
+        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
+        const desired = targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort()
+        const prior = afterCommit.positions[`${workspace.accountMid}:${item.aid}`]
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:remote-local-position:${workspace.id}:${item.aid}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'set-favorite-position',
+          payload: {
+            aid: item.aid,
+            localDesiredFolderIds: desired,
+            remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
+            remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
+            updatedAt: this.now(),
+            reason: 'old-favorite-local-first'
+          }
+        })
+      }
+    })
   }
 
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
@@ -3397,7 +3611,7 @@ export class OldFavoriteWorkspaceCoordinator {
       return { accountMid: snapshot.accountMid, runId: plan.id }
     })
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    await this.options.syncService.bindPageTarget(run.accountMid, run.runId)
+    await this.options.syncService.rebindPageTarget(run.accountMid, run.runId)
     return this.options.syncService.reconcile(run.accountMid, run.runId)
   }
 
@@ -3410,6 +3624,7 @@ export class OldFavoriteWorkspaceCoordinator {
       return { accountMid: snapshot.accountMid, runId: plan.id }
     })
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    await this.options.syncService.rebindPageTarget(run.accountMid, run.runId)
     return this.options.syncService.resume(run.accountMid, run.runId)
   }
 
@@ -3513,7 +3728,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const restoredSourceFolders = restoredSourceFoldersWithInvalidCounts(
       recovered.sourceFolders, repositorySnapshot, unavailableAids
     )
-    if (recovered.recoveryDecision && recovered.recoveryBaseline) {
+    if (marker.status === 'previewing' && recovered.recoveryDecision && recovered.recoveryBaseline) {
       const current = recoveryBaselineVector(await this.options.repository.getSnapshot(marker.accountMid), recovered.recoveryBaseline.aids,
         await this.options.resolveRecoveryConfiguration?.(marker.accountMid))
       if (recovered.recoveryDecision.evidenceFingerprint &&
@@ -3591,7 +3806,7 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       overviewClassificationsBySegment.set(descriptor.id, classifications)
     }
-    this.restoreOverviewRuntime(marker.accountMid, scan.segments, recovered.currentSegmentId,
+    await this.restoreOverviewRuntime(marker.accountMid, marker.id, scan.segments, recovered.currentSegmentId,
       recovered.loadedSegmentItems, overviewClassificationsBySegment, recovered.overview,
       restoredSourceFolders, repositorySnapshot, unavailableAids)
     const allHistory = journalState.entriesBySegment.get(recovered.currentSegmentId) ?? []
@@ -4130,7 +4345,11 @@ export class OldFavoriteWorkspaceCoordinator {
     const aidRangeBySegment = new Map(workspace.segments.map((segment) => [segment.id, {
       ...(segment.aids.length ? { firstAid: segment.aids[0], lastAid: segment.aids[segment.aids.length - 1] } : {})
     }]))
-    const sourceCountsBySegment = new Map<string, Map<string, number>>()
+    const sourceCountsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Map<string, number>()]))
+    const selectedAidsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Set<number>()]))
+    const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .map((folder) => folder.id))
     for (const item of items) {
       const segmentId = segmentIdByAid.get(item.aid)
       if (!segmentId || isUnavailableScanItem(item)) continue
@@ -4139,10 +4358,19 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceCounts.set(sourceFolderId, (sourceCounts.get(sourceFolderId) ?? 0) + 1)
       }
       sourceCountsBySegment.set(segmentId, sourceCounts)
+      if (item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) {
+        const selectedAids = selectedAidsBySegment.get(segmentId) ?? new Set<number>()
+        selectedAids.add(item.aid)
+        selectedAidsBySegment.set(segmentId, selectedAids)
+      }
     }
     const runtime: OverviewRuntime = {
       aidRangeBySegment,
       sourceCountsBySegment,
+      selectedAidsBySegment,
+      selectedItemCountsBySegment: new Map(workspace.segments.map((segment) => [
+        segment.id, selectedAidsBySegment.get(segment.id)?.size ?? 0
+      ])),
       classificationsBySegment: new Map(workspace.segments.map((segment) => [segment.id, new Map()])),
       unavailableItemCount
     }
@@ -4155,19 +4383,21 @@ export class OldFavoriteWorkspaceCoordinator {
       segments: [...runtime.sourceCountsBySegment].map(([id, sourceCounts]) => ({
         id,
         ...runtime.aidRangeBySegment.get(id),
-        sourceFolderCounts: Object.fromEntries(sourceCounts)
+        sourceFolderCounts: Object.fromEntries(sourceCounts),
+        selectedItemCount: runtime.selectedItemCountsBySegment.get(id) ?? 0
       })),
       unavailableItemCount: runtime.unavailableItemCount
     }
   }
 
-  private restoreOverviewRuntime(
+  private async restoreOverviewRuntime(
     accountMid: string,
+    workspaceId: string,
     descriptors: SegmentDescriptor[],
     currentSegmentId: string,
     currentSegmentItems: CurrentSegmentItem[],
     classificationsBySegment: Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>,
-    persisted: { segments: Array<{ id: string; firstAid?: number; lastAid?: number; sourceFolderCounts: Record<string, number> }>; unavailableItemCount: number } | undefined,
+    persisted: { segments: Array<{ id: string; firstAid?: number; lastAid?: number; sourceFolderCounts: Record<string, number>; selectedItemCount?: number }>; unavailableItemCount: number } | undefined,
     sourceFolders: ScanOverview['sourceFolders'],
     repository: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
     unavailableAids: ReadonlySet<number>
@@ -4181,6 +4411,55 @@ export class OldFavoriteWorkspaceCoordinator {
       ...(segment.firstAid ? { firstAid: segment.firstAid } : {}),
       ...(segment.lastAid ? { lastAid: segment.lastAid } : {})
     }]))
+    const selectedSourceFolderIds = new Set(sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .map((folder) => folder.id))
+    const allSelectableSourcesSelected = sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder)
+      .every((folder) => folder.selected !== false)
+    const selectedAidsBySegment = new Map<string, Set<number>>()
+    const selectedItemCountsBySegment = new Map<string, number>()
+    const legacyAllSourceSegmentIds: string[] = []
+    for (const descriptor of descriptors) {
+      if (descriptor.id === currentSegmentId) {
+        const selectedAids = new Set(currentSegmentItems
+          .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+          .map((item) => item.aid))
+        selectedAidsBySegment.set(descriptor.id, selectedAids)
+        selectedItemCountsBySegment.set(descriptor.id, selectedAids.size)
+        continue
+      }
+      const persistedSegment = persisted?.segments.find((segment) => segment.id === descriptor.id)
+      if (allSelectableSourcesSelected && persistedSegment?.selectedItemCount !== undefined) {
+        selectedItemCountsBySegment.set(descriptor.id, persistedSegment.selectedItemCount)
+        continue
+      }
+      if (allSelectableSourcesSelected) {
+        selectedItemCountsBySegment.set(descriptor.id, descriptor.itemCount)
+        legacyAllSourceSegmentIds.push(descriptor.id)
+        continue
+      }
+      const items = descriptor.id === currentSegmentId
+        ? currentSegmentItems
+        : (await this.options.workspaceStore.loadSegment(accountMid, workspaceId, descriptor.id)).items ?? []
+      const selectedAids = new Set(items
+        .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        .map((item) => item.aid))
+      selectedAidsBySegment.set(descriptor.id, selectedAids)
+      selectedItemCountsBySegment.set(descriptor.id, selectedAids.size)
+    }
+    if (allSelectableSourcesSelected && legacyAllSourceSegmentIds.length) {
+      const selectedTotal = [...sourceMembershipAids].filter((aid) => !unavailableAids.has(aid)).length
+      let excess = Math.max(0, [...selectedItemCountsBySegment.values()]
+        .reduce((count, itemCount) => count + itemCount, 0) - selectedTotal)
+      for (const segmentId of legacyAllSourceSegmentIds) {
+        if (!excess) break
+        const count = selectedItemCountsBySegment.get(segmentId) ?? 0
+        const correction = Math.min(count, excess)
+        selectedItemCountsBySegment.set(segmentId, count - correction)
+        excess -= correction
+      }
+    }
     if (!sourceCountsBySegment.has(currentSegmentId)) {
       const counts = new Map<string, number>()
       for (const item of currentSegmentItems) for (const sourceFolderId of new Set(item.sourceFolderIds)) {
@@ -4190,6 +4469,13 @@ export class OldFavoriteWorkspaceCoordinator {
       const aids = currentSegmentItems.map((item) => item.aid).sort((left, right) => left - right)
       aidRangeBySegment.set(currentSegmentId, aids.length ? { firstAid: aids[0], lastAid: aids[aids.length - 1] } : {})
     }
+    if (!selectedAidsBySegment.has(currentSegmentId)) {
+      const selectedAids = new Set(currentSegmentItems
+        .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        .map((item) => item.aid))
+      selectedAidsBySegment.set(currentSegmentId, selectedAids)
+      selectedItemCountsBySegment.set(currentSegmentId, selectedAids.size)
+    }
     for (const descriptor of descriptors) {
       if (!sourceCountsBySegment.has(descriptor.id)) sourceCountsBySegment.set(descriptor.id, new Map())
       if (!aidRangeBySegment.has(descriptor.id)) aidRangeBySegment.set(descriptor.id, {})
@@ -4197,6 +4483,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.overviewRuntimes.set(accountMid, {
       aidRangeBySegment,
       sourceCountsBySegment,
+      selectedAidsBySegment,
+      selectedItemCountsBySegment,
       classificationsBySegment,
       unavailableItemCount: persisted?.unavailableItemCount ??
         [...unavailableAids].filter((aid) => sourceMembershipAids.has(aid)).length
@@ -4246,18 +4534,22 @@ export class OldFavoriteWorkspaceCoordinator {
     for (const segmentId of completedSegmentIds) {
       const classifications = runtime?.classificationsBySegment.get(segmentId) ??
         new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+      const selectedAids = runtime?.selectedAidsBySegment.get(segmentId)
+      const segmentProcessedItemCount = selectedAids?.size ?? runtime?.selectedItemCountsBySegment.get(segmentId) ?? 0
+      let segmentClassifiedItemCount = 0
       for (const classification of classifications.values()) {
-        processedItemCount += 1
-        if (classification.targetLedgerIds.length) classifiedItemCount += 1
-        else unmatchedItemCount += 1
+        if (selectedAids && !selectedAids.has(classification.aid)) continue
+        if (classification.targetLedgerIds.length) segmentClassifiedItemCount += 1
         for (const ledgerId of new Set(classification.targetLedgerIds.slice(0, 3))) {
           const segmentCounts = archiveCounts.get(ledgerId) ?? new Map<string, number>()
           segmentCounts.set(segmentId, (segmentCounts.get(segmentId) ?? 0) + 1)
           archiveCounts.set(ledgerId, segmentCounts)
         }
       }
-      const segmentUnmatchedCount = [...classifications.values()]
-        .filter((classification) => classification.targetLedgerIds.length === 0).length
+      processedItemCount += segmentProcessedItemCount
+      classifiedItemCount += Math.min(segmentProcessedItemCount, segmentClassifiedItemCount)
+      const segmentUnmatchedCount = Math.max(0, segmentProcessedItemCount - segmentClassifiedItemCount)
+      unmatchedItemCount += segmentUnmatchedCount
       if (segmentUnmatchedCount) {
         const inboxCounts = archiveCounts.get('inbox') ?? new Map<string, number>()
         inboxCounts.set(segmentId, segmentUnmatchedCount)
@@ -4373,7 +4665,11 @@ export class OldFavoriteWorkspaceCoordinator {
               ? 'waiting' as const
               : 'running' as const,
           completedSegmentCount: deepSeekRunCheckpoint.completedSegmentIds.length,
-          waitingSegmentCount: deepSeekRunCheckpoint.waitingSegmentIds.length
+          waitingSegmentCount: deepSeekRunCheckpoint.waitingSegmentIds.length,
+          ...(deepSeekRunCheckpoint.totalVideoCount !== undefined ? { totalVideoCount: deepSeekRunCheckpoint.totalVideoCount } : {}),
+          ...(deepSeekRunCheckpoint.successfulAids ? { successfulVideoCount: deepSeekRunCheckpoint.successfulAids.length } : {}),
+          ...(deepSeekRunCheckpoint.pendingAids ? { pendingVideoCount: deepSeekRunCheckpoint.pendingAids.length } : {}),
+          ...(deepSeekRunCheckpoint.failedAids ? { failedVideoCount: deepSeekRunCheckpoint.failedAids.length } : {})
         }
       } : {}),
       ...(executionIntent?.workspaceId === workspace.id ? {
@@ -4436,6 +4732,7 @@ export class OldFavoriteWorkspaceCoordinator {
               : undefined
             const reasons: Record<OldFavoriteWorkspaceClassificationSource, string> = {
               manual: '人工调整',
+              fallback: '沿用原自动分类',
               deepseek: 'DeepSeek 整理',
               'system-high': '高置信度自动分类',
               'system-low': '低置信度自动分类'
@@ -4456,12 +4753,38 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private async createSnapshotWithExecutionProgress(workspace: OldFavoriteWorkspace): Promise<OldFavoriteWorkspaceSnapshot> {
     const snapshot = this.createSnapshot(workspace)
-    if (workspace.status !== 'executing' || !this.options.syncService) return snapshot
+    if ((workspace.status !== 'executing' && workspace.status !== 'reconciling') || !this.options.syncService) return snapshot
     try {
       const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
       const plan = persisted.workspace?.frozenSyncPlan
-      if (!plan || persisted.workspace?.status !== 'executing') return snapshot
+      if (!plan || (persisted.workspace?.status !== 'executing' && persisted.workspace?.status !== 'reconciling')) return snapshot
       const run = await this.options.syncService.getRun(workspace.accountMid, plan.id)
+      if (workspace.status === 'executing' && run.status === 'ready-to-resume') {
+        const frozen = { ...workspace, status: 'frozen' as const }
+        await this.persistMarker(frozen, plan)
+        this.workspaces.set(workspace.accountMid, frozen)
+        return this.createSnapshot(frozen)
+      }
+      if (workspace.status === 'executing' && run.status === 'result-unknown') {
+        const reconciling = { ...workspace, status: 'reconciling' as const }
+        const marker = await this.createMarker(reconciling, plan)
+        marker.workspaceRef.currentStep = 'result-unknown'
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:${workspace.id}:${randomUUID()}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'set-workspace',
+          payload: marker
+        })
+        this.workspaces.set(workspace.accountMid, reconciling)
+        return {
+          ...this.createSnapshot(reconciling),
+          executionProgress: {
+            completedOperationCount: run.completedOperationCount,
+            totalOperationCount: run.totalOperationCount
+          }
+        }
+      }
       return {
         ...snapshot,
         executionProgress: {

@@ -312,12 +312,14 @@ describe('FavoriteRepositorySyncService', () => {
     expect(release).toHaveBeenCalledWith('100', frozenPlan.id)
   })
 
-  it('never retries an unknown append before reconciliation confirms it is absent', async () => {
+  it('retries an unknown append once only after automatic reconciliation confirms it is absent', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
       id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
     })
-    const append = vi.fn().mockRejectedValueOnce(new Error('network connection interrupted'))
+    const append = vi.fn()
+      .mockRejectedValueOnce(new Error('network connection interrupted'))
+      .mockResolvedValueOnce({ observedAccountMid: '100' })
     const pageBridge = {
       append,
       remove: vi.fn(),
@@ -325,13 +327,8 @@ describe('FavoriteRepositorySyncService', () => {
     }
     const service = new FavoriteRepositorySyncService({ repository, pageBridge, now: () => '2026-07-19T00:00:00.000Z' })
 
-    expect(await service.executeFrozenPlan('100', plan())).toMatchObject({ status: 'result-unknown' })
-    expect(append).toHaveBeenCalledTimes(1)
-
-    await expect(service.resume('100', 'run-1')).resolves.toMatchObject({ status: 'result-unknown' })
-    expect(append).toHaveBeenCalledTimes(1)
-
-    expect(await service.reconcile('100', 'run-1')).toMatchObject({ status: 'ready-to-resume' })
+    expect(await service.executeFrozenPlan('100', plan())).toMatchObject({ status: 'succeeded' })
+    expect(append).toHaveBeenCalledTimes(2)
     expect(pageBridge.readMembers).toHaveBeenCalledWith({
       accountMid: '100', operationKey: 'append-1', aid: 1, folderIds: ['remote-a']
     })
@@ -341,6 +338,100 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       workspace: { status: 'completed' },
       organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-a'] }]
+    })
+  })
+
+  it('continues the frozen plan when an ambiguous append is confirmed remotely without repeating that write', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(2)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const append = vi.fn()
+      .mockRejectedValueOnce(new Error('invalid-response'))
+      .mockResolvedValue({ observedAccountMid: '100' })
+    const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [1] } })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers, readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({
+      status: 'succeeded', completedOperationCount: 2
+    })
+    expect(append.mock.calls.map(([input]) => input.aid)).toEqual([1, 2])
+    expect(readMembers).toHaveBeenCalledTimes(1)
+    expect(readMembers).toHaveBeenCalledWith({
+      accountMid: '100', operationKey: 'append-1', aid: 1, folderIds: ['remote-a']
+    })
+  })
+
+  it('stops with an unknown result when automatic reconciliation cannot read complete membership', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const append = vi.fn().mockRejectedValueOnce(new Error('invalid-response'))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append, remove: vi.fn(),
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: {} }),
+        readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+      },
+      now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'result-unknown' })
+    expect(append).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a confirmed remote rejection failed without attempting automatic reconciliation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const readMembers = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValueOnce(new FavoriteRepositoryRemoteRejectedError('known rejection')),
+        remove: vi.fn(), readMembers, readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+      },
+      now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'failed' })
+    expect(readMembers).not.toHaveBeenCalled()
+  })
+
+  it('stops after one automatic confirmed-absent retry and can resume without reusing a workspace command id', async () => {
+    const repository = await createRepository()
+    const repeatedPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: repeatedPlan }
+    })
+    const append = vi.fn()
+      .mockRejectedValueOnce(new Error('first response unknown'))
+      .mockRejectedValueOnce(new Error('second response unknown'))
+      .mockResolvedValueOnce({ observedAccountMid: '100' })
+    const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } })
+    let clock = 0
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers, readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => `2026-07-19T00:00:${String(clock++).padStart(2, '0')}.000Z`, pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', repeatedPlan)).resolves.toMatchObject({ status: 'ready-to-resume' })
+    await expect(service.resume('100', repeatedPlan.id)).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(append).toHaveBeenCalledTimes(3)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'completed' }
     })
   })
 
@@ -366,6 +457,25 @@ describe('FavoriteRepositorySyncService', () => {
     expect(release).toHaveBeenCalledWith('100', 'run-1')
     await expect(service.resume('100', 'run-1')).resolves.toMatchObject({ status: 'succeeded' })
     expect(bind).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces a stale page target before an explicit reconciliation attempt', async () => {
+    const repository = await createRepository()
+    const events: string[] = []
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn(async () => { events.push('bind') }),
+        release: vi.fn(() => { events.push('release') }),
+        pageBridge: vi.fn()
+      },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await service.bindPageTarget('100', 'run-1')
+    await service.rebindPageTarget('100', 'run-1')
+
+    expect(events).toEqual(['bind', 'release', 'bind'])
   })
 
   it('records completed aids as account-scoped incremental protections only after the full plan succeeds', async () => {

@@ -1225,6 +1225,52 @@ describe('DeepSeek main service', () => {
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
+  it('uses a 180 second default timeout only for old-favorite archive organization', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+        }))
+      const result = generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'favorite-archive-organize', mode: 'all', videos: [], ledgers: [], multiArchiveLimit: 1 },
+        fetchImpl
+      })
+      let settled = false
+      void result.catch(() => { settled = true })
+
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(90_000)
+      await expect(result).rejects.toThrow('180 seconds')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the ordinary default timeout at 90 seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+        }))
+      const result = generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'pet-chat', messages: [{ role: 'user', content: 'hello' }] },
+        fetchImpl
+      })
+      const rejection = expect(result).rejects.toThrow('90 seconds')
+
+      await vi.advanceTimersByTimeAsync(90_000)
+
+      await rejection
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('falls back to the original transcript when proofreading times out so summary generation can continue', async () => {
     let requestIndex = 0
     const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {

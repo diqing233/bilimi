@@ -90,6 +90,7 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
     claimFrozenPlan: vi.fn(),
     executeFrozenPlan: vi.fn(),
     bindPageTarget: vi.fn(),
+    rebindPageTarget: vi.fn(),
     reconcile: vi.fn(),
     resume: vi.fn(),
     getRun: vi.fn(),
@@ -461,7 +462,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(restored.status).toBe('frozen')
     expect(restored.executionIntent).toBeUndefined()
-  })
+  }, 15_000)
 
   it('claims a ready execution intent once when multiple completion signals arrive together', async () => {
     const root = await createRoot()
@@ -646,6 +647,93 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       archiveTargets: expect.arrayContaining([
         { ledgerId: 'knowledge', itemCount: 499, segmentCounts: [{ segmentId: 'segment-1', count: 499 }] },
         { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] }
+      ])
+    })
+  })
+
+  it('keeps unavailable videos out of whole-run processed and inbox counts after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map((item) => ({
+      targetLedgerIds: item.aid === 1 ? ['knowledge'] : [], confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, store, {
+      initializeOnOpen: false, segmentSize: () => 500, classifyCurrentItems
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 503, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 503; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 503 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return aid === 2 || aid === 503
+            ? { aid, title: '已失效视频', unavailable: true, sourceFolderIds: ['source'] }
+            : { aid, title: `Video ${aid}`, tags: ['ready'], sourceFolderIds: ['source'] }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+
+    const expected = {
+      processedItemCount: 501,
+      classifiedItemCount: 1,
+      unmatchedItemCount: 500,
+      unavailableItemCount: 2,
+      archiveTargets: expect.arrayContaining([
+        { ledgerId: 'knowledge', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] },
+        { ledgerId: 'inbox', itemCount: 500, segmentCounts: [
+          { segmentId: 'segment-1', count: 499 }, { segmentId: 'segment-2', count: 1 }
+        ] }
+      ])
+    }
+    expect(requireSnapshot(await coordinator.getSnapshot('100')).overview).toMatchObject(expected)
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, segmentSize: () => 500, classifyCurrentItems
+    })
+    expect(requireSnapshot(await restarted.getSnapshot('100')).overview).toMatchObject(expected)
+  })
+
+  it('counts completed selected videos without classification records as local inbox items', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['knowledge'], confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, segmentSize: () => 500, classifyCurrentItems
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return { aid, title: `Video ${aid}`, tags: ['ready'], sourceFolderIds: ['source'] }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+
+    const runtime = (coordinator as unknown as {
+      overviewRuntimes: Map<string, { classificationsBySegment: Map<string, Map<number, unknown>> }>
+    }).overviewRuntimes.get('100')
+    runtime?.classificationsBySegment.get('segment-2')?.delete(501)
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.overview).toMatchObject({
+      processedItemCount: 501,
+      classifiedItemCount: 500,
+      unmatchedItemCount: 1,
+      archiveTargets: expect.arrayContaining([
+        { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-2', count: 1 }] }
       ])
     })
   })
@@ -5602,6 +5690,90 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(executeFrozenPlan).toHaveBeenCalledWith('100', expect.objectContaining({ operations: [expect.objectContaining({ aid: 1 })] }))
   })
 
+  it('commits the complete local organization result before the first Bilibili write starts', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let localSnapshotAtFirstWrite: Awaited<ReturnType<typeof repository.getSnapshot>> | undefined
+    const append = vi.fn(async () => {
+      localSnapshotAtFirstWrite = await repository.getSnapshot('100')
+      return { observedAccountMid: '100' }
+    })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-20T00:01:00.000Z', pacingMs: 0
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+
+    await expect(coordinator.beginBilibiliExecution('100')).resolves.toMatchObject({ status: 'executing' })
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+
+    expect(localSnapshotAtFirstWrite).toMatchObject({
+      memberships: {
+        'bilimi-logical:music': [1],
+        'local:inbox': [2]
+      },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+      }
+    })
+    await vi.waitFor(async () => {
+      expect((await repository.getSnapshot('100')).workspace?.status).toBe('completed')
+    })
+  })
+
+  it('keeps the complete local result after a Bilibili write fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const append = vi.fn().mockRejectedValue(new Error('remote write failed'))
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-20T00:01:00.000Z', pacingMs: 0
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+
+    await coordinator.beginBilibiliExecution('100')
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+      }
+    })
+  })
+
   it('finishes an all-checkpoint-successful plan without rebinding and exposes the cleared completed snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -5729,14 +5901,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(getRun).toHaveBeenCalledWith('100', 'run-1')
   })
 
-  it('requires an explicit page bind before reconciling an unknown frozen run', async () => {
+  it('requires an explicit fresh page bind before reconciling an unknown frozen run', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
-    const bindPageTarget = vi.fn().mockResolvedValue(undefined)
+    const rebindPageTarget = vi.fn().mockResolvedValue(undefined)
     const reconcile = vi.fn().mockResolvedValue({ id: 'run-1', status: 'ready-to-resume' })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: createSyncService({ executeFrozenPlan: vi.fn(), bindPageTarget, reconcile })
+      syncService: createSyncService({ executeFrozenPlan: vi.fn(), rebindPageTarget, reconcile })
     })
     await coordinator.open('100')
     await repository.commit('100', {
@@ -5750,8 +5922,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.bindAndReconcileFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'ready-to-resume' })
-    expect(bindPageTarget).toHaveBeenCalledWith('100', 'run-1')
+    expect(rebindPageTarget).toHaveBeenCalledWith('100', 'run-1')
     expect(reconcile).toHaveBeenCalledWith('100', 'run-1')
+  })
+
+  it('requires an explicit fresh page bind before resuming a reconciled frozen run', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const rebindPageTarget = vi.fn().mockResolvedValue(undefined)
+    const resume = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: createSyncService({ executeFrozenPlan: vi.fn(), rebindPageTarget, resume })
+    })
+    await coordinator.open('100')
+    await repository.commit('100', {
+      id: 'frozen', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) },
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-1'] }] }
+      }
+    })
+
+    await expect(coordinator.resumeReconciledBilibiliPlan('100')).resolves.toMatchObject({ status: 'running' })
+    expect(rebindPageTarget).toHaveBeenCalledWith('100', 'run-1')
+    expect(resume).toHaveBeenCalledWith('100', 'run-1')
   })
 
   it('restores staged source metadata and the active segment after scan finalization', async () => {
@@ -6181,6 +6378,131 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it.each([
+    { label: 'running', checkpoint: { canceled: false, failed: false, pendingAids: [1], failedAids: [] } },
+    { label: 'waiting', checkpoint: { canceled: false, failed: false, pendingAids: [], failedAids: [], waitingSegmentIds: ['segment-2'] } },
+    { label: 'canceled', checkpoint: { canceled: true, failed: false, pendingAids: [1], failedAids: [] } },
+    { label: 'failed', checkpoint: { canceled: false, failed: true, pendingAids: [], failedAids: [1] } }
+  ])('blocks local save and Bilibili freeze while DeepSeek is $label', async ({ checkpoint }) => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', { source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['music'] }] })
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: snapshot.workspaceId, mode: 'all', scope: 'all',
+      segmentWork: [{ segmentId: snapshot.currentSegment!.id, index: 0, aids: [1] }], totalVideoCount: 1,
+      requestGroups: [], successfulAids: [], completedSegmentIds: [], waitingSegmentIds: [],
+      ...checkpoint
+    })
+
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow(/DeepSeek/i)
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow(/DeepSeek/i)
+  })
+
+  it('restores failed DeepSeek aids to their original automatic classifications and records the resolution', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems: async () => [{ targetLedgerIds: ['original-music'], confidence: 'high' as const }]
+    })
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video 1', tags: ['tag'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const before = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['deepseek-games'] }], {
+      workspaceId: before.workspaceId,
+      currentSegmentId: before.currentSegment!.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: { '1': { targetLedgerIds: ['original-music'], source: 'system-high' } }
+    })
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: before.workspaceId, mode: 'all', scope: 'all',
+      segmentWork: [{ segmentId: before.currentSegment!.id, index: 0, aids: [1] }], totalVideoCount: 1,
+      requestGroups: [], successfulAids: [], pendingAids: [], failedAids: [1], completedSegmentIds: [], waitingSegmentIds: [],
+      canceled: false, failed: true
+    })
+
+    await coordinator.useOriginalClassificationsForFailedDeepSeekAids('100')
+
+    await expect(coordinator.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
+    const resolved = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(resolved).toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['original-music'], source: 'fallback' } }
+    })
+    expect(resolved.history.entries[0]).toMatchObject({ source: 'fallback', summary: { reason: '沿用原自动分类' } })
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'completed' })
+  })
+
+  it('restores a provider-failed aid even when DeepSeek never changed its automatic classification', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems: async () => [{ targetLedgerIds: ['original-music'], confidence: 'high' as const }]
+    })
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video 1', tags: ['tag'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const before = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: before.workspaceId, mode: 'all', scope: 'all', sourceFolderRevision: 'source',
+      segmentWork: [{ segmentId: before.currentSegment!.id, index: 0, aids: [1] }], totalVideoCount: 1,
+      originalTargetLedgerIdsByAid: { '1': ['original-music'] },
+      requestGroups: [], successfulAids: [], pendingAids: [], failedAids: [1], completedSegmentIds: [], waitingSegmentIds: [],
+      canceled: false, failed: true
+    })
+
+    await coordinator.useOriginalClassificationsForFailedDeepSeekAids('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['original-music'], source: 'fallback' } }
+    })
+    await expect(coordinator.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
+  })
+
+  it('rejects source selection changes while a durable DeepSeek work plan owns the draft', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: snapshot.workspaceId, mode: 'all', scope: 'all', sourceFolderRevision: 'source-a|source-b',
+      segmentWork: [{ segmentId: snapshot.currentSegment!.id, index: 0, aids: [1, 2] }], totalVideoCount: 2,
+      originalTargetLedgerIdsByAid: { '1': [], '2': [] }, requestGroups: [], successfulAids: [], pendingAids: [1, 2], failedAids: [],
+      completedSegmentIds: [], waitingSegmentIds: [], canceled: false
+    })
+
+    await expect(coordinator.selectSourceFolders('100', ['source-a'])).rejects.toThrow(/DeepSeek/i)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      sourceFolders: [
+        { id: 'source-a', selected: true },
+        { id: 'source-b', selected: true }
+      ]
+    })
+  })
+
   it('treats initial automatic classification as a durable restore baseline instead of user change history', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -6548,6 +6870,39 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       .rejects.toThrow('recovery decision is stale')
   })
 
+  it('restores a result-unknown sync workspace without revalidating its preview recovery decision', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'continue-original',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+    const snapshot = await repository.getSnapshot('100')
+    if (!snapshot.workspace) throw new Error('missing workspace')
+    await repository.commit('100', {
+      id: 'result-unknown-marker', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        ...snapshot.workspace,
+        status: 'reconciling',
+        workspaceRef: { ...snapshot.workspace.workspaceRef, status: 'reconciling', currentStep: 'result-unknown' }
+      }
+    })
+    await repository.commit('100', {
+      id: 'confirmed-sync-projection', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'confirmed remote facts', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:02.000Z' }
+    })
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).getSnapshot('100'))
+      .resolves.toMatchObject({ status: 'reconciling' })
+  })
+
   it('merges latest recovery facts without replacing manual classifications or making the decision stale', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -6666,13 +7021,68 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
     const executeFrozenPlan = vi.fn().mockResolvedValue({ id: plan.id, status: 'ready-to-resume' })
+    const getRun = vi.fn().mockResolvedValue({
+      id: plan.id,
+      status: 'ready-to-resume',
+      completedOperationCount: 1,
+      totalOperationCount: 2
+    })
     const restarted = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: createSyncService({ executeFrozenPlan })
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: createSyncService({ executeFrozenPlan, getRun })
     })
 
-    await restarted.getSnapshot('100')
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ status: 'frozen' })
 
     expect(executeFrozenPlan).not.toHaveBeenCalled()
+  })
+
+  it('restores an interrupted unknown result as reconciliation without repeating the remote write', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = requireWorkspace(await first.open('100'))
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    const plan = {
+      id: 'run-unknown-interrupted', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+      createdAt: '2026-07-20T00:00:00.000Z', operations: []
+    }
+    await repository.commit('100', {
+      id: 'interrupted-unknown', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker, status: 'executing', workspaceRef: { ...marker.workspaceRef, status: 'executing' }, frozenSyncPlan: plan
+      }
+    })
+    const executeFrozenPlan = vi.fn()
+    const reconcile = vi.fn()
+    const restarted = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: createSyncService({
+        executeFrozenPlan,
+        reconcile,
+        getRun: vi.fn().mockResolvedValue({
+          id: plan.id,
+          status: 'result-unknown',
+          completedOperationCount: 1,
+          totalOperationCount: 2
+        })
+      })
+    })
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'reconciling',
+      executionProgress: { completedOperationCount: 1, totalOperationCount: 2 }
+    })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'reconciling',
+      executionProgress: { completedOperationCount: 1, totalOperationCount: 2 }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'reconciling', workspaceRef: { currentStep: 'result-unknown' } }
+    })
+    expect(executeFrozenPlan).not.toHaveBeenCalled()
+    expect(reconcile).not.toHaveBeenCalled()
   })
 
   it('surfaces a persisted unknown remote result after restart without loading or retrying the workspace', async () => {

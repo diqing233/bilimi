@@ -128,7 +128,7 @@ export function ControlledFavoriteLedgerPanel({
   const [guideOpen, setGuideOpen] = useState(false)
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
   const [recoverySummary, setRecoverySummary] = useState<OldFavoriteWorkspaceRecoverySummary | null>(null)
-  const [recoveryDecisionPending, setRecoveryDecisionPending] = useState<'continue-original' | 'merge-latest' | 'rescan' | null>(null)
+  const [recoveryDecisionPending, setRecoveryDecisionPending] = useState<'continue-original' | 'merge-latest' | 'rescan' | 'reconcile-result-unknown' | null>(null)
   const [recoveryDecisionError, setRecoveryDecisionError] = useState<string | null>(null)
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
@@ -320,6 +320,29 @@ export function ControlledFavoriteLedgerPanel({
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
   }
+  const openReconciliationDraft = async () => {
+    if (!recoverySummary || recoveryDecisionPending) return
+    const requestedAccountMid = currentAccountMid
+    const requestVersion = ++recoveryDecisionRequestVersion.current
+    const isCurrentRequest = () => recoveryDecisionRequestVersion.current === requestVersion &&
+      activeAccountMid.current === requestedAccountMid
+    setRecoveryDecisionPending('reconcile-result-unknown')
+    setRecoveryDecisionError(null)
+    try {
+      const restored = await workspace.refresh(true)
+      if (!isCurrentRequest()) return
+      if (!restored || 'recovery' in restored || restored.workspaceId !== recoverySummary.workspaceId) {
+        setRecoveryDecisionError('恢复整理草稿失败，请重试。')
+        return
+      }
+      setRecoverySummary(null)
+      setResumeDialogOpen(false)
+      setGuideOpen(true)
+      setStep('confirm')
+    } finally {
+      if (isCurrentRequest()) setRecoveryDecisionPending(null)
+    }
+  }
   const retryScanWithDirectSession = async () => {
     await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
     await startScan('incremental')
@@ -484,7 +507,7 @@ export function ControlledFavoriteLedgerPanel({
           {recoverySummary.recoveryChoices.includes('merge-latest') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('merge-latest')}>合并最新变化</button> : null}
           {recoverySummary.recoveryChoices.includes('rescan') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('rescan')}>重新扫描</button> : null}
           {recoverySummary.recoveryChoices.includes('abandon') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void abandonCurrentWorkspace()}>放弃本轮整理</button> : null}
-          {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" onClick={() => { setRecoverySummary(null); setResumeDialogOpen(false); setGuideOpen(true); setStep('confirm') }}>查看并对账</button> : null}
+          {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void openReconciliationDraft()}>查看并对账</button> : null}
         </>}>
         <p>检测到未完成的整理草稿</p>
         <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
@@ -550,6 +573,7 @@ export function ControlledFavoriteLedgerPanel({
         deepSeekAvailable={deepSeekArchiveAvailable}
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}
+        onViewSegment={workspace.viewSegment}
         onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
         onOrganizeWithDeepSeek={(mode, scope) => {
           const finishDeepSeekTask = onDeepSeekTaskStart?.(scope === 'all' ? '收藏整理：本轮所有批次' : '收藏整理：当前批次')
@@ -569,6 +593,7 @@ export function ControlledFavoriteLedgerPanel({
         onSaveLocally={() => void (activeSnapshot?.hasMultipleSegments
           ? workspace.setWholeRunExecutionIntent('local')
           : workspace.saveCurrentSegmentLocally())}
+        onUseOriginalClassifications={() => void workspace.useOriginalClassificationsForFailedDeepSeek()}
         onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}

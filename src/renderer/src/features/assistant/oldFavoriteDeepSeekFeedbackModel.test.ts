@@ -15,7 +15,7 @@ describe('toDeepSeekFeedbackView', () => {
       kind: 'running',
       action: 'cancel',
       summary: 'Organizing',
-      progress: { completedChunks: 1, totalChunks: 2, completedVideos: 20, totalVideos: 21, value: 50 }
+      progress: { settledGroups: 1, totalGroups: 2, appliedVideos: 20, pendingVideos: 1, failedVideos: 0, totalVideos: 21, value: 95 }
     })
   })
 
@@ -50,6 +50,54 @@ describe('toDeepSeekFeedbackView', () => {
     expect(toDeepSeekFeedbackView({ status: 'completed', message: 'Completed', failures: [] }, false)).toMatchObject({
       kind: 'completed',
       action: 'none'
+    })
+  })
+
+  it('reports applied videos separately from failed videos', () => {
+    const view = toDeepSeekFeedbackView({
+      status: 'failed',
+      message: 'Waiting for retry',
+      progress: {
+        completedChunks: 7,
+        totalChunks: 7,
+        totalVideoCount: 129,
+        successfulVideoCount: 89,
+        failedVideoCount: 40
+      },
+      failures: [{ chunkIndex: 5, affectedVideoCount: 40, message: 'timeout' }]
+    }, false)
+
+    expect(view.progress).toMatchObject({
+      settledGroups: 7,
+      totalGroups: 7,
+      appliedVideos: 89,
+      failedVideos: 40,
+      pendingVideos: 0,
+      totalVideos: 129,
+      value: 69
+    })
+  })
+
+  it('keeps the video denominator stable when timeout recovery adds request groups', () => {
+    const view = toDeepSeekFeedbackView({
+      status: 'running',
+      message: 'Retrying split groups',
+      progress: {
+        completedChunks: 4,
+        totalChunks: 9,
+        totalVideoCount: 129,
+        successfulVideoCount: 89,
+        failedVideoCount: 0
+      }
+    }, false)
+
+    expect(view.progress).toMatchObject({
+      settledGroups: 4,
+      totalGroups: 9,
+      appliedVideos: 89,
+      pendingVideos: 40,
+      totalVideos: 129,
+      value: 69
     })
   })
 })

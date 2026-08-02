@@ -459,7 +459,9 @@ export function buildFavoriteApiAdjustmentScript(
           const folder = ledger ? folders.find((candidate) => candidate?.title === ledger.displayName) : null;
           const folderId = findFolderId(folder);
           if (folderId) {
-            removeFolderIds.push(String(folderId));
+            const normalizedFolderId = String(folderId);
+            removeFolderIds.push(normalizedFolderId);
+            favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
           }
         }
 

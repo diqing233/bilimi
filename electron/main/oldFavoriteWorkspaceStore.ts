@@ -61,6 +61,7 @@ type OverviewSegmentSummary = {
   firstAid?: number
   lastAid?: number
   sourceFolderCounts: Record<string, number>
+  selectedItemCount?: number
 }
 type TagEnrichmentDelta =
   | { kind: 'tagged'; aid: number; tags: string[] }

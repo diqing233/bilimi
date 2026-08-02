@@ -585,9 +585,30 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
-    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute('aria-valuenow', '50')
-    expect(screen.getByText('第 1 / 2 批')).toBeInTheDocument()
-    expect(screen.getByText('已完成 20 / 21 条视频')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute('aria-valuenow', '95')
+    expect(screen.getByText('DeepSeek 请求组 1 / 2 已结算')).toBeInTheDocument()
+    expect(screen.getByText('已应用 20 / 21 条视频')).toBeInTheDocument()
+    expect(screen.getByText('1 条等待处理')).toBeInTheDocument()
+  })
+
+  it('does not present failed videos as fully applied', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: [] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={true}
+      deepSeekFeedback={{ status: 'failed', message: 'Waiting for retry', progress: { totalChunks: 7, completedChunks: 7, totalVideoCount: 129, successfulVideoCount: 89, failedVideoCount: 40 }, failures: [{ chunkIndex: 5, affectedVideoCount: 40, message: 'timeout' }] }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByText('DeepSeek 请求组 7 / 7 已结算')).toBeInTheDocument()
+    expect(screen.getByText('已应用 89 / 129 条视频')).toBeInTheDocument()
+    expect(screen.getByText('40 条等待重试')).toBeInTheDocument()
+    expect(screen.queryByText('129 / 129')).not.toBeInTheDocument()
   })
 
   it('replaces the DeepSeek run action with a cancellable current-batch action while running', () => {

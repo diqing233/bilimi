@@ -43,6 +43,7 @@ type OldFavoriteGuideProps = {
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
+  onViewSegment?: (segmentId: string) => Promise<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>
   onAutoClassify: () => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => void
   onRetryFailedDeepSeekChunks: () => void
@@ -54,6 +55,7 @@ type OldFavoriteGuideProps = {
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
   onSaveLocally: () => void
+  onUseOriginalClassifications?: () => void
   onCancelExecutionIntent?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
@@ -106,6 +108,7 @@ export function OldFavoriteGuide({
   deepSeekAvailable,
   deepSeekFeedback,
   onSelectSegment,
+  onViewSegment = async () => null,
   onAutoClassify,
   onOrganizeWithDeepSeek,
   onRetryFailedDeepSeekChunks,
@@ -117,6 +120,7 @@ export function OldFavoriteGuide({
   onApplyManualClassification,
   onApplyManualClassifications,
   onSaveLocally,
+  onUseOriginalClassifications = () => undefined,
   onCancelExecutionIntent = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
@@ -126,6 +130,8 @@ export function OldFavoriteGuide({
 }: OldFavoriteGuideProps) {
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
+  const [viewedSegmentId, setViewedSegmentId] = useState<string | null>(null)
+  const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
   const currentSegmentSummary = snapshot && !('recovery' in snapshot)
@@ -139,11 +145,21 @@ export function OldFavoriteGuide({
       : snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
   )
   const deepSeekRunning = deepSeekFeedback?.status === 'running'
+  const readOnlyBrowsing = mutationLocked || deepSeekRunning
+  const selectedSegmentId = viewedSegmentId && snapshot && !('recovery' in snapshot) &&
+    snapshot.segments.some((segment) => segment.id === viewedSegmentId)
+    ? viewedSegmentId
+    : snapshot && !('recovery' in snapshot)
+      ? snapshot.currentSegment?.id ?? ''
+      : ''
+  const displayedSnapshot = readOnlyBrowsing && viewedSnapshot?.workspaceId === (snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : '')
+    ? viewedSnapshot
+    : snapshot
   const canOpenStep = (next: OldFavoriteGuideStep) => {
-    if (deepSeekRunning) return false
     if (next === 'scan') return true
     if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
-    if ((recommendationSaving || previewPreparationRunning || mutationLocked) && next === 'confirm') return false
+    if (readOnlyBrowsing) return Boolean(snapshot)
+    if ((recommendationSaving || previewPreparationRunning) && next === 'confirm') return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
@@ -159,12 +175,14 @@ export function OldFavoriteGuide({
       </div>
       {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
         <span>整理批次</span>
-        <select aria-label="整理批次" value={snapshot.currentSegment?.id ?? ''} disabled={loading || mutationLocked || deepSeekRunning}
+        <select aria-label="整理批次" value={selectedSegmentId} disabled={loading && !readOnlyBrowsing}
           onChange={(event) => {
             const segment = snapshot.segments.find((candidate) => candidate.id === event.currentTarget.value)
             if (!segment) return
+            setViewedSegmentId(segment.id)
             setViewScope('current')
-            onSelectSegment(segment.id)
+            if (readOnlyBrowsing) void onViewSegment(segment.id).then((next) => { if (next) setViewedSnapshot(next) })
+            else onSelectSegment(segment.id)
             if (segment.readiness === 'tagging') onStepChange('scan')
           }}>
           {snapshot.segments.map((segment) => <option key={segment.id} value={segment.id}>
@@ -179,7 +197,7 @@ export function OldFavoriteGuide({
       </nav>
     </div>
     {recovery || step === 'scan' ? <OldFavoriteScanOverviewStep
-      snapshot={snapshot}
+      snapshot={displayedSnapshot}
       loading={loading || mutationLocked}
       scanStarting={scanStarting}
       scanStartFailure={scanStartFailure}
@@ -194,8 +212,8 @@ export function OldFavoriteGuide({
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
     /> : null}
-    {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
-      snapshot={snapshot}
+    {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'generated' ? <OldFavoriteRecommendationStep
+      snapshot={displayedSnapshot}
       loading={loading || mutationLocked || currentSegmentSaved}
       adoptedCandidateIds={recommendedCandidateIds}
       error={recommendationError}
@@ -208,8 +226,8 @@ export function OldFavoriteGuide({
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
     /> : null}
-    {!recovery && snapshot && step === 'preview' ? <OldFavoriteArchivePreviewStep
-      snapshot={snapshot}
+    {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'preview' ? <OldFavoriteArchivePreviewStep
+      snapshot={displayedSnapshot}
       ledgers={ledgers}
       loading={loading}
       mutationLocked={mutationLocked || currentSegmentSaved}
@@ -227,14 +245,15 @@ export function OldFavoriteGuide({
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
     /> : null}
-    {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
-      snapshot={snapshot}
+    {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'confirm' ? <OldFavoriteConfirmationStep
+      snapshot={displayedSnapshot}
       ledgers={ledgers}
       loading={loading}
       reconciling={reconciling}
       preparationStatus={preparationStatus}
       executionError={executionError}
       onSaveLocally={onSaveLocally}
+      onUseOriginalClassifications={onUseOriginalClassifications}
       onCancelExecutionIntent={onCancelExecutionIntent}
       onAbandonCurrentWorkspace={onAbandonCurrentWorkspace}
       onAcknowledgeCompletion={onAcknowledgeCompletion}

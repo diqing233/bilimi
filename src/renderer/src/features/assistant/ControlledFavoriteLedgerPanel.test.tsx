@@ -567,7 +567,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(save).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toHaveAttribute('aria-current', 'step')
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
@@ -925,6 +925,70 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-recovery-decision', workspaceId: 'workspace-100', choice: 'continue-original', expectedBaselineRevision: 1, expectedRepositoryRevision: 2
     }))
+  })
+
+  it('loads the result-unknown draft before opening its reconciliation step', async () => {
+    const reconciling = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn().mockResolvedValue(reconciling)
+    const recoverySummary = vi.fn().mockResolvedValue({
+      accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling', currentStep: 'result-unknown',
+      plannedCount: 2298, classifiedCount: 2298, unclassifiedCount: 0,
+      baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 3042, repositoryRevision: 3042, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+      recoveryChoices: ['view', 'reconcile-result-unknown']
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      getOldFavoriteWorkspaceRecoverySummaryV1: recoverySummary,
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看并对账' }))
+
+    await waitFor(() => expect(open).toHaveBeenCalledWith('100'))
+    expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('button', { name: '对账 B 站结果' })).toBeInTheDocument()
+    expect(screen.queryByText('尚未开始扫描，请点击“整理收藏”后扫描。')).not.toBeInTheDocument()
+  })
+
+  it('reloads the authoritative result-unknown draft instead of reusing a stale visible snapshot', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const reconciling = { ...preview, status: 'reconciling' as const }
+    const open = vi.fn().mockResolvedValueOnce(preview).mockResolvedValueOnce(reconciling)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      getOldFavoriteWorkspaceRecoverySummaryV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling', currentStep: 'result-unknown',
+        baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+        recoveryChoices: ['view', 'reconcile-result-unknown']
+      }),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as unknown as typeof window.bilimiDesktop
+
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看并对账' }))
+
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: '对账 B 站结果' })).toBeInTheDocument()
   })
 
   it.each([
@@ -2109,8 +2173,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'low-confidence-and-unclassified', 'all'))
     expect(onDeepSeekTaskStart).toHaveBeenCalledWith('收藏整理：本轮所有批次')
-    expect(screen.getByRole('combobox', { name: '整理批次' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '扫描概览' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: '整理批次' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '扫描概览' })).toBeEnabled()
     resolveDeepSeek({
       snapshot: preview, referencedConstraintLedgerNames: [],
       progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: []
@@ -2198,7 +2262,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     expect(await screen.findByRole('status')).toHaveTextContent('等待 1 个批次完成预处理')
-    expect(screen.getByRole('combobox', { name: '整理批次' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: '整理批次' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '取消等待执行' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '取消等待执行' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'cancel-whole-run-execution-intent' }))

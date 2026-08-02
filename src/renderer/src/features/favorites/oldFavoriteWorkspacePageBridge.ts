@@ -56,6 +56,10 @@ type PageBaseResult = {
   status: 'ok' | 'rejected' | 'unknown'
   observedAccountMid: string
   reason?: string
+  httpStatus?: number
+  contentType?: string
+  bilibiliCode?: number
+  responseCategory?: string
 }
 
 export type OldFavoriteWorkspacePageResult =
@@ -70,6 +74,10 @@ type PageExecutor = {
 }
 
 const resultStatuses = new Set<PageBaseResult['status']>(['ok', 'rejected', 'unknown'])
+const responseCategories = new Set([
+  'non-json', 'network-failure', 'account-mismatch', 'forbidden', 'precondition-failed',
+  'rate-limited', 'server-error', 'http-error', 'api-error'
+])
 
 function normalizeAccountMid(value: unknown): string {
   const raw = typeof value === 'string' ? value.trim() : ''
@@ -119,7 +127,11 @@ function isBaseResult(value: unknown): value is PageBaseResult {
   const result = value as Record<string, unknown>
   return resultStatuses.has(result.status as PageBaseResult['status']) &&
     typeof result.observedAccountMid === 'string' &&
-    (result.reason === undefined || typeof result.reason === 'string')
+    (result.reason === undefined || typeof result.reason === 'string') &&
+    (result.httpStatus === undefined || (typeof result.httpStatus === 'number' && Number.isSafeInteger(result.httpStatus) && result.httpStatus >= 0 && result.httpStatus <= 599)) &&
+    (result.contentType === undefined || (typeof result.contentType === 'string' && result.contentType.length <= 120 && /^[\u0020-\u007e]*$/.test(result.contentType))) &&
+    (result.bilibiliCode === undefined || (typeof result.bilibiliCode === 'number' && Number.isSafeInteger(result.bilibiliCode))) &&
+    (result.responseCategory === undefined || responseCategories.has(result.responseCategory as string))
 }
 
 function isFolder(value: unknown): value is OldFavoriteWorkspaceFolder {
@@ -158,7 +170,7 @@ function resultFor(command: OldFavoriteWorkspacePageCommand, value: unknown): Ol
       reason: 'account-mismatch'
     }
   }
-  const baseKeys = new Set(['status', 'observedAccountMid', 'reason'])
+  const baseKeys = new Set(['status', 'observedAccountMid', 'reason', 'httpStatus', 'contentType', 'bilibiliCode', 'responseCategory'])
   if (result.status !== 'ok' && Object.keys(result).every((key) => baseKeys.has(key))) {
     return result as OldFavoriteWorkspacePageResult
   }
@@ -210,16 +222,39 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
     const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
     if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid)) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
-    const unknown = (reason) => ({ status: 'unknown', observedAccountMid: normalizeMid(readCookie('DedeUserID')), reason });
+    const unknown = (reason, diagnostics = {}) => ({
+      status: 'unknown', observedAccountMid: normalizeMid(readCookie('DedeUserID')), reason, ...diagnostics
+    });
+    const responseDiagnostics = (response, responseCategory, bilibiliCode) => ({
+      httpStatus: Number(response?.status || 0),
+      contentType: String(response?.headers?.get?.('content-type') || '').slice(0, 120),
+      ...(Number.isSafeInteger(bilibiliCode) ? { bilibiliCode } : {}),
+      responseCategory
+    });
+    const httpResponseCategory = (status) => status === 403
+      ? 'forbidden'
+      : status === 412
+        ? 'precondition-failed'
+        : status === 429
+          ? 'rate-limited'
+          : status >= 500
+            ? 'server-error'
+            : 'http-error';
     const fetchJson = async (url) => {
-      if (normalizeMid(readCookie('DedeUserID')) !== observedAccountMid) return { error: 'account-mismatch' };
+      if (normalizeMid(readCookie('DedeUserID')) !== observedAccountMid) return { error: 'account-mismatch', diagnostics: { responseCategory: 'account-mismatch' } };
       let response;
-      try { response = await fetch(url, { credentials: 'include' }); } catch { return { error: 'network-failure' }; }
+      try { response = await fetch(url, { credentials: 'include' }); } catch { return { error: 'network-failure', diagnostics: { responseCategory: 'network-failure' } }; }
+      let bodyText;
+      try { bodyText = await response.text(); } catch { return { error: 'invalid-response', diagnostics: responseDiagnostics(response, 'non-json') }; }
       let json;
-      try { json = await response.json(); } catch { return { error: 'invalid-response' }; }
-      if (normalizeMid(readCookie('DedeUserID')) !== observedAccountMid) return { error: 'account-mismatch' };
+      try { json = bodyText ? JSON.parse(bodyText) : null; } catch { return { error: 'invalid-response', diagnostics: responseDiagnostics(response, 'non-json') }; }
+      if (normalizeMid(readCookie('DedeUserID')) !== observedAccountMid) return { error: 'account-mismatch', diagnostics: { responseCategory: 'account-mismatch' } };
       if (!response.ok || json?.code !== 0) {
-        return { error: 'remote-api-' + String(response.status) + '-' + String(json?.code ?? 'no-code') };
+        const bilibiliCode = Number(json?.code);
+        return {
+          error: 'remote-api-' + String(response.status) + '-' + String(json?.code ?? 'no-code'),
+          diagnostics: responseDiagnostics(response, response.ok ? 'api-error' : httpResponseCategory(response.status), bilibiliCode)
+        };
       }
       return { json };
     };
@@ -228,7 +263,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
   if (command.type === 'inventory') {
     return `(async () => {${helpers}
       const response = await fetchJson('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2');
-      if (response.error) return unknown(response.error);
+      if (response.error) return unknown(response.error, response.diagnostics);
       const folders = Array.isArray(response.json?.data?.list) ? response.json.data.list.map((folder) => ({
         id: String(folder?.id || '').trim(),
         title: String(folder?.title || ''),
@@ -244,7 +279,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       const members = {};
       for (const folderId of [...new Set(input.folderIds.map((id) => String(id).trim()))]) {
         const response = await fetchJson('https://api.bilibili.com/x/v3/fav/resource/ids?media_id=' + encodeURIComponent(folderId));
-        if (response.error) return unknown(response.error);
+        if (response.error) return unknown(response.error, response.diagnostics);
         if (!Array.isArray(response.json?.data)) return unknown('invalid-membership-response');
         members[folderId] = [...new Set(response.json.data.map((entry) => Number(entry?.id ?? entry?.aid)).filter((aid) => Number.isSafeInteger(aid) && aid > 0))];
       }
@@ -257,7 +292,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       const tagUrl = new URL('https://api.bilibili.com/x/tag/archive/tags');
       tagUrl.searchParams.set('aid', String(input.aid));
       const response = await fetchJson(tagUrl.toString());
-      if (response.error) return unknown(response.error);
+      if (response.error) return unknown(response.error, response.diagnostics);
       const values = Array.isArray(response.json?.data?.tags) ? response.json.data.tags : Array.isArray(response.json?.data) ? response.json.data : [];
       const tags = values.map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim()).filter(Boolean).slice(0, 32);
       return { status: 'ok', observedAccountMid, aid: input.aid, tags };
@@ -273,7 +308,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     url.searchParams.set('type', '0');
     url.searchParams.set('platform', 'web');
     const response = await fetchJson(url.toString());
-    if (response.error) return unknown(response.error);
+    if (response.error) return unknown(response.error, response.diagnostics);
     if (!Array.isArray(response.json?.data?.medias)) return unknown('invalid-source-page-response');
     const readTags = (value) => (Array.isArray(value) ? value : [])
       .map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim())

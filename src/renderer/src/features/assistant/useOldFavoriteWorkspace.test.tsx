@@ -702,6 +702,23 @@ describe('useOldFavoriteWorkspace', () => {
     })
   })
 
+  it('maps a restarted durable plan to running and restores cancellation immediately', async () => {
+    const restarted = {
+      ...workspace('100'),
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'running' as const, completedSegmentCount: 1, waitingSegmentCount: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(restarted)
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toEqual(restarted))
+
+    expect(result.current.deepSeekFeedback).toMatchObject({ status: 'running' })
+    expect(result.current.deepSeekCancelRequested).toBe(false)
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, result.current.deepSeekCancelRequested).action).toBe('cancel')
+  })
+
   it('keeps an Electron-wrapped workspace change error distinct from DeepSeek service settings failures', async () => {
     const organize = vi.fn().mockRejectedValue(new Error(
       "Error invoking remote method 'old-favorite-workspace-v1:deepseek-current-segment': Error: Old favorite workspace changed while DeepSeek was running."
@@ -752,6 +769,22 @@ describe('useOldFavoriteWorkspace', () => {
     expect(retry).toHaveBeenCalledExactlyOnceWith('100')
     expect(result.current.deepSeekFeedback).toMatchObject({ status: 'failed', failures: [failure] })
     expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('retry')
+  })
+
+  it('requests the original-classification fallback through the controlled workspace command', async () => {
+    const resolved = workspace('100')
+    const command = vi.fn().mockResolvedValue(resolved)
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => {
+      await result.current.useOriginalClassificationsForFailedDeepSeek()
+    })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', {
+      type: 'use-original-classifications-for-failed-deepseek'
+    })
+    expect(result.current.snapshot).toEqual(resolved)
   })
 
   it('requests cancellation through the workspace command without superseding the DeepSeek result', async () => {
@@ -918,6 +951,18 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.loading).toBe(false)
   })
 
+  it('asks for a development restart when the renderer calls a command missing from the old main process', async () => {
+    const command = vi.fn().mockRejectedValue(new Error(
+      "Error invoking remote method 'old-favorite-workspace-v1:command': Error: Old favorite workspace command is invalid."
+    ))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.setWholeRunExecutionIntent('bilibili') })
+
+    expect(result.current.executionError).toBe('开发版主进程仍是旧版本，请重启开发项目后再试；本轮整理草稿不会丢失。')
+  })
+
   it('explains an unavailable remote folder inventory after confirmation instead of showing the generic plan error', async () => {
     const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote folder inventory is unavailable.'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
@@ -980,5 +1025,34 @@ describe('useOldFavoriteWorkspace', () => {
 
     expect(command).toHaveBeenNthCalledWith(1, '100', { type: 'reconcile-frozen-bilibili-plan' })
     expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'resume-reconciled-bilibili-plan' })
+  })
+
+  it('explains when reconciliation completes but the remote result is still unknown', async () => {
+    const command = vi.fn().mockResolvedValue({
+      ...workspace('100'),
+      status: 'reconciling' as const
+    })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.reconcileFrozenBilibiliPlan() })
+
+    expect(result.current.executionError).toBe('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。')
+  })
+
+  it('keeps the loaded draft when reconciliation returns no snapshot', async () => {
+    const reconciling = { ...workspace('100'), status: 'reconciling' as const }
+    const command = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(reconciling),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await act(async () => { await result.current.refresh() })
+
+    await act(async () => { await result.current.reconcileFrozenBilibiliPlan() })
+
+    expect(result.current.snapshot).toEqual(reconciling)
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'reconcile-frozen-bilibili-plan' })
   })
 })
