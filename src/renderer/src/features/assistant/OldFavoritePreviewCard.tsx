@@ -24,7 +24,7 @@ export function OldFavoritePreviewCard({
   sourceFolderTitles,
   classification,
   currentLedgerId,
-  originalTargetLedgerIds = [],
+  originalTargetLedgerIds,
   ledgers,
   loading,
   batchSelectable = false,
@@ -47,9 +47,13 @@ export function OldFavoritePreviewCard({
   const tagsText = item.tags?.length ? `标签：${item.tags.join('、')}` : null
   const targetLedgerIds = classification?.targetLedgerIds ?? []
   const hasTargets = targetLedgerIds.length > 0
-  const originalLedgerNames = originalTargetLedgerIds
+  const originalLedgerNames = (originalTargetLedgerIds ?? [])
     .map((ledgerId) => ledgerId === 'inbox' ? '暂存' : ledgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId)
-  const originalLedgerText = originalLedgerNames.length ? `原分类：${originalLedgerNames.join('、')}` : null
+  const originalLedgerText = originalTargetLedgerIds === undefined
+    ? null
+    : originalLedgerNames.length
+      ? `原分类：${originalLedgerNames.join('、')}`
+      : '原分类：未匹配到合适分类'
 
   useLayoutEffect(() => {
     if (!menuOpen) return

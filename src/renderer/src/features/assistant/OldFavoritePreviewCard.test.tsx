@@ -39,6 +39,33 @@ describe('OldFavoritePreviewCard', () => {
     expect(controls?.querySelector('[title="原分类：A very long original category name"]')).not.toBeNull()
   })
 
+  it('shows unmatched as the original category only when an empty original classification is recorded', () => {
+    const { rerender } = render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Moved from unmatched', sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }}
+      currentLedgerId="music"
+      originalTargetLedgerIds={[]}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    expect(screen.getByText('原分类：未匹配到合适分类')).toBeInTheDocument()
+
+    rerender(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'No recorded move', sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }}
+      currentLedgerId="music"
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    expect(screen.queryByText(/^原分类：/)).not.toBeInTheDocument()
+  })
+
   it('uses card-body selection only while a parent batch transfer is active', () => {
     const toggle = vi.fn()
     render(<OldFavoritePreviewCard
