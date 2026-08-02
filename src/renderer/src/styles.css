@@ -6179,17 +6179,6 @@ body[data-floating-window="true"],
   padding: 0;
   list-style: none;
 }
-.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope button[aria-pressed="true"] {
-  border-color: rgba(31, 99, 181, 0.5);
-  background: rgba(220, 238, 255, 0.9);
-  color: var(--porcelain-deep);
-  font-weight: 800;
-}
 .favorite-ledger-panel__preview-item-shell {
   flex: 0 0 calc(100% - 56px);
   min-width: 0;

@@ -928,6 +928,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 10px; max-height: min(62vh, 720px); overflow-y: auto; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-surface);')
     expectStyleSnippet('.favorite-ledger-panel__archive-preview { --old-favorite-preview-card-height: 160px; display: grid; gap: 8px;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview [role="group"] {')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope {\n  display: flex;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope button[aria-pressed="true"] {')
     expectStyleSnippet('.favorite-ledger-panel__preview-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.18); border-radius: var(--porcelain-radius-surface);')
     expectStyleSnippet('.favorite-ledger-panel__preview-row header { grid-column: 1 / -1; display: grid; gap: 7px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__preview-header-actions { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0;')
