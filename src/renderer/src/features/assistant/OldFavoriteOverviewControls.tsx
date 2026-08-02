@@ -39,7 +39,7 @@ export function OldFavoriteWholeRunOverview({
       已汇总 {overview.completedSegmentCount}/{overview.totalSegmentCount} 批
     </p>
     {showArchiveTargets ? <div className="favorite-ledger-panel__whole-run-targets" aria-label="本轮归档目标总览">
-      {overview.archiveTargets.map((target) => <article key={target.ledgerId}>
+      {overview.archiveTargets.map((target) => <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row">
         <div><strong>{ledgerNames.get(target.ledgerId) ?? target.ledgerId}</strong><span>预计归档 {target.itemCount} 条</span></div>
         <ul>
           {target.segmentCounts.map((segment) => {

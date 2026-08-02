@@ -1691,6 +1691,23 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('本地归属')
   })
 
+  it('keeps the row and detail sync status aligned with the repository library fact', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-26T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, bvid: 'BV1test', title: '未同步详情', author: 'UP 主', tags: [], updatedAt: '2026-07-26T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['failed'], libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'organized' } }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ video: { aid: 1, bvid: 'BV1test', title: '未同步详情', author: 'UP 主', tags: [], updatedAt: '2026-07-26T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['failed'], libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'organized' }, position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['9'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-07-26T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    const row = (await screen.findByText('未同步详情')).closest('[role="button"]')
+    expect(row?.querySelector('.favorite-library__row-status-sync')).toHaveTextContent('同步失败')
+
+    fireEvent.click(screen.getByText('未同步详情'))
+    expect(await screen.findByRole('button', { name: '同步状态说明' })).toHaveTextContent('同步失败')
+  })
+
   it('renders row sync, protection, and organization as centered status text', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),

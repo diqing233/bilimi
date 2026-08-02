@@ -2489,7 +2489,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByText('Pending 7')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '显示全部 9 条' }))
     expect(screen.getByText('Pending 9')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: '全部存入暂存' }))
+    const group = screen.getByRole('group', { name: '未匹配到合适分类 9 条' })
+    fireEvent.click(within(group).getByRole('button', { name: '批量转移' }))
+    fireEvent.click(within(group).getByRole('button', { name: '全选' }))
+    fireEvent.click(within(group).getByRole('button', { name: '转移所选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '暂存' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: items.map((item) => ({ aid: item.aid, targetLedgerIds: ['inbox'] }))
     }))

@@ -16,8 +16,49 @@ describe('OldFavoritePreviewCard', () => {
     const article = screen.getByRole('article')
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-item-shell')
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-video')
-    expect(article).toHaveAttribute('data-selected', 'true')
+    expect(article).not.toHaveAttribute('data-selected')
     expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).not.toHaveAttribute('data-selected')
+  })
+
+  it('keeps exactly five information rows inside the bordered area and original category beside transfer', () => {
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Compact preview', author: 'Uploader', tags: ['TypeScript'], sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }}
+      currentLedgerId="music" originalTargetLedgerIds={['music']}
+      ledgers={[{ id: 'music', displayName: 'A very long original category name', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    const information = screen.getByRole('article').querySelector('.favorite-ledger-panel__preview-information')
+    const controls = screen.getByRole('button', { name: '转移 Compact preview' }).closest('.favorite-ledger-panel__preview-controls')
+    expect(information?.children).toHaveLength(5)
+    expect(information).not.toHaveTextContent('原分类')
+    expect(controls).toHaveTextContent('原分类：A very long original category name')
+    expect(controls?.querySelector('[title="原分类：A very long original category name"]')).not.toBeNull()
+  })
+
+  it('uses card-body selection only while a parent batch transfer is active', () => {
+    const toggle = vi.fn()
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Batch selectable', sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      ledgers={[]}
+      loading={false}
+      batchSelectable
+      batchSelected
+      onToggleBatchSelection={toggle}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    const article = screen.getByRole('article')
+    expect(article).toHaveAttribute('data-selected', 'true')
+    fireEvent.click(article.querySelector('.favorite-ledger-panel__preview-information')!)
+    expect(toggle).toHaveBeenCalledWith(1)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Batch selectable' }))
+    expect(toggle).toHaveBeenCalledTimes(1)
   })
 
   it('uses one on-demand portal tooltip for complete title, source, and tag text and closes it with Escape', () => {

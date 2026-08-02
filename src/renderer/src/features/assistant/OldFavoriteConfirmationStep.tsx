@@ -1,9 +1,11 @@
+import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useState } from 'react'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
+  ledgers?: FavoriteLedger[]
   loading: boolean
   reconciling?: boolean
   preparationStatus?: string | null
@@ -28,6 +30,7 @@ function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
 
 export function OldFavoriteConfirmationStep({
   snapshot,
+  ledgers = [],
   loading,
   reconciling = false,
   preparationStatus,
@@ -58,6 +61,7 @@ export function OldFavoriteConfirmationStep({
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
     : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
+  const ledgerNames = new Map<string, string>([['inbox', '暂存'], ...ledgers.map((ledger) => [ledger.id, ledger.displayName] as const)])
 
   if (snapshot.status === 'completed') {
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
@@ -116,7 +120,7 @@ export function OldFavoriteConfirmationStep({
       <h4>确认执行</h4>
       {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
     </div>
-    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} showArchiveTargets /> : null}
+    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets /> : null}
     {isMultiSegment && viewScope === 'current' && currentSegmentSummary
       ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
       : null}

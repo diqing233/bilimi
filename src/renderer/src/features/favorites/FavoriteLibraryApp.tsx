@@ -1842,7 +1842,9 @@ export function FavoriteLibraryApp({
                 ? `B 站已明确返回该视频不可见${detailSnapshot.mirror.remoteCode !== undefined ? `（返回码 ${detailSnapshot.mirror.remoteCode}）` : ''}。最后检测时间 ${formatDetailTimestamp(detailSnapshot.mirror.lastCheckedAt)}；本地已保存的标题、标签、档案、备注和收藏归属会继续保留，点击刷新信息可重新检测。`
                 : null
               const chips = [
-                { label: '同步状态说明', value: formatFavoriteLibraryPositionSyncStatus(detailSnapshot?.position?.state), explanation: '同步状态以当前的 B 站归属对账结果为准，不会从整理或保护状态推导。' },
+                { label: '同步状态说明', value: detailSnapshot?.libraryStates?.sync || detail.libraryStates?.sync
+                  ? formatFavoriteLibraryMirrorStatus(detailSnapshot?.pendingStates ?? detail.pendingStates ?? [], detailSnapshot?.libraryStates?.sync ?? detail.libraryStates?.sync)
+                  : formatFavoriteLibraryPositionSyncStatus(detailSnapshot?.position?.state), explanation: '同步状态以当前的 B 站归属对账结果为准，不会从整理或保护状态推导。' },
                 { label: '保护状态说明', value: detailSnapshot?.protected ? '已保护' : '未保护', explanation: '保护只决定下一次增量整理是否跳过该视频，不会隐藏位置差异或同步错误。' },
                 { label: '整理状态说明', value: formatFavoriteLibraryOrganizationStatus(detailSnapshot?.libraryStates?.organization ?? detail.libraryStates?.organization ?? 'unorganized'), explanation: '整理状态与保护及远程位置状态相互独立。' },
                 ...(unavailableExplanation ? [{ label: '失效状态说明', value: '已失效', explanation: unavailableExplanation }] : [])

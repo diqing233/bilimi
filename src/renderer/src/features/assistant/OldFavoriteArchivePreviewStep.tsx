@@ -2,6 +2,7 @@ import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
@@ -80,8 +81,14 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   onApplyManualClassifications
 }: OldFavoriteArchiveGroupsProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [batchGroupId, setBatchGroupId] = useState<string | null>(null)
+  const [batchSelectedAids, setBatchSelectedAids] = useState<Set<number>>(() => new Set())
+  const [batchTargetOpen, setBatchTargetOpen] = useState(false)
+  const [batchTargetPosition, setBatchTargetPosition] = useState({ top: 0, left: 0 })
   const [recentlyMovedAidByLedgerId, setRecentlyMovedAidByLedgerId] = useState<Record<string, number>>({})
   const groupsRootRef = useRef<HTMLDivElement>(null)
+  const batchTargetTriggerRef = useRef<HTMLButtonElement>(null)
+  const batchTargetMenuRef = useRef<HTMLDivElement>(null)
   const pendingMoveFocusRef = useRef<{ aid: number; sourceLedgerId: string; targetLedgerId: string } | null>(null)
   const originalTargetsRef = useRef<{ key: string; byAid: Map<number, string[]> }>({ key: '', byAid: new Map() })
   const sourceFolderTitles = new Map(snapshot.sourceFolders
@@ -123,7 +130,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     setRecentlyMovedAidByLedgerId((current) => ({ ...current, [targetLedgerId]: aid }))
     onApplyManualClassification(aid, nextTargetLedgerIds)
   }
-  const renderItem = (item: typeof items[number], currentLedgerId?: string) => <OldFavoritePreviewCard
+  const renderItem = (item: typeof items[number], currentLedgerId?: string, batchSelectable = false) => <OldFavoritePreviewCard
     item={item}
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
     classification={snapshot.classifications[String(item.aid)]}
@@ -131,8 +138,79 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     originalTargetLedgerIds={originalTargetsRef.current.byAid.get(item.aid)}
     ledgers={ledgers}
     loading={loading || mutationLocked}
+    batchSelectable={batchSelectable}
+    batchSelected={batchSelectable && batchSelectedAids.has(item.aid)}
+    onToggleBatchSelection={(aid) => setBatchSelectedAids((current) => {
+      const next = new Set(current)
+      if (next.has(aid)) next.delete(aid)
+      else next.add(aid)
+      return next
+    })}
     onApplyManualClassification={(aid, targetLedgerIds) => handleManualClassification(aid, currentLedgerId, targetLedgerIds)}
   />
+
+  const closeBatchMode = () => {
+    const closingGroupId = batchGroupId
+    setBatchGroupId(null)
+    setBatchSelectedAids(new Set())
+    setBatchTargetOpen(false)
+    if (closingGroupId) {
+      setExpandedGroups((current) => {
+        const next = new Set(current)
+        next.delete(closingGroupId)
+        return next
+      })
+    }
+  }
+
+  useEffect(() => {
+    setBatchGroupId(null)
+    setBatchSelectedAids(new Set())
+    setBatchTargetOpen(false)
+    setExpandedGroups(new Set())
+  }, [snapshot.currentSegment?.id])
+
+  useLayoutEffect(() => {
+    if (!batchTargetOpen) return
+    const updatePosition = () => {
+      const trigger = batchTargetTriggerRef.current
+      const menu = batchTargetMenuRef.current
+      if (!trigger || !menu) return
+      const triggerRect = trigger.getBoundingClientRect()
+      const menuRect = menu.getBoundingClientRect()
+      const gutter = 8
+      const below = triggerRect.bottom + 4
+      const above = triggerRect.top - menuRect.height - 4
+      setBatchTargetPosition({
+        top: below + menuRect.height <= window.innerHeight || above < gutter ? below : above,
+        left: Math.max(gutter, Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - gutter))
+      })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [batchTargetOpen])
+
+  useEffect(() => {
+    if (!batchTargetOpen) return
+    const closeFromOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (target && !batchTargetMenuRef.current?.contains(target) && !batchTargetTriggerRef.current?.contains(target)) setBatchTargetOpen(false)
+    }
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBatchTargetOpen(false)
+    }
+    document.addEventListener('mousedown', closeFromOutside)
+    document.addEventListener('keydown', closeFromEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeFromOutside)
+      document.removeEventListener('keydown', closeFromEscape)
+    }
+  }, [batchTargetOpen])
 
   useLayoutEffect(() => {
     const pendingMove = pendingMoveFocusRef.current
@@ -154,32 +232,56 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   return <div ref={groupsRootRef} className="favorite-ledger-panel__preview-groups">
     {previewGroups.map((group) => {
       const expanded = expandedGroups.has(group.id)
+      const batchActive = batchGroupId === group.id
       const visibleItems = expanded ? group.items : group.items.slice(0, INITIAL_GROUP_ITEM_LIMIT)
-      const stageAll = group.id === 'unclassified' && group.items.length > 0 && group.items.every((item) =>
-        snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes('inbox'))
-      const groupAll = group.id !== 'unclassified' && group.items.length > 0 && group.items.every((item) =>
-        snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes(group.id))
+      const allBatchSelected = batchActive && group.items.length > 0 && batchSelectedAids.size === group.items.length
+      const applyBatchTarget = (targetLedgerId: string) => {
+        const knownLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
+        const selectedAids = batchSelectedAids
+        onApplyManualClassifications(group.items.filter((item) => selectedAids.has(item.aid)).map((item) => {
+          const previous = snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? []
+          const preserved = group.id === 'unclassified'
+            ? previous
+            : previous.filter((id) => group.id === 'other' ? id === 'inbox' || knownLedgerIds.has(id) : id !== group.id)
+          return { aid: item.aid, targetLedgerIds: [...new Set([...preserved, targetLedgerId])].slice(0, 3) }
+        }))
+        closeBatchMode()
+      }
       return <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
         data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
         <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span>
-          {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading || mutationLocked}
-            onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
-              aid: item.aid, targetLedgerIds: event.currentTarget.checked ? ['inbox'] : []
-            })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading || mutationLocked}
-              onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
-                aid: item.aid, targetLedgerIds: event.currentTarget.checked ? [group.id] : []
-              })))} /><span>全选</span></label>}
+          <div className="favorite-ledger-panel__preview-header-actions">
+            {batchActive ? <>
+              <span className="favorite-ledger-panel__preview-batch-left">
+                <button type="button" disabled={loading || mutationLocked} aria-pressed={allBatchSelected} onClick={() => setBatchSelectedAids(allBatchSelected ? new Set() : new Set(group.items.map((item) => item.aid)))}>全选</button>
+                <button type="button" disabled={loading || mutationLocked} onClick={closeBatchMode}>取消批量</button>
+              </span>
+              <button ref={batchTargetTriggerRef} type="button" aria-haspopup="menu" aria-expanded={batchTargetOpen} disabled={loading || mutationLocked || batchSelectedAids.size === 0}
+                onClick={() => setBatchTargetOpen((open) => !open)}>转移所选 <span className="disclosure-arrow" aria-hidden="true">▾</span></button>
+              {batchTargetOpen ? createPortal(<div ref={batchTargetMenuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating favorite-ledger-panel__batch-target-menu"
+                style={{ top: batchTargetPosition.top, left: batchTargetPosition.left }} role="menu" aria-label={`批量转移 ${group.title}`}>
+                <button type="button" role="menuitem" onClick={() => applyBatchTarget('inbox')}>暂存</button>
+                {ledgers.filter((ledger) => ledger.id !== 'inbox').map((ledger) => <button key={ledger.id} type="button" role="menuitem" onClick={() => applyBatchTarget(ledger.id)}>{ledger.displayName}</button>)}
+              </div>, document.body) : null}
+            </> : <>
+              <button type="button" disabled={loading || mutationLocked} onClick={() => {
+                setBatchGroupId(group.id)
+                setBatchSelectedAids(new Set())
+                setExpandedGroups((current) => new Set(current).add(group.id))
+              }}>批量转移</button>
+              {group.items.length > INITIAL_GROUP_ITEM_LIMIT ? <button type="button" className="favorite-ledger-panel__preview-expand-toggle"
+                aria-expanded={expanded} onClick={() => setExpandedGroups((current) => {
+                  const next = new Set(current)
+                  if (expanded) next.delete(group.id)
+                  else next.add(group.id)
+                  return next
+                })}>{expanded ? `收起 ${group.items.length} 条` : `显示全部 ${group.items.length} 条`}</button> : null}
+            </>}
+          </div>
         </header>
         {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
-          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id)} /> :
-          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id)}</div>)}</div>}
-        {group.items.length > INITIAL_GROUP_ITEM_LIMIT ? <button type="button" className="favorite-ledger-panel__preview-expand-toggle"
-          aria-expanded={expanded} onClick={() => setExpandedGroups((current) => {
-            const next = new Set(current)
-            if (expanded) next.delete(group.id)
-            else next.add(group.id)
-            return next
-          })}>{expanded ? `收起 ${group.items.length} 条` : `显示全部 ${group.items.length} 条`}</button> : null}
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={(item) => renderItem(item, group.id === 'unclassified' ? undefined : group.id, batchActive)} /> :
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{visibleItems.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item, group.id === 'unclassified' ? undefined : group.id, batchActive)}</div>)}</div>}
       </section>
     })}
   </div>
@@ -208,6 +310,7 @@ export function OldFavoriteArchivePreviewStep({
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
+  const historyMenuRef = useRef<HTMLDivElement>(null)
   const [historyMenuPosition, setHistoryMenuPosition] = useState({ top: 0, left: 0 })
   const deepSeekFeedbackView = deepSeekFeedback
     ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
@@ -264,11 +367,15 @@ export function OldFavoriteArchivePreviewStep({
     if (!historyOpen || !historyTriggerRef.current) return
     const updateHistoryMenuPosition = () => {
       const triggerRect = historyTriggerRef.current?.getBoundingClientRect()
+      const menuRect = historyMenuRef.current?.getBoundingClientRect()
       if (!triggerRect) return
       const gutter = 8
       const menuWidth = Math.min(360, window.innerWidth - gutter * 2)
+      const menuHeight = menuRect?.height ?? 0
+      const below = triggerRect.bottom + 4
+      const above = triggerRect.top - menuHeight - 4
       setHistoryMenuPosition({
-        top: triggerRect.bottom + 4,
+        top: below + menuHeight <= window.innerHeight || above < gutter ? below : above,
         left: Math.max(gutter, Math.min(triggerRect.right - menuWidth, window.innerWidth - menuWidth - gutter))
       })
     }
@@ -373,7 +480,7 @@ export function OldFavoriteArchivePreviewStep({
                 onClick={() => setHistoryOpen((open) => !open)}>
                 <span className="disclosure-arrow favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
-              {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
+              {historyOpen ? createPortal(<div ref={historyMenuRef} className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
                 <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>
                 {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
                   disabled={loading || mutationLocked} onClick={() => {
@@ -386,7 +493,7 @@ export function OldFavoriteArchivePreviewStep({
                     setHistoryOpen(false)
                     onMoveHistoryCursor(historyBaselineCursor)
                   }}>恢复初始改动</button>
-              </div> : null}
+              </div>, document.body) : null}
               </div>
             </label>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || mutationLocked || snapshot.history.cursor <= historyBaselineCursor} onClick={onUndo}>撤销本次改动</button>

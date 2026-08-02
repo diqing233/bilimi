@@ -218,6 +218,7 @@ export function OldFavoriteGuide({
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}
+      ledgers={ledgers}
       loading={loading || mutationLocked}
       reconciling={reconciling}
       preparationStatus={preparationStatus}

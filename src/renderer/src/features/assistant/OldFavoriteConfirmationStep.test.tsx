@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
@@ -21,17 +21,20 @@ describe('OldFavoriteConfirmationStep', () => {
     const props = {
       loading: false, onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(), onExecuteFrozenPlan: vi.fn(), onReconcile: vi.fn()
     }
-    const rendered = render(<OldFavoriteConfirmationStep snapshot={snapshot} {...props} />)
+    const ledgers = [{ id: 'knowledge', displayName: '知识学习', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true }]
+    const rendered = render(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} {...props} />)
 
     expect(screen.getByRole('group', { name: '确认执行视图' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
     expect(screen.getByText('预计归档 500 条')).toBeInTheDocument()
+    expect(screen.getByText('知识学习')).toBeInTheDocument()
+    expect(screen.queryByText('knowledge')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByText('当前批次：第 1/2 批 · 500 条')).toBeInTheDocument()
 
-    rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
+    rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} ledgers={ledgers} {...props} />)
     expect(screen.queryByRole('group', { name: '确认执行视图' })).not.toBeInTheDocument()
   })
 
@@ -253,7 +256,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '转移 Saved item' })).toBeDisabled()
-    expect(screen.getByRole('checkbox', { name: '全选 Music' })).toBeDisabled()
+    expect(within(screen.getByRole('group', { name: 'Music 1 条' })).getByRole('button', { name: '批量转移' })).toBeDisabled()
   })
 
   it('shows reconciliation progress and restores an actionable retry after a failed check', () => {

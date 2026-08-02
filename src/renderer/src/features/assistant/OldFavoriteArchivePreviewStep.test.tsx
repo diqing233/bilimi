@@ -57,6 +57,33 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect([...groups.values()].flat()).toHaveLength(2_000)
   })
 
+  it('keeps a 2000-item batch transfer virtualized instead of mounting every card', () => {
+    const items = Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_000, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
+        classifications: Object.fromEntries(items.map((item) => [String(item.aid), { aid: item.aid, targetLedgerIds: ['music'], source: 'system-high' as const }])),
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    const group = screen.getByRole('group', { name: '音乐舞台 2000 条' })
+    fireEvent.click(within(group).getByRole('button', { name: '批量转移' }))
+    expect(group.querySelector('[data-virtualized="true"]')).not.toBeNull()
+    expect(group.querySelectorAll('article').length).toBeLessThan(20)
+
+    fireEvent.click(within(group).getByRole('button', { name: '全选' }))
+    expect(within(group).getByRole('button', { name: '转移所选' })).toBeEnabled()
+    expect(group.querySelectorAll('article').length).toBeLessThan(20)
+  })
+
   it('indexes a multi-target video into every selected archive group', () => {
     const item = { aid: 1, sourceFolderIds: ['source'] }
     const groups = groupOldFavoritePreviewItems([item], {
@@ -252,7 +279,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
-    expect(screen.getByRole('checkbox', { name: '全部存入暂存' })).toBeDisabled()
+    expect(within(screen.getByRole('group', { name: '未匹配到合适分类 13 条' })).getByRole('button', { name: '批量转移' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '转移 Preview 1' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: '第 2 组' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '显示全部 13 条' })).toBeEnabled()
@@ -263,38 +290,87 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('menuitem', { name: 'DeepSeek：1 条 → inbox' })).toBeDisabled()
   })
 
-  it('restores a select-all control for every concrete archive group', () => {
+  it('expands a group for batch transfer and submits one replacement while preserving other targets', () => {
     const onApplyManualClassifications = vi.fn()
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
-        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 8, isBilimiWorkFolder: false, selected: true }],
         segments: [], currentSegment: {
-          id: 'segment-1', aids: [1, 2], items: [
-            { aid: 1, title: 'Matched', sourceFolderIds: ['source'] },
-            { aid: 2, title: 'Unmatched', sourceFolderIds: ['source'] }
-          ]
+          id: 'segment-1', aids: [1, 2, 3, 4, 5, 6, 7, 8], items: Array.from({ length: 8 }, (_, index) => ({ aid: index + 1, title: `Matched ${index + 1}`, sourceFolderIds: ['source'] }))
         },
-        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
+        classifications: Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1), { aid: index + 1, targetLedgerIds: ['music', 'knowledge'], source: 'system-high' as const }])),
         recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
-      ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      ledgers={[
+        { id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true },
+        { id: 'knowledge', displayName: '知识学习', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false },
+        { id: 'archive', displayName: '稍后归档', keywords: [], ruleType: 'keyword', enabled: true, priority: 2, isDefault: false }
+      ]}
       loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
       onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()}
       onApplyManualClassifications={onApplyManualClassifications}
     />)
 
-    expect(screen.getByRole('checkbox', { name: '全选 音乐舞台' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '全部存入暂存' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: '全选 音乐舞台' }))
-    expect(onApplyManualClassifications).toHaveBeenCalledWith([{ aid: 1, targetLedgerIds: [] }])
+    const group = screen.getByRole('group', { name: '音乐舞台 8 条' })
+    expect(within(group).getByRole('button', { name: '显示全部 8 条' })).toBeInTheDocument()
+    fireEvent.click(within(group).getByRole('button', { name: '批量转移' }))
+
+    expect(within(group).queryByRole('button', { name: '显示全部 8 条' })).not.toBeInTheDocument()
+    expect(within(group).queryByRole('button', { name: '批量转移' })).not.toBeInTheDocument()
+    expect(within(group).getByRole('link', { name: 'Matched 8' })).toBeInTheDocument()
+    fireEvent.click(within(group).getByRole('button', { name: '全选' }))
+    expect(group.querySelectorAll('article[data-selected="true"]')).toHaveLength(8)
+
+    fireEvent.click(within(group).getByRole('button', { name: '转移所选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '稍后归档' }))
+    expect(onApplyManualClassifications).toHaveBeenCalledTimes(1)
+    expect(onApplyManualClassifications).toHaveBeenCalledWith(Array.from({ length: 8 }, (_, index) => ({
+      aid: index + 1,
+      targetLedgerIds: ['knowledge', 'archive']
+    })))
+    expect(within(group).getByRole('button', { name: '批量转移' })).toBeInTheDocument()
+  })
+
+  it('clears batch selection when the current segment changes', () => {
+    const makeSnapshot = (segmentId: string, aid: number) => ({
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+      ],
+      currentSegment: { id: segmentId, aids: [aid], items: [{ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }] },
+      classifications: { [String(aid)]: { aid, targetLedgerIds: ['music'], source: 'system-high' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    })
+    const ledgers = [{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true }]
+    const actions = {
+      onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+      onMoveHistoryCursor: vi.fn(), onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn()
+    }
+    const view = render(<OldFavoriteArchivePreviewStep snapshot={makeSnapshot('segment-1', 1)} ledgers={ledgers}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
+
+    const firstGroup = screen.getByRole('group', { name: '音乐舞台 1 条' })
+    fireEvent.click(within(firstGroup).getByRole('button', { name: '批量转移' }))
+    fireEvent.click(within(firstGroup).getByRole('button', { name: '选择 Video 1' }))
+    expect(within(firstGroup).getByRole('button', { name: '取消批量' })).toBeInTheDocument()
+
+    view.rerender(<OldFavoriteArchivePreviewStep snapshot={makeSnapshot('segment-2', 2)} ledgers={ledgers}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
+
+    const secondGroup = screen.getByRole('group', { name: '音乐舞台 1 条' })
+    expect(within(secondGroup).getByRole('button', { name: '批量转移' })).toBeInTheDocument()
+    expect(within(secondGroup).queryByRole('button', { name: '取消批量' })).not.toBeInTheDocument()
   })
 
   it('shows only post-scan changes and restores the automatic-classification baseline', () => {
     const onMoveHistoryCursor = vi.fn()
-    render(<OldFavoriteArchivePreviewStep
+    const { container } = render(<OldFavoriteArchivePreviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
@@ -334,6 +410,8 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
     const menu = screen.getByRole('menu', { name: '改动记录' })
+    expect(container.querySelector('[role="menu"][aria-label="改动记录"]')).toBeNull()
+    expect(document.body.contains(menu)).toBe(true)
     expect(menu.querySelector('.favorite-ledger-panel__archive-history-current')).toHaveTextContent('当前记录：Preview：Archive → Manual')
     expect(menu.querySelector('.favorite-ledger-panel__archive-history-divider')).not.toBeNull()
     expect(within(menu).getByRole('menuitem', { name: 'DeepSeek 整理 44 条：未分类 → Manual' })).toBeInTheDocument()

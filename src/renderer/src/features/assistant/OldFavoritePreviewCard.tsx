@@ -13,6 +13,9 @@ type OldFavoritePreviewCardProps = {
   originalTargetLedgerIds?: string[]
   ledgers: FavoriteLedger[]
   loading: boolean
+  batchSelectable?: boolean
+  batchSelected?: boolean
+  onToggleBatchSelection?: (aid: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
 }
 
@@ -24,6 +27,9 @@ export function OldFavoritePreviewCard({
   originalTargetLedgerIds = [],
   ledgers,
   loading,
+  batchSelectable = false,
+  batchSelected = false,
+  onToggleBatchSelection = () => undefined,
   onApplyManualClassification
 }: OldFavoritePreviewCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -35,14 +41,15 @@ export function OldFavoritePreviewCard({
   const tooltipId = useId()
   const tooltipAnchorRef = useRef<HTMLElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
-  const [tooltip, setTooltip] = useState<{ key: 'title' | 'source' | 'tags'; text: string; top: number; left: number } | null>(null)
+  const [tooltip, setTooltip] = useState<{ key: 'title' | 'source' | 'tags' | 'original'; text: string; top: number; left: number } | null>(null)
   const title = item.title?.trim() || `视频 ${item.aid}`
   const sourceText = `来源：${sourceFolderTitles.join('、') || '未记录'}`
   const tagsText = item.tags?.length ? `标签：${item.tags.join('、')}` : null
   const targetLedgerIds = classification?.targetLedgerIds ?? []
-  const selected = targetLedgerIds.length > 0
+  const hasTargets = targetLedgerIds.length > 0
   const originalLedgerNames = originalTargetLedgerIds
     .map((ledgerId) => ledgerId === 'inbox' ? '暂存' : ledgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId)
+  const originalLedgerText = originalLedgerNames.length ? `原分类：${originalLedgerNames.join('、')}` : null
 
   useLayoutEffect(() => {
     if (!menuOpen) return
@@ -154,29 +161,38 @@ export function OldFavoritePreviewCard({
       : current.filter((id) => id !== ledgerId))
   }
 
-  function showTooltip(key: 'title' | 'source' | 'tags', text: string, anchor: HTMLElement) {
+  function showTooltip(key: 'title' | 'source' | 'tags' | 'original', text: string, anchor: HTMLElement) {
     tooltipAnchorRef.current = anchor
     setTooltip({ key, text, top: 0, left: 0 })
   }
 
-  return <article className="favorite-ledger-panel__preview-card" data-selected={selected}>
-    <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending">
+  return <article className="favorite-ledger-panel__preview-card" data-selected={batchSelected || undefined}>
+    <div className="favorite-ledger-panel__preview-information favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending"
+      role={batchSelectable ? 'button' : undefined} tabIndex={batchSelectable ? 0 : undefined}
+      aria-label={batchSelectable ? `${batchSelected ? '取消选择' : '选择'} ${title}` : undefined}
+      onClick={batchSelectable ? () => onToggleBatchSelection(item.aid) : undefined}
+      onKeyDown={batchSelectable ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onToggleBatchSelection(item.aid)
+        }
+      } : undefined}>
       <a href={`https://www.bilibili.com/video/av${item.aid}`} target="_blank" rel="noreferrer" className="favorite-ledger-panel__preview-tooltip-trigger"
         aria-describedby={tooltip?.key === 'title' ? tooltipId : undefined}
+        onClick={(event) => event.stopPropagation()}
         onMouseEnter={(event) => showTooltip('title', title, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
         onFocus={(event) => showTooltip('title', title, event.currentTarget)} onBlur={() => setTooltip(null)}><strong>{title}</strong></a>
       <p>UP：{item.author?.trim() || '未知 UP'}</p>
       <p tabIndex={0} className="favorite-ledger-panel__preview-tooltip-trigger" aria-describedby={tooltip?.key === 'source' ? tooltipId : undefined}
         onMouseEnter={(event) => showTooltip('source', sourceText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
         onFocus={(event) => showTooltip('source', sourceText, event.currentTarget)} onBlur={() => setTooltip(null)}>{sourceText}</p>
-      {tagsText ? <p tabIndex={0} className="favorite-ledger-panel__preview-tooltip-trigger" aria-describedby={tooltip?.key === 'tags' ? tooltipId : undefined}
-        onMouseEnter={(event) => showTooltip('tags', tagsText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
-        onFocus={(event) => showTooltip('tags', tagsText, event.currentTarget)} onBlur={() => setTooltip(null)}>{tagsText}</p> : null}
+      <p tabIndex={tagsText ? 0 : undefined} className={tagsText ? 'favorite-ledger-panel__preview-tooltip-trigger' : undefined} aria-describedby={tooltip?.key === 'tags' ? tooltipId : undefined}
+        onMouseEnter={(event) => tagsText && showTooltip('tags', tagsText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+        onFocus={(event) => tagsText && showTooltip('tags', tagsText, event.currentTarget)} onBlur={() => setTooltip(null)}>{tagsText ?? '标签：未记录'}</p>
       <p>分类把握：{classification?.source === 'system-low' ? '不太稳' : '比较稳'}</p>
-      {originalLedgerNames.length ? <p>原分类：{originalLedgerNames.join('、')}</p> : null}
     </div>
     <div className="favorite-ledger-panel__preview-controls">
-      <button ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={selected}
+      <button ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={hasTargets}
         aria-label={`转移 ${title}`} aria-expanded={menuOpen} disabled={loading}
         onClick={() => {
           if (menuOpen) closeMenu()
@@ -184,6 +200,10 @@ export function OldFavoritePreviewCard({
         }}>
         转移 <span className="disclosure-arrow" aria-hidden="true">▾</span>
       </button>
+      {originalLedgerText ? <span tabIndex={0} className="favorite-ledger-panel__preview-original-category" title={originalLedgerText}
+        aria-describedby={tooltip?.key === 'original' ? tooltipId : undefined}
+        onMouseEnter={(event) => showTooltip('original', originalLedgerText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+        onFocus={(event) => showTooltip('original', originalLedgerText, event.currentTarget)} onBlur={() => setTooltip(null)}>{originalLedgerText}</span> : null}
       {menuOpen ? createPortal(<div ref={menuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating"
         style={{ top: menuPosition.top, left: menuPosition.left }} role="menu" aria-label={`转移 ${title}`}>
         {multiSelectOpen ? <div className="favorite-ledger-panel__target-multi" role="group" aria-label={`附加目标 ${title}`}>
