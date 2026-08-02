@@ -5990,12 +5990,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       cursor: 3, length: 3, baselineCursor: 2,
       entries: [{ cursor: 3, source: 'manual', targetLedgerIds: ['manual'] }]
     })
+    expect(changed).toMatchObject({ originalTargetLedgerIdsByAid: { '1': ['initial-high'] } })
 
     if (changed.history.baselineCursor === undefined) throw new Error('history baseline unexpectedly unavailable')
     await coordinator.moveHistoryCursor('100', changed.history.baselineCursor)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['initial-high'], source: 'system-high' } },
-      history: { cursor: 2, baselineCursor: 2, entries: [{ cursor: 3, source: 'manual' }] }
+      history: { cursor: 2, baselineCursor: 2, entries: [{ cursor: 3, source: 'manual' }] },
+      originalTargetLedgerIdsByAid: {}
     })
     await expect(coordinator.moveHistoryCursor('100', 0)).rejects.toThrow('cannot precede the initial classification baseline')
 

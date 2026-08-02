@@ -421,6 +421,26 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByRole('button', { name: '恢复初始改动' })).not.toBeInTheDocument()
   })
 
+  it('does not show an original category when the current classification is already at the durable baseline', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Baseline item', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['archive'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 1, length: 2, baselineCursor: 1, entries: [{ cursor: 2, source: 'manual', changeCount: 1, targetLedgerIds: ['manual'] }] }
+      }}
+      ledgers={[{ id: 'archive', displayName: 'Archive', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.queryByText('原分类：Archive')).not.toBeInTheDocument()
+  })
+
   it('wires Ctrl+Z and Ctrl+Shift+Z to durable history without stealing editable shortcuts', () => {
     const onUndo = vi.fn()
     const onRedo = vi.fn()
@@ -457,11 +477,12 @@ describe('OldFavoriteArchivePreviewStep', () => {
       { aid: 2, title: 'Existing target', sourceFolderIds: ['source'] },
       { aid: 3, title: 'Stay in source', sourceFolderIds: ['source'] }
     ]
-    const snapshot = (classifications: Record<string, { aid: number; targetLedgerIds: string[]; source: 'manual' }>) => ({
+    const snapshot = (classifications: Record<string, { aid: number; targetLedgerIds: string[]; source: 'manual' }>,
+      originalTargetLedgerIdsByAid: Record<string, string[]> = {}) => ({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
       segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [{ id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false, selected: true }],
-      segments: [], currentSegment: { id: 'segment-1', aids: [1, 2, 3], items }, classifications,
+      segments: [], currentSegment: { id: 'segment-1', aids: [1, 2, 3], items }, classifications, originalTargetLedgerIdsByAid,
       recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
     })
     const actions = {
@@ -487,7 +508,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       '1': { aid: 1, targetLedgerIds: ['archive'], source: 'manual' },
       '2': { aid: 2, targetLedgerIds: ['archive'], source: 'manual' },
       '3': { aid: 3, targetLedgerIds: ['music'], source: 'manual' }
-    })} ledgers={ledgers} loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
+    }, { '1': ['music'] })} ledgers={ledgers} loading={false} deepSeekAvailable={false} deepSeekFeedback={null} {...actions} />)
 
     expect(sourceTrack.scrollLeft).toBe(0)
     expect(targetTrack.scrollLeft).toBe(0)

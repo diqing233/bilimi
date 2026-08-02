@@ -160,6 +160,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     }>
   }
   classifications: Record<string, OldFavoriteWorkspaceClassification>
+  /** Initial automatic targets for classifications that still differ from the durable baseline. */
+  originalTargetLedgerIdsByAid?: Record<string, string[]>
   recommendations: {
     candidates: OldFavoriteWorkspaceRecommendationCandidate[]
     adoptedCandidateIds: string[]

@@ -90,7 +90,6 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const batchTargetTriggerRef = useRef<HTMLButtonElement>(null)
   const batchTargetMenuRef = useRef<HTMLDivElement>(null)
   const pendingMoveFocusRef = useRef<{ aid: number; sourceLedgerId: string; targetLedgerId: string } | null>(null)
-  const originalTargetsRef = useRef<{ key: string; byAid: Map<number, string[]> }>({ key: '', byAid: new Map() })
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -99,15 +98,6 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     .map((folder) => folder.id))
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
-  const originalTargetsKey = `${snapshot.workspaceId}:${snapshot.currentSegment?.id ?? 'none'}`
-  if (originalTargetsRef.current.key !== originalTargetsKey) {
-    originalTargetsRef.current = { key: originalTargetsKey, byAid: new Map() }
-  }
-  for (const item of items) {
-    if (!originalTargetsRef.current.byAid.has(item.aid)) {
-      originalTargetsRef.current.byAid.set(item.aid, [...(snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? [])])
-    }
-  }
   const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
   const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
   const previewGroups = [
@@ -135,7 +125,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
     classification={snapshot.classifications[String(item.aid)]}
     currentLedgerId={currentLedgerId}
-    originalTargetLedgerIds={originalTargetsRef.current.byAid.get(item.aid)}
+    originalTargetLedgerIds={snapshot.originalTargetLedgerIdsByAid?.[String(item.aid)]}
     ledgers={ledgers}
     loading={loading || mutationLocked}
     batchSelectable={batchSelectable}

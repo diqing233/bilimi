@@ -4171,6 +4171,18 @@ export class OldFavoriteWorkspaceCoordinator {
         }))
     const overview = this.createOverviewProjection(workspace, projectedSegments)
     const deepSeekRunCheckpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
+    const historyBaselineCursor = workspace.historyBaselineCursor ?? 0
+    const originalTargetLedgerIds = new Map<number, string[]>()
+    for (let index = historyBaselineCursor; index < workspace.historyCursor; index += 1) {
+      for (const change of workspace.history[index]?.changes ?? []) {
+        if (!originalTargetLedgerIds.has(change.aid)) {
+          originalTargetLedgerIds.set(change.aid, [...(change.before?.targetLedgerIds ?? [])])
+        }
+      }
+    }
+    const originalTargetLedgerIdsByAid = Object.fromEntries([...originalTargetLedgerIds]
+      .filter(([aid, targets]) => JSON.stringify(workspace.classifications[String(aid)]?.targetLedgerIds ?? []) !== JSON.stringify(targets))
+      .map(([aid, targets]) => [String(aid), targets]))
     return {
       version: 1,
       accountMid: workspace.accountMid,
@@ -4224,6 +4236,7 @@ export class OldFavoriteWorkspaceCoordinator {
         targetLedgerIds: [...classification.targetLedgerIds],
         source: classification.source
       }])),
+      originalTargetLedgerIdsByAid,
       ...(this.staleDeepSeekAids.get(workspace.accountMid)?.length ? { staleDeepSeekAids: [...this.staleDeepSeekAids.get(workspace.accountMid)!] } : {}),
       recommendations: {
         candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map((candidate) => {
