@@ -3,7 +3,9 @@ import {
   BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
+  createRecommendedFavoriteLedgerId,
   createRecommendedFavoriteLedgerName,
+  createRecommendedFavoriteLedgerNameForKind,
   createRecommendedFavoriteLedgerNames,
   favoriteLedgerNameLength,
   favoriteLedgerNameValidation,
@@ -31,6 +33,38 @@ describe('favorite ledger model', () => {
     expect(createRecommendedFavoriteLedgerName('abcdefghijklmnop-超长账号', [])).toBe(
       'bilimi·abcdefghijklm'
     )
+  })
+
+  it('keeps the complete Unicode source in recommendation ids', () => {
+    expect(createRecommendedFavoriteLedgerId('author', 'honker233-小王爱马枪')).toContain(
+      'custom-author-honker233-小王爱马枪'
+    )
+    expect(createRecommendedFavoriteLedgerId('author', 'honker233-另一位主播')).toContain(
+      'custom-author-honker233-另一位主播'
+    )
+    expect(createRecommendedFavoriteLedgerId('author', '中文UP一')).not.toBe(
+      createRecommendedFavoriteLedgerId('author', '中文UP二')
+    )
+  })
+
+  it('keeps recommendation ids distinct when different sources share a normalized slug', () => {
+    expect(createRecommendedFavoriteLedgerId('author', 'UP Alpha')).not.toBe(
+      createRecommendedFavoriteLedgerId('author', 'up-alpha')
+    )
+    expect(createRecommendedFavoriteLedgerId('tag', 'A B')).not.toBe(
+      createRecommendedFavoriteLedgerId('tag', 'a-b')
+    )
+  })
+
+  it('normalizes long tag recommendations without applying the author account-prefix rule', () => {
+    const displayName = createRecommendedFavoriteLedgerNameForKind(
+      'tag',
+      '这是一个非常非常长的高频标签名称',
+      []
+    )
+
+    expect(displayName).toBe('bilimi·这是一个非常非常长的高频标')
+    expect(favoriteLedgerNameValidation(displayName).valid).toBe(true)
   })
 
   it('adds a stable short suffix when a recommended name conflicts', () => {

@@ -104,6 +104,22 @@ describe('old favorite workspace recommendation persistence', () => {
     )).toEqual([...defaults, edited, bound])
   })
 
+  it('re-enables an unbound matching author rule under its existing identity', () => {
+    const existing = {
+      ...recommendation,
+      id: 'saved-alice',
+      displayName: 'bilimi·Alice 精选',
+      enabled: false,
+      syncState: 'local-draft' as const
+    }
+    const generated = { ...recommendation, id: 'custom-author-alice-new' }
+
+    expect(reconcileRecommendedLedgers([existing], [generated], [generated.id])).toEqual([{
+      ...existing,
+      enabled: true
+    }])
+  })
+
   it('migrates unsynced adopted rules to local drafts without downgrading an existing Bilibili folder', () => {
     expect(markRecommendedLedgersLocalDraft([
       recommendation,

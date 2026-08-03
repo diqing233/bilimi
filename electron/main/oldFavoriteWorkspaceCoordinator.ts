@@ -27,7 +27,12 @@ import {
   type FavoriteRepositoryVideo,
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
-import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import {
+  BILIMI_LEDGER_PREFIX,
+  createDefaultFavoriteLedgers,
+  createRecommendedFavoriteLedgerId,
+  createRecommendedFavoriteLedgerNamesForKind
+} from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
@@ -312,16 +317,6 @@ function normalizeAids(aids: number[]) {
     .sort((left, right) => left - right)
 }
 
-function stableRecommendationId(author: string) {
-  const slug = author.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  if (slug) return `custom-author-${slug}`
-  let hash = 2166136261
-  for (const character of author) {
-    hash ^= character.codePointAt(0) ?? 0
-    hash = Math.imul(hash, 16777619)
-  }
-  return `custom-author-${(hash >>> 0).toString(36)}`
-}
 type TagEnrichment = {
   status: 'running' | 'paused' | 'accepted' | 'complete'
   totalItemCount: number
@@ -350,17 +345,6 @@ function normalizeTagEnrichment(value: {
     taggedAids: [...new Set(value.taggedAids ?? [])],
     acceptedSegmentIds: [...new Set(value.acceptedSegmentIds ?? [])]
   }
-}
-
-function stableTagRecommendationId(tag: string) {
-  const slug = tag.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  if (slug) return `custom-tag-${slug}`
-  let hash = 2166136261
-  for (const character of tag) {
-    hash ^= character.codePointAt(0) ?? 0
-    hash = Math.imul(hash, 16777619)
-  }
-  return `custom-tag-${(hash >>> 0).toString(36)}`
 }
 
 function localLedgerId(title: string) {
@@ -421,10 +405,32 @@ function matchedRecommendationAidsBySegment(index: RecommendationIndex, aids: Re
   )
 }
 
-function tagRecommendation(index: RecommendationIndex, sourceName: string, aids: ReadonlySet<number>): StoredRecommendation {
+function allocateRecommendationNames(
+  candidates: Array<Omit<StoredRecommendation, 'displayName'>>,
+  existingDisplayNames: Iterable<string> = []
+): StoredRecommendation[] {
+  const allocatedNames = Array.from(existingDisplayNames)
+  const displayNameByCandidate = new Map<string, string>()
+  for (const kind of ['author', 'series', 'tag'] as const) {
+    const namesBySource = createRecommendedFavoriteLedgerNamesForKind(
+      kind,
+      candidates.filter((candidate) => candidate.kind === kind).map((candidate) => candidate.sourceName),
+      allocatedNames
+    )
+    for (const [sourceName, displayName] of namesBySource) {
+      allocatedNames.push(displayName)
+      displayNameByCandidate.set(`${kind}:${sourceName}`, displayName)
+    }
+  }
+  return candidates.map((candidate) => ({
+    ...candidate,
+    displayName: displayNameByCandidate.get(`${candidate.kind}:${candidate.sourceName}`)!
+  }))
+}
+
+function tagRecommendation(index: RecommendationIndex, sourceName: string, aids: ReadonlySet<number>): Omit<StoredRecommendation, 'displayName'> {
   return {
-    id: stableTagRecommendationId(sourceName),
-    displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
+    id: createRecommendedFavoriteLedgerId('tag', sourceName),
     kind: 'tag',
     sourceName,
     keywords: [sourceName],
@@ -434,7 +440,11 @@ function tagRecommendation(index: RecommendationIndex, sourceName: string, aids:
   }
 }
 
-function recommendationsFromIndex(index: RecommendationIndex, adoptedCandidateIds: string[] = []): RecommendationState {
+function recommendationsFromIndex(
+  index: RecommendationIndex,
+  adoptedCandidateIds: string[] = [],
+  priorCandidates: StoredRecommendation[] = []
+): RecommendationState {
   const matchedAidsBySegment = (aids: ReadonlySet<number>) => Object.fromEntries(
     [...aids].sort((left, right) => left - right).reduce((segments, aid) => {
       const segmentId = index.segmentIdForAid.get(aid) ?? 'segment-1'
@@ -444,13 +454,12 @@ function recommendationsFromIndex(index: RecommendationIndex, adoptedCandidateId
       return segments
     }, new Map<string, number[]>())
   )
-  const authors: StoredRecommendation[] = [...index.authorAids.entries()]
+  const authors = [...index.authorAids.entries()]
     .filter(([, aids]) => aids.size >= 2)
     .sort(([leftName, leftAids], [rightName, rightAids]) => rightAids.size - leftAids.size || leftName.localeCompare(rightName, 'zh-Hans-CN'))
     .slice(0, 24)
     .map(([sourceName, aids]) => ({
-      id: stableRecommendationId(sourceName),
-      displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
+      id: createRecommendedFavoriteLedgerId('author', sourceName),
       kind: 'author' as const,
       sourceName,
       keywords: [sourceName],
@@ -458,16 +467,34 @@ function recommendationsFromIndex(index: RecommendationIndex, adoptedCandidateId
       matchedAidsBySegment: matchedAidsBySegment(aids),
       reason: `${sourceName} appeared ${aids.size} times.`
     }))
-  const tags: StoredRecommendation[] = [...index.tagAids.entries()]
+  const tags = [...index.tagAids.entries()]
     .filter(([tag, aids]) => aids.size >= 2 && tag.length >= 2 && !GENERIC_RECOMMENDATION_TAGS.has(tag.toLocaleLowerCase()))
     .sort(([leftName, leftAids], [rightName, rightAids]) => rightAids.size - leftAids.size || leftName.localeCompare(rightName, 'zh-Hans-CN'))
     .slice(0, 24)
     .map(([sourceName, aids]) => tagRecommendation(index, sourceName, aids))
-  const availableIds = new Set([...authors, ...tags].map((candidate) => candidate.id))
+  const generatedCandidates = allocateRecommendationNames([...authors, ...tags])
+  const adoptedPriorCandidates = priorCandidates
+    .filter((candidate) => adoptedCandidateIds.includes(candidate.id))
+  const priorIdCounts = adoptedPriorCandidates.reduce((counts, candidate) =>
+    counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1), new Map<string, number>())
+  const uniqueAdoptedPriorByLogicalKey = new Map(adoptedPriorCandidates
+    .filter((candidate) => priorIdCounts.get(candidate.id) === 1)
+    .map((candidate) => [`${candidate.kind}:${candidate.sourceName}`, candidate] as const))
+  const candidates = generatedCandidates.map((candidate) => {
+    const prior = uniqueAdoptedPriorByLogicalKey.get(`${candidate.kind}:${candidate.sourceName}`)
+    return prior ? { ...candidate, id: prior.id } : candidate
+  })
+  const adoptedLogicalKeys = new Set(adoptedPriorCandidates
+    .map((candidate) => `${candidate.kind}:${candidate.sourceName}`))
   return {
-    candidates: [...authors, ...tags],
+    candidates,
     initialized: true,
-    adoptedCandidateIds: adoptedCandidateIds.filter((id) => availableIds.has(id))
+    adoptedCandidateIds: candidates
+      .filter((candidate) => (
+        adoptedCandidateIds.includes(candidate.id) ||
+        adoptedLogicalKeys.has(`${candidate.kind}:${candidate.sourceName}`)
+      ))
+      .map((candidate) => candidate.id)
   }
 }
 
@@ -501,18 +528,20 @@ function updateTagRecommendations(
   index: RecommendationIndex,
   changedTags: ReadonlySet<string>
 ): RecommendationState {
-  const changedIds = new Set([...changedTags].map(stableTagRecommendationId))
+  const changedIds = new Set([...changedTags].map((tag) => createRecommendedFavoriteLedgerId('tag', tag)))
   const tagCandidates = state.candidates.filter((candidate) => candidate.kind === 'tag' && !changedIds.has(candidate.id))
   for (const tag of changedTags) {
     const aids = index.tagAids.get(tag)
     if (!aids || aids.size < 2 || tag.length < 2 || GENERIC_RECOMMENDATION_TAGS.has(tag.toLocaleLowerCase())) continue
-    tagCandidates.push(tagRecommendation(index, tag, aids))
+    tagCandidates.push({ ...tagRecommendation(index, tag, aids), displayName: '' })
   }
   tagCandidates.sort((left, right) => right.count - left.count || left.sourceName.localeCompare(right.sourceName, 'zh-Hans-CN'))
-  const candidates = [
-    ...state.candidates.filter((candidate) => candidate.kind !== 'tag'),
-    ...tagCandidates.slice(0, 24)
-  ]
+  const retainedCandidates = state.candidates.filter((candidate) => candidate.kind !== 'tag')
+  const generatedTags = allocateRecommendationNames(
+    tagCandidates.slice(0, 24).map(({ displayName: _displayName, ...candidate }) => candidate),
+    retainedCandidates.map((candidate) => candidate.displayName)
+  )
+  const candidates = [...retainedCandidates, ...generatedTags]
   const availableIds = new Set(candidates.map((candidate) => candidate.id))
   return {
     initialized: true,
@@ -535,6 +564,10 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
 
 function isStagingBilimiFolder(title: string) {
   return /\u5f85\u5206\u7c7b|\u6682\u5b58/u.test(title)
+}
+
+function recommendationLogicalTitle(candidate: StoredRecommendation) {
+  return candidate.kind === 'series' ? candidate.sourceName : candidate.displayName
 }
 
 type RecoverableManagedFolder = {
@@ -2935,7 +2968,7 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter((assignment) => currentSegmentAids.has(assignment.aid))
       const recommendations = await this.ensureRecommendations(workspace)
       const recommendationTitles = new Map(recommendations.candidates
-        .map((candidate) => [candidate.id, candidate.sourceName] as const))
+        .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const itemsByAid = new Map<number, CurrentSegmentItem>()
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
@@ -3105,7 +3138,8 @@ export class OldFavoriteWorkspaceCoordinator {
         }
         const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
         const recommendations = await this.ensureRecommendations(workspace)
-        const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
+        const recommendationTitles = new Map(recommendations.candidates
+          .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
         const assignmentAids = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter((id) => id && id !== 'inbox')) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
@@ -3643,7 +3677,7 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       }
       const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
-        .map((candidate) => [candidate.id, candidate.sourceName] as const))
+        .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
       const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
       const folders = await Promise.all(Object.keys(memberAidsByFolderId).filter((folderId) => folderId.startsWith('local:')).map(async (folderId) => {
         if (folderId === 'local:inbox') return { id: folderId, title: '暂存', kind: 'local' as const, syncState: 'local-only' as const }
@@ -4368,7 +4402,11 @@ export class OldFavoriteWorkspaceCoordinator {
       itemsByAid.values(),
       (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
     )
-    const rebuilt = recommendationsFromIndex(index, sanitizedState.adoptedCandidateIds)
+    const rebuilt = recommendationsFromIndex(
+      index,
+      sanitizedState.adoptedCandidateIds,
+      sanitizedState.candidates
+    )
     if (rebuildIncrementalIndex) this.recommendationIndexes.set(accountMid, index)
     if (missingIds.size || sanitized) {
       await this.options.workspaceStore.appendOverlay(accountMid, workspaceId, {
@@ -4801,12 +4839,7 @@ export class OldFavoriteWorkspaceCoordinator {
           const currentSegmentCount = currentSegment
             ? new Set(candidate.matchedAidsBySegment?.[currentSegment.id] ?? []).size
             : 0
-          const {
-            sourceName: _sourceName,
-            keywords: _keywords,
-            matchedAidsBySegment: _matchedAidsBySegment,
-            ...publicCandidate
-          } = candidate
+          const { sourceName: _sourceName, matchedAidsBySegment: _matchedAidsBySegment, ...publicCandidate } = candidate
           return clone({ ...publicCandidate, currentSegmentCount })
         }),
         adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]

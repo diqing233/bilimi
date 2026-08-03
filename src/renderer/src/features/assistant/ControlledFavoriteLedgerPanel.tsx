@@ -78,7 +78,7 @@ function projectRecommendedLedgerDrafts(
       .map((candidate, index) => ({
         id: candidate.id,
         displayName: candidate.displayName,
-        keywords: [],
+        keywords: [...(candidate.keywords ?? [])],
         ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
         enabled: true,
         priority: 10_000 + index,

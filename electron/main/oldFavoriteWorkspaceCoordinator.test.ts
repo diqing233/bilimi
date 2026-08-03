@@ -3151,6 +3151,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('publishes distinct canonical author recommendations with complete renderer rules', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'A1', author: 'honker233-小王爱马枪', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'A2', author: 'honker233-小王爱马枪', sourceFolderIds: ['source'] },
+        { aid: 3, title: 'B1', author: 'honker233-另一位主播', sourceFolderIds: ['source'] },
+        { aid: 4, title: 'B2', author: 'honker233-另一位主播', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.recommendations.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: expect.stringContaining('custom-author-honker233-小王爱马枪'), keywords: ['honker233-小王爱马枪']
+      }),
+      expect.objectContaining({
+        id: expect.stringContaining('custom-author-honker233-另一位主播'), keywords: ['honker233-另一位主播']
+      })
+    ]))
+    expect(snapshot.recommendations.candidates.map((candidate) => candidate.displayName))
+      .toContain('bilimi·honker233')
+    expect(new Set(snapshot.recommendations.candidates.map((candidate) => candidate.displayName)).size).toBe(2)
+  })
+
   it('opens the prepared recommendation preview without classifying the workspace again', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -4977,6 +5007,38 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(recovered.recommendations.candidates).toEqual([
       expect.objectContaining({ matchedAidsBySegment: { 'segment-1': [1, 2] } })
     ])
+  })
+
+  it('preserves an adopted legacy recommendation identity when rebuilding indexes by kind and complete source', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, author: '中文作者', sourceFolderIds: ['source'] },
+        { aid: 2, author: '中文作者', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const first = requireSnapshot(await coordinator.getSnapshot('100'))
+    await store.appendOverlay('100', first.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [], recommendations: {
+        initialized: true,
+        candidates: [{
+          id: 'custom-author-legacy-hash', displayName: 'bilimi·中文作者', kind: 'author', sourceName: '中文作者',
+          keywords: ['中文作者'], count: 2, reason: 'legacy candidate'
+        }],
+        adoptedCandidateIds: ['custom-author-legacy-hash']
+      }
+    })
+
+    const restarted = createCoordinator(repository, store, { initializeOnOpen: false })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-legacy-hash'] }
+    })
   })
 
   it('saves local library folders under resolved display names instead of internal ledger ids', async () => {

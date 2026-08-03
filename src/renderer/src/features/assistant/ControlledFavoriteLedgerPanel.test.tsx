@@ -2506,6 +2506,40 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('button', { name: 'A' })).toBeInTheDocument()
   })
 
+  it('projects the normalized author name and complete UP rule into the legacy editor', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{
+          id: 'custom-author-honker233-小王爱马枪', displayName: 'bilimi·honker233',
+          keywords: ['honker233-小王爱马枪'], kind: 'author' as const, count: 2, reason: '常看 UP'
+        }],
+        adoptedCandidateIds: ['custom-author-honker233-小王爱马枪']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理收藏' })
+    fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'honker233' }))
+
+    expect(screen.getByLabelText('册名')).toHaveValue('honker233')
+    expect(screen.getByLabelText('UP 名字')).toHaveValue('honker233-小王爱马枪')
+    expect(screen.queryByText(/不能超过 20/)).not.toBeInTheDocument()
+  })
+
   it('uses a selected recommendation name and backup state throughout the organization guide', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

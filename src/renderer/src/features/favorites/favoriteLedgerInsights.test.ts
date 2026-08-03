@@ -1,4 +1,5 @@
 ﻿import { describe, expect, it } from 'vitest'
+import { favoriteLedgerNameValidation } from '@shared/favoriteLedgers'
 import { createFavoriteLedgerInsights } from './favoriteLedgerInsights'
 import type { FavoriteSourceFolder } from './favoriteLedgerPreview'
 
@@ -138,7 +139,7 @@ describe('createFavoriteLedgerInsights', () => {
       }),
       expect.objectContaining({
         kind: 'author',
-        displayName: 'bilimi·光影小课追更',
+        displayName: 'bilimi·光影小课',
         ruleType: 'author',
         keywords: ['光影小课'],
         count: 2,
@@ -315,6 +316,32 @@ describe('createFavoriteLedgerInsights', () => {
     ]))
   })
 
+  it('continues reusing a legacy tag-cluster ledger by its complete tag rule', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [{
+        id: '1',
+        title: '默认收藏夹',
+        videos: [
+          { aid: 327, title: '明日方舟攻略一', tags: ['明日方舟'] },
+          { aid: 328, title: '明日方舟攻略二', tags: ['明日方舟'] }
+        ]
+      }],
+      existingLedgers: [{
+        id: 'custom-tag-cluster-明日方舟',
+        displayName: 'bilimi·我的方舟收藏',
+        keywords: ['明日方舟'],
+        ruleType: 'tag',
+        enabled: true,
+        priority: 10,
+        isDefault: false
+      }]
+    })
+
+    expect(insights.candidateLedgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tag-cluster', sourceName: '明日方舟' })
+    ]))
+  })
+
   it('creates candidates for multiple high-frequency tags', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: [
@@ -384,6 +411,52 @@ describe('createFavoriteLedgerInsights', () => {
         })
       ])
     )
+  })
+
+  it('uses the shared author identity and allocates distinct names for authors with the same account prefix', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [{
+        id: '1',
+        title: '默认收藏夹',
+        videos: [
+          { aid: 601, title: '直播切片一', author: 'honker233-小王爱马枪' },
+          { aid: 602, title: '直播切片二', author: 'honker233-小王爱马枪' },
+          { aid: 603, title: '直播切片三', author: 'honker233-另一位主播' },
+          { aid: 604, title: '直播切片四', author: 'honker233-另一位主播' }
+        ]
+      }],
+      existingLedgerNames: []
+    })
+
+    const authors = insights.candidateLedgers.filter((candidate) => candidate.kind === 'author')
+    expect(authors.map((candidate) => candidate.id)).toEqual(expect.arrayContaining([
+      expect.stringContaining('custom-author-honker233-小王爱马枪'),
+      expect.stringContaining('custom-author-honker233-另一位主播')
+    ]))
+    expect(new Set(authors.map((candidate) => candidate.displayName))).toHaveLength(2)
+    expect(authors.map((candidate) => candidate.displayName)).toContain('bilimi·honker233')
+  })
+
+  it('uses the shared tag identity and keeps long recommendation names valid', () => {
+    const longTag = '这是一个非常非常长的高频标签名称'
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [{
+        id: '1',
+        title: '默认收藏夹',
+        videos: [
+          { aid: 611, title: '标签样本一', tags: [longTag] },
+          { aid: 612, title: '标签样本二', tags: [longTag] }
+        ]
+      }],
+      existingLedgerNames: []
+    })
+
+    const tag = insights.candidateLedgers.find((candidate) => candidate.kind === 'tag-cluster')
+    expect(tag).toMatchObject({
+      id: `custom-tag-${longTag}`,
+      displayName: 'bilimi·这是一个非常非常长的高频标'
+    })
+    expect(favoriteLedgerNameValidation(tag?.displayName ?? '').valid).toBe(true)
   })
 
 })

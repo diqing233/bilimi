@@ -1,7 +1,9 @@
 import type { FavoriteSourceFolder, FavoriteSourceVideo } from './favoriteLedgerPreview'
 import {
   BILIMI_LEDGER_PREFIX,
-  createRecommendedFavoriteLedgerName,
+  createRecommendedFavoriteLedgerId,
+  createRecommendedFavoriteLedgerNameForKind,
+  createRecommendedFavoriteLedgerNamesForKind,
   isBilimiManagedLedgerName,
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
@@ -167,6 +169,8 @@ export function favoriteLedgerCandidateId(
   kind: FavoriteLedgerCandidateKind,
   sourceName: string
 ): string {
+  if (kind === 'author') return createRecommendedFavoriteLedgerId('author', sourceName)
+  if (kind === 'tag-cluster') return createRecommendedFavoriteLedgerId('tag', sourceName)
   return `custom-${kind}-${sourceName
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '')}`
@@ -190,19 +194,27 @@ function candidateMatchesExistingLedger(
   if (ledger.id === candidate.id) return true
 
   if (
-    candidate.kind === 'author' &&
-    ledger.ruleType === 'author' &&
+    ((candidate.kind === 'author' && ledger.ruleType === 'author') ||
+      (candidate.kind === 'tag-cluster' && ledger.ruleType === 'tag')) &&
     ledger.keywords.some((keyword) => cleanText(keyword) === cleanText(candidate.sourceName))
   ) {
     return true
   }
 
-  const finalDisplayName = candidate.kind === 'author'
-    ? createRecommendedFavoriteLedgerName(candidate.sourceName, [])
+  const finalDisplayName = candidate.kind === 'author' || candidate.kind === 'tag-cluster'
+    ? createRecommendedFavoriteLedgerNameForKind(
+        candidate.kind === 'author' ? 'author' : 'tag',
+        candidate.sourceName,
+        []
+      )
     : candidate.displayName
   const normalizedExistingName = normalizeManagedLedgerName(ledger.displayName)
+  const legacyAuthorName = candidate.kind === 'author'
+    ? `${BILIMI_LEDGER_PREFIX}${candidate.sourceName}追更`
+    : ''
   return normalizedExistingName === normalizeManagedLedgerName(finalDisplayName) ||
-    normalizedExistingName === normalizeManagedLedgerName(candidate.displayName)
+    normalizedExistingName === normalizeManagedLedgerName(candidate.displayName) ||
+    Boolean(legacyAuthorName && normalizedExistingName === normalizeManagedLedgerName(legacyAuthorName))
 }
 
 function confidence(count: number, totalVideos: number): FavoriteLedgerCandidateConfidence {
@@ -229,14 +241,13 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
 
   return candidateTags.map((tag) => {
     const keyword = cleanKeyword(tag.name)
-    const displaySuffix = tag.name
     const keywords = keyword ? [keyword] : []
 
     return {
       id: favoriteLedgerCandidateId('tag-cluster', tag.name),
       kind: 'tag-cluster',
       sourceName: tag.name,
-      displayName: `${BILIMI_LEDGER_PREFIX}${displaySuffix}`,
+      displayName: '',
       keywords,
       ruleType: 'tag',
       count: tag.count,
@@ -276,13 +287,43 @@ function buildAuthorCandidates(
       id: favoriteLedgerCandidateId('author', author.name),
       kind: 'author' as const,
       sourceName: author.name,
-      displayName: `${BILIMI_LEDGER_PREFIX}${author.name}追更`,
+      displayName: '',
       keywords: [author.name],
       ruleType: 'author',
       count: author.count,
       confidence: confidence(author.count, totalVideos),
       reason: `固定 UP“${author.name}”已有 ${author.count} 条收藏，适合持续追更。`
     }))
+}
+
+function allocateGeneratedCandidateNames(
+  candidates: FavoriteLedgerCandidate[],
+  existingDisplayNames: Iterable<string>
+) {
+  const allocatedNames = [...existingDisplayNames]
+  const namesByKey = new Map<string, string>()
+
+  for (const [candidateKind, sharedKind] of [
+    ['author', 'author'],
+    ['tag-cluster', 'tag']
+  ] as const) {
+    const matchingCandidates = candidates.filter((candidate) => candidate.kind === candidateKind)
+    const namesBySource = createRecommendedFavoriteLedgerNamesForKind(
+      sharedKind,
+      matchingCandidates.map((candidate) => candidate.sourceName),
+      allocatedNames
+    )
+    for (const candidate of matchingCandidates) {
+      const displayName = namesBySource.get(candidate.sourceName)!
+      namesByKey.set(candidateKey(candidate.kind, candidate.sourceName), displayName)
+      allocatedNames.push(displayName)
+    }
+  }
+
+  return candidates.map((candidate) => ({
+    ...candidate,
+    displayName: namesByKey.get(candidateKey(candidate.kind, candidate.sourceName)) ?? candidate.displayName
+  }))
 }
 
 function buildCategoryCandidates(
@@ -359,12 +400,13 @@ export function createFavoriteLedgerInsights(args: {
       isDefault: false
     })
   )
-  const candidates = [
+  const candidates = allocateGeneratedCandidateNames([
     ...tagClusters,
     ...buildSeriesCandidates(titleSeries, totalVideos),
     ...buildCategoryCandidates(topCategories, totalVideos),
     ...buildAuthorCandidates(topAuthors, totalVideos)
-  ].filter((candidate) => !existingLedgers.some((ledger) => candidateMatchesExistingLedger(candidate, ledger)))
+  ], existingLedgers.map((ledger) => ledger.displayName))
+    .filter((candidate) => !existingLedgers.some((ledger) => candidateMatchesExistingLedger(candidate, ledger)))
 
   return {
     totalVideos,

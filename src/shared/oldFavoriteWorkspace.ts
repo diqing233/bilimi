@@ -32,6 +32,8 @@ export type OldFavoriteWorkspaceClassification = {
 export type OldFavoriteWorkspaceRecommendationCandidate = {
   id: string
   displayName: string
+  /** Complete rule terms for projecting a selected recommendation into the editor. */
+  keywords?: string[]
   kind: 'author' | 'series' | 'tag'
   count: number
   /** Number of matches in the currently selected batch; the full AID index stays main-process only. */

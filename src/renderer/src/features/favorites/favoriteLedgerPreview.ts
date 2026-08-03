@@ -1,5 +1,6 @@
 import {
   createFavoriteLedgerInsights,
+  favoriteLedgerCandidateId,
   type FavoriteLedgerCandidate,
   type FavoriteLedgerInsights
 } from './favoriteLedgerInsights'
@@ -408,9 +409,7 @@ function candidateKey(candidate: FavoriteLedgerCandidate) {
 }
 
 function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
-  return candidate.id ?? `custom-${candidate.kind}-${candidate.sourceName
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-|-$/g, '')}`
+  return candidate.id ?? favoriteLedgerCandidateId(candidate.kind, candidate.sourceName)
 }
 
 function normalize(value = '') {

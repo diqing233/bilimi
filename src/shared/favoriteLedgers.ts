@@ -31,13 +31,42 @@ function stableNameSuffix(value: string) {
   return (hash >>> 0).toString(36).slice(0, 4).padStart(4, '0')
 }
 
-export function createRecommendedFavoriteLedgerName(
+export type RecommendedFavoriteLedgerKind = 'author' | 'series' | 'tag'
+
+function recommendationSourceIdentity(sourceName: string) {
+  const normalizedSource = sourceName.trim().toLocaleLowerCase()
+  const slug = normalizedSource
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '')
+  const canonicalWhitespaceSource = normalizedSource.replace(/\s+/gu, ' ')
+  if (
+    /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u.test(canonicalWhitespaceSource) &&
+    canonicalWhitespaceSource.replace(/ /g, '-') === slug
+  ) return slug
+
+  const encodedSeparators = Array.from(normalizedSource)
+    .flatMap((character, index) => /[\p{L}\p{N}]/u.test(character)
+      ? []
+      : [`${index.toString(36)}.${(character.codePointAt(0) ?? 0).toString(16)}`])
+    .join('.') || 'empty'
+  return `${slug || 'source'}~${encodedSeparators}`
+}
+
+export function createRecommendedFavoriteLedgerId(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceName: string
+) {
+  return `custom-${kind}-${recommendationSourceIdentity(sourceName)}`
+}
+
+function createRecommendedNameFromBase(
+  baseName: string,
   sourceName: string,
   existingDisplayNames: Iterable<string>
 ) {
   const availableLength = BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(BILIMI_LEDGER_PREFIX)
-  const accountName = sourceName.split('-', 1)[0]?.trim() || sourceName.trim() || '收藏夹'
-  const baseDisplayName = `${BILIMI_LEDGER_PREFIX}${truncateUnicode(accountName, availableLength)}`
+  const normalizedBaseName = baseName.trim() || '收藏夹'
+  const baseDisplayName = `${BILIMI_LEDGER_PREFIX}${truncateUnicode(normalizedBaseName, availableLength)}`
   const existingNames = new Set(
     Array.from(existingDisplayNames, (name) => name.trim().toLocaleLowerCase())
   )
@@ -45,15 +74,32 @@ export function createRecommendedFavoriteLedgerName(
     const suffix = attempt === 0
       ? ''
       : `·${stableNameSuffix(sourceName)}${attempt === 1 ? '' : attempt.toString(36)}`
-    const shortenedAccount = truncateUnicode(
-      accountName,
+    const shortenedBaseName = truncateUnicode(
+      normalizedBaseName,
       availableLength - favoriteLedgerNameLength(suffix)
     )
-    const displayName = `${BILIMI_LEDGER_PREFIX}${shortenedAccount}${suffix}`
-    if (!existingNames.has(displayName.toLocaleLowerCase())) {
-      return displayName
-    }
+    const displayName = `${BILIMI_LEDGER_PREFIX}${shortenedBaseName}${suffix}`
+    if (!existingNames.has(displayName.toLocaleLowerCase())) return displayName
   }
+}
+
+export function createRecommendedFavoriteLedgerNameForKind(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceName: string,
+  existingDisplayNames: Iterable<string>
+) {
+  const normalizedSourceName = sourceName.trim()
+  const baseName = kind === 'author'
+    ? normalizedSourceName.split('-', 1)[0]?.trim() || normalizedSourceName || '收藏夹'
+    : normalizedSourceName || '收藏夹'
+  return createRecommendedNameFromBase(baseName, sourceName, existingDisplayNames)
+}
+
+export function createRecommendedFavoriteLedgerName(
+  sourceName: string,
+  existingDisplayNames: Iterable<string>
+) {
+  return createRecommendedFavoriteLedgerNameForKind('author', sourceName, existingDisplayNames)
 }
 
 export function createRecommendedFavoriteLedgerNames(
@@ -68,6 +114,26 @@ export function createRecommendedFavoriteLedgerNames(
 
   for (const sourceName of stableSourceNames) {
     const displayName = createRecommendedFavoriteLedgerName(sourceName, allocatedNames)
+    namesBySource.set(sourceName, displayName)
+    allocatedNames.push(displayName)
+  }
+
+  return namesBySource
+}
+
+export function createRecommendedFavoriteLedgerNamesForKind(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceNames: Iterable<string>,
+  existingDisplayNames: Iterable<string>
+) {
+  const allocatedNames = Array.from(existingDisplayNames)
+  const namesBySource = new Map<string, string>()
+  const stableSourceNames = Array.from(new Set(sourceNames)).sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )
+
+  for (const sourceName of stableSourceNames) {
+    const displayName = createRecommendedFavoriteLedgerNameForKind(kind, sourceName, allocatedNames)
     namesBySource.set(sourceName, displayName)
     allocatedNames.push(displayName)
   }

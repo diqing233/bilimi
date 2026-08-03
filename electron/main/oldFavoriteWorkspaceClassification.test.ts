@@ -110,4 +110,18 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
       { id: 'music', displayName: 'Music', keywords: ['music'], enabled: true, priority: 3, isDefault: false }
     ])
   })
+
+  it('reuses a saved author ledger with the same complete UP rule instead of duplicating it', () => {
+    expect(mergeOldFavoriteWorkspaceLedgers([{
+      id: 'saved-honker', displayName: 'bilimi·我的追更', keywords: ['honker233-小王爱马枪'],
+      ruleType: 'author', enabled: false, priority: 9, isDefault: false
+    }], [{
+      id: 'custom-author-honker233-小王爱马枪', displayName: 'bilimi·honker233',
+      keywords: ['honker233-小王爱马枪'], ruleType: 'author', enabled: true,
+      priority: 0, isDefault: false
+    }])).toEqual([{
+      id: 'saved-honker', displayName: 'bilimi·我的追更', keywords: ['honker233-小王爱马枪'],
+      ruleType: 'author', enabled: true, priority: 0, isDefault: false
+    }])
+  })
 })

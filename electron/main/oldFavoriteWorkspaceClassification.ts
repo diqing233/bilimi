@@ -1,5 +1,14 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 
+function normalizedRuleKeywords(ledger: FavoriteLedger) {
+  return ledger.keywords.map((keyword) => keyword.trim().toLocaleLowerCase()).filter(Boolean).sort()
+}
+
+function sameLogicalRecommendation(left: FavoriteLedger, right: FavoriteLedger) {
+  if ((left.ruleType ?? 'keyword') !== (right.ruleType ?? 'keyword')) return false
+  return JSON.stringify(normalizedRuleKeywords(left)) === JSON.stringify(normalizedRuleKeywords(right))
+}
+
 export async function classifyOldFavoriteItemsCooperatively<Item, Result>(
   items: readonly Item[],
   classifyBatch: (items: Item[]) => Result[] | Promise<Result[]>,
@@ -49,11 +58,27 @@ export function mergeOldFavoriteWorkspaceLedgers(
   savedLedgers: FavoriteLedger[],
   recommendedLedgers: FavoriteLedger[]
 ) {
-  const recommendedIds = new Set(recommendedLedgers.map((ledger) => ledger.id))
+  const consumedSavedIds = new Set<string>()
+  const resolvedRecommendations = recommendedLedgers.map((recommended) => {
+    const exactId = savedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
+    if (exactId) {
+      consumedSavedIds.add(exactId.id)
+      return { ...recommended, keywords: [...recommended.keywords] }
+    }
+    const saved = savedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
+    if (!saved) return { ...recommended, keywords: [...recommended.keywords] }
+    consumedSavedIds.add(saved.id)
+    return {
+      ...saved,
+      keywords: [...saved.keywords],
+      enabled: true,
+      priority: recommended.priority
+    }
+  })
   return [
-    ...recommendedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })),
+    ...resolvedRecommendations,
     ...savedLedgers
-      .filter((ledger) => !recommendedIds.has(ledger.id))
+      .filter((ledger) => !consumedSavedIds.has(ledger.id) && !recommendedLedgers.some((recommended) => recommended.id === ledger.id))
       .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
   ]
 }
