@@ -137,6 +137,56 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))
   })
 
+  it('paints the busy backup state before starting the remote backup operation', async () => {
+    const paintCallbacks: FrameRequestCallback[] = []
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      paintCallbacks.push(callback)
+      return paintCallbacks.length
+    })
+    try {
+      const ensure = vi.fn().mockResolvedValue({ ok: true })
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+        onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
+
+      const backup = screen.getByRole('button', { name: '备册' })
+      fireEvent.click(backup)
+
+      expect(backup).toHaveAttribute('aria-busy', 'true')
+      expect(backup).toHaveTextContent('备册中')
+      expect(ensure).not.toHaveBeenCalled()
+
+      act(() => { paintCallbacks.shift()?.(0) })
+      expect(ensure).not.toHaveBeenCalled()
+
+      await act(async () => {
+        paintCallbacks.shift()?.(16)
+        await Promise.resolve()
+      })
+      expect(ensure).toHaveBeenCalledTimes(1)
+    } finally {
+      requestFrame.mockRestore()
+    }
+  })
+
+  it('starts backup after a short fallback when a hidden window stops producing frames', async () => {
+    vi.useFakeTimers()
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)
+    try {
+      const ensure = vi.fn().mockResolvedValue({ ok: true })
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+        onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: '备册' }))
+      expect(ensure).not.toHaveBeenCalled()
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(ensure).toHaveBeenCalledTimes(1)
+    } finally {
+      requestFrame.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it('coalesces repeated backup clicks while the first backup is still running', async () => {
     let resolveEnsure: ((result: { ok: boolean }) => void) | undefined
     const ensure = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => {
@@ -150,8 +200,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(backup)
     fireEvent.click(backup)
 
-    expect(ensure).toHaveBeenCalledTimes(1)
     expect(backup).toBeDisabled()
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
 
     resolveEnsure?.({ ok: true })
     await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))

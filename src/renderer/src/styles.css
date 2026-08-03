@@ -6255,6 +6255,10 @@ body[data-floating-window="true"],
   cursor: not-allowed;
   opacity: 0.56;
 }
+.favorite-ledger-panel .assistant-action-button[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.72;
+}
 .favorite-ledger-panel button:focus-visible,
 .favorite-ledger-panel input:focus-visible,
 .favorite-ledger-panel select:focus-visible {

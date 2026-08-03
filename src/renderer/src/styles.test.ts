@@ -1122,5 +1122,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes button:disabled { cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__diagnostics-head button:disabled, .assistant-settings > header button:disabled { cursor: not-allowed;')
   })
+
+  it('shows a progress cursor only on the active backup button', () => {
+    expectStyleSnippet(".favorite-ledger-panel .assistant-action-button[aria-busy='true'] { cursor: progress; opacity: 0.72;")
+    expect(normalizedStyles).not.toContain(".favorite-ledger-panel[aria-busy='true']")
+  })
 })
 

@@ -44,6 +44,22 @@ function normalizeAccountMid(value: string | undefined) {
   return BigInt(value.trim()).toString()
 }
 
+function waitForVisiblePaint() {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(fallbackTimer)
+      resolve()
+    }
+    const fallbackTimer = window.setTimeout(finish, 100)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(finish)
+    })
+  })
+}
+
 function projectRecommendedLedgerDrafts(
   ledgers: FavoriteLedger[],
   snapshot: ReturnType<typeof useOldFavoriteWorkspace>['snapshot'],
@@ -462,6 +478,7 @@ export function ControlledFavoriteLedgerPanel({
     ensuringLedgersRef.current = true
     setEnsuringLedgers(true)
     try {
+      await waitForVisiblePaint()
       const result = await onEnsureLedgers() as { ok?: boolean } | undefined
       if (result?.ok !== false) await onOpenFavoritePage?.()
     } finally {
@@ -475,9 +492,9 @@ export function ControlledFavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
-          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading || ensuringLedgers || defaultFavoriteSystemEnabled === false}
+          <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={workspace.loading || ensuringLedgers || defaultFavoriteSystemEnabled === false}
             onClick={() => void ensureLedgersAndOpenFavoritePage()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
-            label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
+            label={ensuringLedgers ? '备册中' : '备册'} description={ensuringLedgers ? '正在后台检查并生成 bilimi 收藏夹' : '一键生成 bilimi 收藏夹，用于归类收藏和整理'} />
           <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || !currentAccountMid}
             onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理收藏" badge="整"
             label="整理收藏" description="扫描已有收藏，确认后整理到 bilimi 收藏夹里" />
