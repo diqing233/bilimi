@@ -393,6 +393,8 @@ export function registerFavoriteRepositoryIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpen?: (accountMid: string) => Promise<void>
+  /** Hides an ordinary remote mirror from this local library; never writes to Bilibili. */
+  dismissOrdinaryFolder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
@@ -565,6 +567,22 @@ export function registerFavoriteRepositoryIpc(options: {
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return options.service.getLibrarySummary(accountMid)
+  })
+  options.ipcMain.handle('favorite-repository:dismiss-ordinary-folder', async (event, requestedAccountMid: string, requestedFolderId: string) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.dismissOrdinaryFolder) throw new Error('Favorite library ordinary folder removal is unavailable.')
+    if (typeof requestedFolderId !== 'string' || !/^bilibili:\S+$/.test(requestedFolderId.trim())) {
+      throw new Error('Favorite library ordinary folder is invalid.')
+    }
+    const snapshot = await options.service.getSnapshot(accountMid)
+    const folder = snapshot.folders.find((candidate) => candidate.id === requestedFolderId.trim() && candidate.kind === 'bilibili')
+    if (!folder?.remoteFolderId) throw new Error('Favorite library ordinary folder was not found.')
+    if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === folder.remoteFolderId)) {
+      throw new Error('Favorite library ordinary folder is a managed work folder.')
+    }
+    return options.dismissOrdinaryFolder(accountMid, folder.remoteFolderId)
   })
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions

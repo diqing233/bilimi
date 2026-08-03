@@ -254,6 +254,31 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
+  const continueScan = async () => {
+    if (scanStarting) return
+    const requestedAccountMid = currentAccountMid
+    const requestVersion = ++scanPresentationRequestVersion.current
+    setGuideOpen(true)
+    setStep('scan')
+    setScanStartFailure(null)
+    scanStartingRef.current = true
+    setScanStarting(true)
+    try {
+      if (!await workspace.resumeScan() && scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        reportScanStartFailure(workspace.lastError ?? '继续扫描失败，请保持已登录的 B站页面打开后重试。')
+      }
+    } catch (error) {
+      if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        reportScanStartFailure(error instanceof Error ? error.message : '继续扫描失败，请保持已登录的 B站页面打开后重试。')
+      }
+    } finally {
+      if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        scanStartingRef.current = false
+        setScanStarting(false)
+      }
+    }
+  }
+
   const requestOldFavoriteOrganization = async () => {
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++organizationRequestVersion.current
@@ -278,8 +303,8 @@ export function ControlledFavoriteLedgerPanel({
       return
     }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
-      authoritativeSnapshot.status === 'scanning' && authoritativeSnapshot.scan.phase !== 'failed') {
-      void workspace.resumeScan()
+      authoritativeSnapshot.status === 'scanning') {
+      void continueScan()
       return
     }
     void startScan('incremental')
@@ -345,7 +370,8 @@ export function ControlledFavoriteLedgerPanel({
   }
   const retryScanWithDirectSession = async () => {
     await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
-    await startScan('incremental')
+    if (activeSnapshot?.status === 'scanning' && activeSnapshot.scan.phase === 'failed') await continueScan()
+    else await startScan('incremental')
   }
   const continueConfirmAndSync = async () => {
     if (!activeSnapshot) return
@@ -507,7 +533,7 @@ export function ControlledFavoriteLedgerPanel({
           {recoverySummary.recoveryChoices.includes('merge-latest') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('merge-latest')}>合并最新变化</button> : null}
           {recoverySummary.recoveryChoices.includes('rescan') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('rescan')}>重新扫描</button> : null}
           {recoverySummary.recoveryChoices.includes('abandon') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void abandonCurrentWorkspace()}>放弃本轮整理</button> : null}
-          {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void openReconciliationDraft()}>查看并对账</button> : null}
+          {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void openReconciliationDraft()}>查看并检查同步结果</button> : null}
         </>}>
         <p>检测到未完成的整理草稿</p>
         <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
@@ -541,7 +567,8 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
-        mutationLocked={Boolean(workspace.draftRuleAnalysis || activeSnapshot?.executionIntent)}
+        mutationLocked={Boolean(workspace.draftRuleAnalysis || activeSnapshot?.executionIntent ||
+          (activeSnapshot && ['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status)))}
         reconciling={workspace.reconciling}
         preparationStatus={confirmationPreparationStatus}
         executionError={confirmationPreparationError ?? workspace.executionError}
@@ -551,7 +578,10 @@ export function ControlledFavoriteLedgerPanel({
         onStepChange={(nextStep) => {
           setStep(nextStep)
         }}
-        onRetryScan={() => void startScan('incremental')}
+        onRetryScan={() => void (activeSnapshot?.status === 'scanning' && activeSnapshot.scan.phase === 'failed'
+          ? continueScan()
+          : startScan('incremental'))}
+        onRestartScan={() => void startScan('incremental')}
         onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}

@@ -3,6 +3,126 @@ import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRe
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('probes favorite inventory after an expired 412 cooldown and resumes the persisted scan lease', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const events: string[] = []
+    const failed = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', mode: 'incremental',
+      scan: {
+        phase: 'failed', failureCount: 1,
+        reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+        retryAvailableAt: '2026-07-19T00:10:00.000Z'
+      }
+    }
+    const coordinator = {
+      getScanRetryState: vi.fn().mockResolvedValue({
+        reason: failed.scan.reason, retryAvailableAt: failed.scan.retryAvailableAt
+      }),
+      beginScan: vi.fn(),
+      resumeFailedScan: vi.fn().mockImplementation(async () => {
+        events.push('resume-failed-scan')
+        return { ...failed, scan: { phase: 'inventory', failureCount: 0 } }
+      }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      getScanResumeState: vi.fn().mockResolvedValue({
+        runId: 'scan-run-1',
+        completedPages: [{ folderId: 'source-1', page: 1, hasMore: true }],
+        taggedAids: [1]
+      }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(),
+      finishScan: vi.fn(), recordScanFailure: vi.fn(), getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const runtime = vi.fn((request: { type: string }) => {
+      events.push(request.type)
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          folders: [{ id: 'source-1', title: 'Source', mediaCount: 40 }]
+        })
+      }
+      return Promise.resolve({
+        status: 'ok' as const, observedAccountMid: '100', hasMore: false,
+        items: [{ aid: 2, title: 'V2', upperName: 'UP', cover: '', addedAt: 0 }]
+      })
+    })
+    const wait = vi.fn().mockResolvedValue(undefined)
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime as never,
+      now: () => '2026-07-19T00:10:00.000Z', wait,
+      recoveryStabilizationDelayMs: 3_000,
+      sourcePageDelayMinMs: 800,
+      sourcePageDelayMaxMs: 1_500,
+      random: () => 0
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+
+    expect(events).toEqual([
+      'old-favorite-workspace-bind-scan-target',
+      'old-favorite-workspace-inventory',
+      'resume-failed-scan',
+      'old-favorite-workspace-read-source-page'
+    ])
+    expect(coordinator.beginScan).not.toHaveBeenCalled()
+    expect(runtime).toHaveBeenCalledTimes(3)
+    expect(wait).toHaveBeenNthCalledWith(1, 3_000)
+    expect(wait).toHaveBeenNthCalledWith(2, 800)
+    expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
+      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 40, isBilimiWorkFolder: false }]
+    }, 'scan-run-1')
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', page: 1
+    }))
+    expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', page: 2
+    }))
+  })
+
+  it('keeps the failed workspace intact when the recovery probe still receives HTML 412', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const failed = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', mode: 'incremental',
+      scan: {
+        phase: 'failed', failureCount: 1,
+        reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+        retryAvailableAt: '2026-07-19T00:10:00.000Z'
+      }
+    }
+    const refreshed = {
+      ...failed,
+      scan: { ...failed.scan, failureCount: 2, retryAvailableAt: '2026-07-19T00:20:00.000Z' }
+    }
+    const coordinator = {
+      getScanRetryState: vi.fn().mockResolvedValue({
+        reason: failed.scan.reason, retryAvailableAt: failed.scan.retryAvailableAt
+      }),
+      getSnapshot: vi.fn().mockResolvedValue(refreshed),
+      beginScan: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({
+        status: 'unknown', observedAccountMid: '100', reason: 'invalid-response',
+        httpStatus: 412, contentType: 'text/html', responseCategory: 'non-json'
+      })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime,
+      now: () => '2026-07-19T00:10:00.000Z'
+    })
+
+    await expect(service.start('100', 'incremental')).resolves.toEqual(refreshed)
+
+    expect(coordinator.beginScan).not.toHaveBeenCalled()
+    expect(coordinator.recordScanFailure).toHaveBeenCalledWith(
+      '100',
+      'invalid-response [category=non-json http=412 content-type=text/html]'
+    )
+  })
+
   it('passes unavailable source items to the coordinator without requesting their tags', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const coordinator = {
@@ -489,6 +609,34 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).toHaveBeenNthCalledWith(3, {
       type: 'old-favorite-workspace-read-managed-members', accountMid: '100', target, folderIds: ['managed-1']
     })
+  })
+
+  it('paces source page reads with jitter and a longer periodic pause', async () => {
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 60 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: true })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 2, title: 'V2', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: true })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 3, title: 'V3', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+    const wait = vi.fn().mockResolvedValue(undefined)
+    const random = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(0.5).mockReturnValueOnce(1)
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime, wait, random,
+      sourcePageDelayMinMs: 800, sourcePageDelayMaxMs: 1_500,
+      sourcePageBatchSize: 2, sourcePageBatchPauseMs: 4_000
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+
+    expect(wait.mock.calls).toEqual([[800], [1_150], [4_000], [1_500]])
   })
 
   it('backs off once and preserves managed membership when a nonempty folder temporarily returns an empty list', async () => {

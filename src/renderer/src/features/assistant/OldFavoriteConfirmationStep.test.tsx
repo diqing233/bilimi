@@ -258,10 +258,33 @@ describe('OldFavoriteConfirmationStep', () => {
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={reconcile}
     />)
 
-    screen.getByRole('button', { name: '对账 B 站结果' }).click()
+    screen.getByRole('button', { name: '重新连接并检查同步结果' }).click()
     expect(reconcile).toHaveBeenCalledOnce()
     expect(screen.getByRole('progressbar', { name: '同步到 B 站进度' })).toHaveAttribute('value', '180')
     expect(screen.getByRole('progressbar', { name: '同步到 B 站进度' })).toHaveAttribute('max', '2298')
+  })
+
+  it('explains an embedded HTML response and disables retry during its cooldown', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'frozen', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: {
+          completedOperationCount: 105, totalOperationCount: 1880,
+          lastFailureReason: 'invalid-response; http-status=200; content-type=text/html; response-category=html',
+          retryAvailableAt: '2099-07-19T00:00:30.000Z'
+        }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('HTTP 200')
+    expect(screen.getByRole('alert')).toHaveTextContent('HTML')
+    expect(screen.getByRole('alert')).toHaveTextContent('可能是嵌入页面临时验证或限制')
+    expect(screen.getByRole('status')).toHaveTextContent('B 站同步已暂停')
+    expect(screen.getByRole('status')).toHaveTextContent('已完成 105 / 1880 条')
+    expect(screen.getByRole('button', { name: /等待 .* 后重试/ })).toBeDisabled()
   })
 
   it('keeps every guide page and batch selector browseable while execution locks mutations', () => {
@@ -351,8 +374,8 @@ describe('OldFavoriteConfirmationStep', () => {
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
-    expect(screen.getByRole('button', { name: '正在对账…' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('正在检查 B 站同步结果')
+    expect(screen.getByRole('button', { name: '正在检查…' })).toBeDisabled()
     expect(screen.getByRole('progressbar', { name: '同步到 B 站进度' })).toHaveAttribute('value', '100')
   })
 
@@ -374,7 +397,7 @@ describe('OldFavoriteConfirmationStep', () => {
       onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
+    expect(screen.getByRole('status')).toHaveTextContent('正在检查 B 站同步结果')
     expect(screen.getByRole('progressbar', { name: '同步到 B 站进度' })).toHaveAttribute('value', '100')
   })
 
@@ -437,15 +460,15 @@ describe('OldFavoriteConfirmationStep', () => {
     const { rerender } = render(<OldFavoriteConfirmationStep snapshot={snapshot} loading={true}
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
-    expect(screen.getByRole('button', { name: '正在对账…' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('正在检查 B 站同步结果')
+    expect(screen.getByRole('button', { name: '正在检查…' })).toBeDisabled()
     expect(screen.getByRole('progressbar', { name: '同步到 B 站进度' })).toHaveAttribute('value', '180')
 
     rerender(<OldFavoriteConfirmationStep snapshot={snapshot} loading={false} executionError="B 站结果暂时无法确认，请检查页面后重试。"
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('B 站结果暂时无法确认')
-    expect(screen.getByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '重新连接并检查同步结果' })).toBeEnabled()
   })
 
   it('keeps a main-process confirmation failure visible beneath the actions', () => {

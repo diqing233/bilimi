@@ -874,6 +874,7 @@ export function FavoriteLibraryApp({
         count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
         managed,
         workspace,
+        removable: item.kind === 'folder' && item.source === 'bilibili',
         protected: unmatchedClassification
       }
     })
@@ -1026,8 +1027,9 @@ export function FavoriteLibraryApp({
             return api.copyFavoriteLibrarySelection(accountMid, placementPickerSelection, placementDraftFolderIds, summary.revision, operationSource(Array.isArray(placementPickerSelection) ? placementPickerSelection : []))
           }
           if (placementPickerMode === 'move') {
-            if (!currentLogicalFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
-            return api.moveFavoriteLibrarySelection(accountMid, placementPickerSelection, currentLogicalFolderId, placementDraftFolderIds, summary.revision, operationSource(Array.isArray(placementPickerSelection) ? placementPickerSelection : []))
+            const sourceFolderId = currentLogicalFolderId ?? (resolvedOperationSource.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
+            if (!sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
+            return api.moveFavoriteLibrarySelection(accountMid, placementPickerSelection, sourceFolderId, placementDraftFolderIds, summary.revision, operationSource(Array.isArray(placementPickerSelection) ? placementPickerSelection : []))
           }
           if (!api?.setFavoriteLibraryLocalPlacements) throw new Error(text.unavailable)
           return api.setFavoriteLibraryLocalPlacements(
@@ -1543,6 +1545,16 @@ export function FavoriteLibraryApp({
               })
               .catch(() => setError(text.actionFailed))
           }}
+          onOrdinaryFolderRemove={(id) => {
+            const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
+            if (!accountMid || !folder || folder.kind !== 'bilibili') return
+            void window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder?.(accountMid, folder.id)
+              .then(() => {
+                if (scopeId === id) setScopeId('all')
+                return refresh(accountMid)
+              })
+              .catch(() => setError(text.actionFailed))
+          }}
           onWorkspaceAction={(action) => {
             if (action === 'create') {
               void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', sidebar: true, createLedger: true })
@@ -1552,13 +1564,13 @@ export function FavoriteLibraryApp({
             if (action === 'sync-all') {
               void (async () => {
                 const api = window.bilimiDesktop
-                if (!api?.syncFavoriteLibrarySelection) throw new Error(text.unavailable)
+                if (!api?.synchronizeFavoriteLibraryPlacements) throw new Error(text.unavailable)
                 let succeeded = 0
                 let skipped = 0
                 let failed = 0
                 for (const folder of folders.filter((folder) => folder.kind === 'bilimi-logical')) {
                   try {
-                    const result = await api.syncFavoriteLibrarySelection(accountMid, { kind: 'folder', folderId: folder.id })
+                    const result = await api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'folder', folderId: folder.id })
                     if (result.completedOperationCount === 0 && result.totalOperationCount === 0) skipped++
                     else succeeded++
                   } catch {
@@ -1614,8 +1626,8 @@ export function FavoriteLibraryApp({
             {currentFolderId ? <span className="favorite-library__workspace-actions">
               {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
                 const api = window.bilimiDesktop
-                if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
-                return api.syncFavoriteLibrarySelection(accountMid, { kind: 'folder', folderId: currentFolderId })
+                if (!api?.synchronizeFavoriteLibraryPlacements || !accountMid) throw new Error(text.unavailable)
+                return api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'folder', folderId: currentFolderId })
               })}>{text.syncFolder}</button> : null}
               <button type="button" disabled={!accountMid} onClick={() => {
                 if (accountMid) void load(accountMid, scope, 1, pageSize, pageOptions)
@@ -1634,7 +1646,7 @@ export function FavoriteLibraryApp({
               ? ['copy', 'reorganize', 'download-documents'] as const
               : sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder'
                 ? commonActions
-                : currentLogicalFolderId
+                : currentLogicalFolderId || sourceEligibility.sourceScopeKind === 'unmatched'
                   ? [...commonActions, 'move', 'sync', 'delete-local', 'unfavorite-remote'] as const
                   : [...commonActions, 'sync', 'delete-local', 'unfavorite-remote'] as const
             const hasPendingSelection = eligibleSelectedAids.some((aid) =>
@@ -1664,8 +1676,9 @@ export function FavoriteLibraryApp({
                 if (!api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
                 return api.copyFavoriteLibrarySelection(accountMid, selection, folderIds, summary.revision, operationSource(Array.isArray(selection) ? selection : []))
               }
-              if (!currentLogicalFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
-              return api.moveFavoriteLibrarySelection(accountMid, selection, currentLogicalFolderId, folderIds, summary.revision, operationSource(Array.isArray(selection) ? selection : []))
+              const sourceFolderId = currentLogicalFolderId ?? (sourceEligibility.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
+              if (!sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
+              return api.moveFavoriteLibrarySelection(accountMid, selection, sourceFolderId, folderIds, summary.revision, operationSource(Array.isArray(selection) ? selection : []))
             })
           }} searchQuery={searchQuery} deferSearchChange onSearchChange={(query) => {
             setSearchQuery(query)
@@ -1856,14 +1869,15 @@ export function FavoriteLibraryApp({
               const api = window.bilimiDesktop
               if (!accountMid || !summary || !selected || !api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
               return api.copyFavoriteLibrarySelection(accountMid, [selected.aid], folderIds, summary.revision, operationSource([selected.aid]))
-            })} />{!detailAllowsOnlyCopy ? <>{currentLogicalFolderId ? <FavoriteLibraryDestinationButton action="move" logicalFolders={logicalFolders.map((folder) => ({ id: folder.id, title: folder.title }))} onConfirm={(folderIds) => void runAction(async () => {
+            })} />{!detailAllowsOnlyCopy ? <>{currentLogicalFolderId || resolvedOperationSource.sourceScopeKind === 'unmatched' ? <FavoriteLibraryDestinationButton action="move" logicalFolders={logicalFolders.map((folder) => ({ id: folder.id, title: folder.title }))} onConfirm={(folderIds) => void runAction(async () => {
               const api = window.bilimiDesktop
-              if (!accountMid || !summary || !selected || !currentLogicalFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
-              return api.moveFavoriteLibrarySelection(accountMid, [selected.aid], currentLogicalFolderId, folderIds, summary.revision, operationSource([selected.aid]))
+              const sourceFolderId = currentLogicalFolderId ?? (resolvedOperationSource.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
+              if (!accountMid || !summary || !selected || !sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
+              return api.moveFavoriteLibrarySelection(accountMid, [selected.aid], sourceFolderId, folderIds, summary.revision, operationSource([selected.aid]))
             })} /> : null}<button type="button" className="favorite-library__inline-action" onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
-              if (!accountMid || !selected || !api?.syncFavoriteLibrarySelection) throw new Error(text.unavailable)
-              return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: [selected.aid] })
+              if (!accountMid || !selected || !api?.synchronizeFavoriteLibraryPlacements) throw new Error(text.unavailable)
+              return api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'aids', aids: [selected.aid] })
             })}>同步到B站</button>{detailSnapshot?.position?.state === 'local-only-change' && detailSnapshot.position.remoteObservedPhysicalFolderIds.length ? <button type="button" className="favorite-library__inline-action" aria-expanded={placementConflictChoiceOpen} onClick={() => setPlacementConflictChoiceOpen((open) => !open)}>处理归属冲突</button> : null}</> : null}</div>{placementConflictChoiceOpen ? <div className="favorite-library__detail-action-row" aria-label="归属冲突选择"><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(async () => {
               await setLocalPlacement(detailSnapshot?.position?.localDesiredFolderIds ?? [], true)
               setPlacementConflictChoiceOpen(false)

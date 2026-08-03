@@ -25,7 +25,14 @@ function bindingKey(accountMid: string, runId: string) {
 }
 
 function errorMessage(result: FavoriteRepositoryPageOperationResult) {
-  return result.reason?.trim() || 'Favorite repository page bridge did not complete the operation.'
+  const reason = result.reason?.trim() || 'Favorite repository page bridge did not complete the operation.'
+  const diagnostics = [
+    Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
+    result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
+    result.responseCategory ? `response-category=${result.responseCategory}` : '',
+    Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
+  ].filter(Boolean)
+  return diagnostics.length ? `${reason}; ${diagnostics.join('; ')}` : reason
 }
 
 function assertResult(result: FavoriteRepositoryPageOperationResult, expectedAccountMid: string) {

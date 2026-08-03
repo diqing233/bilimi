@@ -29,7 +29,7 @@ function targets(value: unknown) {
 }
 
 function sourceFolder(value: unknown) {
-  if (typeof value !== 'string' || !/^bilimi-logical:\S+$/u.test(value)) throw new Error('Favorite move source is invalid.')
+  if (typeof value !== 'string' || value !== 'local:inbox' && !/^bilimi-logical:\S+$/u.test(value)) throw new Error('Favorite move source is invalid.')
   return value
 }
 

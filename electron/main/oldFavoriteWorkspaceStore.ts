@@ -86,6 +86,7 @@ type Overlay = {
     failureCount?: number
     mode?: 'incremental' | 'full'
     reason?: string
+    retryAvailableAt?: string
     totalItemCount?: number
     scannedItemCount?: number
     taggedItemCount?: number
@@ -121,7 +122,7 @@ type Manifest = {
   scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string }>
   managedMemberChunks?: Array<{ file: string; checksum: string }>
   sourceFolders?: SourceFolder[]
-  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -491,6 +492,8 @@ export class OldFavoriteWorkspaceStore {
             failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
             mode: overlay.scanMetadata.mode ?? scan.mode,
             ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {})
+            ,...(overlay.scanMetadata.retryAvailableAt && !Number.isNaN(Date.parse(overlay.scanMetadata.retryAvailableAt))
+              ? { retryAvailableAt: overlay.scanMetadata.retryAvailableAt } : {})
             ,...(Number.isSafeInteger(overlay.scanMetadata.totalItemCount) ? { totalItemCount: overlay.scanMetadata.totalItemCount } : {})
             ,...(Number.isSafeInteger(overlay.scanMetadata.scannedItemCount) ? { scannedItemCount: overlay.scanMetadata.scannedItemCount } : {})
             ,...(Number.isSafeInteger(overlay.scanMetadata.taggedItemCount) ? { taggedItemCount: overlay.scanMetadata.taggedItemCount } : {})

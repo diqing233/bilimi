@@ -37,6 +37,7 @@ describe('favorite library bridge IPC', () => {
   it('exposes the embedded-library bridge from the main preload and opens only the main-window drawer', () => {
     expect(mainPreloadSource).toContain('getFavoriteRepositoryLibraryVideoDetail')
     expect(mainPreloadSource).toContain('syncFavoriteLibrarySelection')
+    expect(mainPreloadSource).toContain('synchronizeFavoriteLibraryPlacements')
     expect(mainPreloadSource).toContain('onFavoriteLibraryTranscriptionChanged')
     expect(mainPreloadSource).toContain('onOpenFavoriteLibraryDrawer')
     expect(mainProcessSource).toContain('handleFavoriteLibraryEntry')

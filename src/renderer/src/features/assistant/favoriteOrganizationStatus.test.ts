@@ -35,13 +35,25 @@ describe('favoriteOrganizationStatus', () => {
       label: '整理执行中', tone: 'running'
     })
     expect(favoriteOrganizationStatus(workspace({ status: 'reconciling' }))).toMatchObject({
-      label: '等待对账', tone: 'warn'
+      label: '同步待检查', tone: 'warn'
     })
     expect(favoriteOrganizationStatus(workspace({
       status: 'completed',
       completionMode: 'bilibili',
       planReadiness: { selectedAidCount: 4, classifiedAidCount: 2, unclassifiedAidCount: 2 }
     }))).toMatchObject({ label: '整理完成，仍有待处理', tone: 'warn' })
+  })
+
+  it('reports a stopped frozen sync as paused with durable progress', () => {
+    expect(favoriteOrganizationStatus(workspace({
+      status: 'frozen',
+      executionProgress: {
+        completedOperationCount: 180, totalOperationCount: 2298,
+        lastFailureReason: 'invalid-response; http-status=412; content-type=text/html; response-category=html'
+      }
+    }))).toMatchObject({
+      label: '同步已暂停', tone: 'warn', detail: expect.stringContaining('180 / 2298')
+    })
   })
 
   it('reports scan failures instead of presenting a normal idle state', () => {

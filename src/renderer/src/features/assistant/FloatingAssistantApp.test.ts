@@ -564,7 +564,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ['previewing', '\u7b49\u5f85\u786e\u8ba4'],
     ['frozen', '\u7b49\u5f85\u6267\u884c'],
     ['executing', '\u6574\u7406\u6267\u884c\u4e2d'],
-    ['reconciling', '\u7b49\u5f85\u5bf9\u8d26'],
+    ['reconciling', '\u540c\u6b65\u5f85\u68c0\u67e5'],
     ['completed', '\u6574\u7406\u5b8c\u6210']
   ] as const)('prioritizes the %s workspace state over backup status', (status, label) => {
     expect(resolveFavoriteOrganizationLamp({

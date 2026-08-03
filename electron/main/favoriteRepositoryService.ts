@@ -400,6 +400,7 @@ export class FavoriteRepositoryService {
     getTranscriptionArchiveRevision?: () => number
     getTranscriptionItems?: () => readonly VideoAudioTranscriptionQueueItem[]
     getTranscriptionArchives?: () => readonly VideoNoteArchiveEntry[]
+    isRemoteFolderDismissed?: (accountMid: string, remoteFolderId: string) => boolean
   }) {}
 
   async getSnapshot(accountMid: string): Promise<AccountFavoriteRepositorySnapshot> {
@@ -977,7 +978,7 @@ export class FavoriteRepositoryService {
     events: Array<Omit<FavoriteRepositoryEvent, 'accountMid'>>
   ): Promise<FavoriteRepositoryCommandResult> {
     const account = normalizeAccountMid(accountMid)
-    if (!events.length || events.length > 100) throw new Error('Favorite repository audit events are invalid.')
+    if (!events.length) throw new Error('Favorite repository audit events are invalid.')
     this.pendingWriteCount++
     return this.queue(async () => {
       if (normalizeAccountMid(command.accountMid) !== account) throw new Error('Favorite repository account mismatch.')
@@ -1230,17 +1231,19 @@ export class FavoriteRepositoryService {
       .map((folder) => [folder.logicalLedgerId!, folder]))
     const logicalIdsByRemoteFolderId = new Map<string, Set<string>>()
     for (const shard of snapshot.physicalShards) {
-      if (!shard.remoteFolderId) continue
-      const logicalIds = logicalIdsByRemoteFolderId.get(shard.remoteFolderId) ?? new Set<string>()
-      logicalIds.add(shard.logicalLedgerId)
-      logicalIdsByRemoteFolderId.set(shard.remoteFolderId, logicalIds)
+      for (const remoteFolderId of [shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])].filter(Boolean) as string[]) {
+        const logicalIds = logicalIdsByRemoteFolderId.get(remoteFolderId) ?? new Set<string>()
+        logicalIds.add(shard.logicalLedgerId)
+        logicalIdsByRemoteFolderId.set(remoteFolderId, logicalIds)
+      }
     }
     for (const shard of snapshot.physicalShards) {
       const logical = logicalFolders.get(shard.logicalLedgerId)
       if (!logical) continue
       canonicalIdByRawId.set(shard.folderId, logical.id)
-      if (shard.remoteFolderId && logicalIdsByRemoteFolderId.get(shard.remoteFolderId)?.size === 1) {
-        const remote = snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === shard.remoteFolderId)
+      for (const remoteFolderId of [shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])].filter(Boolean) as string[]) {
+        if (logicalIdsByRemoteFolderId.get(remoteFolderId)?.size !== 1) continue
+        const remote = snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === remoteFolderId)
         if (remote) canonicalIdByRawId.set(remote.id, logical.id)
       }
     }
@@ -1251,7 +1254,9 @@ export class FavoriteRepositoryService {
       const logical = logicalFolders.get(folder.id.slice('local:'.length))
       if (logical) canonicalIdByRawId.set(folder.id, logical.id)
     }
-    const folders = snapshot.folders.filter((folder) => canonicalIdByRawId.get(folder.id) === folder.id)
+    const folders = snapshot.folders.filter((folder) =>
+      canonicalIdByRawId.get(folder.id) === folder.id &&
+      !(folder.kind === 'bilibili' && folder.remoteFolderId && this.options.isRemoteFolderDismissed?.(snapshot.accountMid, folder.remoteFolderId)))
     const foldersByTitle = new Map<string, typeof folders>()
     for (const folder of folders) {
       const title = folder.title.trim()

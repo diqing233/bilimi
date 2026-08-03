@@ -1070,6 +1070,129 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('persists a ten-minute scan retry cooldown after a Bilibili HTML 412 response', async () => {
+    const root = await createRoot()
+    let now = '2026-07-19T00:00:00.000Z'
+    const repository = new FavoriteRepositoryService({ root, now: () => now })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = new OldFavoriteWorkspaceCoordinator({ repository, workspaceStore: store, now: () => now })
+    await first.beginScan('100', 'incremental')
+
+    await first.recordScanFailure(
+      '100',
+      'invalid-response [category=non-json http=412 content-type=text/html]',
+      await first.getActiveScanRunId('100')
+    )
+
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      scan: {
+        phase: 'failed',
+        retryAvailableAt: '2026-07-19T00:10:00.000Z'
+      }
+    })
+    await expect(first.getScanRetryState('100')).resolves.toEqual({
+      reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+      retryAvailableAt: '2026-07-19T00:10:00.000Z'
+    })
+    const restarted = new OldFavoriteWorkspaceCoordinator({
+      repository: new FavoriteRepositoryService({ root, now: () => now }),
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      now: () => now
+    })
+    await expect(restarted.beginScan('100', 'incremental')).rejects.toThrow(/retry-cooldown.*http=412/i)
+
+    now = '2026-07-19T00:10:00.000Z'
+    await expect(restarted.beginScan('100', 'incremental')).resolves.toMatchObject({
+      scan: { phase: 'inventory', failureCount: 0 }
+    })
+  })
+
+  it('resumes an expired 412 scan without discarding persisted pages or progress', async () => {
+    const root = await createRoot()
+    let now = '2026-07-19T00:00:00.000Z'
+    const repository = new FavoriteRepositoryService({ root, now: () => now })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({ repository, workspaceStore: store, now: () => now })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 40, isBilimiWorkFolder: false }]
+    })
+    const runId = await coordinator.getActiveScanRunId('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-1', page: 1, hasMore: true,
+      items: [{ aid: 1, title: 'V1', tags: ['Technology'], sourceFolderIds: ['source-1'] }]
+    }, runId)
+    await coordinator.recordScanFailure(
+      '100', 'invalid-response [category=non-json http=412 content-type=text/html]', runId
+    )
+
+    now = '2026-07-19T00:10:00.000Z'
+    await expect(coordinator.resumeFailedScan('100')).resolves.toMatchObject({
+      scan: {
+        phase: 'inventory', totalItemCount: 40, scannedItemCount: 1,
+        taggedItemCount: 1, untaggedItemCount: 0
+      }
+    })
+    expect(await coordinator.getActiveScanRunId('100')).toBe(runId)
+    await expect(coordinator.getScanResumeState('100')).resolves.toMatchObject({
+      runId,
+      completedPages: [{ folderId: 'source-1', page: 1, hasMore: true }]
+    })
+
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 41, isBilimiWorkFolder: false }]
+    }, runId)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      scan: { phase: 'inventory', totalItemCount: 41, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 }
+    })
+  })
+
+  it('keeps ordinary scan failures immediately retryable', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), now: () => '2026-07-19T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanFailure('100', 'network-failure', await coordinator.getActiveScanRunId('100'))
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      scan: { phase: 'failed', reason: 'network-failure' }
+    })
+    expect(requireSnapshot(await coordinator.getSnapshot('100')).scan.retryAvailableAt).toBeUndefined()
+    await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({
+      scan: { phase: 'inventory' }
+    })
+  })
+
+  it('continues an ordinary failed scan without replacing its durable lease or persisted pages', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: store, now: () => '2026-07-19T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 40, isBilimiWorkFolder: false }]
+    })
+    const runId = await coordinator.getActiveScanRunId('100')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-1', page: 1, hasMore: true,
+      items: [{ aid: 1, title: 'V1', tags: ['Technology'], sourceFolderIds: ['source-1'] }]
+    }, runId)
+    await coordinator.recordScanFailure('100', 'target-unavailable', runId)
+
+    await expect(coordinator.resumeScan('100')).resolves.toMatchObject({
+      scan: { phase: 'inventory', totalItemCount: 40, scannedItemCount: 1 }
+    })
+    expect(await coordinator.getActiveScanRunId('100')).toBe(runId)
+    await expect(coordinator.getScanResumeState('100')).resolves.toMatchObject({
+      runId,
+      completedPages: [{ folderId: 'source-1', page: 1, hasMore: true }]
+    })
+  })
+
   it('lets the user explicitly restart a restored portable draft without reporting a rebuild failure', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -5774,6 +5897,86 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('backfills the complete local result before continuing a legacy frozen plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let localSnapshotAtFirstWrite: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>> | undefined
+    const append = vi.fn(async () => {
+      localSnapshotAtFirstWrite = await repository.getSnapshot('100')
+      return { observedAccountMid: '100' }
+    })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-20T00:01:00.000Z', pacingMs: 0
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+    const frozen = await coordinator.freezeForBilibiliExecution('100')
+    await syncService.claimFrozenPlan('100', frozen.frozenSyncPlan!)
+
+    await coordinator.executeFrozenBilibiliPlan('100')
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+
+    expect(localSnapshotAtFirstWrite).toMatchObject({
+      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+      }
+    })
+  })
+
+  it('keeps the complete archive result when abandoning a legacy frozen plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-20T00:01:00.000Z', pacingMs: 0
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+    await coordinator.freezeForBilibiliExecution('100')
+
+    await coordinator.abandonCurrentWorkspace('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: undefined,
+      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+      }
+    })
+  })
+
   it('finishes an all-checkpoint-successful plan without rebinding and exposes the cleared completed snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -5947,6 +6150,34 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.resumeReconciledBilibiliPlan('100')).resolves.toMatchObject({ status: 'running' })
+    expect(rebindPageTarget).toHaveBeenCalledWith('100', 'run-1')
+    expect(resume).toHaveBeenCalledWith('100', 'run-1')
+  })
+
+  it('rebinds the current Bilibili page before the frozen continue button resumes a stopped run', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const rebindPageTarget = vi.fn().mockResolvedValue(undefined)
+    const resume = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: createSyncService({
+        getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'ready-to-resume' }),
+        rebindPageTarget, resume
+      })
+    })
+    await coordinator.open('100')
+    await repository.commit('100', {
+      id: 'frozen', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) },
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-1'] }] }
+      }
+    })
+
+    await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'running' })
     expect(rebindPageTarget).toHaveBeenCalledWith('100', 'run-1')
     expect(resume).toHaveBeenCalledWith('100', 'run-1')
   })

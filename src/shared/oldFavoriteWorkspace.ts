@@ -89,6 +89,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     phase: 'inventory' | 'failed' | 'complete'
     failureCount: number
     reason?: string
+    retryAvailableAt?: string
     totalItemCount?: number
     scannedItemCount?: number
     taggedItemCount?: number
@@ -188,6 +189,8 @@ export type OldFavoriteWorkspaceSnapshot = {
   executionProgress?: {
     completedOperationCount: number
     totalOperationCount: number
+    lastFailureReason?: string
+    retryAvailableAt?: string
   }
   history: {
     cursor: number

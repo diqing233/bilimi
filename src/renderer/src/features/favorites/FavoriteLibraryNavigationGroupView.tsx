@@ -10,11 +10,12 @@ type FavoriteLibraryNavigationGroupViewProps = {
   workspaceMenuResetKey: string
   renderWorkspaceMenu: (resetKey: string) => ReactNode
   renderManagedMenu: (item: FavoriteLibraryNavigationGroup['items'][number], active: boolean) => ReactNode
+  onOrdinaryFolderRemove: (id: string) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
 }
 
 export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryNavigationGroupView({
-  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderManagedMenu, onSelect
+  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderManagedMenu, onOrdinaryFolderRemove, onSelect
 }: FavoriteLibraryNavigationGroupViewProps) {
   const fixed = group.id === 'range'
   const aggregate = useMemo(() => {
@@ -68,6 +69,7 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
         <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : undefined} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
         <span className="favorite-library__navigation-trailing-slot"><span className="favorite-library__navigation-count">{item.count}</span>
           {group.id === 'workspace' && item.managed && !item.protected ? renderManagedMenu(item, !collapsed) : null}
+          {group.id === 'bilibili' && item.removable ? <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 从收藏库移除`} title="仅从收藏库移除" onClick={() => onOrdinaryFolderRemove(item.id)}>×</button> : null}
         </span>
       </div>)}
     </div> : null}
@@ -81,7 +83,8 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
   previous.onToggle === next.onToggle &&
   previous.onSelect === next.onSelect &&
   previous.renderWorkspaceMenu === next.renderWorkspaceMenu &&
-  previous.renderManagedMenu === next.renderManagedMenu)
+  previous.renderManagedMenu === next.renderManagedMenu &&
+  previous.onOrdinaryFolderRemove === next.onOrdinaryFolderRemove)
 
 function Chevron() {
   return <svg className="favorite-library__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>

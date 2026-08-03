@@ -438,6 +438,39 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls[1][0]).toContain('scan-workspace-source-page')
   })
 
+  it('keeps scanning through the explicitly bound Bilibili tab after the user switches tabs', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const homeWebview = document.querySelector('webview') as Electron.WebviewTag
+    const homeExecute = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100', items: [], hasMore: false
+      })
+    Object.assign(homeWebview, { getWebContentsId: () => 101, executeJavaScript: homeExecute, isLoading: () => false })
+    act(() => homeWebview.dispatchEvent(new Event('did-start-navigation')))
+    const binding = await app.requestRuntime({
+      id: 'bind-background-scan', type: 'old-favorite-workspace-bind-scan-target', accountMid: '100'
+    })
+    if (!binding || typeof binding !== 'object' || !('target' in binding) || !binding.target) throw new Error('missing scan target')
+
+    act(() => homeWebview.dispatchEvent(new CustomEvent('new-window', {
+      detail: { url: 'https://www.bilibili.com/video/BV1active' }
+    })))
+    const activeWebview = document.querySelector('webview[data-active="true"]') as Electron.WebviewTag
+    Object.assign(activeWebview, {
+      getWebContentsId: () => 202,
+      executeJavaScript: vi.fn().mockResolvedValue('100'),
+      isLoading: () => false
+    })
+    act(() => activeWebview.dispatchEvent(new Event('did-start-navigation')))
+
+    await expect(app.requestRuntime({
+      id: 'background-source-page', type: 'old-favorite-workspace-read-source-page', accountMid: '100',
+      target: binding.target, folderId: '11', page: 1, pageSize: 20
+    })).resolves.toMatchObject({ status: 'ok', items: [], hasMore: false })
+    expect(homeExecute.mock.calls[1][0]).toContain('scan-workspace-source-page')
+  })
+
   it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
     const runStartupDiagnostics = vi.fn()

@@ -25,6 +25,8 @@ export type FavoriteRepositorySyncRun = {
   status: SyncRunStatus
   completedOperationCount: number
   totalOperationCount: number
+  lastFailureReason?: string
+  retryAvailableAt?: string
 }
 
 type PageBridgeResult = { observedAccountMid: string }
@@ -62,7 +64,22 @@ export type FavoriteRepositoryPageBridgeManager = {
 
 type SyncRecordStatus = FavoriteRepositorySyncRecord['status']
 
+type PlacementSyncResult = {
+  status: 'succeeded' | 'failed' | 'queued'
+  completedOperationCount: number
+  totalOperationCount: number
+  affectedAids: number[]
+}
+
 const retryReadyReason = 'reconciled-absent-ready-to-retry'
+
+function isRetryReadyRecord(record: FavoriteRepositorySyncRecord | undefined) {
+  return record?.status === 'pending' && record.reason?.startsWith(retryReadyReason) === true
+}
+
+function isBilibiliRiskControlResponse(reason: string | undefined) {
+  return Boolean(reason && /http-status=412/i.test(reason) && /response-category=html|content-type=text\/html/i.test(reason))
+}
 
 function normalizeAccountMid(accountMid: string) {
   return createAccountFavoriteRepositorySnapshot({
@@ -108,6 +125,7 @@ function isConfirmedRemoteRejection(error: unknown) {
 export class FavoriteRepositorySyncService {
   private readonly runTails = new Map<string, Promise<void>>()
   private readonly claimedExecutionRuns = new Set<string>()
+  private readonly activeRemoteRequests = new Set<string>()
 
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
@@ -128,6 +146,8 @@ export class FavoriteRepositorySyncService {
     }) => Promise<unknown>
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
+    retryCooldownMs?: number
+    riskControlCooldownMs?: number
   }) {}
 
   private pageBridge(accountMid: string, runId: string) {
@@ -283,6 +303,9 @@ export class FavoriteRepositorySyncService {
       const plan = this.planForRun(workspace, runId, account)
       const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
       if (run.status === 'result-unknown' || run.status === 'failed' || run.status === 'succeeded') return run
+      if (run.retryAvailableAt && Date.parse(this.now()) < Date.parse(run.retryAvailableAt)) {
+        throw new Error(`retry-cooldown; ${run.lastFailureReason ?? 'remote-write-temporarily-unavailable'}; retry-at=${run.retryAvailableAt}`)
+      }
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'executing', plan), `resume:${runId}`)
       return this.drive(account, plan)
     }))
@@ -305,7 +328,7 @@ export class FavoriteRepositorySyncService {
 
       for (const operation of plan.operations) {
         const record = records.get(operation.operationKey)
-        if (!record || record.status === 'succeeded' || (record.status === 'pending' && record.reason === retryReadyReason)) continue
+        if (!record || record.status === 'succeeded' || isRetryReadyRecord(record)) continue
         if (record.status === 'failed') continue
         records.set(operation.operationKey, await this.reconcileOperation(account, plan, operation, record))
       }
@@ -333,7 +356,7 @@ export class FavoriteRepositorySyncService {
       const record = records.get(operation.operationKey)
       if (record?.status === 'succeeded') continue
       if (record?.status === 'failed') return this.summarize(plan, Array.from(records.values()))
-      if (record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason)) {
+      if (record?.status === 'result-unknown' || (record?.status === 'pending' && !isRetryReadyRecord(record))) {
         await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'reconciling', plan, 'result-unknown'), `unknown:${plan.id}`)
         return this.summarize(plan, Array.from(records.values()))
       }
@@ -341,8 +364,10 @@ export class FavoriteRepositorySyncService {
       const completedCount = Array.from(records.values()).filter((current) => current.status === 'succeeded').length
       if (completedCount > 0) await this.sleep(completedCount)
       const attempt = (record?.attempt ?? 0) + 1
-      records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
+      const activeRequestKey = this.activeRequestKey(accountMid, plan.id, operation.operationKey)
+      this.activeRemoteRequests.add(activeRequestKey)
       try {
+        records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
         const result = await this.writeToRemote(() => operation.kind === 'append'
           ? this.pageBridge(accountMid, plan.id).append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
           : this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds }))
@@ -366,7 +391,8 @@ export class FavoriteRepositorySyncService {
           stoppedRecord = await this.reconcileOperation(accountMid, plan, operation, stoppedRecord)
           records.set(operation.operationKey, stoppedRecord)
           if (stoppedRecord.status === 'succeeded') continue
-          if (stoppedRecord.status === 'pending' && stoppedRecord.reason === retryReadyReason &&
+          if (isRetryReadyRecord(stoppedRecord) &&
+            (!stoppedRecord.retryAvailableAt || Date.parse(this.now()) >= Date.parse(stoppedRecord.retryAvailableAt)) &&
             !automaticRetries.has(operation.operationKey)) {
             automaticRetries.add(operation.operationKey)
             index--
@@ -380,6 +406,8 @@ export class FavoriteRepositorySyncService {
           run.status === 'result-unknown' ? 'result-unknown' : workspaceStatus
         ), `stopped:${plan.id}`)
         return run
+      } finally {
+        this.activeRemoteRequests.delete(activeRequestKey)
       }
     }
 
@@ -426,7 +454,16 @@ export class FavoriteRepositorySyncService {
       return reconciled
     }
     if (safeToRepeat) {
-      return this.writeRecord(accountMid, plan, operation, 'pending', attempt, retryReadyReason, 'reconciled')
+      const priorReason = record.reason?.trim()
+      const reason = priorReason && priorReason !== retryReadyReason
+        ? `${retryReadyReason}; prior=${priorReason}`
+        : retryReadyReason
+      const retryAvailableAt = isBilibiliRiskControlResponse(priorReason)
+        ? new Date(Date.parse(this.now()) + (this.options.riskControlCooldownMs ?? 600_000)).toISOString()
+        : attempt >= 3 && priorReason && /invalid-response|remote-timeout|network-failure|page-execution/i.test(priorReason)
+          ? new Date(Date.parse(this.now()) + (this.options.retryCooldownMs ?? 30_000)).toISOString()
+          : undefined
+      return this.writeRecord(accountMid, plan, operation, 'pending', attempt, reason, 'reconciled', retryAvailableAt)
     }
     return this.writeRecord(accountMid, plan, operation, 'result-unknown', attempt, 'reconciled-partial-state', 'reconciled')
   }
@@ -603,7 +640,7 @@ export class FavoriteRepositorySyncService {
    * Applies already-persisted local intent. Unlike a frozen organization plan,
    * this never changes the workspace and always uses the account arbiter.
    */
-  async synchronizePlacements(accountMid: string, requestedAids: number[]) {
+  async synchronizePlacements(accountMid: string, requestedAids: number[]): Promise<PlacementSyncResult> {
     const account = normalizeAccountMid(accountMid)
     const aids = [...new Set(requestedAids)].sort((left, right) => left - right)
     if (!aids.length || aids.length > 100 || aids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
@@ -619,7 +656,7 @@ export class FavoriteRepositorySyncService {
       : run()
   }
 
-  private async synchronizePlacementsNow(account: string, aids: number[]) {
+  private async synchronizePlacementsNow(account: string, aids: number[]): Promise<PlacementSyncResult> {
     const snapshot = await this.options.repository.getSnapshot(account)
     const runId = `favorite-placement:${randomUUID()}`
     const bridge = this.pageBridge(account, runId)
@@ -690,7 +727,7 @@ export class FavoriteRepositorySyncService {
     return { status, completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
   }
 
-  private mergePlacementResults(results: Array<{ status: 'succeeded' | 'failed' | 'queued'; completedOperationCount: number; totalOperationCount: number; affectedAids: number[] }>) {
+  private mergePlacementResults(results: PlacementSyncResult[]): PlacementSyncResult {
     const affectedAids = [...new Set(results.flatMap((result) => result.affectedAids))].sort((left, right) => left - right)
     return {
       status: results.some((result) => result.status === 'failed') ? 'failed' : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded' as const,
@@ -837,7 +874,8 @@ export class FavoriteRepositorySyncService {
     status: SyncRecordStatus,
     attempt: number,
     reason: string | undefined,
-    checkpoint: string
+    checkpoint: string,
+    retryAvailableAt?: string
   ) {
     const record: FavoriteRepositorySyncRecord = {
       id: `${plan.id}:${operation.operationKey}`,
@@ -849,7 +887,8 @@ export class FavoriteRepositorySyncService {
       runId: plan.id,
       operationKey: operation.operationKey,
       targetFolderIds: [...operation.folderIds],
-      attempt
+      attempt,
+      ...(retryAvailableAt ? { retryAvailableAt } : {})
     }
     await this.options.repository.recordSyncCheckpoint(
       accountMid,
@@ -863,13 +902,15 @@ export class FavoriteRepositorySyncService {
     const byOperation = this.recordsByOperation(plan, records)
     const completedOperationCount = plan.operations.filter((operation) => byOperation.get(operation.operationKey)?.status === 'succeeded').length
     const statuses = plan.operations.map((operation) => byOperation.get(operation.operationKey))
+    const retryReadyRecord = statuses.find(isRetryReadyRecord)
     const status: SyncRunStatus = completedOperationCount === plan.operations.length
       ? 'succeeded'
-      : statuses.some((record) => record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason))
+      : statuses.some((record) => record?.status === 'result-unknown' || (record?.status === 'pending' && !record.reason?.startsWith(retryReadyReason) &&
+        !this.activeRemoteRequests.has(this.activeRequestKey(plan.accountMid, plan.id, record.operationKey ?? ''))))
         ? 'result-unknown'
         : statuses.some((record) => record?.status === 'failed')
           ? 'failed'
-          : statuses.some((record) => record?.status === 'pending' && record.reason === retryReadyReason)
+          : retryReadyRecord
             ? 'ready-to-resume'
             : 'running'
     return {
@@ -878,8 +919,14 @@ export class FavoriteRepositorySyncService {
       workspaceId: plan.workspaceId,
       status,
       completedOperationCount,
-      totalOperationCount: plan.operations.length
+      totalOperationCount: plan.operations.length,
+      ...(retryReadyRecord?.reason ? { lastFailureReason: retryReadyRecord.reason.replace(/^reconciled-absent-ready-to-retry; prior=/, '') } : {}),
+      ...(retryReadyRecord?.retryAvailableAt ? { retryAvailableAt: retryReadyRecord.retryAvailableAt } : {})
     }
+  }
+
+  private activeRequestKey(accountMid: string, runId: string, operationKey: string) {
+    return `${normalizeAccountMid(accountMid)}:${runId}:${operationKey}`
   }
 
   private recordsByOperation(plan: FavoriteRepositoryFrozenSyncPlan, records: FavoriteRepositorySyncRecord[]) {

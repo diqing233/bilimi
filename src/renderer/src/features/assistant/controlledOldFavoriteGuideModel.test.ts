@@ -85,4 +85,17 @@ describe('createControlledOldFavoriteGuideModel', () => {
     })
     expect(preview.status).toBe('previewing')
   })
+
+  it('labels a frozen failed remote run as paused instead of asking for reconciliation', async () => {
+    const { createControlledOldFavoriteGuideModel } = await loadModel()
+
+    expect(createControlledOldFavoriteGuideModel(snapshot({
+      status: 'frozen', scan: { phase: 'complete', failureCount: 0 },
+      executionProgress: {
+        completedOperationCount: 10, totalOperationCount: 100,
+        lastFailureReason: 'invalid-response; http-status=412; content-type=text/html; response-category=html',
+        retryAvailableAt: '2099-07-19T00:10:00.000Z'
+      }
+    }))).toMatchObject({ primaryAction: 'B 站同步已暂停' })
+  })
 })

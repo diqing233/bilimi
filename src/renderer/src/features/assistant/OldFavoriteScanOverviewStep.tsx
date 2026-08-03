@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
@@ -8,6 +8,7 @@ type OldFavoriteScanOverviewStepProps = {
   scanStarting: boolean
   scanStartFailure: string | null
   onRetry: () => void
+  onRestart?: () => void
   onRetryDirect: () => void
   onRebuild: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
@@ -22,10 +23,10 @@ type OldFavoriteScanOverviewStepProps = {
 function scanFailureGuidance(reason: string | null | undefined) {
   const normalized = reason?.trim() ?? ''
   if (/^(target-unavailable|target-navigated|remote-ambiguous|remote-api-)/.test(normalized)) {
-    return '无法确认当前 B站页面，请保持已登录的 B站页面打开后重新扫描。'
+    return '无法确认当前 B站页面，请保持已登录的 B站页面打开后继续扫描。'
   }
   if (normalized === 'page-execution-failed') {
-    return '无法读取当前 B站页面，请保持已登录的 B站页面打开并等待页面加载完成后重新扫描。'
+    return '无法读取当前 B站页面，请保持已登录的 B站页面打开并等待页面加载完成后继续扫描。'
   }
   if (normalized === 'network-failure') {
     return 'B 站网络连接中断。请检查网络或使用本次直连后重新扫描。'
@@ -39,6 +40,7 @@ export function OldFavoriteScanOverviewStep({
   scanStarting,
   scanStartFailure,
   onRetry,
+  onRestart,
   onRetryDirect,
   onRebuild,
   onSelectSourceFolders
@@ -51,6 +53,22 @@ export function OldFavoriteScanOverviewStep({
 }: OldFavoriteScanOverviewStepProps) {
   const [sourceCountMode, setSourceCountMode] = useState<'selected' | 'invalid'>('selected')
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
+  const retryAvailableAt = snapshot && !('recovery' in snapshot) ? snapshot.scan.retryAvailableAt : undefined
+  const [retryClock, setRetryClock] = useState(() => Date.now())
+  const retryRemainingMs = retryAvailableAt ? Math.max(0, Date.parse(retryAvailableAt) - retryClock) : 0
+  const retryCoolingDown = retryRemainingMs > 0
+  const riskControlRetry = Boolean(retryAvailableAt && snapshot && !('recovery' in snapshot) &&
+    /(?:http=|http-status=)412/i.test(snapshot.scan.reason ?? '') &&
+    /category=(?:non-json|html)|response-category=html|content-type=text\/html/i.test(snapshot.scan.reason ?? ''))
+  const checkingRiskControlRecovery = riskControlRetry && !retryCoolingDown && scanStarting
+  useEffect(() => {
+    if (!retryAvailableAt || !retryCoolingDown) return
+    setRetryClock(Date.now())
+    const timer = window.setInterval(() => setRetryClock(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [retryAvailableAt, retryCoolingDown])
+  const retryRemainingSeconds = Math.ceil(retryRemainingMs / 1_000)
+  const retryCountdown = `${Math.floor(retryRemainingSeconds / 60)}:${String(retryRemainingSeconds % 60).padStart(2, '0')}`
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   if (snapshot && 'recovery' in snapshot) {
@@ -87,6 +105,7 @@ export function OldFavoriteScanOverviewStep({
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
+  const resumableFailedScan = snapshot?.status === 'scanning' && snapshot.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning'
   const unstarted = !snapshot && !scanStarting
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
@@ -104,7 +123,11 @@ export function OldFavoriteScanOverviewStep({
   const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.itemCount, 0)
   const selectedSourceItemCount = userFolders.reduce((count, folder) => count + (selectedSourceIds.has(folder.id) ? folder.itemCount : 0), 0)
   const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.invalidItemCount ?? 0), 0)
-  const guidance = scanStartFailure
+  const guidance = checkingRiskControlRecovery
+    ? '正在检查 B 站收藏读取是否已恢复；检测成功后会继续扫描，不会重复读取已保存分页。'
+    : retryCoolingDown
+    ? 'B站暂时限制了请求，请等待冷却结束后重试。现有收藏库和整理数据不会丢失。'
+    : scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'
       ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
@@ -126,8 +149,8 @@ export function OldFavoriteScanOverviewStep({
     <div className="favorite-ledger-panel__scan-progress" aria-label="收藏扫描进度">
       <div>
         <span>扫描进度</span>
-        <progress aria-label="收藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? 0 : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
-        <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
+        <progress aria-label="收藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? scannedItemCount : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
+        <span>{(scanning || scanFailed) && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
       {!tagEnrichment && scannedItemCount ? <div>
@@ -174,9 +197,20 @@ export function OldFavoriteScanOverviewStep({
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>
-      <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button>
+      <button type="button" disabled={loading || scanStarting || retryCoolingDown} onClick={onRetry}>
+        {checkingRiskControlRecovery
+          ? '正在检测收藏读取…'
+          : retryCoolingDown
+            ? `等待 ${retryCountdown} 后重试`
+            : riskControlRetry
+              ? '检测并继续扫描'
+              : resumableFailedScan ? '继续扫描' : '重新扫描'}
+      </button>
+      {resumableFailedScan && onRestart
+        ? <button type="button" disabled={loading || scanStarting || retryCoolingDown} onClick={onRestart}>从头重新扫描</button>
+        : null}
       {snapshot?.scan.reason === 'network-failure'
-        ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后重新扫描</button>
+        ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后{resumableFailedScan ? '继续扫描' : '重新扫描'}</button>
         : null}
     </> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>

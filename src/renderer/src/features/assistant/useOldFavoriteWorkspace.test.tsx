@@ -1037,7 +1037,7 @@ describe('useOldFavoriteWorkspace', () => {
 
     await act(async () => { await result.current.reconcileFrozenBilibiliPlan() })
 
-    expect(result.current.executionError).toBe('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。')
+    expect(result.current.executionError).toBe('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后重新连接并检查；系统不会重复提交。')
   })
 
   it('keeps the loaded draft when reconciliation returns no snapshot', async () => {

@@ -80,6 +80,11 @@ function deepSeekFailureMessage(error: unknown) {
 
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/retry-cooldown/i.test(detail) && /invalid-response/i.test(detail)) {
+    const status = /http-status=(\d+)/i.exec(detail)?.[1]
+    const html = /response-category=html|content-type=text\/html/i.test(detail)
+    return `B 站返回了无法解析的响应${status ? `（HTTP ${status}）` : ''}${html ? '，内容为 HTML' : ''}。这可能是嵌入页面临时验证或限制，系统已暂停连续重试；请稍后再继续。`
+  }
   if (/Old favorite workspace command is invalid/i.test(detail)) {
     return '开发版主进程仍是旧版本，请重启开发项目后再试；本轮整理草稿不会丢失。'
   }
@@ -87,7 +92,7 @@ function executionFailureMessage(error: unknown) {
     return 'B 站结果暂时无法确认，请检查已登录页面和网络后重试；系统不会重复提交未确认的操作。'
   }
   if (/target-unavailable|page target is unavailable/i.test(detail)) {
-    return '无法连接当前 B 站页面，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。'
+    return '无法连接当前 B 站页面，同步已暂停。请保持已登录的 B 站页面打开后重新连接并检查同步结果；系统不会重复提交。'
   }
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) {
     return '无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
@@ -835,7 +840,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     try {
       const next = await sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true)
       if (next && !('recovery' in next) && next.status === 'reconciling' && accountGeneration.current === generation) {
-        setExecutionError('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后再次对账；系统不会重复提交。')
+        setExecutionError('仍无法确认 B 站中的实际收藏结果，请保持已登录的 B 站页面打开后重新连接并检查；系统不会重复提交。')
       }
       return next
     } finally {

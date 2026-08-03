@@ -470,6 +470,7 @@ export type FavoriteRepositorySyncRecord = {
   operationKey?: string
   targetFolderIds?: string[]
   attempt?: number
+  retryAvailableAt?: string
   /** Archive restoration marker. Runtime commands cannot set this status. */
   autoRetry?: false
 }
@@ -943,14 +944,15 @@ function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceI
 function isPortableRecoverySyncRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt', 'autoRetry'])
+  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt', 'retryAvailableAt', 'autoRetry'])
   return !Object.keys(record).some((key) => !allowedKeys.has(key)) && typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
     isPortableSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
     (record.status !== 'reconciliation-required' || record.autoRetry === false) && (record.autoRetry === undefined || record.autoRetry === false) &&
     (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
     (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
-    (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0))
+    (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0)) &&
+    (record.retryAvailableAt === undefined || (typeof record.retryAvailableAt === 'string' && !Number.isNaN(Date.parse(record.retryAvailableAt))))
 }
 
 function isPortableRecoveryOrganizationRecord(value: unknown, accountMid: string) {

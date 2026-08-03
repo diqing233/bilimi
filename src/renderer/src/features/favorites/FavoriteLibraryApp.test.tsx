@@ -337,7 +337,7 @@ describe('FavoriteLibraryApp', () => {
   })
 
   it('syncs an entire logical folder and refreshes its local category without using the current result selection', async () => {
-    const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const synchronizeFavoriteLibraryPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const getFavoriteRepositoryLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -345,14 +345,14 @@ describe('FavoriteLibraryApp', () => {
         folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0,
         syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage,
-      syncFavoriteLibrarySelection,
+      synchronizeFavoriteLibraryPlacements,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
     fireEvent.click(screen.getByRole('button', { name: '同步当前收藏夹' }))
-    await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'folder', folderId: 'bilimi-logical:music' }))
+    await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenCalledWith('100', { kind: 'folder', folderId: 'bilimi-logical:music' }))
     fireEvent.click(screen.getByRole('button', { name: '刷新当前分类' }))
     await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, expect.objectContaining({ page: 1 })))
   })
@@ -496,7 +496,7 @@ describe('FavoriteLibraryApp', () => {
   })
 
   it('reports successful, skipped, and failed work-folder syncs after serial execution', async () => {
-    const syncFavoriteLibrarySelection = vi.fn()
+    const synchronizeFavoriteLibraryPlacements = vi.fn()
       .mockResolvedValueOnce({ status: 'succeeded' })
       .mockResolvedValueOnce({ status: 'succeeded', completedOperationCount: 0, totalOperationCount: 0 })
       .mockRejectedValueOnce(new Error('network'))
@@ -510,7 +510,7 @@ describe('FavoriteLibraryApp', () => {
         ], physicalShardCount: 3, syncRecordCount: 0,
         syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      syncFavoriteLibrarySelection,
+      synchronizeFavoriteLibraryPlacements,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -519,8 +519,8 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '同步全部工作夹' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步完成 1 个，跳过 1 个，失败 1 个')
-    expect(syncFavoriteLibrarySelection).toHaveBeenNthCalledWith(1, '100', { kind: 'folder', folderId: 'bilimi-logical:inbox' })
-    expect(syncFavoriteLibrarySelection).toHaveBeenNthCalledWith(3, '100', { kind: 'folder', folderId: 'bilimi-logical:games' })
+    expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(1, '100', { kind: 'folder', folderId: 'bilimi-logical:inbox' })
+    expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(3, '100', { kind: 'folder', folderId: 'bilimi-logical:games' })
   })
 
   it('keeps managed-folder deletion in an overlay so the three-column workspace remains intact', () => {
@@ -1257,7 +1257,7 @@ describe('FavoriteLibraryApp', () => {
   it('runs singleton copy, B站 sync, and inline transcription actions with the selected aid', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const synchronizeFavoriteLibraryPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const enqueueFavoriteLibraryTranscription = vi.fn().mockResolvedValue({ status: 'queued' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -1269,7 +1269,7 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [], position: { state: 'synced', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-24T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       copyFavoriteLibrarySelection,
       moveFavoriteLibrarySelection,
-      syncFavoriteLibrarySelection,
+      synchronizeFavoriteLibraryPlacements,
       enqueueFavoriteLibraryTranscription,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
@@ -1296,7 +1296,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(moveFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 'bilimi-logical:music', ['bilimi-logical:games'], 6, expect.any(Object)))
 
     fireEvent.click(screen.getByRole('button', { name: '同步到B站' }))
-    await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
+    await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
   })
@@ -1313,6 +1313,44 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('视频一'))
     const detail = await screen.findByRole('complementary', { name: '视频详情' })
     expect(within(detail).getByRole('heading', { name: '收藏归属' }).closest('section')!).not.toContainElement(screen.queryByRole('button', { name: '移动至' }))
+  })
+
+  it('moves an unmatched video into a managed folder through the unmatched source contract', async () => {
+    const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 2,
+        folders: [
+          { id: 'local:inbox', title: '未匹配分类', kind: 'local', syncState: 'local-only' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 6,
+        items: [{ video: { aid: 1, title: '未匹配视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['local:inbox'], pendingStates: [] }]
+      }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 6,
+        video: { aid: 1, title: '未匹配视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['local:inbox'], pendingStates: [],
+        position: { state: 'local-only-change', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-24T00:00:00.000Z' },
+        mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      }),
+      moveFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '未匹配分类' }))
+    fireEvent.click(await screen.findByRole('button', { name: /未匹配视频 未知 UP 主/ }))
+    const ownership = screen.getByRole('heading', { name: '收藏归属' }).closest('section')!
+    fireEvent.click(await within(ownership).findByRole('button', { name: '移动至' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
+
+    await waitFor(() => expect(moveFavoriteLibrarySelection).toHaveBeenCalledWith(
+      '100', [1], 'local:inbox', ['bilimi-logical:games'], 6, { kind: 'folder', folderId: 'local:inbox' }
+    ))
   })
 
   it('keeps folder binding conflicts compact until the user opens the handling dialog', async () => {

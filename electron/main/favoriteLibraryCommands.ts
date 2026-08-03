@@ -5,6 +5,7 @@ import type { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryLibraryStateFilters, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
 
 const MAX_SELECTION_AIDS = 500
+const PLACEMENT_SYNC_CHUNK_SIZE = 100
 
 export type FavoriteLibrarySyncSelection =
   | { kind: 'aids'; aids: number[] }
@@ -291,6 +292,36 @@ export class FavoriteLibraryCommandService {
     return { status: 'succeeded', completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
   }
 
+  async synchronizeSelection(accountMid: string, selection: FavoriteLibrarySyncSelection): Promise<FavoriteLibraryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementSync) throw new Error('Favorite placement synchronization is unavailable.')
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const selected = selection.kind === 'folder' && this.options.repository.getLibraryFolderAids
+      ? await this.options.repository.getLibraryFolderAids(account, selection.folderId)
+      : selection.kind === 'folder'
+        ? snapshot.memberships[selection.folderId] ?? []
+        : selection.aids
+    if (!Array.isArray(selected) || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Selected videos are invalid.')
+    const selectedAids = [...new Set(selected)].sort((left, right) => left - right)
+    if (!selectedAids.length) return { status: 'succeeded', completedOperationCount: 0, totalOperationCount: 0, affectedAids: [] }
+    if (['frozen', 'executing', 'reconciling'].includes(snapshot.workspace?.status ?? '')) {
+      return { status: 'queued', completedOperationCount: 0, totalOperationCount: selectedAids.length, affectedAids: selectedAids }
+    }
+    const results: FavoriteLibraryCommandResult[] = []
+    for (let index = 0; index < selectedAids.length; index += PLACEMENT_SYNC_CHUNK_SIZE) {
+      results.push(await this.options.placementSync.synchronizePlacements(account, selectedAids.slice(index, index + PLACEMENT_SYNC_CHUNK_SIZE)))
+    }
+    return {
+      status: results.some((result) => result.status === 'result-unknown') ? 'result-unknown'
+        : results.some((result) => result.status === 'failed') ? 'failed'
+          : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded',
+      completedOperationCount: results.reduce((sum, result) => sum + result.completedOperationCount, 0),
+      totalOperationCount: results.reduce((sum, result) => sum + result.totalOperationCount, 0),
+      affectedAids: selectedAids,
+      ...(results.find((result) => result.reason)?.reason ? { reason: results.find((result) => result.reason)!.reason } : {})
+    }
+  }
+
   async enqueueTranscription(accountMid: string, requestedTargets: Array<number | FavoriteLibraryTranscriptionTarget>, summarizeWithDeepSeek = false): Promise<FavoriteLibraryCommandResult> {
     const account = normalizeAccountMid(accountMid)
     const targets = uniqueTranscriptionTargets(requestedTargets)
@@ -441,7 +472,7 @@ function transcriptionInput(value: unknown): { aids?: number[]; targets?: Favori
 
 export function registerFavoriteLibraryCommandsIpc(options: {
   ipcMain: IpcMain
-  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'enqueueTranscription' | 'cancelWaitingTranscription'>
+  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'synchronizeSelection' | 'enqueueTranscription' | 'cancelWaitingTranscription'>
   isTrustedLibrarySender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
@@ -466,6 +497,16 @@ export function registerFavoriteLibraryCommandsIpc(options: {
       : parsed
     await assertCurrentAccount(accountMid)
     return options.commands.syncSelection(accountMid, resolved)
+  })
+  options.ipcMain.handle('favorite-library:synchronize-placements', async (event, requestedAccountMid: string, selection: unknown) => {
+    assertLibrary(event)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const parsed = librarySelection(selection)
+    const resolved = parsed.kind === 'scope'
+      ? { kind: 'aids' as const, aids: await options.resolveSelection?.(accountMid, parsed) ?? (() => { throw new Error('Selected videos are invalid.') })() }
+      : parsed
+    await assertCurrentAccount(accountMid)
+    return options.commands.synchronizeSelection(accountMid, resolved)
   })
   options.ipcMain.handle('favorite-library:enqueue-transcription', async (event, requestedAccountMid: string, input: unknown) => {
     assertLibrary(event)

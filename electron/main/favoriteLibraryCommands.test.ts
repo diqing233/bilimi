@@ -104,6 +104,38 @@ describe('FavoriteLibraryCommandService', () => {
     }))
   })
 
+  it('synchronizes existing placements without refreshing video metadata', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    const synchronizePlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      placementSync: { synchronizePlacements }
+    })
+
+    await expect(service.synchronizeSelection('100', { kind: 'aids', aids: [1] })).resolves.toMatchObject({
+      status: 'succeeded', affectedAids: [1]
+    })
+
+    expect(synchronizePlacements).toHaveBeenCalledWith('100', [1])
+    expect(refreshVideo).not.toHaveBeenCalled()
+    expect(repository.commit).not.toHaveBeenCalled()
+  })
+
+  it('keeps direct placement synchronization queued while old-favorite work owns remote writes', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    repository.getSnapshot.mockResolvedValueOnce({ ...snapshot(), workspace: { id: 'w', status: 'executing' } })
+    const synchronizePlacements = vi.fn()
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      placementSync: { synchronizePlacements }
+    })
+
+    await expect(service.synchronizeSelection('100', { kind: 'aids', aids: [1] })).resolves.toMatchObject({
+      status: 'queued', completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1]
+    })
+    expect(synchronizePlacements).not.toHaveBeenCalled()
+  })
+
   it('adopts observed remote logical folders as a revision-checked local intent', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     repository.getSnapshot.mockResolvedValueOnce({
@@ -277,11 +309,17 @@ describe('registerFavoriteLibraryCommandsIpc', () => {
   it('exposes only account-scoped local refresh and transcription commands', async () => {
     const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
     const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
-    const commands = { syncSelection: vi.fn().mockResolvedValue({ status: 'succeeded' }), enqueueTranscription: vi.fn() }
+    const commands = {
+      syncSelection: vi.fn().mockResolvedValue({ status: 'succeeded' }),
+      synchronizeSelection: vi.fn().mockResolvedValue({ status: 'queued' }),
+      enqueueTranscription: vi.fn()
+    }
     registerFavoriteLibraryCommandsIpc({ ipcMain, commands: commands as never, isTrustedLibrarySender: (id) => id === 8, getCurrentAccountMid: vi.fn().mockResolvedValue('100') })
     const invoke = (channel: string, senderId: number, ...args: unknown[]) => handlers.get(channel)?.({ sender: { id: senderId } }, ...args as never[])
 
     await expect(invoke('favorite-library:sync-selection', 8, '100', { kind: 'aids', aids: [1] })).resolves.toEqual({ status: 'succeeded' })
+    await expect(invoke('favorite-library:synchronize-placements', 8, '100', { kind: 'aids', aids: [1] })).resolves.toEqual({ status: 'queued' })
+    expect(commands.synchronizeSelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] })
     expect(handlers.has('favorite-library:reconcile-sync')).toBe(false)
     expect(handlers.has('favorite-library:retry-sync')).toBe(false)
     expect(handlers.has('favorite-library:bind-sync-page')).toBe(false)

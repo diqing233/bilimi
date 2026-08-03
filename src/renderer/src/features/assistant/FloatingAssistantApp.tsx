@@ -419,8 +419,8 @@ export function favoriteOrganizationStatus(
 
   if (snapshot.status === 'reconciling') {
     return {
-      label: '等待对账',
-      detail: favoriteOrganizationDetail('远端结果需要核实；请在收藏整理中对账，系统不会重复提交未知结果。'),
+      label: '同步待检查',
+      detail: favoriteOrganizationDetail('上次提交结果需要核实；请在收藏整理中重新连接并检查，系统不会重复提交未知结果。'),
       tone: 'warn'
     }
   }
@@ -433,6 +433,17 @@ export function favoriteOrganizationStatus(
   }
 
   if (snapshot.status === 'frozen') {
+    if (snapshot.executionProgress?.lastFailureReason) {
+      const completed = snapshot.executionProgress.completedOperationCount
+      const total = snapshot.executionProgress.totalOperationCount
+      return {
+        label: '同步已暂停',
+        detail: favoriteOrganizationDetail(total > 0
+          ? `B 站同步已暂停：${completed} / ${total}；继续时只处理剩余项目。`
+          : 'B 站同步已暂停；请打开收藏整理查看原因。'),
+        tone: 'warn'
+      }
+    }
     return { label: '等待执行', detail: favoriteOrganizationDetail('分类计划已确认，等待同步到 B 站。'), tone: 'warn' }
   }
 

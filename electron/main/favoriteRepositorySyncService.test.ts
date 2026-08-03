@@ -912,4 +912,84 @@ describe('FavoriteRepositorySyncService', () => {
     ])
     expect(append).toHaveBeenCalledTimes(1)
   })
+
+  it('reports an actively owned pending remote request as running', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    let resolveAppend: ((value: { observedAccountMid: string }) => void) | undefined
+    const append = vi.fn(() => new Promise<{ observedAccountMid: string }>((resolve) => { resolveAppend = resolve }))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    const execution = service.executeFrozenPlan('100', plan())
+    await vi.waitFor(() => expect(append).toHaveBeenCalledTimes(1))
+
+    await expect(service.getRun('100', 'run-1')).resolves.toMatchObject({ status: 'running' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'executing' } })
+
+    resolveAppend?.({ observedAccountMid: '100' })
+    await expect(execution).resolves.toMatchObject({ status: 'succeeded' })
+  })
+
+  it('preserves invalid-response diagnostics and blocks rapid repeated manual retries', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    await repository.recordSyncCheckpoint('100', 'retry:append-1', {
+      id: `${frozenPlan.id}:append-1`, commandId: 'append-1', status: 'pending', affectedAids: [1],
+      updatedAt: '2026-07-19T00:00:00.000Z',
+      reason: 'reconciled-absent-ready-to-retry; prior=invalid-response; http-status=200; content-type=text/html; response-category=html',
+      runId: frozenPlan.id, operationKey: 'append-1', targetFolderIds: ['remote-a'], attempt: 3,
+      retryAvailableAt: '2026-07-19T00:00:30.000Z'
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:00:10.000Z', retryCooldownMs: 30_000
+    })
+
+    await expect(service.resume('100', frozenPlan.id)).rejects.toThrow(/retry-cooldown.*invalid-response.*http-status=200.*content-type=text\/html/i)
+    expect(append).not.toHaveBeenCalled()
+    await expect(service.getRun('100', frozenPlan.id)).resolves.toMatchObject({
+      status: 'ready-to-resume',
+      lastFailureReason: expect.stringContaining('response-category=html'),
+      retryAvailableAt: '2026-07-19T00:00:30.000Z'
+    })
+  })
+
+  it('stops immediately and applies a long cooldown when Bilibili returns an HTML 412 response', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const append = vi.fn().mockRejectedValue(new Error(
+      'invalid-response; http-status=412; content-type=text/html; response-category=html'
+    ))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append, remove: vi.fn(),
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-a': [] } }),
+        readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+      },
+      now: () => '2026-07-19T00:00:00.000Z', riskControlCooldownMs: 600_000, pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({
+      status: 'ready-to-resume',
+      lastFailureReason: expect.stringContaining('http-status=412'),
+      retryAvailableAt: '2026-07-19T00:10:00.000Z'
+    })
+    expect(append).toHaveBeenCalledTimes(1)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'frozen' } })
+  })
 })

@@ -414,4 +414,23 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1] } as never)).rejects.toThrow('skipped')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1], skippedAids: [] })).resolves.toMatchObject({ aids: [1] })
   })
+
+  it('moves unmatched videos by adding targets without requiring a managed source folder', async () => {
+    const current = { ...snapshot(), positions: {} }
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({
+      ...current, commandId: command.id, revision: 8, affectedAids: [1], affectedFolderIds: ['bilimi-logical:target']
+    }))
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }
+    })
+
+    await service.move('100', [1], 'local:inbox', ['bilimi-logical:target'], 7, {
+      kind: 'virtual', eligibleAids: [1], skippedAids: []
+    })
+
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'set-favorite-placements',
+      payload: { placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })] }
+    }), expect.any(Array))
+  })
 })

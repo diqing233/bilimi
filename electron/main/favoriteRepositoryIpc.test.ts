@@ -99,6 +99,40 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getLibrarySummary).toHaveBeenCalledWith('100')
   })
 
+  it('hides an ordinary Bilibili folder locally without exposing a remote delete operation', async () => {
+    const ipcMain = new FakeIpcMain()
+    const dismissOrdinaryFolder = vi.fn().mockResolvedValue({ status: 'succeeded', remoteFolderId: '41' })
+    const service = { getSnapshot: vi.fn().mockResolvedValue({
+      folders: [{ id: 'bilibili:41', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '41', syncState: 'bound' }],
+      physicalShards: []
+    }) }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), dismissOrdinaryFolder
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:dismiss-ordinary-folder', 7, '100', 'bilibili:41'))
+      .resolves.toEqual({ status: 'succeeded', remoteFolderId: '41' })
+    expect(dismissOrdinaryFolder).toHaveBeenCalledWith('100', '41')
+  })
+
+  it('refuses to hide a folder through the ordinary path once its remote id belongs to a Bilimi work folder', async () => {
+    const ipcMain = new FakeIpcMain()
+    const dismissOrdinaryFolder = vi.fn()
+    const service = { getSnapshot: vi.fn().mockResolvedValue({
+      folders: [{ id: 'bilibili:41', title: 'bilimi·音乐', kind: 'bilibili', remoteFolderId: '41', syncState: 'bound' }],
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '41', remoteTitle: 'bilimi·音乐', bindingState: 'bound' }]
+    }) }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), dismissOrdinaryFolder
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:dismiss-ordinary-folder', 7, '100', 'bilibili:41'))
+      .rejects.toThrow('managed work folder')
+    expect(dismissOrdinaryFolder).not.toHaveBeenCalled()
+  })
+
   it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
     const ipcMain = new FakeIpcMain()
     const setLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })

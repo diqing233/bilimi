@@ -62,7 +62,13 @@ type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | Cur
   HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount?: number; isBilimiWorkFolder: boolean; selected?: boolean }>
-  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+}
+
+const bilibiliRiskControlCooldownMs = 10 * 60 * 1_000
+
+function isBilibiliHtml412(reason: string) {
+  return /(?:http=|http-status=)412/i.test(reason) && /category=(?:non-json|html)|response-category=html|content-type=text\/html/i.test(reason)
 }
 type CurrentSegmentItem = {
   aid: number
@@ -674,7 +680,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (
       items: CurrentSegmentItem[],
@@ -905,6 +911,37 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  async getScanRetryState(accountMid: string): Promise<{ reason: string; retryAvailableAt: string } | null> {
+    return this.queue(async () => {
+      const workspace = await this.openUnsafe(accountMid)
+      if (!workspace || isRecoveryRequired(workspace)) return null
+      const scan = this.scanOverviews.get(workspace.accountMid)?.scan
+      if (scan?.phase !== 'failed' || !scan.reason || !scan.retryAvailableAt) return null
+      return { reason: scan.reason, retryAvailableAt: scan.retryAvailableAt }
+    })
+  }
+
+  async resumeFailedScan(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace failed scan is not resumable.')
+      const prior = this.scanOverviews.get(workspace.accountMid)
+      if (prior?.scan.phase !== 'failed') throw new Error('Old favorite workspace scan has not failed.')
+      if (prior.scan.retryAvailableAt && Date.parse(this.now()) < Date.parse(prior.scan.retryAvailableAt)) {
+        throw new Error(`retry-cooldown; ${prior.scan.reason ?? 'bilibili-risk-control'}; retry-at=${prior.scan.retryAvailableAt}`)
+      }
+      if (!this.scanRuns.get(workspace.accountMid)) throw new Error('Old favorite workspace scan needs an explicit rescan.')
+      const { reason: _reason, retryAvailableAt: _retryAvailableAt, ...retained } = prior.scan
+      const scan = { ...retained, phase: 'inventory' as const }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: '', classifications: [], history: [],
+        scanMetadata: { sourceFolders: prior.sourceFolders, ...scan }
+      })
+      this.scanOverviews.set(workspace.accountMid, { sourceFolders: prior.sourceFolders, scan })
+      return this.createSnapshot(workspace)
+    })
+  }
+
   async getSegmentSnapshot(accountMid: string, segmentId: string): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -1130,8 +1167,14 @@ export class OldFavoriteWorkspaceCoordinator {
   async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode'], options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
-      await this.options.prepareForOrganization?.(accountMid)
       let workspace = await this.openUnsafe(accountMid)
+      if (workspace && !isRecoveryRequired(workspace)) {
+        const failedScan = this.scanOverviews.get(workspace.accountMid)?.scan
+        if (failedScan?.retryAvailableAt && Date.parse(this.now()) < Date.parse(failedScan.retryAvailableAt)) {
+          throw new Error(`retry-cooldown; ${failedScan.reason ?? 'bilibili-risk-control'}; retry-at=${failedScan.retryAvailableAt}`)
+        }
+      }
+      await this.options.prepareForOrganization?.(accountMid)
       if (!workspace) workspace = await this.createScanningWorkspace(accountMid, mode)
       if (isRecoveryRequired(workspace)) {
         const restored = (await this.options.repository.getSnapshot(accountMid)).workspace
@@ -1228,13 +1271,16 @@ export class OldFavoriteWorkspaceCoordinator {
       if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder, selected: !folder.isBilimiWorkFolder }))
-      const mode = this.scanOverviews.get(workspace.accountMid)?.scan.mode ?? workspace.mode
+      const priorScan = this.scanOverviews.get(workspace.accountMid)?.scan
+      const mode = priorScan?.mode ?? workspace.mode
       const overview: ScanOverview = {
         sourceFolders,
         scan: {
           phase: 'inventory', failureCount: 0, mode,
           totalItemCount: sourceFolders.reduce((count, folder) => count + folder.itemCount, 0),
-          scannedItemCount: 0, taggedItemCount: 0, untaggedItemCount: 0
+          scannedItemCount: priorScan?.scannedItemCount ?? 0,
+          taggedItemCount: priorScan?.taggedItemCount ?? 0,
+          untaggedItemCount: priorScan?.untaggedItemCount ?? 0
         }
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -2228,7 +2274,16 @@ export class OldFavoriteWorkspaceCoordinator {
       const prior = this.scanOverviews.get(workspace.accountMid) ?? { sourceFolders: [], scan: { phase: 'inventory' as const, failureCount: 0, mode: workspace.mode } }
       const overview: ScanOverview = {
         sourceFolders: prior.sourceFolders,
-        scan: { phase: 'failed', failureCount: prior.scan.failureCount + 1, mode: prior.scan.mode, reason: reason.slice(0, 256) }
+        scan: {
+          phase: 'failed', failureCount: prior.scan.failureCount + 1, mode: prior.scan.mode, reason: reason.slice(0, 256),
+          ...(Number.isSafeInteger(prior.scan.totalItemCount) ? { totalItemCount: prior.scan.totalItemCount } : {}),
+          ...(Number.isSafeInteger(prior.scan.scannedItemCount) ? { scannedItemCount: prior.scan.scannedItemCount } : {}),
+          ...(Number.isSafeInteger(prior.scan.taggedItemCount) ? { taggedItemCount: prior.scan.taggedItemCount } : {}),
+          ...(Number.isSafeInteger(prior.scan.untaggedItemCount) ? { untaggedItemCount: prior.scan.untaggedItemCount } : {}),
+          ...(isBilibiliHtml412(reason)
+            ? { retryAvailableAt: new Date(Date.parse(this.now()) + bilibiliRiskControlCooldownMs).toISOString() }
+            : {})
+        }
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
@@ -2415,6 +2470,19 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not resumable.')
       if (!this.scanRuns.get(workspace.accountMid)) throw new Error('Old favorite workspace scan needs an explicit rescan.')
+      const prior = this.scanOverviews.get(workspace.accountMid)
+      if (prior?.scan.phase === 'failed') {
+        if (prior.scan.retryAvailableAt && Date.parse(this.now()) < Date.parse(prior.scan.retryAvailableAt)) {
+          throw new Error(`retry-cooldown; ${prior.scan.reason ?? 'bilibili-risk-control'}; retry-at=${prior.scan.retryAvailableAt}`)
+        }
+        const { reason: _reason, retryAvailableAt: _retryAvailableAt, ...retained } = prior.scan
+        const scan = { ...retained, phase: 'inventory' as const }
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: '', classifications: [], history: [],
+          scanMetadata: { sourceFolders: prior.sourceFolders, ...scan }
+        })
+        this.scanOverviews.set(workspace.accountMid, { sourceFolders: prior.sourceFolders, scan })
+      }
       return this.createSnapshot(workspace)
     })
   }
@@ -2621,6 +2689,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(persisted.accountMid)
       if (workspace.status === 'frozen') {
         if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+        await this.commitCompleteLocalResultForRemoteExecutionUnsafe(workspace)
         await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
       } else {
         if (workspace.status !== 'previewing') throw new Error('Old favorite workspace cannot be abandoned while it is active.')
@@ -3459,6 +3528,7 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async executeFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
+    await this.backfillCompleteLocalResultIfRecoverable(accountMid)
     const frozenPlan = await this.queue(async () => {
       const snapshot = await this.options.repository.getSnapshot(accountMid)
       const workspace = snapshot.workspace
@@ -3478,6 +3548,7 @@ export class OldFavoriteWorkspaceCoordinator {
       return this.options.syncService.executeFrozenPlan(frozenPlan.accountMid, frozenPlan.plan)
     }
     if (currentRun.status === 'ready-to-resume') {
+      await this.options.syncService.rebindPageTarget(frozenPlan.accountMid, frozenPlan.plan.id)
       return this.options.syncService.resume(frozenPlan.accountMid, frozenPlan.plan.id)
     }
     if (currentRun.status !== 'running') {
@@ -3507,8 +3578,27 @@ export class OldFavoriteWorkspaceCoordinator {
   private async commitCompleteLocalResultForRemoteExecution(accountMid: string) {
     await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      await this.commitCompleteLocalResultForRemoteExecutionUnsafe(workspace)
+    })
+  }
+
+  private async backfillCompleteLocalResultIfRecoverable(accountMid: string) {
+    try {
+      await this.commitCompleteLocalResultForRemoteExecution(accountMid)
+    } catch (error) {
+      if (error instanceof Error && [
+        'Old favorite workspace requires rebuild.',
+        'Old favorite workspace has not been started.'
+      ].includes(error.message)) return
+      throw error
+    }
+  }
+
+  private async commitCompleteLocalResultForRemoteExecutionUnsafe(workspace: OldFavoriteWorkspace) {
       this.assertDeepSeekExecutionReady(workspace)
-      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
+      if (!['previewing', 'frozen', 'executing', 'reconciling'].includes(workspace.status)) {
+        throw new Error('Old favorite workspace is not ready for local saving.')
+      }
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
       const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
       const overview = this.scanOverviews.get(workspace.accountMid)
@@ -3531,6 +3621,16 @@ export class OldFavoriteWorkspaceCoordinator {
       const localFolderIdForLedger = (logicalLedgerId: string) => existingLogicalFolderIds.has(logicalLedgerId)
         ? `bilimi-logical:${logicalLedgerId}`
         : `local:${logicalLedgerId}`
+      const organizationRecordAids = new Set(repository.organizationRecords.map((record) => record.aid))
+      const localResultAlreadyComplete = selectedItems.every((item) => {
+        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
+        const desired = targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort()
+        const position = repository.positions[`${workspace.accountMid}:${item.aid}`]
+        if (!position || JSON.stringify([...position.localDesiredFolderIds].sort()) !== JSON.stringify(desired)) return false
+        if (!targets.length) return repository.memberships['local:inbox']?.includes(item.aid) ?? false
+        return organizationRecordAids.has(item.aid) && desired.every((folderId) => repository.memberships[folderId]?.includes(item.aid))
+      })
+      if (localResultAlreadyComplete) return
       const memberAidsByFolderId: Record<string, number[]> = { 'local:inbox': [] }
       const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string }> = []
       for (const item of selectedItems) {
@@ -3597,7 +3697,6 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         })
       }
-    })
   }
 
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
@@ -4753,11 +4852,11 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private async createSnapshotWithExecutionProgress(workspace: OldFavoriteWorkspace): Promise<OldFavoriteWorkspaceSnapshot> {
     const snapshot = this.createSnapshot(workspace)
-    if ((workspace.status !== 'executing' && workspace.status !== 'reconciling') || !this.options.syncService) return snapshot
+    if (!['frozen', 'executing', 'reconciling'].includes(workspace.status) || !this.options.syncService) return snapshot
     try {
       const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
       const plan = persisted.workspace?.frozenSyncPlan
-      if (!plan || (persisted.workspace?.status !== 'executing' && persisted.workspace?.status !== 'reconciling')) return snapshot
+      if (!plan || !['frozen', 'executing', 'reconciling'].includes(persisted.workspace?.status ?? '')) return snapshot
       const run = await this.options.syncService.getRun(workspace.accountMid, plan.id)
       if (workspace.status === 'executing' && run.status === 'ready-to-resume') {
         const frozen = { ...workspace, status: 'frozen' as const }
@@ -4781,7 +4880,9 @@ export class OldFavoriteWorkspaceCoordinator {
           ...this.createSnapshot(reconciling),
           executionProgress: {
             completedOperationCount: run.completedOperationCount,
-            totalOperationCount: run.totalOperationCount
+            totalOperationCount: run.totalOperationCount,
+            ...(run.lastFailureReason ? { lastFailureReason: run.lastFailureReason } : {}),
+            ...(run.retryAvailableAt ? { retryAvailableAt: run.retryAvailableAt } : {})
           }
         }
       }
@@ -4789,7 +4890,9 @@ export class OldFavoriteWorkspaceCoordinator {
         ...snapshot,
         executionProgress: {
           completedOperationCount: run.completedOperationCount,
-          totalOperationCount: run.totalOperationCount
+          totalOperationCount: run.totalOperationCount,
+          ...(run.lastFailureReason ? { lastFailureReason: run.lastFailureReason } : {}),
+          ...(run.retryAvailableAt ? { retryAvailableAt: run.retryAvailableAt } : {})
         }
       }
     } catch {

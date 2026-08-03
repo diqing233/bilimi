@@ -65,6 +65,13 @@ function diagnosticFailureReason(result: RuntimeInventoryResult, fallback: strin
   return diagnostics.length ? `${reason} [${diagnostics.join(' ')}]` : reason
 }
 
+function shouldProbeExpiredRiskControl(state: { reason: string; retryAvailableAt: string } | null, now: string) {
+  if (!state) return false
+  return /(?:http=|http-status=)412/i.test(state.reason) &&
+    /category=(?:non-json|html)|response-category=html|content-type=text\/html/i.test(state.reason) &&
+    Date.parse(now) >= Date.parse(state.retryAvailableAt)
+}
+
 /** Runs a fixed, read-only inventory against the explicitly bound Bilibili tab. */
 export class OldFavoriteWorkspaceScanService {
   private destructiveMaintenance = false
@@ -89,8 +96,14 @@ export class OldFavoriteWorkspaceScanService {
     cancelDeepSeek?: (accountMid: string) => boolean
     tagRetryDelayMs?: number
     inventoryRetryDelayMs?: number
+    recoveryStabilizationDelayMs?: number
+    sourcePageDelayMinMs?: number
+    sourcePageDelayMaxMs?: number
+    sourcePageBatchSize?: number
+    sourcePageBatchPauseMs?: number
     wait?: (milliseconds: number) => Promise<void>
     random?: () => number
+    now?: () => string
   }) {}
 
   private track<T>(work: Promise<T>) {
@@ -139,6 +152,26 @@ export class OldFavoriteWorkspaceScanService {
     return this.options.wait?.(milliseconds) ?? new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
   }
 
+  private waitForRecoveryStabilization() {
+    const milliseconds = this.options.recoveryStabilizationDelayMs ?? 3_000
+    return this.options.wait?.(milliseconds) ?? new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
+  private waitForSourcePageRequest() {
+    const minimum = Math.max(0, this.options.sourcePageDelayMinMs ?? 0)
+    const maximum = Math.max(minimum, this.options.sourcePageDelayMaxMs ?? minimum)
+    if (maximum === 0) return Promise.resolve()
+    const random = Math.min(1, Math.max(0, this.options.random?.() ?? Math.random()))
+    const milliseconds = Math.round(minimum + ((maximum - minimum) * random))
+    return this.options.wait?.(milliseconds) ?? new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
+  private waitForSourcePageBatchPause() {
+    const milliseconds = Math.max(0, this.options.sourcePageBatchPauseMs ?? 0)
+    if (milliseconds === 0) return Promise.resolve()
+    return this.options.wait?.(milliseconds) ?? new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
   private async bindTarget(accountMid: string) {
     const binding = await this.request(accountMid, { type: 'old-favorite-workspace-bind-scan-target', accountMid })
     if (binding.status !== 'ok' || !binding.target) return binding
@@ -146,6 +179,12 @@ export class OldFavoriteWorkspaceScanService {
       return { status: 'unknown' as const, observedAccountMid: binding.observedAccountMid, reason: 'scan-target-account-mismatch' }
     }
     return binding
+  }
+
+  private async readWorkspaceSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    const snapshot = await this.options.coordinator.getSnapshot(accountMid)
+    if (!snapshot || 'recovery' in snapshot) throw new Error('Old favorite workspace scan snapshot is unavailable.')
+    return snapshot
   }
 
   private async requestWithTargetRetry(
@@ -205,12 +244,56 @@ export class OldFavoriteWorkspaceScanService {
   }
 
   private async begin(accountMid: string, mode: OldFavoriteWorkspaceMode, isCurrent: () => boolean, options?: { clearBilibiliMirror?: boolean }) {
-    const snapshot = options?.clearBilibiliMirror
-      ? await this.options.coordinator.beginScan(accountMid, mode, { clearBilibiliMirror: true })
-      : await this.options.coordinator.beginScan(accountMid, mode)
+    let recoveryProbe: { target: ScanTarget; inventory: RuntimeInventoryResult } | undefined
+    const getScanRetryState = (this.options.coordinator as {
+      getScanRetryState?: (accountMid: string) => Promise<{ reason: string; retryAvailableAt: string } | null>
+    }).getScanRetryState
+    const retryState = mode === 'incremental' && getScanRetryState
+      ? await getScanRetryState.call(this.options.coordinator, accountMid)
+      : null
+    if (shouldProbeExpiredRiskControl(retryState, this.options.now?.() ?? new Date().toISOString())) {
+      const binding = await this.bindTarget(accountMid)
+      if (!isCurrent()) return this.readWorkspaceSnapshot(accountMid)
+      if (binding.status !== 'ok' || !binding.target) {
+        await this.options.coordinator.recordScanFailure(accountMid, diagnosticFailureReason(binding, 'scan-target-unavailable'))
+        if (isCurrent()) this.activeScans.delete(accountMid)
+        return this.readWorkspaceSnapshot(accountMid)
+      }
+      const inventoryRead = await this.requestWithTargetRetry(accountMid, binding.target, (target) => ({
+        type: 'old-favorite-workspace-inventory', accountMid, target
+      }))
+      if (!isCurrent()) return this.readWorkspaceSnapshot(accountMid)
+      const inventory = inventoryRead.result
+      if (inventory.status !== 'ok' || !Array.isArray(inventory.folders)) {
+        await this.options.coordinator.recordScanFailure(accountMid, diagnosticFailureReason(inventory, 'inventory-failed'))
+        if (isCurrent()) this.activeScans.delete(accountMid)
+        return this.readWorkspaceSnapshot(accountMid)
+      }
+      if (normalizeAccountMid(inventory.observedAccountMid) !== accountMid) {
+        await this.options.coordinator.recordScanFailure(accountMid, 'inventory-account-mismatch')
+        if (isCurrent()) this.activeScans.delete(accountMid)
+        return this.readWorkspaceSnapshot(accountMid)
+      }
+      recoveryProbe = { target: inventoryRead.target, inventory }
+    }
+    const snapshot = recoveryProbe
+      ? await this.options.coordinator.resumeFailedScan(accountMid)
+      : options?.clearBilibiliMirror
+        ? await this.options.coordinator.beginScan(accountMid, mode, { clearBilibiliMirror: true })
+        : await this.options.coordinator.beginScan(accountMid, mode)
     if (!isCurrent()) return snapshot
     const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
-    void this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId)).finally(() => {
+    const resumeState = recoveryProbe
+      ? await this.options.coordinator.getScanResumeState(accountMid) as PersistedScanResumeState
+      : null
+    if (resumeState && resumeState.runId !== runId) throw new Error('Old favorite workspace scan lease changed while recovering from risk control.')
+    const completedPages = new Map((resumeState?.completedPages ?? [])
+      .filter((page): page is { folderId: string; page: number; hasMore: boolean } => typeof page.hasMore === 'boolean')
+      .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
+    void this.track(this.runInventory(
+      accountMid, runId, isCurrent, snapshot.workspaceId, completedPages,
+      new Set(resumeState?.taggedAids ?? []), recoveryProbe
+    )).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
@@ -258,21 +341,29 @@ export class OldFavoriteWorkspaceScanService {
     isCurrent: () => boolean,
     workspaceId?: string,
     completedPages = new Map<string, boolean>(),
-    taggedAids = new Set<number>()
+    taggedAids = new Set<number>(),
+    recoveryProbe?: { target: ScanTarget; inventory: RuntimeInventoryResult }
   ) {
     try {
-      const binding = await this.bindTarget(accountMid)
-      if (!isCurrent()) return
-      if (binding.status !== 'ok' || !binding.target) {
-        await this.options.coordinator.recordScanFailure(accountMid, binding.reason ?? 'scan-target-unavailable', runId)
-        return
+      let target: ScanTarget
+      let inventory: RuntimeInventoryResult
+      if (recoveryProbe) {
+        target = recoveryProbe.target
+        inventory = recoveryProbe.inventory
+      } else {
+        const binding = await this.bindTarget(accountMid)
+        if (!isCurrent()) return
+        if (binding.status !== 'ok' || !binding.target) {
+          await this.options.coordinator.recordScanFailure(accountMid, binding.reason ?? 'scan-target-unavailable', runId)
+          return
+        }
+        target = binding.target
+        const inventoryRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
+          type: 'old-favorite-workspace-inventory', accountMid, target: nextTarget
+        }))
+        inventory = inventoryRead.result
+        target = inventoryRead.target
       }
-      let target = binding.target
-      const inventoryRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
-        type: 'old-favorite-workspace-inventory', accountMid, target: nextTarget
-      }))
-      const inventory = inventoryRead.result
-      target = inventoryRead.target
       if (!isCurrent()) return
       if (inventory.status !== 'ok' || !Array.isArray(inventory.folders)) {
         await this.options.coordinator.recordScanFailure(accountMid, diagnosticFailureReason(inventory, 'inventory-failed'), runId)
@@ -290,6 +381,10 @@ export class OldFavoriteWorkspaceScanService {
           isBilimiWorkFolder: isBilimiWorkFolder(folder.title)
         }))
       }, runId)
+      if (recoveryProbe) {
+        await this.waitForRecoveryStabilization()
+        if (!isCurrent()) return
+      }
       const managedFolderIds = inventory.folders.filter((folder) => isBilimiWorkFolder(folder.title)).map((folder) => folder.id)
       const declaredMediaCounts = new Map(inventory.folders.map((folder) => [folder.id, folder.mediaCount]))
       for (let offset = 0; offset < managedFolderIds.length; offset += 10) {
@@ -333,6 +428,8 @@ export class OldFavoriteWorkspaceScanService {
         }
         await this.options.coordinator.recordManagedMembers(accountMid, managed.members, runId)
       }
+      let requestedSourcePageCount = 0
+      const sourcePageBatchSize = Math.max(1, Math.floor(this.options.sourcePageBatchSize ?? Number.MAX_SAFE_INTEGER))
       for (const folder of inventory.folders) {
         if (isBilimiWorkFolder(folder.title)) continue
         let page = 1
@@ -347,11 +444,18 @@ export class OldFavoriteWorkspaceScanService {
             page += 1
             continue
           }
+          if (requestedSourcePageCount > 0 && requestedSourcePageCount % sourcePageBatchSize === 0) {
+            await this.waitForSourcePageBatchPause()
+            if (!isCurrent()) return
+          }
+          await this.waitForSourcePageRequest()
+          if (!isCurrent()) return
           const sourcePageRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
             type: 'old-favorite-workspace-read-source-page', accountMid, target: nextTarget,
             folderId: folder.id, page, pageSize: 20
           }))
           const sourcePage = sourcePageRead.result
+          requestedSourcePageCount += 1
           target = sourcePageRead.target
           if (!isCurrent()) return
           if (sourcePage.status !== 'ok' || !Array.isArray(sourcePage.items) || typeof sourcePage.hasMore !== 'boolean') {

@@ -492,6 +492,31 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('publishes a large managed-folder mutation with every immutable audit event atomically', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const selected = Array.from({ length: 101 }, (_value, index) => index + 1)
+    for (const aid of selected) {
+      await service.commit('100', {
+        id: `large-video-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    await service.commitWithAudit('100', {
+      id: 'large-audited-delete', accountMid: '100', issuedAt: '2026-07-24T00:01:00.000Z',
+      type: 'record-sync-result', payload: {
+        id: 'large-audited-delete-result', commandId: 'large-audited-delete', status: 'succeeded', affectedAids: selected,
+        updatedAt: '2026-07-24T00:01:00.000Z', operationKey: 'managed-folder-delete'
+      }
+    }, selected.map((aid) => ({
+      id: `large-audit-${aid}`, sequence: aid, aid, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:01:00.000Z'
+    })))
+
+    await expect(service.getEventPage('100', 101, { limit: 5 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'large-audit-101' })]
+    })
+  })
+
   it('recovers every selected account before exposing a partially published portable import after restart', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -1124,6 +1149,46 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3])
   })
 
+  it('aggregates pending Bilimi shard mirrors without listing them again as ordinary folders', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    for (const [shardNumber, remoteFolderId, memberAids] of [[1, 'game-1', [1]], [2, 'game-2', [2]]] as const) {
+      await service.commit('100', {
+        id: `game-shard-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber, memberAids: [...memberAids],
+          remoteTitle: shardNumber === 1 ? 'bilimi\u00b7\u6e38\u620f\u4e13\u533a' : 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702',
+          bindingState: 'pending-reconcile', knownRemoteFolderIds: [remoteFolderId]
+        }
+      })
+    }
+    await service.commit('100', {
+      id: 'game-mirrors', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [
+          { id: 'bilibili:game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', remoteFolderId: 'game-1' },
+          { id: 'bilibili:game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', remoteFolderId: 'game-2' }
+        ],
+        memberAidsByFolderId: { 'bilibili:game-1': [1], 'bilibili:game-2': [2] },
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1,
+      workspaceVideoCount: 2,
+      otherFavoriteVideoCount: 0,
+      folders: [expect.objectContaining({ id: 'bilimi-logical:game', kind: 'bilimi-logical', syncState: 'pending-reconcile' })]
+    })
+  })
+
   it('rejects non-logical, unbound, and conflicted logical archive restore scopes with an actionable reason', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
@@ -1295,6 +1360,33 @@ describe('FavoriteRepositoryService', () => {
         reason: expect.stringContaining('同名收藏夹'),
         candidates: [{ id: 'bilibili:1', title: '同名收藏夹' }, { id: 'bilibili:2', title: '同名收藏夹' }]
       })]
+    })
+  })
+
+  it('filters a locally dismissed ordinary remote folder from library navigation without deleting its mirror data', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({
+      root, now: () => '2026-07-23T00:00:00.000Z',
+      isRemoteFolderDismissed: (_accountMid, remoteFolderId) => remoteFolderId === '1'
+    })
+    await service.commit('100', {
+      id: 'source-mirror-dismissed', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        folders: [
+          { id: 'bilibili:1', title: '隐藏收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '保留收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folders: [expect.objectContaining({ id: 'bilibili:2' })], otherFavoriteVideoCount: 1
+    })
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:1' })]),
+      memberships: { 'bilibili:1': [1] }
     })
   })
 

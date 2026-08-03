@@ -282,8 +282,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:execute-managed-folder-remote-delete', accountMid, executionToken, confirmationToken) as Promise<unknown>,
   reconcileFavoriteLibraryManagedFolderDelete: (accountMid: string, operationId: string) =>
     ipcRenderer.invoke('favorite-library-operations:reconcile-managed-folder-delete', accountMid, operationId) as Promise<unknown>,
+  dismissFavoriteLibraryOrdinaryFolder: (accountMid: string, folderId: string) =>
+    ipcRenderer.invoke('favorite-repository:dismiss-ordinary-folder', accountMid, folderId) as Promise<unknown>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
+  synchronizeFavoriteLibraryPlacements: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
+    ipcRenderer.invoke('favorite-library:synchronize-placements', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
     ipcRenderer.invoke('favorite-library:set-local-placements', accountMid, placements, expectedRevision, synchronize) as Promise<FavoriteLibraryCommandResult>,
   adoptFavoriteLibraryRemotePlacement: (accountMid: string, aid: number, expectedRevision: number) =>

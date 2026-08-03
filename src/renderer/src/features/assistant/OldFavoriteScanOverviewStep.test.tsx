@@ -1,8 +1,150 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
 describe('OldFavoriteScanOverviewStep', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('disables a Bilibili 412 rescan until the persisted ten-minute cooldown expires', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-19T00:00:00.000Z'))
+    const retry = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: {
+          phase: 'failed', failureCount: 1,
+          reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+          retryAvailableAt: '2026-07-19T00:10:00.000Z'
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={retry} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const button = screen.getByRole('button', { name: '等待 10:00 后重试' })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    expect(retry).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('B站暂时限制了请求')
+    now.mockRestore()
+  })
+
+  it('keeps an ordinary network scan failure immediately retryable', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'failed', failureCount: 1, reason: 'network-failure' },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '继续扫描' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '本次直连后继续扫描' })).toBeEnabled()
+  })
+
+  it('offers an explicit from-scratch scan separately from continuing saved pages', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'failed', failureCount: 1, reason: 'target-unavailable', totalItemCount: 40, scannedItemCount: 21 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRestart={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '继续扫描' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '从头重新扫描' })).toBeEnabled()
+  })
+
+  it('keeps persisted scan progress visible after a failed page read', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: {
+          phase: 'failed', failureCount: 1, totalItemCount: 40, scannedItemCount: 21,
+          taggedItemCount: 4, untaggedItemCount: 17, reason: 'network-failure'
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('progressbar', { name: '收藏扫描进度' })).toHaveValue(21)
+    expect(screen.getByText('21 / 40 条')).toBeInTheDocument()
+    expect(screen.getByText('已获取标签 4 / 21 条')).toBeInTheDocument()
+  })
+
+  it('unlocks the rescan button after cooldown without starting a scan automatically', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime('2026-07-19T00:09:59.000Z')
+    const retry = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: {
+          phase: 'failed', failureCount: 1,
+          reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+          retryAvailableAt: '2026-07-19T00:10:00.000Z'
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={retry} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '等待 0:01 后重试' })).toBeDisabled()
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(screen.getByRole('button', { name: '检测并继续扫描' })).toBeEnabled()
+    expect(retry).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('shows that an expired 412 retry is checking favorite access before scanning', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-19T00:10:00.000Z'))
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: {
+          phase: 'failed', failureCount: 1,
+          reason: 'invalid-response [category=non-json http=412 content-type=text/html]',
+          retryAvailableAt: '2026-07-19T00:10:00.000Z'
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={true} scanStarting={true} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '正在检测收藏读取…' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('正在检查 B 站收藏读取是否已恢复')
+  })
+
   it('defaults a multi-batch scan to the compact whole-run overview and keeps single batches unchanged', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

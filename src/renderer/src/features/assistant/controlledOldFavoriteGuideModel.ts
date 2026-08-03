@@ -68,11 +68,11 @@ export function createControlledOldFavoriteGuideModel(
     ? 'confirm'
     : 'preview'
   const primaryAction = snapshot.status === 'frozen'
-    ? '继续同步到 B 站'
+    ? snapshot.executionProgress?.lastFailureReason ? 'B 站同步已暂停' : '继续同步到 B 站'
     : snapshot.status === 'executing'
       ? '检查 B 站同步状态'
       : snapshot.status === 'reconciling'
-        ? '对账 B 站结果'
+        ? '检查 B 站同步结果'
         : snapshot.status === 'completed'
           ? '本轮已完成'
           : readyToConfirm

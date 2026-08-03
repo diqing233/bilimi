@@ -203,6 +203,52 @@ describe('favorite repository page bridge', () => {
     })
   })
 
+  it('preserves sanitized response diagnostics when Bilibili returns an HTML page', async () => {
+    document.cookie = 'DedeUserID=100'
+    document.cookie = 'bili_jct=csrf'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: vi.fn().mockReturnValue('text/html; charset=utf-8') },
+      json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token <'))
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', 'AbortController', `return (${script})`)
+      return evaluate(fetch, document, AbortController)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.append(input)).resolves.toEqual({
+      status: 'unknown',
+      observedAccountMid: '100',
+      reason: 'invalid-response',
+      httpStatus: 200,
+      contentType: 'text/html',
+      responseCategory: 'html'
+    })
+  })
+
+  it('preserves delete-folder diagnostics when Bilibili returns an ambiguous rejection', async () => {
+    document.cookie = 'DedeUserID=100'
+    document.cookie = 'bili_jct=csrf'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 412,
+      headers: { get: vi.fn().mockReturnValue('application/json') },
+      json: vi.fn().mockResolvedValue({ code: -412 })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.deleteFolder({ accountMid: '100', operationKey: 'delete:41', folderId: '41' })).resolves.toEqual({
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous', httpStatus: 412,
+      contentType: 'application/json', responseCategory: 'json', bilibiliCode: -412
+    })
+  })
+
   it('fails closed when the page returns an invalid bridge result', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100', unexpected: true })
     const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })

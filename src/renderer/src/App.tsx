@@ -1220,19 +1220,20 @@ export default function App() {
     target: FavoriteRepositoryPageTarget,
     command: OldFavoriteWorkspacePageCommand
   ) {
-    const active = getCurrentActiveWebview()
-    const activeId = active?.getWebContentsId?.()
-    const current = typeof activeId === 'number' ? favoriteRepositoryTargetStates.current.get(activeId) : undefined
-    if (!active || !current || active.isLoading?.() || !active.executeJavaScript ||
+    const bound = Object.values(webviewRefs.current).find(
+      (webview) => webview.getWebContentsId?.() === target.webContentsId
+    )
+    const current = favoriteRepositoryTargetStates.current.get(target.webContentsId)
+    if (!bound || !current || bound.isLoading?.() || !bound.executeJavaScript ||
       current.webContentsId !== target.webContentsId || current.instanceId !== target.instanceId ||
       current.navigationEpoch !== target.navigationEpoch) {
       return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
     }
     const bridge = createOldFavoriteWorkspacePageBridge({
-      execute: (_target, script) => active.executeJavaScript(script, true)
+      execute: (_target, script) => bound.executeJavaScript(script, true)
     })
     const result = await bridge.run(target, command)
-    const after = favoriteRepositoryTargetStates.current.get(activeId)
+    const after = favoriteRepositoryTargetStates.current.get(target.webContentsId)
     if (!after || after.instanceId !== target.instanceId || after.navigationEpoch !== target.navigationEpoch) {
       return { status: 'unknown' as const, observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
     }

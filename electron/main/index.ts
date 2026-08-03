@@ -109,7 +109,9 @@ import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepository
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
+import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
+import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -1715,6 +1717,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
+    isRemoteFolderDismissed: (accountMid, remoteFolderId) =>
+      isFavoriteLibraryRemoteFolderDismissed(getDesktopStore(), accountMid, remoteFolderId),
     getTranscriptionRevision: () => queuePublishGeneration,
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
     getTranscriptionArchives: () => loadVideoNoteArchives(getDesktopStore())
@@ -2084,7 +2088,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     coordinator: oldFavoriteWorkspaceCoordinator,
     requestRuntime: (request) => requestMainAssistantRuntime(request),
     remoteOperations: favoriteRepositoryRemoteOperations,
-    cancelDeepSeek: (accountMid) => oldFavoriteWorkspaceDeepSeekService?.cancelCurrentSegment(accountMid) ?? false
+    cancelDeepSeek: (accountMid) => oldFavoriteWorkspaceDeepSeekService?.cancelCurrentSegment(accountMid) ?? false,
+    recoveryStabilizationDelayMs: 3_000,
+    sourcePageDelayMinMs: 800,
+    sourcePageDelayMaxMs: 1_500,
+    sourcePageBatchSize: 20,
+    sourcePageBatchPauseMs: 4_000
   })
   oldFavoriteWorkspaceDeepSeekService = new OldFavoriteWorkspaceDeepSeekService({
     coordinator: oldFavoriteWorkspaceCoordinator,
@@ -2142,23 +2151,17 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       // Restore only its unique, complete Bilimi bindings before the drawer
       // projects folders, so old managed folders do not reappear as ordinary.
       await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
-      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-        .find((candidate) => candidate.id === 'inbox' && candidate.bilibiliFolderId?.trim())
-      if (!ledger?.bilibiliFolderId) return
-      const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
-      const existing = snapshot.physicalShards.find((shard) => shard.logicalLedgerId === ledger.id && shard.shardNumber === 1)
-      if (existing?.bindingState === 'bound' && existing.remoteFolderId === ledger.bilibiliFolderId) return
-      if (isFavoriteLibraryRemoteFolderDismissed(getDesktopStore(), accountMid, ledger.bilibiliFolderId)) return
-      const mirror = snapshot.folders.find((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === ledger.bilibiliFolderId)
-      if (!mirror) return
-      await favoriteRepositoryBindingService!.adoptExistingPhysicalShard(accountMid, {
-        logicalLedgerId: ledger.id,
-        logicalTitle: mirror.title,
-        expectedRemoteTitle: mirror.title,
-        remoteFolderId: ledger.bilibiliFolderId,
-        shardNumber: 1,
-        memberAids: snapshot.memberships[`bilibili:${ledger.bilibiliFolderId}`] ?? []
+      const store = getDesktopStore()
+      await restoreFavoriteLibraryManagedFolderProjection({
+        accountMid,
+        repository: favoriteRepositoryService!,
+        ledgers: loadFavoriteAccountPreferences(store, accountMid).favoriteLedgers,
+        isDismissed: (remoteFolderId) => isFavoriteLibraryRemoteFolderDismissed(store, accountMid, remoteFolderId)
       })
+    },
+    dismissOrdinaryFolder: (accountMid, remoteFolderId) => {
+      dismissFavoriteLibraryRemoteFolder(getDesktopStore(), accountMid, remoteFolderId)
+      return { status: 'succeeded' as const, remoteFolderId }
     },
     commandService: favoriteLibraryCommandService,
     archiveService: favoriteRepositoryArchiveService,
@@ -2205,22 +2208,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     },
     async resolveSourceScope(accountMid, source, requestedAids) {
       const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
-      if (source.kind === 'folder') {
-        const folder = snapshot.folders.find((candidate) => candidate.id === source.folderId)
-        if (!folder) throw new Error('Favorite operation source was not found.')
-        if (folder.kind === 'bilimi-logical') return { kind: 'bilimi-logical', folderId: folder.id }
-        if (folder.kind === 'bilibili') return {
-          kind: folder.remoteFolderId === '1' ? 'bilibili-default' : 'bilibili-user', folderId: folder.id
-        }
-        throw new Error('Favorite operation source does not support batch actions.')
-      }
-      const eligible = new Set(source.eligibleAids)
-      const skipped = new Set(source.skippedAids)
-      if (eligible.size !== source.eligibleAids.length || skipped.size !== source.skippedAids.length ||
-        [...eligible].some((aid) => skipped.has(aid)) || requestedAids.some((aid) => !eligible.has(aid))) {
-        throw new Error('Favorite virtual source eligibility evidence is invalid.')
-      }
-      return { kind: 'virtual', eligibleAids: [...eligible].sort((left, right) => left - right), skippedAids: [...skipped].sort((left, right) => left - right) }
+      return resolveFavoriteLibraryOperationSource(snapshot, source, requestedAids)
     }
   })
   registerFavoriteLibraryBridgeIpc({

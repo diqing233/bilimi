@@ -83,8 +83,9 @@ export class FavoriteRepositoryBatchOperationService {
 
   async move(accountMid: string, requestedAids: number[], sourceFolderId: string, requestedTargets: string[], expectedRevision: number, source?: FavoriteOperationSourceScope) {
     this.requireScope(source, requestedAids, 'move')
-    if (!/^bilimi-logical:\S+$/.test(sourceFolderId.trim())) throw new Error('Favorite move source must be a Bilimi work folder.')
-    return this.changePlacements(accountMid, requestedAids, requestedTargets, expectedRevision, 'move', sourceFolderId.trim())
+    const normalizedSource = sourceFolderId.trim()
+    if (normalizedSource !== 'local:inbox' && !/^bilimi-logical:\S+$/.test(normalizedSource)) throw new Error('Favorite move source must be a Bilimi work folder or unmatched.')
+    return this.changePlacements(accountMid, requestedAids, requestedTargets, expectedRevision, 'move', normalizedSource === 'local:inbox' ? undefined : normalizedSource)
   }
 
   async deleteLocal(accountMid: string, requestedAids: number[], expectedRevision: number, source?: FavoriteOperationSourceScope): Promise<FavoriteRepositoryLocalOperationResult> {

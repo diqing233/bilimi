@@ -175,6 +175,10 @@ export type FavoriteRepositoryPageOperationResult = {
   status: 'ok' | 'rejected' | 'unknown'
   observedAccountMid: string
   reason?: string
+  httpStatus?: number
+  contentType?: string
+  responseCategory?: 'html' | 'json' | 'text' | 'empty' | 'unknown'
+  bilibiliCode?: number
   members?: Record<string, number[]>
   folders?: Array<{ id: string; title: string; memberCount: number }>
   folder?: { id: string; title: string; memberCount: number }

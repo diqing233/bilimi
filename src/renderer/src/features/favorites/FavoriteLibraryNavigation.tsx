@@ -12,6 +12,7 @@ export type FavoriteLibraryNavigationItem = {
   aids?: readonly number[]
   managed?: boolean
   protected?: boolean
+  removable?: boolean
 }
 
 export type FavoriteLibraryNavigationGroup = {
@@ -31,23 +32,27 @@ type FavoriteLibraryNavigationProps = {
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
   onManagedFolderMenu?: (id: string) => void
   onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
+  onOrdinaryFolderRemove?: (id: string) => void
   onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all') => void
 }
 
 export function FavoriteLibraryNavigation({
-  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onWorkspaceAction
+  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onOrdinaryFolderRemove, onWorkspaceAction
 }: FavoriteLibraryNavigationProps) {
   const managedFolderMenuRef = useRef(onManagedFolderMenu)
   const managedFolderActionRef = useRef(onManagedFolderAction)
   const workspaceActionRef = useRef(onWorkspaceAction)
+  const ordinaryFolderRemoveRef = useRef(onOrdinaryFolderRemove)
   const onSelectRef = useRef(onSelect)
   managedFolderMenuRef.current = onManagedFolderMenu
   managedFolderActionRef.current = onManagedFolderAction
   workspaceActionRef.current = onWorkspaceAction
+  ordinaryFolderRemoveRef.current = onOrdinaryFolderRemove
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
   const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
   const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all') => workspaceActionRef.current?.(action), [])
+  const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
   const renderWorkspaceMenu = useCallback((resetKey: string) => <WorkspaceFloatingMenu onAction={handleWorkspaceAction} resetKey={resetKey} />, [handleWorkspaceAction])
   const managedMenuIdStoreRef = useRef<{
     value?: string
@@ -123,6 +128,7 @@ export function FavoriteLibraryNavigation({
       workspaceMenuResetKey={`${uid}:${Boolean(localCollapsedGroups[group.id])}`}
       renderWorkspaceMenu={renderWorkspaceMenu}
       renderManagedMenu={renderManagedMenu}
+      onOrdinaryFolderRemove={handleOrdinaryFolderRemove}
     />)}
   </nav>{managedMenu && typeof document !== 'undefined' ? createPortal(<SharedManagedFolderMenu
     item={managedMenu.item}

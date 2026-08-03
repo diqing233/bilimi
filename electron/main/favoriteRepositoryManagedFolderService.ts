@@ -42,7 +42,11 @@ export type ManagedFolderGroupDeletionPreview = {
   folders: Array<ManagedFolderDeletionPreview & { remoteAllowed: boolean }>
 }
 
-type PendingDeletion = ManagedFolderDeletionPreview & { confirmationToken?: string; status: 'previewed' | 'failed' | 'result-unknown' | 'reconciliation-required' | 'succeeded' }
+type PendingDeletion = ManagedFolderDeletionPreview & {
+  confirmationToken?: string
+  status: 'previewed' | 'failed' | 'result-unknown' | 'reconciliation-required' | 'succeeded'
+  localDismissRemoteFolderIds: string[]
+}
 
 class ManagedFolderRemotePreconditionError extends Error {}
 
@@ -79,8 +83,13 @@ export class FavoriteRepositoryManagedFolderService {
     const logical = snapshot.folders.find((folder) => folder.id === folderId && folder.kind === 'bilimi-logical')
     if (!logical?.logicalLedgerId) throw new Error('Managed folder was not found.')
     const members = new Set(snapshot.memberships[folderId] ?? [])
-    const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logical.logicalLedgerId && shard.remoteFolderId)
+    const logicalShards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logical.logicalLedgerId)
+    const shards = logicalShards.filter((shard) => shard.remoteFolderId)
     const remoteIds = new Set(shards.map((shard) => shard.remoteFolderId!))
+    const localDismissRemoteFolderIds = [...new Set(logicalShards.flatMap((shard) => [
+      ...(shard.remoteFolderId ? [shard.remoteFolderId] : []),
+      ...(shard.knownRemoteFolderIds ?? [])
+    ]))].sort()
     if ([...remoteIds].some((remoteFolderId) => snapshot.physicalShards.some((shard) =>
       shard.remoteFolderId === remoteFolderId && shard.logicalLedgerId !== logical.logicalLedgerId))) {
       throw new Error('Managed folder remote binding belongs to another logical ledger.')
@@ -98,10 +107,28 @@ export class FavoriteRepositoryManagedFolderService {
         return !(position?.localDesiredFolderIds ?? []).some((candidate) => candidate !== folderId && candidate.startsWith('bilimi-logical:'))
       }).length,
       ...(remoteIds.size === 1 ? { remoteBinding: { remoteFolderId: [...remoteIds][0], shardCount: shards.length } } : {}),
-      remoteOnlyMemberCount: remoteOnly, extraRemoteMemberCount: extraRemote, currentRevision: snapshot.revision, executionToken: randomUUID(), status: 'previewed'
+      remoteOnlyMemberCount: remoteOnly, extraRemoteMemberCount: extraRemote, currentRevision: snapshot.revision,
+      executionToken: randomUUID(), status: 'previewed', localDismissRemoteFolderIds
     }
     this.operations.set(operation.operationId, operation)
     return { ...operation }
+  }
+
+  private baselineStillMatches(operation: PendingDeletion, snapshot: Awaited<ReturnType<Repository['getSnapshot']>>) {
+    const logicalLedgerId = this.logicalLedgerId(operation.logicalFolderId)
+    const logical = snapshot.folders.find((folder) => folder.id === operation.logicalFolderId && folder.kind === 'bilimi-logical')
+    if (!logical || logical.logicalLedgerId !== logicalLedgerId) return false
+    const members = new Set(snapshot.memberships[operation.logicalFolderId] ?? [])
+    if (members.size !== operation.localMemberCount) return false
+    const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId && shard.remoteFolderId)
+    const remoteIds = new Set(shards.map((shard) => shard.remoteFolderId!))
+    if (remoteIds.size !== 1 || !operation.remoteBinding || !remoteIds.has(operation.remoteBinding.remoteFolderId) || shards.length !== operation.remoteBinding.shardCount) return false
+    const remoteMembers = new Set(shards.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
+    const observedMembers = new Set(snapshot.folders.filter((folder) => folder.kind === 'bilibili' && folder.remoteFolderId && remoteIds.has(folder.remoteFolderId))
+      .flatMap((folder) => snapshot.memberships[folder.id] ?? []))
+    if ([...observedMembers].filter((aid) => !members.has(aid)).length !== operation.remoteOnlyMemberCount) return false
+    if ([...remoteMembers].filter((aid) => !members.has(aid)).length !== operation.extraRemoteMemberCount) return false
+    return true
   }
 
   /** Group deletion is local by default; remote deletion is available only for wholly unambiguous scans. */
@@ -133,7 +160,9 @@ export class FavoriteRepositoryManagedFolderService {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
     }, this.events(auditAids, 'managed-folder-delete-local', timestamp))
-    if (operation.remoteBinding) this.options.dismissRemoteFolder?.(operation.accountMid, operation.remoteBinding.remoteFolderId)
+    for (const remoteFolderId of operation.localDismissRemoteFolderIds) {
+      this.options.dismissRemoteFolder?.(operation.accountMid, remoteFolderId)
+    }
     operation.status = 'succeeded'
     return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }
@@ -157,7 +186,9 @@ export class FavoriteRepositoryManagedFolderService {
       await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
         operation.accountMid, { priority: 'user-single' }, async () => {
           const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
-          if (snapshot.revision !== operation.currentRevision) throw new ManagedFolderRemotePreconditionError('Managed folder baseline is stale.')
+          if (snapshot.revision !== operation.currentRevision && !this.baselineStillMatches(operation, snapshot)) {
+            throw new ManagedFolderRemotePreconditionError('Managed folder baseline is stale.')
+          }
           if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === operation.remoteBinding!.remoteFolderId &&
             shard.logicalLedgerId !== this.logicalLedgerId(operation.logicalFolderId))) {
             throw new ManagedFolderRemotePreconditionError('Managed folder remote binding belongs to another logical ledger.')
@@ -170,7 +201,9 @@ export class FavoriteRepositoryManagedFolderService {
           }
           const remoteKey = `${operation.accountMid}:${operation.remoteBinding!.remoteFolderId}`
           const priorOperation = this.remoteDeletionOwners.get(remoteKey)
-          if (priorOperation && priorOperation !== operation.operationId) throw new Error('Managed folder remote deletion already requires reconciliation.')
+          if (priorOperation && priorOperation !== operation.operationId) {
+            throw new ManagedFolderRemotePreconditionError('Managed folder baseline is stale.')
+          }
           this.remoteDeletionOwners.set(remoteKey, operation.operationId)
           await this.options.remote!.removeRemoteFolder(operation.accountMid, operation.remoteBinding!.remoteFolderId)
           await this.commitLocalProjection(operation, snapshot)
@@ -244,7 +277,8 @@ export class FavoriteRepositoryManagedFolderService {
         shardCount: snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === this.logicalLedgerId(logicalFolderId) && shard.remoteFolderId === remoteIds[0]).length
       } } : {}),
       remoteOnlyMemberCount: 0, extraRemoteMemberCount: 0,
-      currentRevision: snapshot.revision, executionToken: '', status: record.status === 'pending' ? 'result-unknown' : record.status
+      currentRevision: snapshot.revision, executionToken: '', status: record.status === 'pending' ? 'result-unknown' : record.status,
+      localDismissRemoteFolderIds: remoteIds
     }
     this.operations.set(operationId, operation)
     return operation

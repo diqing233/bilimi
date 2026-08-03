@@ -15,6 +15,10 @@ export type FavoriteRepositoryPageBridgeResult = {
   status: 'ok' | 'rejected' | 'unknown'
   observedAccountMid: string
   reason?: string
+  httpStatus?: number
+  contentType?: string
+  responseCategory?: 'html' | 'json' | 'text' | 'empty' | 'unknown'
+  bilibiliCode?: number
 }
 
 export type FavoriteRepositoryPageBridgeReadResult = FavoriteRepositoryPageBridgeResult & {
@@ -51,17 +55,22 @@ function isFolder(value: unknown): value is FavoriteRepositoryRemoteFolder {
 function isPageResult(value: unknown, action: PageBridgeAction): value is FavoriteRepositoryPageBridgeReadResult {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const result = value as Record<string, unknown>
+  const diagnosticKeys = ['httpStatus', 'contentType', 'responseCategory', 'bilibiliCode']
   const allowedKeys = action === 'read-members'
-    ? new Set(['status', 'observedAccountMid', 'reason', 'members'])
+    ? new Set(['status', 'observedAccountMid', 'reason', 'members', ...diagnosticKeys])
     : action === 'read-folder-inventory'
-      ? new Set(['status', 'observedAccountMid', 'reason', 'folders'])
+      ? new Set(['status', 'observedAccountMid', 'reason', 'folders', ...diagnosticKeys])
       : action === 'create-folder'
-        ? new Set(['status', 'observedAccountMid', 'reason', 'folder'])
-        : new Set(['status', 'observedAccountMid', 'reason'])
+        ? new Set(['status', 'observedAccountMid', 'reason', 'folder', ...diagnosticKeys])
+        : new Set(['status', 'observedAccountMid', 'reason', ...diagnosticKeys])
   if (Object.keys(result).some((key) => !allowedKeys.has(key))) return false
   if (!validStatuses.has(result.status as FavoriteRepositoryPageBridgeResult['status'])) return false
   if (typeof result.observedAccountMid !== 'string') return false
   if (result.reason !== undefined && typeof result.reason !== 'string') return false
+  if (result.httpStatus !== undefined && (!Number.isSafeInteger(result.httpStatus) || Number(result.httpStatus) < 0 || Number(result.httpStatus) > 999)) return false
+  if (result.contentType !== undefined && (typeof result.contentType !== 'string' || result.contentType.length > 100)) return false
+  if (result.responseCategory !== undefined && !['html', 'json', 'text', 'empty', 'unknown'].includes(String(result.responseCategory))) return false
+  if (result.bilibiliCode !== undefined && !Number.isSafeInteger(result.bilibiliCode)) return false
   if (action === 'read-members' && result.status === 'ok' && !isMembers(result.members)) return false
   if (action === 'read-folder-inventory' && result.status === 'ok' && (!Array.isArray(result.folders) || !result.folders.every(isFolder))) return false
   if (action === 'create-folder' && result.status === 'ok' && !isFolder(result.folder)) return false
@@ -122,8 +131,12 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         const csrf = readCookie('bili_jct'); if (!csrf) return { status: 'rejected', observedAccountMid, reason: 'csrf-missing' };
         const body = new URLSearchParams(); body.set('csrf', csrf); body.set('media_id', String(input.folderId).trim());
         let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
-        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
-        return response.ok && json?.code === 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid ? { status: 'ok', observedAccountMid } : { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+        const httpStatus = Number(response?.status || 0);
+        const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);
+        const responseCategory = !contentType ? 'unknown' : contentType.includes('json') ? 'json' : contentType.includes('html') ? 'html' : contentType.startsWith('text/') ? 'text' : 'unknown';
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response', httpStatus, ...(contentType ? { contentType } : {}), responseCategory }; }
+        if (response.ok && json?.code === 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid };
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous', httpStatus, ...(contentType ? { contentType } : {}), responseCategory, ...(Number.isSafeInteger(json?.code) ? { bilibiliCode: json.code } : {}) };
       })()
     `
   }
@@ -270,14 +283,16 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
       try {
         json = await response.json();
       } catch {
-        return { status: response.status >= 500 ? 'unknown' : 'rejected', observedAccountMid, reason: 'invalid-response' };
+        const contentType = String(response.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase();
+        const responseCategory = contentType.includes('html') ? 'html' : contentType.includes('json') ? 'json' : contentType.startsWith('text/') ? 'text' : contentType ? 'unknown' : 'empty';
+        return { status: 'unknown', observedAccountMid, reason: 'invalid-response', httpStatus: Number(response.status) || 0, contentType, responseCategory };
       }
       if (response.ok && json?.code === 0) {
         const completedAccountMid = normalizeMid(readCookie('DedeUserID'));
         if (completedAccountMid !== observedAccountMid) return { status: 'unknown', observedAccountMid: completedAccountMid, reason: 'account-mismatch' };
         return { status: 'ok', observedAccountMid };
       }
-      return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+      return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous', httpStatus: Number(response.status) || 0, contentType: String(response.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase(), responseCategory: 'json', ...(Number.isSafeInteger(json?.code) ? { bilibiliCode: json.code } : {}) };
     })()
   `
 }
