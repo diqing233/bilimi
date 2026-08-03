@@ -392,7 +392,7 @@ export function ControlledFavoriteLedgerPanel({
   const continueConfirmAndSync = async () => {
     if (!activeSnapshot) return
     try {
-      if (confirmationNeedsBackup(activeSnapshot, ledgers, missingLedgerIds)) {
+      if (confirmationNeedsBackup(activeSnapshot, displayedLedgers, missingLedgerIds)) {
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
@@ -413,7 +413,7 @@ export function ControlledFavoriteLedgerPanel({
     if (!snapshot || recovery || confirmationPreparing) return
     setConfirmationPreparationError(null)
     setConfirmationPreparing(true)
-    const disabledLedgerIds = ledgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
+    const disabledLedgerIds = displayedLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
     try {
       const candidates = currentAccountMid && disabledLedgerIds.length
         ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(currentAccountMid, disabledLedgerIds)
@@ -616,7 +616,7 @@ export function ControlledFavoriteLedgerPanel({
         previewPreparationError={workspace.previewPreparationError}
         onCancelPreviewPreparation={() => void workspace.cancelRecommendationPreviewPreparation()}
 
-        ledgers={ledgers}
+        ledgers={displayedLedgers}
         deepSeekAvailable={deepSeekArchiveAvailable}
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}

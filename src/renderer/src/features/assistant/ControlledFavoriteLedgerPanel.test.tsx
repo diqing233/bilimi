@@ -2506,6 +2506,62 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('button', { name: 'A' })).toBeInTheDocument()
   })
 
+  it('uses a selected recommendation name and backup state throughout the organization guide', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 20, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 20, status: 'previewing' as const },
+        { id: 'segment-2', index: 1, itemCount: 10, status: 'previewing' as const }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [] },
+      classifications: {
+        '1': { aid: 1, targetLedgerIds: ['custom-author-honker233'], source: 'system-high' as const }
+      },
+      recommendations: {
+        candidates: [{
+          id: 'custom-author-honker233', displayName: 'bilimi·Honker', kind: 'author' as const,
+          count: 30, reason: 'Honker appeared.'
+        }],
+        adoptedCandidateIds: ['custom-author-honker233']
+      },
+      overview: {
+        completedSegmentCount: 2, totalSegmentCount: 2, available: true,
+        sourceFolders: [], unavailableItemCount: 0, processedItemCount: 30,
+        classifiedItemCount: 30, unmatchedItemCount: 0, waitingItemCount: 0,
+        recommendationCounts: [{ id: 'custom-author-honker233', count: 30 }],
+        archiveTargets: [{
+          ledgerId: 'custom-author-honker233', itemCount: 30,
+          segmentCounts: [{ segmentId: 'segment-1', count: 20 }, { segmentId: 'segment-2', count: 10 }]
+        }]
+      },
+      planReadiness: { selectedAidCount: 30, classifiedAidCount: 30, unclassifiedAidCount: 0 },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
+    expect(screen.getByText('bilimi·Honker')).toBeInTheDocument()
+    expect(screen.queryByText('custom-author-honker233')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-whole-run-execution-intent', mode: 'bilibili'
+    }))
+  })
+
   it('removes a deselected recommendation draft from the visible folder list without waiting for preferences', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
