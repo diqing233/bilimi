@@ -1240,6 +1240,80 @@ type SettingsWorkspaceContentProps = {
   getActions: () => SettingsWorkspaceActions
 }
 
+const OldFavoriteBatchSizeField = memo(function OldFavoriteBatchSizeField({
+  value,
+  selected,
+  onSelect,
+  onCommit
+}: {
+  value: number
+  selected: boolean
+  onSelect: () => void
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState(String(value))
+  const committedValueRef = useRef(value)
+  const discardOnBlurRef = useRef(false)
+
+  useEffect(() => {
+    committedValueRef.current = value
+    setDraft(String(value))
+  }, [value])
+
+  const commitDraft = useCallback(() => {
+    if (discardOnBlurRef.current) {
+      discardOnBlurRef.current = false
+      return
+    }
+    const parsed = Number(draft.trim())
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(committedValueRef.current))
+      return
+    }
+    const normalized = Math.min(2_000, Math.max(500, Math.trunc(parsed)))
+    setDraft(String(normalized))
+    if (normalized === committedValueRef.current) return
+    committedValueRef.current = normalized
+    onSelect()
+    onCommit(normalized)
+  }, [draft, onCommit, onSelect])
+
+  return (
+    <label className="assistant-settings__batch-size-field">
+      <input
+        type="radio"
+        name="old-favorite-workspace-segment-size"
+        checked={selected}
+        onChange={onSelect}
+      />
+      <span>自定义（500–2000）</span>
+      <input
+        className="assistant-settings__batch-size-input"
+        type="number"
+        aria-label="自定义单批整理上限"
+        min={500}
+        max={2_000}
+        step={1}
+        value={draft}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commitDraft}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commitDraft()
+            event.currentTarget.blur()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            discardOnBlurRef.current = true
+            setDraft(String(committedValueRef.current))
+            event.currentTarget.blur()
+          }
+        }}
+      />
+    </label>
+  )
+})
+
 const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
   data,
   getActions
@@ -1322,6 +1396,18 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     (remember: boolean) => getActions().toggleRememberCloseChoice(remember),
     [getActions]
   )
+  const persistOldFavoriteBatchSize = useCallback(
+    (size: number) => getActions().persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size }),
+    [getActions]
+  )
+  const [customOldFavoriteBatchSizeSelected, setCustomOldFavoriteBatchSizeSelected] = useState(
+    () => ![500, 1_000, 2_000].includes(data.preferences.oldFavoriteWorkspaceSegmentSize)
+  )
+  useEffect(() => {
+    setCustomOldFavoriteBatchSizeSelected(
+      ![500, 1_000, 2_000].includes(preferences.oldFavoriteWorkspaceSegmentSize)
+    )
+  }, [preferences.oldFavoriteWorkspaceSegmentSize])
   const resolvedSnapshot = { accountMid }
   const {
     pendingKeywordSuggestions,
@@ -2052,29 +2138,21 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                   <input
                     type="radio"
                     name="old-favorite-workspace-segment-size"
-                    checked={preferences.oldFavoriteWorkspaceSegmentSize === size}
-                    onChange={() => actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })}
+                    checked={!customOldFavoriteBatchSizeSelected && preferences.oldFavoriteWorkspaceSegmentSize === size}
+                    onChange={() => {
+                      setCustomOldFavoriteBatchSizeSelected(false)
+                      actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })
+                    }}
                   />
-                  <span>{size === 1_000 ? '1000 条（推荐）' : `${size} 条`}</span>
+                  <span>{size === 2_000 ? '2000 条（推荐）' : `${size} 条`}</span>
                 </label>
               ))}
-              <label>
-                <span>自定义（500–2000）</span>
-                <input
-                  type="number"
-                  aria-label="自定义单批整理上限"
-                  min={500}
-                  max={2_000}
-                  step={1}
-                  value={preferences.oldFavoriteWorkspaceSegmentSize}
-                  onChange={(event) => {
-                    const size = Number(event.currentTarget.value)
-                    if (Number.isSafeInteger(size) && size >= 500 && size <= 2_000) {
-                      actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })
-                    }
-                  }}
-                />
-              </label>
+              <OldFavoriteBatchSizeField
+                value={preferences.oldFavoriteWorkspaceSegmentSize}
+                selected={customOldFavoriteBatchSizeSelected}
+                onSelect={() => setCustomOldFavoriteBatchSizeSelected(true)}
+                onCommit={persistOldFavoriteBatchSize}
+              />
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--review-actions"
@@ -4355,7 +4433,8 @@ export function FloatingAssistantApp({
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid) return
     const current = preferencesRef.current.favoriteAccountPreferences?.[accountMid]
-    await persistPreferencePatch({
+    await persistPreferences(createInitialAssistantPreferences({
+      ...preferencesRef.current,
       favoriteAccountPreferences: {
         ...(preferencesRef.current.favoriteAccountPreferences ?? {}),
         [accountMid]: {
@@ -4364,7 +4443,7 @@ export function FloatingAssistantApp({
           favoriteLedgers: current?.favoriteLedgers ?? preferencesRef.current.favoriteLedgers
         }
       }
-    })
+    }))
     await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(accountMid, { type: 'reclassify-favorite-configuration' })
   }
 

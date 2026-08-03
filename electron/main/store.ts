@@ -277,7 +277,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   bilibiliOperationMode: 'api-assisted',
   bilibiliConnectionMode: 'auto',
   favoriteArchiveMultiMode: 'off',
-  oldFavoriteWorkspaceSegmentSize: 1_000,
+  oldFavoriteWorkspaceSegmentSize: 2_000,
   favoriteArchiveStrategy: 'aggressive',
   favoriteCorrectionLearningEnabled: true,
   favoriteCorrectionLearningClassificationEnabled: true,
@@ -818,6 +818,9 @@ export function normalizeAssistantPreferencePatch(
         break
       case 'favoriteArchiveStrategy':
         scalarPatch.favoriteArchiveStrategy = normalizeFavoriteArchiveStrategy(value)
+        break
+      case 'oldFavoriteWorkspaceSegmentSize':
+        scalarPatch.oldFavoriteWorkspaceSegmentSize = normalizeOldFavoriteWorkspaceSegmentSize(value)
         break
       case 'defaultCoinCount':
         scalarPatch.defaultCoinCount = value === 2 ? 2 : 1

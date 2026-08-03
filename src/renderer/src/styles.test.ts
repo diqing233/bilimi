@@ -1070,6 +1070,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
   })
 
+  it('themes the custom old-favorite batch size without crowding its radio control', () => {
+    expectStyleSnippet('.assistant-settings__batch-size-field { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__batch-size-input { box-sizing: border-box; width: 88px; min-height: 32px; border: 1px solid rgba(31, 99, 181, 0.32);')
+    expectStyleSnippet('.assistant-settings__batch-size-input:focus-visible { outline: 2px solid rgba(45, 134, 199, 0.32);')
+  })
+
   it('keeps correction learning and keyword suggestion settings compact', () => {
     expectStyleSnippet('.assistant-settings__group--learning .assistant-settings__inline-options { padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
     expectStyleSnippet('.assistant-settings__subsection--records { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')

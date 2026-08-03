@@ -293,7 +293,9 @@ export function effectiveFavoriteLedgersForAccount(
 ): AssistantPreferences['favoriteLedgers'] {
   const ledgers = favoriteLedgersForAccount(preferences, accountMid)
   const defaultsEnabled = preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled !== false
-  if (defaultsEnabled) return ledgers
+  if (defaultsEnabled) {
+    return ledgers.map((ledger) => ledger.isDefault ? { ...ledger, enabled: true } : ledger)
+  }
   return ledgers.map((ledger) => ledger.isDefault && ledger.id !== 'inbox'
     ? { ...ledger, enabled: false, isDefault: false }
     : ledger)

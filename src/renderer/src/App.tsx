@@ -1443,13 +1443,7 @@ export default function App() {
       setPreferences(nextPreferences)
 
       if (bindingsChanged && window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: recoveredLedgers }
-            )
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
+        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
         const savedPreferences = createInitialAssistantPreferences(saved)
         preferencesRef.current = savedPreferences
         setPreferences(savedPreferences)
@@ -1488,7 +1482,9 @@ export default function App() {
   }
 
   async function ensureFavoriteLedgersForAccount(accountMid: string): Promise<AssistantAutomationResult> {
-    const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const favoriteLedgers = accountMid
+      ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
+      : favoriteLedgersForActiveAccount(accountMid)
 
     const result = await runScript(
       buildEnsureFavoriteLedgersScript(favoriteLedgers)
@@ -1501,15 +1497,9 @@ export default function App() {
       })
 
       if (ledgersChanged) {
-        const saved = window.bilimiDesktop?.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: result.ledgers }
-            )
-          : window.bilimiDesktop?.savePreferences
-            ? await window.bilimiDesktop.savePreferences(nextPreferences)
-            : nextPreferences
+        const saved = window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
         const savedPreferences = createInitialAssistantPreferences(saved)
         preferencesRef.current = savedPreferences
         setPreferences(savedPreferences)
@@ -1591,19 +1581,17 @@ export default function App() {
 
     if (Array.isArray(result.ledgers)) {
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferences, accountMid, result.ledgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
       })
+      preferencesRef.current = nextPreferences
       setPreferences(nextPreferences)
 
       if (window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: result.ledgers }
-            )
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
-        setPreferences(createInitialAssistantPreferences(saved))
+        const savedPreferences = createInitialAssistantPreferences(
+          await window.bilimiDesktop.savePreferences(nextPreferences)
+        )
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
       }
 
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()

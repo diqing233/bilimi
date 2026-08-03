@@ -1002,6 +1002,68 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('restores default backup targets when the master system is enabled after cancel all', async () => {
+    const accountMid = '100'
+    const disabledLedgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      enabled: false
+    }))
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: disabledLedgers
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const patchPreferences = vi.fn(async () => initialPreferences)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      patchPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const backedUpLedgers = disabledLedgers.map((ledger, index) => ({
+      ...ledger,
+      enabled: true,
+      bilibiliFolderId: String(9200 + index)
+    }))
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('/x/v3/fav/folder/add')) {
+        expect(script).toContain('"enabled":true')
+        return {
+          ok: true,
+          ledgers: backedUpLedgers,
+          steps: ['api:ledger:list'],
+          missingTargets: [],
+          message: 'Default folders backed up.'
+        }
+      }
+      if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'backup-after-cancel-all', type: 'ensure-ledgers' }))
+      .resolves.toMatchObject({ ok: true })
+
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: 'knowledge', enabled: true, bilibiliFolderId: expect.any(String) })
+          ])
+        })
+      })
+    }))
+    expect(patchPreferences).not.toHaveBeenCalled()
+  })
+
   it('does not rewrite preferences when backup returns unchanged ledger bindings', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
@@ -1063,14 +1125,11 @@ describe('App runtime integration', () => {
         }
       }
     })
-    const patchPreferences = vi.fn(async (patch: Partial<AssistantPreferences>) =>
-      createAppPreferences({
-        ...initialPreferences,
-        ...patch
-      })
-    )
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const patchPreferences = vi.fn(async () => initialPreferences)
     const { requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
       patchPreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
     })
@@ -1094,7 +1153,7 @@ describe('App runtime integration', () => {
 
     const snapshot = await requestRuntime({ id: 'snapshot-with-bindings', type: 'snapshot' })
 
-    expect(patchPreferences).toHaveBeenCalledWith({
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
       favoriteAccountPreferences: expect.objectContaining({
         [accountMid]: expect.objectContaining({
           favoriteLedgers: expect.arrayContaining([
@@ -1103,7 +1162,8 @@ describe('App runtime integration', () => {
           ])
         })
       })
-    })
+    }))
+    expect(patchPreferences).not.toHaveBeenCalled()
     expect(snapshot).toMatchObject({
       favoriteLedgerStatus: { ok: true, missingLedgerIds: [] },
       preferences: {
@@ -1956,7 +2016,7 @@ describe('App runtime integration', () => {
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Backspace' }))
   })
 
-  it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
+  it('restores a manually deselected default ledger for automatic review collection', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const preferences = createAppPreferences({
       favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
@@ -2009,20 +2069,20 @@ describe('App runtime integration', () => {
     expect(result).toEqual(expect.objectContaining({ ok: true }))
     await waitFor(() =>
       expect(executeJavaScript).toHaveBeenCalledWith(
-        expect.stringContaining('"targetLedgerId":"inbox"')
+        expect.stringContaining('"targetLedgerId":"music"')
       )
     )
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
         preferenceCounts: expect.objectContaining({
-          inbox: 1
+          music: 1
         })
       })
     )
     expect(savePreferences).not.toHaveBeenCalledWith(
       expect.objectContaining({
         preferenceCounts: expect.objectContaining({
-          travel: 1
+          inbox: 1
         })
       })
     )

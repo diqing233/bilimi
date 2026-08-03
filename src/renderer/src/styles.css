@@ -6905,6 +6905,36 @@ body[data-floating-window="true"],
 .assistant-settings__group--archive p {
   margin: 0;
 }
+.assistant-settings__batch-size-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.assistant-settings__batch-size-input {
+  box-sizing: border-box;
+  width: 88px;
+  min-height: 32px;
+  border: 1px solid rgba(31, 99, 181, 0.32);
+  border-radius: 8px;
+  background: rgba(247, 251, 255, 0.92);
+  color: var(--porcelain-text);
+  padding: 5px 8px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+.assistant-settings__batch-size-input:hover {
+  border-color: rgba(31, 99, 181, 0.5);
+  background: rgba(255, 255, 255, 0.96);
+}
+.assistant-settings__batch-size-input:focus-visible {
+  outline: 2px solid rgba(45, 134, 199, 0.32);
+  outline-offset: 1px;
+  border-color: rgba(31, 99, 181, 0.62);
+  box-shadow: 0 0 0 3px rgba(45, 134, 199, 0.1);
+}
 .assistant-settings__favorites-help {
   margin: 0;
   color: var(--porcelain-muted);

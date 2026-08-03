@@ -337,6 +337,17 @@ describe('assistant preference store helpers', () => {
     expect(store.setCalls.at(-1)).toEqual(written)
   })
 
+  it('writes the old-favorite batch size through the narrow preference patch', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, {
+      oldFavoriteWorkspaceSegmentSize: 2_000
+    })
+
+    expect(written).toEqual({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(store.setCalls.at(-1)).toEqual(written)
+  })
+
   it('defaults and persists the Bilibili connection mode', () => {
     const store = createFakeStore()
 
@@ -869,7 +880,7 @@ describe('assistant preference store helpers', () => {
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
-      oldFavoriteWorkspaceSegmentSize: 1_000,
+      oldFavoriteWorkspaceSegmentSize: 2_000,
       favoriteArchiveStrategy: 'aggressive',
       favoriteCorrectionRecords: [
         expect.objectContaining({
