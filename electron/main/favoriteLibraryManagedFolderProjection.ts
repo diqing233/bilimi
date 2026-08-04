@@ -1,5 +1,6 @@
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
 import { isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
+import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
 import type { FavoriteLedger } from '../../src/shared/types'
 
 export type FavoriteLibraryManagedFolderProjection = {
@@ -44,7 +45,6 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
   const dismissed = new Set(Array.from(input.dismissedRemoteFolderIds, (id) => id.trim()).filter(Boolean))
-  const ledgersByTitle = new Map(input.ledgers.map((ledger) => [ledger.displayName.trim(), ledger]))
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
@@ -52,11 +52,14 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
 
   for (const folder of input.snapshot.folders) {
     if (folder.kind !== 'bilibili' || !folder.remoteFolderId || dismissed.has(folder.remoteFolderId)) continue
+    if (resolveFavoriteFolderCapabilities(folder).identity !== 'ambiguous-bilimi-like') continue
     const title = folder.title.trim()
     if (!isBilimiManagedLedgerName(title)) continue
     const { baseTitle, shardNumber } = splitShardTitle(title)
     const configuredById = configuredLedgersByRemoteId.get(folder.remoteFolderId)
-    const ledger = configuredById ?? ledgersByTitle.get(baseTitle)
+    // A matching display name is not binding evidence. Only the persisted
+    // remote id can make this physical folder an established work folder.
+    const ledger = configuredById
     const logicalTitle = ledger?.displayName.trim() || baseTitle
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     const bound = Boolean(configuredById && configuredById.id === ledger?.id && shardNumber === 1)

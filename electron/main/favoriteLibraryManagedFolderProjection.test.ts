@@ -42,8 +42,8 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toEqual([
-      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1'] }),
-      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2'] })
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1'] }),
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2'] })
     ])
     expect(result.every((candidate) => candidate.remoteFolderId === undefined)).toBe(true)
   })
@@ -63,6 +63,19 @@ describe('favorite library managed folder projection', () => {
       logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6211\u7684\u7247\u5355',
       bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom'], memberAids: [3]
     })
+  })
+
+  it('does not bind a same-title remote folder without explicit binding evidence', () => {
+    const result = planFavoriteLibraryManagedFolderProjection({
+      snapshot: snapshot([{ id: '9', title: 'bilimi\u00b7音乐' }]),
+      ledgers: [ledger('music', 'bilimi\u00b7音乐')],
+      dismissedRemoteFolderIds: []
+    })
+
+    expect(result).toMatchObject([{
+      logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7音乐', bindingState: 'pending-reconcile',
+      knownRemoteFolderIds: ['9']
+    }])
   })
 
   it('does not restore a remote folder that the user removed from the local library', () => {
@@ -86,7 +99,7 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toEqual([expect.objectContaining({
-      logicalLedgerId: 'music', shardNumber: 1, bindingState: 'pending-reconcile',
+      logicalLedgerId: expect.stringMatching(/^custom-/), shardNumber: 1, bindingState: 'pending-reconcile',
       knownRemoteFolderIds: ['duplicate-a', 'duplicate-b'], memberAids: []
     })])
   })
