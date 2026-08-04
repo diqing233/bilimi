@@ -4,12 +4,14 @@ import {
   completeWorkspaceScan,
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
+  projectOldFavoriteInventoryMetrics,
   recordDiscoveredFavorites,
   redoWorkspaceChange,
   undoWorkspaceChange,
   type ApplyWorkspaceClassificationBatchOptions,
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
+  type OldFavoriteInventoryMetricProjection,
   type OldFavoriteWorkspaceClassificationSource,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
@@ -693,6 +695,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
   private readonly overviewRuntimes = new Map<string, OverviewRuntime>()
+  private readonly inventoryMetrics = new Map<string, OldFavoriteInventoryMetricProjection>()
   private readonly deepSeekRunCheckpoints = new Map<string, OldFavoriteWorkspaceDeepSeekRunCheckpoint>()
   private readonly executionIntents = new Map<string, OldFavoriteWorkspaceExecutionIntent>()
   private readonly executionIntentRuns = new Map<string, Promise<boolean>>()
@@ -1316,11 +1319,17 @@ export class OldFavoriteWorkspaceCoordinator {
           untaggedItemCount: priorScan?.untaggedItemCount ?? 0
         }
       }
+      const inventoryMetrics = projectOldFavoriteInventoryMetrics({
+        authority: 'incomplete',
+        sourceFolders,
+        items: []
+      })
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
-        scanMetadata: { sourceFolders, ...overview.scan }
+        scanMetadata: { sourceFolders, ...overview.scan, inventoryMetrics }
       })
       this.scanOverviews.set(workspace.accountMid, overview)
+      this.inventoryMetrics.set(workspace.accountMid, inventoryMetrics)
       return true
     })
   }
@@ -1417,11 +1426,17 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       }
       const readiness = await this.calculatePlanReadiness(workspace)
+      const inventoryMetrics = this.projectInventoryMetrics(
+        updatedFolders,
+        await this.options.repository.getSnapshot(workspace.accountMid),
+        'complete'
+      )
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
-        scanMetadata: { sourceFolders: updatedFolders }, planReadiness: readiness
+        scanMetadata: { sourceFolders: updatedFolders, inventoryMetrics }, planReadiness: readiness
       })
       this.planReadiness.set(workspace.accountMid, readiness)
+      this.inventoryMetrics.set(workspace.accountMid, inventoryMetrics)
     })
   }
 
@@ -2202,6 +2217,11 @@ export class OldFavoriteWorkspaceCoordinator {
         successfullyClassifiedAids: [...successfulAids, ...initializedRecords.map((record) => record.aid)],
         mode: workspace.mode
       })
+      const inventoryMetrics = this.projectInventoryMetrics(
+        sourceFolders,
+        await this.options.repository.getSnapshot(workspace.accountMid),
+        'complete'
+      )
       const currentSegmentId = completed.segments[0]?.id ?? ''
       await this.options.workspaceStore.create({
         accountMid: completed.accountMid,
@@ -2259,7 +2279,7 @@ export class OldFavoriteWorkspaceCoordinator {
         [...itemsByAid.values()].filter((item) => isUnavailableScanItem(item)).length)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
-        scanMetadata: { sourceFolders, ...completedScan }, tagEnrichment,
+        scanMetadata: { sourceFolders, ...completedScan, inventoryMetrics }, tagEnrichment,
         overview: this.persistedOverviewRuntime(overviewRuntime)
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
@@ -2272,6 +2292,7 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceFolders: this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [],
         scan: completedScan
       })
+      this.inventoryMetrics.set(completed.accountMid, inventoryMetrics)
       this.scanRuns.delete(completed.accountMid)
       this.scannedAids.delete(completed.accountMid)
       this.scannedTagStates.delete(completed.accountMid)
@@ -3828,7 +3849,8 @@ export class OldFavoriteWorkspaceCoordinator {
     await this.persistMarker(workspace)
     this.currentSegmentItems.delete(account)
     this.scanOverviews.delete(account)
-      this.scanRuns.delete(account)
+    this.inventoryMetrics.delete(account)
+    this.scanRuns.delete(account)
     this.scannedAids.delete(account)
     this.scannedTagStates.delete(account)
     this.tagEnrichments.delete(account)
@@ -3906,6 +3928,8 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceFolders: restoredSourceFolders,
         scan: recovered.scan
       })
+      if (recovered.inventoryMetrics) this.inventoryMetrics.set(marker.accountMid, clone(recovered.inventoryMetrics))
+      else this.inventoryMetrics.delete(marker.accountMid)
       this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
       if (recovered.scanRunId) {
         const pages = await this.options.workspaceStore.readScanPages(marker.accountMid, marker.id)
@@ -4020,6 +4044,9 @@ export class OldFavoriteWorkspaceCoordinator {
       })),
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
+    this.inventoryMetrics.set(marker.accountMid, recovered.inventoryMetrics
+      ? clone(recovered.inventoryMetrics)
+      : this.projectInventoryMetrics(restoredSourceFolders, repositorySnapshot, 'complete'))
     const recommendations = await this.restoreRecommendationIndexes(
       marker.accountMid,
       marker.id,
@@ -4117,6 +4144,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.currentSegmentItems.delete(accountMid)
     this.frozenSegments.delete(accountMid)
     this.scanOverviews.delete(accountMid)
+    this.inventoryMetrics.delete(accountMid)
     this.scanRuns.delete(accountMid)
     this.scannedAids.delete(accountMid)
     this.scannedTagStates.delete(accountMid)
@@ -4736,6 +4764,31 @@ export class OldFavoriteWorkspaceCoordinator {
     }
   }
 
+  private projectInventoryMetrics(
+    sourceFolders: ScanOverview['sourceFolders'],
+    repository: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
+    authority: 'complete' | 'incomplete'
+  ) {
+    const protectedAids = new Set(repository.organizationRecords.map((record) => record.aid))
+    const itemsByAid = new Map<number, { aid: number; sourceFolderIds: string[]; protected: boolean; unavailable: boolean }>()
+    for (const folder of sourceFolders) {
+      for (const aid of repository.memberships[`bilibili:${folder.id}`] ?? []) {
+        const existing = itemsByAid.get(aid)
+        itemsByAid.set(aid, {
+          aid,
+          sourceFolderIds: [...new Set([...(existing?.sourceFolderIds ?? []), folder.id])],
+          protected: protectedAids.has(aid),
+          unavailable: isUnavailableScanItem(repository.videos[String(aid)] ?? {})
+        })
+      }
+    }
+    return projectOldFavoriteInventoryMetrics({
+      authority,
+      sourceFolders: sourceFolders.map((folder) => ({ ...folder, observationComplete: authority === 'complete' })),
+      items: [...itemsByAid.values()]
+    })
+  }
+
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
     const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
     const currentSegmentItems = this.currentSegmentItems.get(workspace.accountMid) ?? []
@@ -4794,6 +4847,9 @@ export class OldFavoriteWorkspaceCoordinator {
       segmentSize: workspace.segmentSize,
       hasMultipleSegments: workspace.hasMultipleSegments,
       scan: clone(this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: workspace.status === 'scanning' ? 'inventory' : 'complete', failureCount: 0, mode: workspace.mode }),
+      ...(this.inventoryMetrics.get(workspace.accountMid)
+        ? { inventoryMetrics: clone(this.inventoryMetrics.get(workspace.accountMid)!) }
+        : {}),
       ...(tagEnrichment ? {
         tagEnrichment: (() => {
           const enrichment = tagEnrichment

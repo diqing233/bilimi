@@ -101,6 +101,106 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'ordinary-a', title: '默认收藏夹', itemCount: 3, isBilimiWorkFolder: false },
+        { id: 'ordinary-b', title: '自建收藏夹', itemCount: 2, isBilimiWorkFolder: false },
+        { id: 'managed', title: 'bilimi·知识学习', itemCount: 2, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { managed: [2, 5] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary-a', page: 1, hasMore: false,
+      items: [
+        { aid: 1, title: 'Duplicate', sourceFolderIds: ['ordinary-a', 'ordinary-b'] },
+        { aid: 2, title: 'Protected', sourceFolderIds: ['ordinary-a'] },
+        { aid: 3, title: '已失效视频', author: '账号已注销', unavailable: true, sourceFolderIds: ['ordinary-a'] },
+        { aid: 4, title: 'Ordinary only', sourceFolderIds: ['ordinary-b'] }
+      ]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      inventoryMetrics: {
+        authority: 'complete',
+        relationshipCount: 7,
+        plannedAidCount: 2,
+        protectedAidCount: 2,
+        unavailableAidCount: 1,
+        sourceFolders: [
+          { id: 'ordinary-a', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, confirmed: true },
+          { id: 'ordinary-b', relationshipCount: 2, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 0, confirmed: true },
+          { id: 'managed', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, confirmed: true }
+        ]
+      }
+    })
+  })
+
+  it('keeps incomplete folder lifecycle projections pending while preserving the known Bilibili relationship total', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'managed', title: 'bilimi·知识学习', itemCount: 332, isBilimiWorkFolder: true }]
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      inventoryMetrics: {
+        authority: 'incomplete',
+        relationshipCount: 332,
+        sourceFolders: [{
+          id: 'managed',
+          relationshipCount: 332,
+          plannedAidCount: null,
+          protectedAidCount: null,
+          unavailableAidCount: null,
+          confirmed: false
+        }]
+      }
+    })
+  })
+
+  it('reprojects pending organization counts when the user changes selected ordinary sources', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'ordinary-a', title: '默认收藏夹', itemCount: 2, isBilimiWorkFolder: false },
+        { id: 'ordinary-b', title: '自建收藏夹', itemCount: 2, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary-a', page: 1, hasMore: false,
+      items: [
+        { aid: 1, title: 'Shared', sourceFolderIds: ['ordinary-a', 'ordinary-b'] },
+        { aid: 2, title: 'A only', sourceFolderIds: ['ordinary-a'] },
+        { aid: 3, title: 'B only', sourceFolderIds: ['ordinary-b'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.selectSourceFolders('100', ['ordinary-a'])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      inventoryMetrics: {
+        plannedAidCount: 2,
+        sourceFolders: [
+          { id: 'ordinary-a', selected: true, plannedAidCount: 2 },
+          { id: 'ordinary-b', selected: false, plannedAidCount: 0 }
+        ]
+      }
+    })
+  })
+
   it('keeps unavailable videos in the Bilibili mirror but excludes them from organization work', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

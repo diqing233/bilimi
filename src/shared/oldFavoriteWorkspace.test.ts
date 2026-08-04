@@ -4,6 +4,7 @@ import {
   completeWorkspaceScan,
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
+  projectOldFavoriteInventoryMetrics,
   recordDiscoveredFavorites,
   redoWorkspaceChange,
   setWorkspaceReorganizationMode,
@@ -11,6 +12,55 @@ import {
 } from './oldFavoriteWorkspace'
 
 describe('old favorite workspace', () => {
+  it('projects Bilibili relationship totals separately from unique organization lifecycle counts', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'complete',
+      sourceFolders: [
+        { id: 'ordinary-a', title: '默认收藏夹', itemCount: 3, isBilimiWorkFolder: false, selected: true },
+        { id: 'ordinary-b', title: '自建收藏夹', itemCount: 2, isBilimiWorkFolder: false, selected: false },
+        { id: 'managed', title: 'bilimi·知识学习', itemCount: 2, isBilimiWorkFolder: true, selected: false }
+      ],
+      items: [
+        { aid: 1, sourceFolderIds: ['ordinary-a', 'ordinary-b'], protected: false, unavailable: false },
+        { aid: 2, sourceFolderIds: ['ordinary-a', 'managed'], protected: true, unavailable: false },
+        { aid: 3, sourceFolderIds: ['ordinary-a'], protected: false, unavailable: true },
+        { aid: 4, sourceFolderIds: ['ordinary-b'], protected: false, unavailable: false },
+        { aid: 5, sourceFolderIds: ['managed'], protected: true, unavailable: false }
+      ]
+    })
+
+    expect(projection).toMatchObject({
+      authority: 'complete',
+      relationshipCount: 7,
+      plannedAidCount: 1,
+      protectedAidCount: 2,
+      unavailableAidCount: 1
+    })
+    expect(projection.sourceFolders).toEqual([
+      { id: 'ordinary-a', title: '默认收藏夹', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, confirmed: true },
+      { id: 'ordinary-b', title: '自建收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, confirmed: true },
+      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, confirmed: true }
+    ])
+  })
+
+  it('keeps incomplete Bilibili folder observations pending instead of projecting zero facts', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'incomplete',
+      sourceFolders: [
+        { id: 'managed', title: 'bilimi·知识学习', itemCount: 332, isBilimiWorkFolder: true, selected: false, observationComplete: false }
+      ],
+      items: []
+    })
+
+    expect(projection.sourceFolders[0]).toMatchObject({
+      relationshipCount: 332,
+      confirmed: false,
+      plannedAidCount: null,
+      protectedAidCount: null,
+      unavailableAidCount: null
+    })
+  })
+
   it('creates an account-scoped workspace in scanning state before a baseline exists', () => {
     const workspace = createOldFavoriteWorkspace({
       accountMid: '00100',

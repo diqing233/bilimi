@@ -41,6 +41,95 @@ export type OldFavoriteWorkspaceRecommendationCandidate = {
   reason: string
 }
 
+export type OldFavoriteInventoryMetricProjection = {
+  authority: 'complete' | 'incomplete'
+  relationshipCount: number
+  plannedAidCount: number
+  protectedAidCount: number
+  unavailableAidCount: number
+  sourceFolders: Array<{
+    id: string
+    title: string
+    relationshipCount: number
+    plannedAidCount: number | null
+    protectedAidCount: number | null
+    unavailableAidCount: number | null
+    selected: boolean
+    isBilimiWorkFolder: boolean
+    confirmed: boolean
+  }>
+}
+
+export function projectOldFavoriteInventoryMetrics(input: {
+  authority: 'complete' | 'incomplete'
+  sourceFolders: Array<{
+    id: string
+    title: string
+    itemCount: number
+    isBilimiWorkFolder: boolean
+    selected?: boolean
+    observationComplete?: boolean
+  }>
+  items: Array<{
+    aid: number
+    sourceFolderIds: string[]
+    protected: boolean
+    unavailable: boolean
+  }>
+}): OldFavoriteInventoryMetricProjection {
+  const selectedSourceIds = new Set(input.sourceFolders
+    .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+    .map((folder) => folder.id))
+  const uniqueItems = new Map<number, typeof input.items[number]>()
+  for (const item of input.items) {
+    const existing = uniqueItems.get(item.aid)
+    uniqueItems.set(item.aid, existing
+      ? {
+          ...existing,
+          sourceFolderIds: [...new Set([...existing.sourceFolderIds, ...item.sourceFolderIds])],
+          protected: existing.protected || item.protected,
+          unavailable: existing.unavailable || item.unavailable
+        }
+      : { ...item, sourceFolderIds: [...new Set(item.sourceFolderIds)] })
+  }
+  const items = [...uniqueItems.values()]
+  const unavailableAidCount = items.filter((item) => item.unavailable).length
+  const protectedAidCount = items.filter((item) => !item.unavailable && item.protected).length
+  const plannedAidCount = items.filter((item) => !item.unavailable && !item.protected &&
+    item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId))).length
+
+  return {
+    authority: input.authority,
+    relationshipCount: input.sourceFolders.reduce((count, folder) => count + Math.max(0, folder.itemCount), 0),
+    plannedAidCount,
+    protectedAidCount,
+    unavailableAidCount,
+    sourceFolders: input.sourceFolders.map((folder) => {
+      const confirmed = input.authority === 'complete' && folder.observationComplete !== false
+      const folderItems = items.filter((item) => item.sourceFolderIds.includes(folder.id))
+      return {
+        id: folder.id,
+        title: folder.title,
+        relationshipCount: Math.max(0, folder.itemCount),
+        plannedAidCount: confirmed
+          ? folder.selected && !folder.isBilimiWorkFolder
+            ? folderItems.filter((item) => !item.unavailable && !item.protected).length
+            : 0
+          : null,
+        protectedAidCount: confirmed
+          ? folderItems.filter((item) => !item.unavailable && item.protected).length
+          : null,
+        unavailableAidCount: confirmed
+          ? folderItems.filter((item) => item.unavailable).length
+          : null,
+        selected: Boolean(folder.selected),
+        isBilimiWorkFolder: folder.isBilimiWorkFolder,
+        confirmed
+      }
+    })
+  }
+}
+
 export type OldFavoriteWorkspaceHistoryChange = {
   aid: number
   before?: OldFavoriteWorkspaceClassification
@@ -97,6 +186,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     taggedItemCount?: number
     untaggedItemCount?: number
   }
+  inventoryMetrics?: OldFavoriteInventoryMetricProjection
   tagEnrichment?: {
     status: 'running' | 'paused' | 'accepted' | 'complete'
     totalItemCount: number

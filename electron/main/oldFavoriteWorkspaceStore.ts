@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, rename, truncate, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { OldFavoriteWorkspaceDeepSeekRunCheckpoint, OldFavoriteWorkspaceExecutionIntent } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteInventoryMetricProjection, OldFavoriteWorkspaceDeepSeekRunCheckpoint, OldFavoriteWorkspaceExecutionIntent } from '../../src/shared/oldFavoriteWorkspace'
 
 type ScanItem = {
   aid: number
@@ -91,6 +91,7 @@ type Overlay = {
     scannedItemCount?: number
     taggedItemCount?: number
     untaggedItemCount?: number
+    inventoryMetrics?: OldFavoriteInventoryMetricProjection
   }
   tagEnrichment?: {
     status: 'running' | 'paused' | 'accepted' | 'complete'
@@ -470,6 +471,7 @@ export class OldFavoriteWorkspaceStore {
       let deepSeekRunCheckpoint: OldFavoriteWorkspaceDeepSeekRunCheckpoint | undefined
       let executionIntent: OldFavoriteWorkspaceExecutionIntent | undefined
       let overview: Overlay['overview'] | undefined
+      let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
       const overlayHistory: OverlayHistory[] = []
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
@@ -486,6 +488,7 @@ export class OldFavoriteWorkspaceStore {
         }
         if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
         if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+        if (overlay.scanMetadata?.inventoryMetrics) inventoryMetrics = clone(overlay.scanMetadata.inventoryMetrics)
         if (overlay.scanMetadata?.phase) {
           scan = {
             phase: overlay.scanMetadata.phase,
@@ -588,6 +591,7 @@ export class OldFavoriteWorkspaceStore {
         ,ruleAnalysisCheckpoint
         ,deepSeekRunCheckpoint
         ,executionIntent
+        ,inventoryMetrics
         ,overview
         ,tagEnrichment, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
@@ -797,6 +801,7 @@ export class OldFavoriteWorkspaceStore {
     let ruleAnalysisCheckpoint: Overlay['ruleAnalysisCheckpoint']
     let deepSeekRunCheckpoint: Overlay['deepSeekRunCheckpoint']
     let executionIntent: Overlay['executionIntent']
+    let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
 
     for (const raw of committed.split('\n').filter(Boolean)) {
       const overlay = JSON.parse(raw) as Overlay
@@ -815,6 +820,7 @@ export class OldFavoriteWorkspaceStore {
       }
       if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
       if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+      if (overlay.scanMetadata?.inventoryMetrics) inventoryMetrics = clone(overlay.scanMetadata.inventoryMetrics)
       if (overlay.scanMetadata?.phase) {
         scan = {
           phase: overlay.scanMetadata.phase,
@@ -846,7 +852,7 @@ export class OldFavoriteWorkspaceStore {
       history: [],
       ...(hasRecommendations ? { recommendations } : {}),
       ...(planReadiness ? { planReadiness } : {}),
-      scanMetadata: { sourceFolders, ...scan },
+      scanMetadata: { sourceFolders, ...scan, ...(inventoryMetrics ? { inventoryMetrics } : {}) },
       ...(tagEnrichment ? { tagEnrichment } : {}),
       ...(tagUpdates.size ? { tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags })) } : {}),
       ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {}),
