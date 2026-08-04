@@ -88,11 +88,11 @@
 - Modify: `OldFavoriteConfirmationStep.tsx`
 - Test: corresponding component tests and `ControlledFavoriteLedgerPanel.test.tsx`
 
-- [ ] Add failing tests proving whole-round scope does not render current-batch progress/cards.
-- [ ] Add failing tests requiring every enabled target and `bilimi·暂存` to render at zero.
-- [ ] Add regression coverage for adopted author/tag recommendations changing real main-process classifications.
-- [ ] Keep current-batch cards mutable and whole-round views aggregate/read-only except documented whole-round intents.
-- [ ] Verify DeepSeek waiting/cancel/retry, history, transfer, undo/redo, and execution gates.
+- [x] Add failing tests proving whole-round scope does not render current-batch progress/cards.
+- [x] Add failing tests requiring every enabled target and `bilimi·暂存` to render at zero.
+- [x] Add regression coverage for adopted author/tag recommendations changing real main-process classifications.
+- [x] Keep current-batch cards mutable and whole-round views aggregate/read-only except documented whole-round intents.
+- [x] Verify DeepSeek waiting/cancel/retry, history, transfer, undo/redo, and execution gates.
 
 ### Task 6: Local-first save and pending provisioning/sync
 

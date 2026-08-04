@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
+import { OldFavoriteWholeRunOverview } from './OldFavoriteOverviewControls'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -9,6 +10,34 @@ function deferred<T>() {
 }
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('keeps enabled archive targets and bilimi temporary storage visible at zero', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [{ id: 'segment-1', index: 0, itemCount: 2, status: 'previewing' as const }],
+      currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      overview: {
+        completedSegmentCount: 1, totalSegmentCount: 1, available: true, sourceFolders: [], unavailableItemCount: 0,
+        processedItemCount: 2, classifiedItemCount: 1, unmatchedItemCount: 1, waitingItemCount: 0,
+        recommendationCounts: [], archiveTargets: [
+          { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] },
+          { ledgerId: 'knowledge', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] }
+        ]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+
+    render(<OldFavoriteWholeRunOverview snapshot={snapshot} showArchiveTargets ledgerNames={new Map([
+      ['inbox', 'bilimi·暂存'], ['knowledge', '知识学习'], ['empty', '空收藏夹']
+    ])} />)
+
+    const targets = screen.getByLabelText('本轮归档目标总览')
+    expect(targets).toHaveTextContent('知识学习预计归档 1 条')
+    expect(targets).toHaveTextContent('bilimi·暂存本地保存 1 条')
+    expect(targets).toHaveTextContent('空收藏夹预计归档 0 条')
+  })
+
   it('opens the old-favorite guide for an external navigation request without starting a scan', async () => {
     const command = vi.fn()
     window.bilimiDesktop = {
@@ -2243,7 +2272,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       ],
       currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
       classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } },
-      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      recommendations: { candidates: [{ id: 'current-only', displayName: '当前批候选', kind: 'author' as const, count: 1, currentSegmentCount: 1, reason: 'current batch only' }], adoptedCandidateIds: [] },
       planReadiness: { selectedAidCount: 501, classifiedAidCount: 500, unclassifiedAidCount: 1 },
       history: { cursor: 0, length: 0, entries: [] },
       overview: { available: true, completedSegmentCount: 2, totalSegmentCount: 2, sourceFolders: [], unavailableItemCount: 0,
@@ -2273,6 +2302,16 @@ describe('ControlledFavoriteLedgerPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: stepName }))
       expect(within(screen.getByRole('group', { name: groupName })).getByRole('button', { name: '本轮总览' }))
         .toHaveAttribute('aria-pressed', 'true')
+      if (stepName === '推荐收藏夹') {
+        expect(screen.queryByRole('checkbox', { name: '当前批候选' })).not.toBeInTheDocument()
+      }
+      if (stepName === '归档预览') {
+        expect(screen.getByTestId('whole-run-archive-view')).not.toHaveAttribute('hidden')
+        expect(screen.getByTestId('current-archive-view')).toHaveAttribute('hidden', '')
+      }
+      if (stepName === '确认执行') {
+        expect(screen.queryByText(/^当前批次：/)).not.toBeInTheDocument()
+      }
     }
 
     fireEvent.change(screen.getByRole('combobox', { name: '整理批次' }), { target: { value: 'segment-2' } })

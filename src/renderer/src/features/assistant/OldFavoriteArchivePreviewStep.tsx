@@ -319,7 +319,7 @@ export function OldFavoriteArchivePreviewStep({
     'system-high': '高置信度自动分类',
     'system-low': '低置信度自动分类'
   } as const
-  const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
+  const ledgerNames = new Map(ledgers.filter((ledger) => ledger.enabled).map((ledger) => [ledger.id, ledger.displayName]))
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const historyTargetLabel = (targetLedgerIds: string[]) =>
     targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'

@@ -91,7 +91,9 @@ export function OldFavoriteConfirmationStep({
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
     : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
-  const ledgerNames = new Map<string, string>([['inbox', 'bilimi·暂存'], ...ledgers.map((ledger) => [ledger.id, ledger.displayName] as const)])
+  const ledgerNames = new Map<string, string>([['inbox', 'bilimi·暂存'], ...ledgers
+    .filter((ledger) => ledger.enabled)
+    .map((ledger) => [ledger.id, ledger.displayName] as const)])
 
   if (snapshot.status === 'completed') {
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">

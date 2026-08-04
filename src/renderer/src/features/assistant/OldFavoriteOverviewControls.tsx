@@ -34,6 +34,18 @@ export function OldFavoriteWholeRunOverview({
     </div>
   }
 
+  const archiveTargetById = new Map(overview.archiveTargets.map((target) => [target.ledgerId, target]))
+  const archiveTargetIds = [...new Set([
+    'inbox',
+    ...ledgerNames.keys(),
+    ...overview.archiveTargets.map((target) => target.ledgerId)
+  ])]
+  const archiveTargets = archiveTargetIds.map((ledgerId) => archiveTargetById.get(ledgerId) ?? {
+    ledgerId,
+    itemCount: 0,
+    segmentCounts: []
+  })
+
   return <div className="favorite-ledger-panel__whole-run-overview">
     <p className="favorite-ledger-panel__whole-run-status" role="status">
       已汇总 {overview.completedSegmentCount}/{overview.totalSegmentCount} 批
@@ -41,7 +53,7 @@ export function OldFavoriteWholeRunOverview({
     <p>已处理 {overview.processedItemCount} 条 · 已分类 {overview.classifiedItemCount} 条 · 暂存 {overview.unmatchedItemCount} 条</p>
     {overview.waitingItemCount ? <p>等待预处理 {overview.waitingItemCount} 条</p> : null}
     {showArchiveTargets ? <div className="favorite-ledger-panel__whole-run-targets" aria-label="本轮归档目标总览">
-      {overview.archiveTargets.map((target) => {
+      {archiveTargets.map((target) => {
         const localOnly = target.ledgerId === 'inbox'
         return <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row">
         <div><strong>{ledgerNames.get(target.ledgerId) ?? target.ledgerId}</strong><span>{localOnly ? '本地保存' : '预计归档'} {target.itemCount} 条</span></div>
@@ -53,7 +65,6 @@ export function OldFavoriteWholeRunOverview({
         </ul>
         {localOnly ? <p>默认不同步到 B 站</p> : null}
       </article>})}
-      {overview.archiveTargets.length === 0 ? <p>已完成批次暂时没有可归档分类。</p> : null}
     </div> : null}
   </div>
 }
