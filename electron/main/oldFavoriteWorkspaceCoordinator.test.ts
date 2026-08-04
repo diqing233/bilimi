@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -457,6 +457,362 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       segmentSize: 1_000,
       segments: [{ itemCount: 1_000 }, { itemCount: 500 }]
     })
+  })
+
+  it('seals the first eligible batch before later source pages finish', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 500; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: `Video ${offset + index + 1}`,
+          tags: ['ready'],
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning',
+      scan: { phase: 'inventory', scannedItemCount: 500 },
+      segments: [{ id: 'segment-1', itemCount: 500, readiness: 'ready' }],
+      currentSegment: { id: 'segment-1', aids: Array.from({ length: 500 }, (_unused, index) => index + 1) }
+    })
+    await expect(store.loadSegment('100', requireSnapshot(await coordinator.getSnapshot('100')).workspaceId, 'segment-1'))
+      .resolves.toMatchObject({ id: 'segment-1', aids: Array.from({ length: 500 }, (_unused, index) => index + 1) })
+  })
+
+  it('does not let unavailable, protected, or duplicate aids consume streaming batch slots', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'protected-video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'prior',
+        folders: [{ id: 'local:knowledge', title: 'Knowledge', kind: 'local', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'local:knowledge': [2] },
+        videos: [{ aid: 2, title: 'Protected', tags: ['saved'], updatedAt: '2026-07-20T00:00:00.000Z' }],
+        organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: ['local:knowledge'], completedAt: '2026-07-20T00:00:00.000Z' }]
+      }
+    })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 503, isBilimiWorkFolder: false }]
+    })
+    const items = [
+      { aid: 1, title: '已失效视频', unavailable: true, sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Protected', sourceFolderIds: ['source'] },
+      { aid: 3, title: 'Duplicate first', tags: ['ready'], sourceFolderIds: ['source'] },
+      { aid: 3, title: 'Duplicate second', tags: ['ready'], sourceFolderIds: ['source'] },
+      ...Array.from({ length: 499 }, (_unused, index) => ({
+        aid: index + 4, title: `Video ${index + 4}`, tags: ['ready'], sourceFolderIds: ['source']
+      }))
+    ]
+    for (let offset = 0; offset < items.length; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, hasMore: true,
+        items: items.slice(offset, offset + 50)
+      })
+    }
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.segments).toEqual([expect.objectContaining({ id: 'segment-1', itemCount: 500 })])
+    expect(snapshot.currentSegment?.aids).toHaveLength(500)
+    expect(snapshot.currentSegment?.aids).not.toContain(1)
+    expect(snapshot.currentSegment?.aids).not.toContain(2)
+    expect(snapshot.currentSegment?.aids.filter((aid) => aid === 3)).toHaveLength(1)
+  })
+
+  it('restores sealed streaming assignments and continues filling the next batch without duplication', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await first.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 520; offset += 50) {
+      await first.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, hasMore: true,
+        items: Array.from({ length: Math.min(50, 520 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    const restartedStore = new OldFavoriteWorkspaceStore({ root })
+    const restarted = createCoordinator(repository, restartedStore, {
+      initializeOnOpen: false,
+      segmentSize: () => 2_000
+    })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning', segmentSize: 500, segments: [{ id: 'segment-1', itemCount: 500 }]
+    })
+    for (let offset = 520; offset < 1_000; offset += 50) {
+      await restarted.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, hasMore: true,
+        items: Array.from({ length: Math.min(50, 1_000 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      segments: [{ id: 'segment-1', itemCount: 500 }, { id: 'segment-2', itemCount: 500 }]
+    })
+    const snapshot = requireSnapshot(await restarted.getSnapshot('100'))
+    const second = await store.loadSegment('100', snapshot.workspaceId, 'segment-2')
+    expect(second.aids).toEqual(Array.from({ length: 500 }, (_unused, index) => index + 501))
+    expect((await restartedStore.readWorkspaceReads('100', snapshot.workspaceId))
+      .some((file) => file.startsWith('scan/pages/'))).toBe(false)
+  })
+
+  it('keeps a late duplicate in its original streaming batch and merges the extra source relation', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 500; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source-a', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`,
+          ...(offset + index > 0 ? { tags: ['ready'] } : {}),
+          sourceFolderIds: ['source-a']
+        }))
+      })
+    }
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1, hasMore: false,
+      items: [{
+        aid: 1, title: 'Conflicting title', author: 'Late author', description: 'Late description',
+        tags: ['late-tag'], category: 'late-category', cover: 'late-cover', sourceFolderIds: ['source-b']
+      }]
+    })
+    await coordinator.finishScan('100')
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.segments).toHaveLength(1)
+    const firstItem = snapshot.currentSegment?.items.find((item) => item.aid === 1)
+    expect(firstItem).toMatchObject({ title: 'Video 1', sourceFolderIds: ['source-a', 'source-b'] })
+    expect(firstItem?.author).toBeUndefined()
+    expect(firstItem?.description).toBeUndefined()
+    expect(firstItem?.tags).toBeUndefined()
+    expect(firstItem?.category).toBeUndefined()
+    expect(firstItem?.cover).toBeUndefined()
+  })
+
+  it('seals the final incomplete streaming batch only when the inventory finishes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 499; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, hasMore: true,
+        items: Array.from({ length: Math.min(50, 499 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ status: 'scanning', segments: [] })
+    await coordinator.finishScan('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', segments: [{ id: 'segment-1', itemCount: 499 }]
+    })
+  })
+
+  it('keeps the final incomplete streaming batch open when the scan fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    const started = await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 499; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, hasMore: true,
+        items: Array.from({ length: Math.min(50, 499 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    await coordinator.recordScanFailure('100', 'target-unavailable')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning', scan: { phase: 'failed' }, segments: []
+    })
+    await expect(store.recover('100', started.workspaceId)).resolves.toMatchObject({
+      streamingScan: { sealedSegments: [], openAids: expect.arrayContaining([1, 499]) }
+    })
+  })
+
+  it('retries a page checkpoint from the last durable streaming state', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 450; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, sourceFolderIds: ['source']
+        }))
+      })
+    }
+    vi.spyOn(store, 'checkpointStreamingScan').mockRejectedValueOnce(new Error('checkpoint-failed'))
+    const finalPage = {
+      folderId: 'source', page: 10, hasMore: true,
+      items: Array.from({ length: 50 }, (_unused, index) => ({
+        aid: 451 + index, title: `Video ${451 + index}`, sourceFolderIds: ['source']
+      }))
+    }
+
+    await expect(coordinator.recordScanPage('100', finalPage)).rejects.toThrow('checkpoint-failed')
+    await expect(coordinator.recordScanPage('100', finalPage)).resolves.toEqual({ sealedSegmentIds: ['segment-1'] })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning', segments: [{ id: 'segment-1', itemCount: 500 }]
+    })
+  })
+
+  it('does not publish a sealed batch before its tag-pending checkpoint is durable', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 450; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, sourceFolderIds: ['source']
+        }))
+      })
+    }
+    vi.spyOn(store, 'appendOverlay').mockRejectedValueOnce(new Error('tag-checkpoint-failed'))
+
+    await expect(coordinator.recordScanPage('100', {
+      folderId: 'source', page: 10, hasMore: true,
+      items: Array.from({ length: 50 }, (_unused, index) => ({
+        aid: 451 + index, title: `Video ${451 + index}`, sourceFolderIds: ['source']
+      }))
+    })).rejects.toThrow('tag-checkpoint-failed')
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ status: 'scanning', segments: [] })
+    await expect(restarted.getScanResumeState('100')).resolves.toMatchObject({
+      completedPages: expect.not.arrayContaining([expect.objectContaining({ page: 10 })])
+    })
+  })
+
+  it('retries a sealed page idempotently after its tag-pending checkpoint survives a restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 450; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, sourceFolderIds: ['source']
+        }))
+      })
+    }
+    const finalPage = {
+      folderId: 'source', page: 10, hasMore: true,
+      items: Array.from({ length: 50 }, (_unused, index) => ({
+        aid: 451 + index, title: `Video ${451 + index}`, sourceFolderIds: ['source']
+      }))
+    }
+    vi.spyOn(store, 'checkpointStreamingScan').mockRejectedValueOnce(new Error('page-checkpoint-failed'))
+
+    await expect(coordinator.recordScanPage('100', finalPage)).rejects.toThrow('page-checkpoint-failed')
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning',
+      segments: [],
+      tagEnrichment: { totalItemCount: 500, pendingItemCount: 500 }
+    })
+    await expect(restarted.recordScanPage('100', finalPage)).resolves.toEqual({ sealedSegmentIds: ['segment-1'] })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning',
+      segments: [{ id: 'segment-1', itemCount: 500 }],
+      tagEnrichment: { totalItemCount: 500, pendingItemCount: 500 }
+    })
+    await expect(restarted.getScanResumeState('100')).resolves.toMatchObject({
+      completedPages: expect.arrayContaining([expect.objectContaining({ page: 10 })])
+    })
+  })
+
+  it('does not save or start whole-run execution before the inventory scan completes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 500; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: true,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+    const revisionBefore = (await repository.getSnapshot('100')).revision
+
+    await expect(coordinator.setExecutionIntent('100', 'bilibili')).rejects.toThrow('not ready for confirmation')
+    await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow('not ready for local saving')
+    await expect(coordinator.beginBilibiliExecution('100')).rejects.toThrow('not ready for local saving')
+    expect((await repository.getSnapshot('100')).revision).toBe(revisionBefore)
+  })
+
+  it('recovers a legacy scanning draft by replaying its staged page payloads', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store, { initializeOnOpen: false })
+    const started = await first.beginScan('100', 'incremental')
+    const runId = await first.getActiveScanRunId('100')
+    await store.appendScanPage('100', started.workspaceId, {
+      runId: runId!, folderId: 'source', page: 1, hasMore: false,
+      items: [{ aid: 1, title: 'Legacy', tags: ['kept'], sourceFolderIds: ['source'] }]
+    })
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', started.workspaceId, 'manifest.json')
+    const { readFile } = await import('node:fs/promises')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    delete manifest.streamingScan
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const { createHash } = await import('node:crypto')
+    manifest.checksum = createHash('sha256').update(JSON.stringify(withoutChecksum)).digest('hex')
+    await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
+
+    const restartedStore = new OldFavoriteWorkspaceStore({ root })
+    const legacyPageRead = vi.spyOn(restartedStore, 'readScanPages')
+    const restarted = createCoordinator(repository, restartedStore, { initializeOnOpen: false })
+    await expect(restarted.getScanResumeState('100')).resolves.toEqual({
+      runId, completedPages: [{ folderId: 'source', page: 1, hasMore: false }], taggedAids: [1]
+    })
+    expect(legacyPageRead).toHaveBeenCalledExactlyOnceWith('100', started.workspaceId)
   })
 
   it('reports tag readiness independently so an earlier batch can be organized first', async () => {
@@ -6763,8 +7119,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await recovered.getSnapshot('100')
 
     const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    const manifest = JSON.parse(await readFile(
+      join(root, 'accounts', '100', 'workspaces', workspaceId, 'manifest.json'),
+      'utf8'
+    )) as { segments: Array<{ id: string; file: string }> }
+    const currentSegmentFile = manifest.segments.find((segment) => segment.id === 'segment-2')!.file
     await expect(recoveredStore.readWorkspaceReads('100', workspaceId))
-      .resolves.toEqual(['manifest.json', 'baseline/segment-2.json', 'overlay.journal.jsonl'])
+      .resolves.toEqual(['manifest.json', currentSegmentFile, 'overlay.journal.jsonl'])
   })
 
   it('creates a scanning workspace and persists only its lightweight repository marker', async () => {
@@ -7841,7 +8202,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const first = createCoordinator(repository, workspaceStore)
     const workspace = requireWorkspace(await first.open('100'))
     await first.completeScan('100', { revision: 1, aids: [1] })
-    await writeFile(join(root, 'accounts', '100', 'workspaces', workspace.id, 'baseline', 'segment-1.json'), '{corrupt', 'utf8')
+    const workspaceDirectory = join(root, 'accounts', '100', 'workspaces', workspace.id)
+    const manifest = JSON.parse(await readFile(join(workspaceDirectory, 'manifest.json'), 'utf8')) as {
+      segments: Array<{ id: string; file: string }>
+    }
+    const currentSegmentFile = manifest.segments.find((segment) => segment.id === 'segment-1')!.file
+    await writeFile(join(workspaceDirectory, currentSegmentFile), '{corrupt', 'utf8')
 
     await expect(createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),

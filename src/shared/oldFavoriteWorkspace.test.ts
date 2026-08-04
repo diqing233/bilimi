@@ -214,6 +214,23 @@ describe('old favorite workspace', () => {
     expect(preview.hasMultipleSegments).toBe(true)
   })
 
+  it('preserves explicitly sealed streaming segment assignment order when completing a scan', () => {
+    const scanning = createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 500
+    })
+    const completed = completeWorkspaceScan(scanning, {
+      revision: 1,
+      aids: [1, 2, 3, 4],
+      sealedSegments: [
+        { id: 'segment-1', index: 0, aids: [3, 1] },
+        { id: 'segment-2', index: 1, aids: [4, 2] }
+      ]
+    })
+
+    expect(completed.plannedAids).toEqual([1, 2, 3, 4])
+    expect(completed.segments.map((segment) => segment.aids)).toEqual([[3, 1], [4, 2]])
+  })
+
   it('rejects physical segment sizes outside the supported 500 to 2000 range', () => {
     expect(() => createOldFavoriteWorkspace({
       accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 499

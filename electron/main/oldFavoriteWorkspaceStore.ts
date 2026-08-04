@@ -18,6 +18,14 @@ type ScanItem = {
   [key: string]: unknown
 }
 type Segment = { id: string; aids: number[]; items?: ScanItem[] }
+type StreamingScanState = {
+  segmentSize: number
+  sealedSegments: Array<{ id: string; index: number; itemCount: number; aids: number[] }>
+  openAids: number[]
+  openItems?: ScanItem[]
+  observedAids: number[]
+  taggedAids?: number[]
+}
 type ScanPage = {
   runId: string
   folderId: string
@@ -120,8 +128,9 @@ type Manifest = {
   currentSegmentId: string
   segments: Array<{ id: string; file: string; checksum: string }>
   scanRunId?: string
-  scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string }>
+  scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string; hasMore?: boolean }>
   managedMemberChunks?: Array<{ file: string; checksum: string }>
+  streamingScan?: StreamingScanState
   sourceFolders?: SourceFolder[]
   scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
   overlayRevision: number
@@ -224,13 +233,17 @@ export class OldFavoriteWorkspaceStore {
     const accountMid = normalizedAccountMid(input.accountMid)
     const directory = this.workspaceDirectory(accountMid, input.workspaceId)
     await mkdir(join(directory, 'baseline'), { recursive: true })
+    const priorManifest = await this.readManifest(directory)
     const segments = [] as Manifest['segments']
     for (const segment of input.segments) {
       const items = segment.items?.map(clone) ?? segment.aids.map((aid) => ({ aid, sourceFolderIds: [] }))
       const content = JSON.stringify({ id: segment.id, aids: [...segment.aids], items })
-      const file = `baseline/${segment.id}.json`
+      const contentChecksum = checksum(content)
+      const file = priorManifest
+        ? `baseline/${segment.id}-${contentChecksum}.json`
+        : `baseline/${segment.id}.json`
       await this.atomicWrite(join(directory, file), content)
-      segments.push({ id: segment.id, file, checksum: checksum(content) })
+      segments.push({ id: segment.id, file, checksum: contentChecksum })
     }
     const initialJournalChecksum = emptyJournalChecksum
     const withoutChecksum: Omit<Manifest, 'checksum'> = {
@@ -277,9 +290,106 @@ export class OldFavoriteWorkspaceStore {
         ...manifestWithoutChecksum,
         scanRunId: runId,
         scanPages: [],
-        managedMemberChunks: []
+        managedMemberChunks: [],
+        streamingScan: undefined
       })
       this.writeLog.set(this.key(account, workspaceId), ['manifest.json'])
+    })
+  }
+
+  /** Seals only whole scan-time batches and checkpoints the small open tail. */
+  async checkpointStreamingScan(accountMid: string, workspaceId: string, input: {
+    runId: string
+    page?: ScanPage
+    segmentSize?: number
+    sealedSegments: Segment[]
+    openAids: number[]
+    openItems?: ScanItem[]
+    observedAids?: number[]
+    taggedAids?: number[]
+    changedSegmentIds?: string[]
+  }) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      if (!/^[a-zA-Z0-9_-]{8,128}$/.test(input.runId)) throw new Error('Old favorite workspace scan run is invalid.')
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      if (manifest.scanRunId !== input.runId) throw new Error('Old favorite workspace scan run is stale.')
+      if (input.page && (input.page.runId !== input.runId || typeof input.page.folderId !== 'string' ||
+        !input.page.folderId.trim() || !Number.isSafeInteger(input.page.page) || input.page.page < 1 ||
+        !Array.isArray(input.page.items) || input.page.items.length > 50 ||
+        input.page.items.some((item) => !Number.isSafeInteger(item.aid) || item.aid <= 0))) {
+        throw new Error('Old favorite workspace scan page is invalid.')
+      }
+      const segmentSize = input.segmentSize ?? manifest.streamingScan?.segmentSize ?? 500
+      if (!Number.isSafeInteger(segmentSize) || segmentSize < 500 || segmentSize > 2_000) {
+        throw new Error('Old favorite workspace streaming scan is invalid.')
+      }
+      const priorById = new Map(manifest.segments.map((segment) => [segment.id, segment]))
+      const changedSegmentIds = new Set(input.changedSegmentIds ?? [])
+      const segments = [...manifest.segments]
+      const descriptors: StreamingScanState['sealedSegments'] = []
+      const writtenFiles: string[] = []
+      const scanPages = [...(manifest.scanPages ?? [])]
+      if (input.page) {
+        const folderId = input.page.folderId.trim()
+        const content = JSON.stringify({
+          runId: input.runId, folderId, page: input.page.page, items: input.page.items.map(clone),
+          ...(typeof input.page.hasMore === 'boolean' ? { hasMore: input.page.hasMore } : {})
+        })
+        const file = `scan/pages/${checksum(`${input.runId}:${folderId}:${input.page.page}:${content}`)}.json`
+        await this.atomicWrite(join(directory, file), content)
+        const priorIndex = scanPages.findIndex((page) => page.folderId === folderId && page.page === input.page!.page)
+        const descriptor = {
+          folderId, page: input.page.page, file, checksum: checksum(content),
+          ...(typeof input.page.hasMore === 'boolean' ? { hasMore: input.page.hasMore } : {})
+        }
+        if (priorIndex >= 0) scanPages[priorIndex] = descriptor
+        else scanPages.push(descriptor)
+        scanPages.sort((left, right) => left.folderId.localeCompare(right.folderId) || left.page - right.page)
+        writtenFiles.push(file)
+      }
+      for (let index = 0; index < input.sealedSegments.length; index += 1) {
+        const segment = input.sealedSegments[index]!
+        if (segment.id !== `segment-${index + 1}` || !segment.aids.length || segment.aids.length > segmentSize ||
+          segment.aids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
+          throw new Error('Old favorite workspace streaming scan is invalid.')
+        }
+        if (!priorById.has(segment.id) || changedSegmentIds.has(segment.id)) {
+          const items = segment.items?.map(clone) ?? segment.aids.map((aid) => ({ aid, sourceFolderIds: [] }))
+          const content = JSON.stringify({ id: segment.id, aids: [...segment.aids], items })
+          const contentChecksum = checksum(content)
+          const file = priorById.has(segment.id)
+            ? `baseline/${segment.id}-${contentChecksum}.json`
+            : `baseline/${segment.id}.json`
+          await this.atomicWrite(join(directory, file), content)
+          const stored = { id: segment.id, file, checksum: contentChecksum }
+          const priorIndex = segments.findIndex((candidate) => candidate.id === segment.id)
+          if (priorIndex >= 0) segments[priorIndex] = stored
+          else segments.push(stored)
+          priorById.set(segment.id, stored)
+          writtenFiles.push(file)
+        }
+        descriptors.push({ id: segment.id, index, itemCount: segment.aids.length, aids: [...segment.aids] })
+      }
+      segments.sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }))
+      const openAids = [...new Set(input.openAids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))]
+      const openAidSet = new Set(openAids)
+      const openItems = (input.openItems ?? []).filter((item) => openAidSet.has(item.aid)).map(clone)
+      const observedAids = [...new Set((input.observedAids ?? [...descriptors.flatMap((segment) => segment.aids), ...openAids])
+        .filter((aid) => Number.isSafeInteger(aid) && aid > 0))]
+      const observedAidSet = new Set(observedAids)
+      const taggedAids = [...new Set((input.taggedAids ?? []).filter((aid) => observedAidSet.has(aid)))]
+      const { checksum: _storedChecksum, ...withoutChecksum } = manifest
+      await this.writeManifest(directory, {
+        ...withoutChecksum,
+        currentSegmentId: descriptors[0]?.id ?? manifest.currentSegmentId,
+        segments,
+        scanPages,
+        streamingScan: { segmentSize, sealedSegments: descriptors, openAids, openItems, observedAids, taggedAids }
+      })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json', ...writtenFiles])
     })
   }
 
@@ -301,7 +411,8 @@ export class OldFavoriteWorkspaceStore {
       const file = `scan/pages/${checksum(`${input.runId}:${folderId}:${input.page}:${content}`)}.json`
       await this.atomicWrite(join(directory, file), content)
       const scanPages = (manifest.scanPages ?? []).filter((page) => page.folderId !== folderId || page.page !== input.page)
-      scanPages.push({ folderId, page: input.page, file, checksum: checksum(content) })
+      scanPages.push({ folderId, page: input.page, file, checksum: checksum(content),
+        ...(typeof input.hasMore === 'boolean' ? { hasMore: input.hasMore } : {}) })
       scanPages.sort((left, right) => left.folderId.localeCompare(right.folderId) || left.page - right.page)
       const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
       await this.writeManifest(directory, { ...manifestWithoutChecksum, scanPages })
@@ -435,6 +546,17 @@ export class OldFavoriteWorkspaceStore {
     await this.writeManifest(directory, next)
     this.verifiedJournals.set(key, { cursor: nextCursor, checksum: nextJournalChecksum, file: journalFile })
     this.writeLog.set(key, ['manifest.json', journalFile])
+  }
+
+  async readScanPageCursors(accountMid: string, workspaceId: string) {
+    const account = normalizedAccountMid(accountMid)
+    const manifest = await this.readManifest(this.workspaceDirectory(account, workspaceId))
+    if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+    return (manifest.scanPages ?? []).map((page) => ({
+      folderId: page.folderId,
+      page: page.page,
+      ...(typeof page.hasMore === 'boolean' ? { hasMore: page.hasMore } : {})
+    }))
   }
 
   async recover(accountMid: string, workspaceId: string) {
@@ -577,6 +699,7 @@ export class OldFavoriteWorkspaceStore {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
         baselineRevision: manifest.baselineRevision, currentSegmentId: manifest.currentSegmentId,
         ...(manifest.scanRunId ? { scanRunId: manifest.scanRunId } : {}),
+        ...(manifest.streamingScan ? { streamingScan: clone(manifest.streamingScan) } : {}),
         overlayRevision: manifest.overlayRevision, journalCursor: manifest.journalCursor,
         manifestChecksum: manifest.checksum,
         ...(manifest.lastCommittedId ? { lastCommittedId: manifest.lastCommittedId } : {}),
@@ -643,6 +766,7 @@ export class OldFavoriteWorkspaceStore {
       currentSegmentId: manifest.currentSegmentId,
       segmentCount: manifest.segments.length,
       scanPageCount: manifest.scanPages?.length ?? 0,
+      ...(manifest.streamingScan ? { streamingScan: clone(manifest.streamingScan) } : {}),
       overlayRevision: manifest.overlayRevision,
       journalCursor: manifest.journalCursor,
       manifestChecksum: manifest.checksum,

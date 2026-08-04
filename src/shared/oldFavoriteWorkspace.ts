@@ -452,6 +452,8 @@ export type CompleteWorkspaceScanOptions = {
   aids: number[]
   successfullyClassifiedAids?: number[]
   mode?: OldFavoriteWorkspaceMode
+  /** Durable discovery-order assignments sealed while the remote scan was still running. */
+  sealedSegments?: Array<Pick<OldFavoriteWorkspaceSegment, 'id' | 'index' | 'aids'>>
 }
 
 export type WorkspaceClassificationAssignment = {
@@ -626,7 +628,32 @@ export function completeWorkspaceScan(
     historyCursor: 0
   }
   const projected = withSegmentsForMode(scanned, scanned.mode)
-  return { ...scanned, ...projected }
+  if (!options.sealedSegments?.length) return { ...scanned, ...projected }
+  const plannedAidSet = new Set(projected.plannedAids)
+  const assignedAids = new Set<number>()
+  const segments = options.sealedSegments
+    .slice()
+    .sort((left, right) => left.index - right.index)
+    .map((segment, index): OldFavoriteWorkspaceSegment => {
+      if (segment.index !== index || segment.id !== `segment-${index + 1}` || !Array.isArray(segment.aids)) {
+        throw new Error('Old favorite workspace streaming segments are invalid.')
+      }
+      const aids = segment.aids.map((aid) => {
+        if (!plannedAidSet.has(aid) || assignedAids.has(aid)) {
+          throw new Error('Old favorite workspace streaming segments are invalid.')
+        }
+        assignedAids.add(aid)
+        return aid
+      })
+      if (!aids.length || aids.length > workspace.segmentSize) {
+        throw new Error('Old favorite workspace streaming segments are invalid.')
+      }
+      return { id: segment.id, index, aids, status: 'previewing' }
+    })
+  if (assignedAids.size !== plannedAidSet.size) {
+    throw new Error('Old favorite workspace streaming segments are incomplete.')
+  }
+  return { ...scanned, ...projected, segments, hasMultipleSegments: segments.length > 1 }
 }
 
 export function setWorkspaceReorganizationMode(

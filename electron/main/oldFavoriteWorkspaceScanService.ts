@@ -470,7 +470,7 @@ export class OldFavoriteWorkspaceScanService {
             await this.options.coordinator.recordScanFailure(accountMid, 'source-page-empty-with-more', runId)
             return
           }
-          await this.options.coordinator.recordScanPage(accountMid, {
+          const recorded = await this.options.coordinator.recordScanPage(accountMid, {
             folderId: folder.id,
             page,
             hasMore: sourcePage.hasMore,
@@ -480,6 +480,9 @@ export class OldFavoriteWorkspaceScanService {
               unavailable: item.unavailable, sourceFolderIds: [folder.id]
             }))
           }, runId)
+          if (workspaceId && recorded && typeof recorded === 'object' && recorded.sealedSegmentIds.length) {
+            void this.startTagEnrichment(accountMid, target, workspaceId, taggedAids)
+          }
           hasMore = sourcePage.hasMore
           page += 1
         }
