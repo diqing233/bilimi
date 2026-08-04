@@ -251,7 +251,7 @@ function readBilibiliConnectionMode() {
 
 function writeBilibiliConnectionMode(mode: 'auto' | 'direct') {
   const store = getDesktopStore()
-  saveAssistantPreferences(store, { ...loadAssistantPreferences(store), bilibiliConnectionMode: mode })
+  writeAssistantPreferencePatch(store, { bilibiliConnectionMode: mode })
 }
 
 function withBilibiliConnectionMode(preferences: AssistantPreferences) {
@@ -1252,8 +1252,13 @@ function registerAssistantPreferenceHandlers() {
     const normalizedAssistantPatch = normalizeAssistantPreferencePatch(assistantPatch)
     const saved = patchAssistantPreferences(getDesktopStore(), assistantPatch)
     const next = withBilibiliConnectionMode(saved)
-    if (normalizedAssistantPatch && !connectionModeChanged) {
-      sendAssistantPreferencePatchChanged(normalizedAssistantPatch, meta)
+    if (normalizedAssistantPatch || bilibiliConnectionMode !== undefined) {
+      sendAssistantPreferencePatchChanged({
+        ...(normalizedAssistantPatch ?? {}),
+        ...(bilibiliConnectionMode === undefined ? {} : {
+          bilibiliConnectionMode: normalizeBilibiliConnectionMode(bilibiliConnectionMode)
+        })
+      }, meta)
     } else {
       sendAssistantPreferencesChanged(next)
     }
@@ -1271,6 +1276,14 @@ function registerAssistantPreferenceHandlers() {
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
     sendFavoriteLedgerEnabledChanged(patch, meta)
     return patch
+  })
+  ipcMain.handle('assistant:write-default-favorite-system-enabled', (event, accountMid: string, enabled: boolean) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+    return saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      defaultFavoriteSystemEnabled: Boolean(enabled)
+    }).defaultFavoriteSystemEnabled
   })
   ipcMain.on('assistant:preview-preference-patch', (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
     const normalizedPatch = normalizeAssistantPreferencePatch(patch)
@@ -1303,7 +1316,7 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore(), safeStorage))
   ipcMain.handle('deepseek:save-key', (_event, apiKey: string) => {
     const status = saveDeepSeekApiKey(getDesktopStore(), apiKey, safeStorage)
-    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    sendAssistantPreferencePatchChanged({ deepseekApiKeyStored: status.configured })
     return status
   })
   ipcMain.handle('deepseek:clear-key', () => {

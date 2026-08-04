@@ -150,7 +150,10 @@ describe('resolveFavoriteOrganizationLamp', () => {
       source.indexOf('const resolvedSnapshot')
     )
 
-    expect(effect).toContain("key === 'assistantSidebarWidthPx' || key === 'petHoverShortcuts'")
+    expect(effect).toContain("key === 'assistantSidebarWidthPx' ||")
+    expect(effect).toContain("key === 'petHoverShortcuts' ||")
+    expect(effect).toContain("key === 'bilibiliConnectionMode' ||")
+    expect(effect).toContain("key === 'deepseekApiKeyStored'")
   })
 
   it('broadcasts pet shortcut previews before the deferred persistence write', () => {

@@ -630,6 +630,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
   writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta) as Promise<FavoriteLedgerEnabledPatch>,
+  writeDefaultFavoriteSystemEnabled: (accountMid: string, enabled: boolean) =>
+    ipcRenderer.invoke('assistant:write-default-favorite-system-enabled', accountMid, enabled) as Promise<boolean>,
   previewPreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.send('assistant:preview-preference-patch', patch, meta),
   restoreDefaultLayoutSize: () =>

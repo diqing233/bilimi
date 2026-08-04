@@ -1,6 +1,32 @@
 import type { DeepSeekTask, DeepSeekTaskKind } from '@shared/types'
 
 const DEEPSEEK_TASK_CHANNEL = 'bilimi.deepseek-task'
+const localTaskListeners = new Set<() => void>()
+const localTasks = new Map<string, DeepSeekTask>()
+let localTaskSnapshot: DeepSeekTask[] = []
+
+function emitLocalTasks() {
+  localTaskSnapshot = [...localTasks.values()]
+  localTaskListeners.forEach((listener) => listener())
+}
+
+export function subscribeLocalDeepSeekTasks(listener: () => void) {
+  localTaskListeners.add(listener)
+  return () => localTaskListeners.delete(listener)
+}
+
+export function getLocalDeepSeekTasks() {
+  return localTaskSnapshot
+}
+
+export function startLocalDeepSeekTask(task: DeepSeekTask) {
+  localTasks.set(task.id, task)
+  emitLocalTasks()
+  return () => {
+    localTasks.delete(task.id)
+    emitLocalTasks()
+  }
+}
 
 type DeepSeekTaskMessage = {
   action: 'start' | 'finish' | 'query' | 'heartbeat'

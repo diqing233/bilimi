@@ -290,6 +290,7 @@ type BilimiDesktopApi = {
   saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
   writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
   writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => Promise<FavoriteLedgerEnabledPatch>
+  writeDefaultFavoriteSystemEnabled?: (accountMid: string, enabled: boolean) => Promise<boolean>
   previewPreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void
   restoreDefaultLayoutSize?: () => Promise<void>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>

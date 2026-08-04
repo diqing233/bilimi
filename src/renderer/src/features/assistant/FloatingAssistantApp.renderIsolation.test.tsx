@@ -1,11 +1,13 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 let ledgerRenderCount = 0
 let settingsRenderCount = 0
 const deepSeekTaskSignal = vi.hoisted(() => ({
-  listener: undefined as undefined | ((tasks: Array<{ id: string; kind: string }>) => void)
+  listeners: new Set<(tasks: Array<{ id: string; kind: string }>) => void>(),
+  localListeners: new Set<() => void>(),
+  localTasks: [] as Array<{ id: string; kind: string }>
 }))
 
 vi.mock('./ControlledFavoriteLedgerPanel', () => ({
@@ -23,10 +25,36 @@ vi.mock('./PanelMotionTuningSettings', () => ({
 }))
 
 vi.mock('./deepSeekTaskSignal', () => ({
-  publishDeepSeekTask: vi.fn(() => vi.fn()),
+  publishDeepSeekTask: vi.fn((task: { id: string; kind: string }) => {
+    deepSeekTaskSignal.localTasks = [
+      ...deepSeekTaskSignal.localTasks.filter((current) => current.id !== task.id),
+      task
+    ]
+    deepSeekTaskSignal.localListeners.forEach((listener) => listener())
+    return vi.fn(() => {
+      deepSeekTaskSignal.localTasks = deepSeekTaskSignal.localTasks.filter((current) => current.id !== task.id)
+      deepSeekTaskSignal.localListeners.forEach((listener) => listener())
+    })
+  }),
+  startLocalDeepSeekTask: vi.fn((task: { id: string; kind: string }) => {
+    deepSeekTaskSignal.localTasks = [
+      ...deepSeekTaskSignal.localTasks.filter((current) => current.id !== task.id),
+      task
+    ]
+    deepSeekTaskSignal.localListeners.forEach((listener) => listener())
+    return vi.fn(() => {
+      deepSeekTaskSignal.localTasks = deepSeekTaskSignal.localTasks.filter((current) => current.id !== task.id)
+      deepSeekTaskSignal.localListeners.forEach((listener) => listener())
+    })
+  }),
+  subscribeLocalDeepSeekTasks: vi.fn((listener: () => void) => {
+    deepSeekTaskSignal.localListeners.add(listener)
+    return vi.fn(() => deepSeekTaskSignal.localListeners.delete(listener))
+  }),
+  getLocalDeepSeekTasks: vi.fn(() => deepSeekTaskSignal.localTasks),
   subscribeDeepSeekTasks: vi.fn((listener: (tasks: Array<{ id: string; kind: string }>) => void) => {
-    deepSeekTaskSignal.listener = listener
-    return vi.fn()
+    deepSeekTaskSignal.listeners.add(listener)
+    return vi.fn(() => deepSeekTaskSignal.listeners.delete(listener))
   })
 }))
 
@@ -70,11 +98,27 @@ function installDesktopApi(preferences = createInitialAssistantPreferences(), pa
   })
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+function publishDeepSeekTasks(tasks: Array<{ id: string; kind: string }>) {
+  deepSeekTaskSignal.listeners.forEach((listener) => listener(tasks))
+}
+
 describe('FloatingAssistantApp render isolation', () => {
   beforeEach(() => {
     ledgerRenderCount = 0
     settingsRenderCount = 0
-    deepSeekTaskSignal.listener = undefined
+    deepSeekTaskSignal.listeners.clear()
+    deepSeekTaskSignal.localListeners.clear()
+    deepSeekTaskSignal.localTasks = []
     installDesktopApi()
   })
 
@@ -164,7 +208,7 @@ describe('FloatingAssistantApp render isolation', () => {
     const rendersBeforeTaskUpdate = settingsRenderCount
 
     act(() => {
-      deepSeekTaskSignal.listener?.([{ id: 'summary:background', kind: 'summary' }])
+      publishDeepSeekTasks([{ id: 'summary:background', kind: 'summary' }])
     })
 
     expect(settingsRenderCount).toBe(rendersBeforeTaskUpdate)
@@ -178,18 +222,126 @@ describe('FloatingAssistantApp render isolation', () => {
     await screen.findByLabelText('设置渲染探针')
 
     act(() => {
-      deepSeekTaskSignal.listener?.([{ id: 'connection:active', kind: 'connection-test' }])
+      publishDeepSeekTasks([{ id: 'connection:active', kind: 'connection-test' }])
     })
 
     expect(screen.getByRole('button', { name: '保存测试中' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '重置 DeepSeek' })).toBeDisabled()
 
     act(() => {
-      deepSeekTaskSignal.listener?.([])
+      publishDeepSeekTasks([])
     })
 
     expect(screen.getByRole('button', { name: '保存并测试' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '重置 DeepSeek' })).toBeEnabled()
+  })
+
+  it('does not rerender the settings workspace while a manual DeepSeek test is pending', async () => {
+    const result = deferred<{ ok: boolean; message: string }>()
+    installDesktopApi(createInitialAssistantPreferences({ deepseekEnabled: true }), {
+      testDeepSeekConnection: vi.fn(() => result.promise),
+      patchPreferences: vi.fn(async (patch) => createInitialAssistantPreferences({
+        deepseekEnabled: true,
+        ...patch
+      }))
+    })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await screen.findByLabelText('设置渲染探针')
+    const rendersBeforeClick = settingsRenderCount
+
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
+
+    expect(await screen.findByRole('button', { name: '保存测试中' })).toBeDisabled()
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+
+    await act(async () => {
+      result.resolve({ ok: true, message: 'DeepSeek connection succeeded.' })
+      await result.promise
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存并测试' })).toBeEnabled())
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+  })
+
+  it('does not rerender the settings workspace while diagnostics are pending', async () => {
+    const result = deferred<{ ok: boolean; items: [] }>()
+    installDesktopApi(createInitialAssistantPreferences(), {
+      runStartupDiagnostics: vi.fn(() => result.promise)
+    })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await screen.findByLabelText('设置渲染探针')
+    const rendersBeforeClick = settingsRenderCount
+
+    fireEvent.click(screen.getByRole('button', { name: '运行诊断' }))
+
+    expect(await screen.findByRole('button', { name: '诊断中' })).toBeDisabled()
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+
+    await act(async () => {
+      result.resolve({ ok: true, items: [] })
+      await result.promise
+    })
+    expect(await screen.findByRole('button', { name: '运行诊断' })).toBeEnabled()
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+  })
+
+  it('updates the default favorite toggle without rerendering the settings workspace', async () => {
+    const reclassification = deferred<unknown>()
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [] }
+      }
+    })
+    installDesktopApi(preferences, {
+      writeDefaultFavoriteSystemEnabled: vi.fn(async () => false),
+      patchPreferences: vi.fn(async (patch) => createInitialAssistantPreferences({ ...preferences, ...patch })),
+      commandOldFavoriteWorkspaceV1: vi.fn(() => reclassification.promise)
+    })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await screen.findByLabelText('设置渲染探针')
+    const rendersBeforeClick = settingsRenderCount
+    const toggle = screen.getByRole('checkbox', { name: '启用默认收藏夹' })
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => expect(toggle).not.toBeChecked())
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+
+    await act(async () => {
+      reclassification.resolve(undefined)
+      await reclassification.promise
+    })
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+  })
+
+  it('updates the Bilibili connection choice without rerendering the settings workspace', async () => {
+    const saved = deferred<ReturnType<typeof createInitialAssistantPreferences>>()
+    const preferences = createInitialAssistantPreferences({ bilibiliConnectionMode: 'auto' })
+    installDesktopApi(preferences, {
+      patchPreferences: vi.fn(() => saved.promise)
+    })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await screen.findByLabelText('设置渲染探针')
+    const rendersBeforeClick = settingsRenderCount
+    const direct = screen.getByRole('radio', { name: /始终直连/ })
+
+    fireEvent.click(direct)
+
+    await waitFor(() => expect(direct).toBeChecked())
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
+
+    await act(async () => {
+      saved.resolve(createInitialAssistantPreferences({ bilibiliConnectionMode: 'direct' }))
+      await saved.promise
+    })
+    expect(settingsRenderCount).toBe(rendersBeforeClick)
   })
 
   it('shows only the pet wake action as busy while the ready signal is pending', async () => {

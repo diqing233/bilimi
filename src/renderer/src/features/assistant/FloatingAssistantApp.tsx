@@ -32,7 +32,7 @@ import { createAssistantPreferenceOriginId } from '@shared/assistantPreferencePa
 import { createNotePosterText } from '@shared/videoNoteArchive'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveProtection'
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -84,7 +84,7 @@ import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
 }
-import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
+import { getLocalDeepSeekTasks, publishDeepSeekTask, startLocalDeepSeekTask, subscribeDeepSeekTasks, subscribeLocalDeepSeekTasks } from './deepSeekTaskSignal'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -1168,14 +1168,12 @@ type SettingsWorkspaceData = {
     accounts: Array<{ uid: string; nickname?: string; retained: boolean }>
   } | null
   localDataUnavailable: boolean
-  connectionTestRunning: boolean
   petWakeRunning: boolean
   petHoverShortcutFieldStore: ReturnType<typeof createPetHoverShortcutFieldStore>
   preferences: AssistantPreferences
   selectedTranscriptionModelId: TranscriptionModelId
   settingsBodyRef: { readonly current: HTMLDivElement | null }
   settingsDiagnosticReport: StartupDiagnosticReport | null
-  settingsDiagnosticRunning: boolean
   settingsDiagnosticsExpanded: boolean
   settingsJumpValue: SettingsJumpValue
   settingsKeywordSuggestionView: 'pending' | 'processed'
@@ -1211,11 +1209,10 @@ type SettingsWorkspaceActions = {
   restoreDefaultLayoutSize: () => Promise<void>
   restoreKeywordSuggestionToPending: (suggestion: FavoriteKeywordSuggestion) => void
   revalidateTranscriptionModel: (id: TranscriptionModelId) => Promise<void>
-  runSettingsDiagnostics: () => Promise<void>
+  runSettingsDiagnostics: () => Promise<StartupDiagnosticReport | null>
   saveAndTestDeepSeekConnection: () => Promise<void>
   setDeepSeekApiKeyDraft: (value: string) => void
   setDefaultFavoriteSystemEnabled: (enabled: boolean) => Promise<void>
-  setSettingsDiagnosticsExpanded: (value: boolean | ((current: boolean) => boolean)) => void
   setSettingsKeywordSuggestionView: (view: 'pending' | 'processed') => void
   setSettingsResetConfirmation: (confirmation: 'deepseek' | 'all' | null) => void
   setTranscriptionModelForCurrentAccount: (id: TranscriptionModelId) => void
@@ -1239,6 +1236,157 @@ type SettingsWorkspaceContentProps = {
   data: SettingsWorkspaceData
   getActions: () => SettingsWorkspaceActions
 }
+
+const SettingsDiagnosticsControl = memo(function SettingsDiagnosticsControl({
+  initialReport,
+  initialExpanded,
+  getActions
+}: {
+  initialReport: StartupDiagnosticReport | null
+  initialExpanded: boolean
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [running, setRunning] = useState(false)
+  const [report, setReport] = useState(initialReport)
+  const [expanded, setExpanded] = useState(initialExpanded)
+
+  async function runDiagnostics() {
+    if (running) return
+    setRunning(true)
+    try {
+      const nextReport = await getActions().runSettingsDiagnostics()
+      if (nextReport) {
+        setReport(nextReport)
+        setExpanded(true)
+      }
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return <>
+    <div className="assistant-settings__diagnostics-head">
+      <div>
+        <strong>启动与功能诊断</strong>
+        <small>检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</small>
+      </div>
+      <button type="button" onClick={() => void runDiagnostics()} disabled={running}>
+        {running ? '诊断中' : '运行诊断'}
+      </button>
+      {report ? (
+        <button type="button" onClick={() => setExpanded((current) => !current)}>
+          {expanded ? '收起诊断' : '展开诊断'}
+        </button>
+      ) : null}
+    </div>
+    {report && expanded ? (
+      <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
+        {report.items.map((item) => (
+          <li key={item.id} data-status={item.status}>
+            <strong>{item.label}</strong>
+            <span>{item.message}</span>
+            {item.action ? <small>{item.action}</small> : null}
+          </li>
+        ))}
+      </ul>
+    ) : null}
+  </>
+})
+
+const DeepSeekConnectionActions = memo(function DeepSeekConnectionActions({
+  getActions
+}: {
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const localTasks = useSyncExternalStore(
+    subscribeLocalDeepSeekTasks,
+    getLocalDeepSeekTasks,
+    getLocalDeepSeekTasks
+  )
+  const [remoteTasks, setRemoteTasks] = useState<DeepSeekTask[]>([])
+  useEffect(() => subscribeDeepSeekTasks(setRemoteTasks), [])
+  const running = localTasks.some((task) => task.kind === 'connection-test') ||
+    remoteTasks.some((task) => task.kind === 'connection-test')
+
+  return <div className="assistant-settings__actions">
+    <button type="button" disabled={running} onClick={() => void getActions().saveAndTestDeepSeekConnection()}>
+      {running ? '保存测试中' : '保存并测试'}
+    </button>
+    <button type="button" disabled={running} onClick={() => getActions().setSettingsResetConfirmation('deepseek')}>
+      重置 DeepSeek
+    </button>
+  </div>
+})
+
+const DefaultFavoriteSystemControl = memo(function DefaultFavoriteSystemControl({
+  accountMid,
+  initialEnabled,
+  getActions
+}: {
+  accountMid?: string
+  initialEnabled: boolean
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [enabled, setEnabled] = useState(initialEnabled)
+  const available = defaultFavoriteSystemToggleAvailable(accountMid)
+
+  return <label>
+    <SettingsPreferenceCheckbox
+      aria-label="启用默认收藏夹"
+      disabled={!available}
+      title={available ? undefined : '登录 B 站后可为当前账号设置默认收藏夹体系'}
+      checked={enabled}
+      onCommit={(nextEnabled) => {
+        setEnabled(nextEnabled)
+        void getActions().setDefaultFavoriteSystemEnabled(nextEnabled).catch(() => setEnabled(!nextEnabled))
+      }}
+    />
+    <span>启用默认收藏夹</span>
+  </label>
+})
+
+const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeControl({
+  initialMode,
+  getActions
+}: {
+  initialMode: AssistantPreferences['bilibiliConnectionMode']
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [mode, setMode] = useState(initialMode)
+  const [message, setMessage] = useState('')
+
+  async function chooseMode(nextMode: AssistantPreferences['bilibiliConnectionMode']) {
+    const previous = mode
+    setMode(nextMode)
+    setMessage('正在应用 B 站连接方式…')
+    try {
+      await getActions().chooseBilibiliConnectionMode(nextMode)
+      setMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
+    } catch (error) {
+      setMode(previous)
+      setMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  return <>
+    {([
+      ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
+      ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
+    ] as const).map(([value, label, help]) => (
+      <label key={value}>
+        <input
+          type="radio"
+          name="bilibili-connection-mode"
+          checked={mode === value}
+          onChange={() => void chooseMode(value)}
+        />
+        <span>{label}</span>
+        <small>{help}</small>
+      </label>
+    ))}
+    {message ? <p role="status">{message}</p> : null}
+  </>
+})
 
 const OldFavoriteBatchSizeField = memo(function OldFavoriteBatchSizeField({
   value,
@@ -1324,14 +1472,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     deepSeekKeyFieldStatus,
     localDataInfo,
     localDataUnavailable,
-    connectionTestRunning,
     petWakeRunning,
     petHoverShortcutFieldStore,
     preferences,
     selectedTranscriptionModelId,
     settingsBodyRef,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -1470,40 +1616,11 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="diagnostics"
             >
               <legend>诊断</legend>
-              <div className="assistant-settings__diagnostics-head">
-                <div>
-                  <strong>启动与功能诊断</strong>
-                  <small>检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</small>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void actions.current.runSettingsDiagnostics()}
-                  disabled={settingsDiagnosticRunning}
-                >
-                  {settingsDiagnosticRunning ? '诊断中' : '运行诊断'}
-                </button>
-                {settingsDiagnosticReport ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      actions.current.setSettingsDiagnosticsExpanded((currentExpanded) => !currentExpanded)
-                    }
-                  >
-                    {settingsDiagnosticsExpanded ? '收起诊断' : '展开诊断'}
-                  </button>
-                ) : null}
-              </div>
-              {settingsDiagnosticReport && settingsDiagnosticsExpanded ? (
-                <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
-                  {settingsDiagnosticReport.items.map((item) => (
-                    <li key={item.id} data-status={item.status}>
-                      <strong>{item.label}</strong>
-                      <span>{item.message}</span>
-                      {item.action ? <small>{item.action}</small> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+              <SettingsDiagnosticsControl
+                initialReport={settingsDiagnosticReport}
+                initialExpanded={settingsDiagnosticsExpanded}
+                getActions={getActions}
+              />
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--deepseek"
@@ -1647,22 +1764,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                       }
                     />
                   </label>
-                  <div className="assistant-settings__actions">
-                    <button
-                      type="button"
-                      disabled={connectionTestRunning}
-                      onClick={() => void actions.current.saveAndTestDeepSeekConnection()}
-                    >
-                      {connectionTestRunning ? '保存测试中' : '保存并测试'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={connectionTestRunning}
-                      onClick={() => actions.current.setSettingsResetConfirmation('deepseek')}
-                    >
-                      重置 DeepSeek
-                    </button>
-                  </div>
+                  <DeepSeekConnectionActions getActions={getActions} />
                   <aside className="assistant-settings__deepseek-recommendation">
                     <strong>致谢 云枢智元</strong>
                     <p>大模型 Token 中转，低至官方价 2 折起</p>
@@ -2212,17 +2314,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="favorites"
             >
               <legend>默认收藏夹体系</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label="启用默认收藏夹"
-                  disabled={!defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid)}
-                  title={defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid) ? undefined : '登录 B 站后可为当前账号设置默认收藏夹体系'}
-                  checked={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
-                  onChange={(event) => void actions.current.setDefaultFavoriteSystemEnabled(event.currentTarget.checked)}
-                />
-                <span>启用默认收藏夹</span>
-              </label>
+              <DefaultFavoriteSystemControl
+                key={resolvedSnapshot.accountMid ?? 'signed-out'}
+                accountMid={resolvedSnapshot.accountMid}
+                initialEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+                getActions={getActions}
+              />
               <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
               <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
               <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
@@ -2234,22 +2331,10 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               <legend>B 站连接方式</legend>
               <p>只影响 bilimi 内的 B 站网页、API、图片和视频会话，不会修改 Windows 或 Clash 的代理设置，也不会影响 DeepSeek、转写下载或其他应用网络。</p>
               <p>自动模式跟随 Windows 当前系统代理；未启用系统代理时通常与直连没有区别。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
-              {([
-                ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
-                ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
-              ] as const).map(([mode, label, help]) => (
-                <label key={mode}>
-                  <input
-                    type="radio"
-                    name="bilibili-connection-mode"
-                    checked={preferences.bilibiliConnectionMode === mode}
-                    onChange={() => void actions.current.chooseBilibiliConnectionMode(mode)}
-                  />
-                  <span>{label}</span>
-                  <small>{help}</small>
-                </label>
-              ))}
-              {settingsLearningMessage.startsWith('B 站连接方式') ? <p role="status">{settingsLearningMessage}</p> : null}
+              <BilibiliConnectionModeControl
+                initialMode={preferences.bilibiliConnectionMode}
+                getActions={getActions}
+              />
             </fieldset>
             {localDataInfo ? <fieldset
               className="assistant-settings__group assistant-settings__group--local-data"
@@ -2410,11 +2495,11 @@ export function FloatingAssistantApp({
     useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
-  const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
   const [petWakeRunning, setPetWakeRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
+  const [defaultFavoriteSystemOverrides, setDefaultFavoriteSystemOverrides] = useState<Record<string, boolean>>({})
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsResetConfirmation, setSettingsResetConfirmation] =
@@ -2573,7 +2658,11 @@ export function FloatingAssistantApp({
     void refreshLocalDataInfo()
   }, [activeView, refreshLocalDataInfo])
 
-  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[snapshot?.accountMid ?? '']?.transcriptionModelId ?? 'whisper-small'
+  const currentAccountMid = snapshot?.accountMid ?? ''
+  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[currentAccountMid]?.transcriptionModelId ?? 'whisper-small'
+  const defaultFavoriteSystemEnabled = currentAccountMid in defaultFavoriteSystemOverrides
+    ? defaultFavoriteSystemOverrides[currentAccountMid]
+    : preferences.favoriteAccountPreferences?.[currentAccountMid]?.defaultFavoriteSystemEnabled ?? true
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(
     () => resolveGlobalTranscriptionStatus(
       transcriptionQueue,
@@ -2667,8 +2756,7 @@ export function FloatingAssistantApp({
     return resolveFavoriteOrganizationLamp({
       snapshot: favoriteOrganizationSnapshot,
       acknowledgedWorkspaceId: acknowledgedFavoriteWorkspaces[accountMid],
-      defaultFavoriteSystemEnabled:
-        preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled ?? true,
+      defaultFavoriteSystemEnabled,
       ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
       favoriteLedgerStatus
     })
@@ -2677,7 +2765,7 @@ export function FloatingAssistantApp({
     favoriteOrganizationSnapshot,
     acknowledgedFavoriteWorkspaces,
     snapshot?.accountMid,
-    preferences.favoriteAccountPreferences,
+    defaultFavoriteSystemEnabled,
     preferences.favoriteLedgers
   ])
 
@@ -2704,9 +2792,11 @@ export function FloatingAssistantApp({
   }
 
   function startDeepSeekTask(task: DeepSeekTask) {
+    const finishLocalTask = startLocalDeepSeekTask(task)
     setLocalDeepSeekTasks((tasks) => [...tasks.filter((current) => current.id !== task.id), task])
     const finishBroadcast = publishDeepSeekTask(task)
     return () => {
+      finishLocalTask()
       setLocalDeepSeekTasks((tasks) => tasks.filter((current) => current.id !== task.id))
       finishBroadcast()
     }
@@ -3098,7 +3188,10 @@ export function FloatingAssistantApp({
         petHoverShortcutFieldStoreRef.current.set(patch.petHoverShortcuts)
       }
       if (Object.keys(patch).every((key) =>
-        key === 'assistantSidebarWidthPx' || key === 'petHoverShortcuts'
+        key === 'assistantSidebarWidthPx' ||
+        key === 'petHoverShortcuts' ||
+        key === 'bilibiliConnectionMode' ||
+        key === 'deepseekApiKeyStored'
       )) {
         preferencesRef.current = nextPreferences
         return
@@ -3553,8 +3646,22 @@ export function FloatingAssistantApp({
       }
     }
 
+    const settingsPatch: Partial<AssistantPreferences> = {}
+    const committedSettings = committedPreferencesRef.current
+    if (nextPreferences.deepseekApiKeyStored !== committedSettings.deepseekApiKeyStored) {
+      settingsPatch.deepseekApiKeyStored = nextPreferences.deepseekApiKeyStored
+    }
+    if (settingsSnapshot.deepseekModel !== committedSettings.deepseekModel) {
+      settingsPatch.deepseekModel = settingsSnapshot.deepseekModel
+    }
+    if (settingsSnapshot.deepseekBaseUrl !== committedSettings.deepseekBaseUrl) {
+      settingsPatch.deepseekBaseUrl = settingsSnapshot.deepseekBaseUrl
+    }
+
     try {
-      await persistPreferences(nextPreferences)
+      if (Object.keys(settingsPatch).length > 0) {
+        await getPreferencePatchScheduler().scheduleAndWait(settingsPatch)
+      }
     } catch {
       if (keyWasSaved) {
         setGlobalFeedback('DeepSeek 密钥已保存，但其他设置保存失败，请重试。')
@@ -3775,7 +3882,6 @@ export function FloatingAssistantApp({
       return
     }
 
-    setSettingsDiagnosticRunning(true)
     setSettingsDiagnosticMessage('')
     tellPet('progress', '正在运行 bilimi 诊断。')
 
@@ -3795,18 +3901,16 @@ export function FloatingAssistantApp({
         )
       }
 
-      setSettingsDiagnosticReport(nextReport)
-      setSettingsDiagnosticsExpanded(true)
       setSettingsDiagnosticMessage('')
       setGlobalFeedback(nextReport.ok ? '诊断完成。' : '诊断完成，有项目需要处理。')
       tellPet(nextReport.ok ? 'success' : 'error', nextReport.ok ? '诊断完成。' : '诊断发现需要处理的项目。')
+      return nextReport
     } catch (error) {
       const message = error instanceof Error ? error.message : '诊断失败。'
       setSettingsDiagnosticMessage('')
       setGlobalFeedback(message)
       tellPet('error', message)
-    } finally {
-      setSettingsDiagnosticRunning(false)
+      return null
     }
   }
 
@@ -4377,20 +4481,10 @@ export function FloatingAssistantApp({
   }, [loadVideoNoteArchives, workspaceRequest])
 
   async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
-    const previous = preferencesRef.current
-    const next = createInitialAssistantPreferences({ ...previous, bilibiliConnectionMode: mode })
-    applyPreferenceSnapshot(next)
-    try {
-      if (!window.bilimiDesktop?.patchPreferences) {
-        throw new Error('当前版本无法应用 B 站连接方式')
-      }
-      const saved = await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
-      applyPreferenceSnapshot(createInitialAssistantPreferences(saved))
-      setSettingsLearningMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
-    } catch (error) {
-      applyPreferenceSnapshot(previous)
-      setSettingsLearningMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+    if (!window.bilimiDesktop?.patchPreferences) {
+      throw new Error('当前版本无法应用 B 站连接方式')
     }
+    await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
   }
 
   async function saveFavoriteLedgerEnabled(ledgerId: string, enabled: boolean) {
@@ -4433,7 +4527,7 @@ export function FloatingAssistantApp({
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid) return
     const current = preferencesRef.current.favoriteAccountPreferences?.[accountMid]
-    await persistPreferences(createInitialAssistantPreferences({
+    const nextPreferences = createInitialAssistantPreferences({
       ...preferencesRef.current,
       favoriteAccountPreferences: {
         ...(preferencesRef.current.favoriteAccountPreferences ?? {}),
@@ -4443,8 +4537,27 @@ export function FloatingAssistantApp({
           favoriteLedgers: current?.favoriteLedgers ?? preferencesRef.current.favoriteLedgers
         }
       }
+    })
+    if (window.bilimiDesktop?.writeDefaultFavoriteSystemEnabled) {
+      await window.bilimiDesktop.writeDefaultFavoriteSystemEnabled(accountMid, enabled)
+    } else {
+      await window.bilimiDesktop?.patchPreferences?.({
+        favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences
+      })
+    }
+    preferencesRef.current = nextPreferences
+    committedPreferencesRef.current = nextPreferences
+    setDefaultFavoriteSystemOverrides((currentOverrides) => ({
+      ...currentOverrides,
+      [accountMid]: enabled
     }))
-    await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(accountMid, { type: 'reclassify-favorite-configuration' })
+    void window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(
+      accountMid,
+      { type: 'reclassify-favorite-configuration' }
+    ).catch(() => {
+      setGlobalFeedback('默认收藏夹设置已保存，但后台重分类失败；下次打开整理旧藏时会重新计算。')
+      tellPet('error', '默认收藏夹设置已保存，但后台重分类这次没有完成。')
+    })
   }
 
   function setTranscriptionModelForCurrentAccount(transcriptionModelId: TranscriptionModelId) {
@@ -4530,7 +4643,6 @@ export function FloatingAssistantApp({
     jumpToSettingsSection,
     syncSettingsJumpFromScroll,
     runSettingsDiagnostics,
-    setSettingsDiagnosticsExpanded,
     toggleDeepSeekEnabled,
     updateDeepSeekPreference,
     setDeepSeekApiKeyDraft,
@@ -4571,15 +4683,8 @@ export function FloatingAssistantApp({
     }
     return settingsActionsRef.current
   })
-  const connectionTestRunning = useMemo(
-    () =>
-      localDeepSeekTasks.some((task) => task.kind === 'connection-test') ||
-      remoteDeepSeekTasks.some((task) => task.kind === 'connection-test'),
-    [localDeepSeekTasks, remoteDeepSeekTasks]
-  )
   const settingsWorkspaceData = useMemo<SettingsWorkspaceData>(() => ({
     accountMid: resolvedSnapshot.accountMid,
-    connectionTestRunning,
     petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
@@ -4590,7 +4695,6 @@ export function FloatingAssistantApp({
     selectedTranscriptionModelId,
     settingsBodyRef,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -4600,7 +4704,6 @@ export function FloatingAssistantApp({
     transcriptionModelProgress,
     transcriptionModels
   }), [
-    connectionTestRunning,
     petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
@@ -4610,7 +4713,6 @@ export function FloatingAssistantApp({
     resolvedSnapshot.accountMid,
     selectedTranscriptionModelId,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -4775,7 +4877,7 @@ export function FloatingAssistantApp({
             currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
-            defaultFavoriteSystemEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+            defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
             onSaveLedgers={saveFavoriteLedgerRulesForPanel}
             onSaveLedgerEnabled={saveFavoriteLedgerEnabledForPanel}
