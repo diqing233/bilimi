@@ -1,6 +1,25 @@
 import { useEffect, useState } from 'react'
-import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteInventoryMetricProjection, OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
+
+type SourceCountMode = 'planned' | 'protected' | 'unavailable'
+type SourceFolderProjection = OldFavoriteInventoryMetricProjection['sourceFolders'][number]
+
+const SOURCE_COUNT_MODES: Record<SourceCountMode, {
+  label: string
+  next: SourceCountMode
+  field: 'plannedAidCount' | 'protectedAidCount' | 'unavailableAidCount'
+}> = {
+  planned: { label: '本轮待整理', next: 'protected', field: 'plannedAidCount' },
+  protected: { label: '已保护', next: 'unavailable', field: 'protectedAidCount' },
+  unavailable: { label: '失效视频', next: 'planned', field: 'unavailableAidCount' }
+}
+
+function sourceProjectionValue(folder: SourceFolderProjection, mode: SourceCountMode): number | '—' | '待确认' {
+  if (mode === 'planned' && !folder.isBilimiWorkFolder && !folder.selected) return '—'
+  const value = folder[SOURCE_COUNT_MODES[mode].field]
+  return folder.confirmed && value !== null ? value : '待确认'
+}
 
 type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
@@ -51,7 +70,7 @@ export function OldFavoriteScanOverviewStep({
   ,viewScope: controlledViewScope
   ,onViewScopeChange
 }: OldFavoriteScanOverviewStepProps) {
-  const [sourceCountMode, setSourceCountMode] = useState<'selected' | 'invalid'>('selected')
+  const [sourceCountMode, setSourceCountMode] = useState<SourceCountMode>('planned')
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
   const retryAvailableAt = snapshot && !('recovery' in snapshot) ? snapshot.scan.retryAvailableAt : undefined
   const [retryClock, setRetryClock] = useState(() => Date.now())
@@ -82,23 +101,19 @@ export function OldFavoriteScanOverviewStep({
   const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
   const overview = activeSnapshot?.overview
   const hasMultipleSegments = Boolean(activeSnapshot?.hasMultipleSegments || (activeSnapshot?.segments.length ?? 0) > 1)
-  const currentItems = activeSnapshot?.currentSegment?.items ?? []
-  const currentItemCounts = new Map<string, { itemCount: number; invalidItemCount: number }>()
-  for (const item of currentItems) {
-    const unavailable = item.unavailable === true || item.title?.trim() === '已失效视频' || item.author?.trim() === '账号已注销'
-    for (const sourceFolderId of new Set(item.sourceFolderIds)) {
-      const counts = currentItemCounts.get(sourceFolderId) ?? { itemCount: 0, invalidItemCount: 0 }
-      if (unavailable) counts.invalidItemCount += 1
-      else counts.itemCount += 1
-      currentItemCounts.set(sourceFolderId, counts)
-    }
-  }
-  const overviewFolders = new Map((overview?.sourceFolders ?? []).map((folder) => [folder.id, folder]))
-  const folders = (activeSnapshot?.sourceFolders ?? []).map((folder) => {
-    if (!hasMultipleSegments) return folder
-    const counts = viewScope === 'all' ? overviewFolders.get(folder.id) : currentItemCounts.get(folder.id)
-    return { ...folder, itemCount: counts?.itemCount ?? 0, invalidItemCount: counts?.invalidItemCount ?? 0 }
-  })
+  const inventoryMetrics = activeSnapshot?.inventoryMetrics
+  const legacyProjectionConfirmed = activeSnapshot?.scan.phase === 'complete'
+  const folders: SourceFolderProjection[] = inventoryMetrics?.sourceFolders ?? (activeSnapshot?.sourceFolders ?? []).map((folder) => ({
+    id: folder.id,
+    title: folder.title,
+    relationshipCount: folder.itemCount,
+    plannedAidCount: legacyProjectionConfirmed ? folder.selected && !folder.isBilimiWorkFolder ? folder.itemCount : 0 : null,
+    protectedAidCount: legacyProjectionConfirmed ? 0 : null,
+    unavailableAidCount: legacyProjectionConfirmed ? folder.invalidItemCount ?? 0 : null,
+    selected: Boolean(folder.selected),
+    isBilimiWorkFolder: folder.isBilimiWorkFolder,
+    confirmed: legacyProjectionConfirmed
+  }))
   const userFolders = folders.filter((folder) => !folder.isBilimiWorkFolder)
   const bilimiFolders = folders.filter((folder) => folder.isBilimiWorkFolder)
   const selectedSourceIds = new Set(userFolders
@@ -119,10 +134,19 @@ export function OldFavoriteScanOverviewStep({
   const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
   const fetchedTagItemCount = tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
+  const relationshipCount = inventoryMetrics?.relationshipCount ?? totalItemCount
+  const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
+  const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
+  const lifecycleCountsConfirmed = inventoryMetrics?.authority !== 'incomplete'
   const allUserSourcesSelected = userFolders.length > 0 && selectedSourceIds.size === userFolders.length
-  const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.itemCount, 0)
-  const selectedSourceItemCount = userFolders.reduce((count, folder) => count + (selectedSourceIds.has(folder.id) ? folder.itemCount : 0), 0)
-  const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.invalidItemCount ?? 0), 0)
+  const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.relationshipCount, 0)
+  const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.unavailableAidCount ?? 0), 0)
+  const unavailableAidCount = inventoryMetrics?.unavailableAidCount ?? invalidSourceItemCount
+  const sourceMode = SOURCE_COUNT_MODES[sourceCountMode]
+  const sourceModeValues = userFolders.map((folder) => sourceProjectionValue(folder, sourceCountMode))
+  const sourceModeSummary = sourceModeValues.some((value) => value === '待确认')
+    ? '待确认'
+    : sourceModeValues.reduce<number>((count, value) => count + (typeof value === 'number' ? value : 0), 0)
   const guidance = checkingRiskControlRecovery
     ? '正在检查 B 站收藏读取是否已恢复；检测成功后会继续扫描，不会重复读取已保存分页。'
     : retryCoolingDown
@@ -169,10 +193,18 @@ export function OldFavoriteScanOverviewStep({
     </div>
     {snapshot ? <>
       <div className="favorite-ledger-panel__scan-metrics" aria-label="本轮整理统计">
-        <article><span>来源总数</span><strong>{totalItemCount}</strong></article>
-        <article><span>本轮待整理</span><strong>{selectedAidCount}</strong></article>
-        <article><span>已保护跳过</span><strong>{snapshot.protectedAidCount ?? 0}</strong></article>
-        <article><span>待续新增</span><strong>{snapshot.continuationCount}</strong></article>
+        <article aria-label="扫描总数" title="B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。">
+          <span>扫描总数</span><strong>{relationshipCount}</strong>
+        </article>
+        <article aria-label="本轮待整理" title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
+          <span>本轮待整理</span><strong>{lifecycleCountsConfirmed ? plannedAidCount : '待确认'}</strong>
+        </article>
+        <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
+          <span>已保护跳过</span><strong>{lifecycleCountsConfirmed ? protectedAidCount : '待确认'}</strong>
+        </article>
+        <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
+          <span>失效视频</span><strong>{lifecycleCountsConfirmed ? unavailableAidCount : '待确认'}</strong>
+        </article>
       </div>
       <p className="favorite-ledger-panel__scan-explanation">扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。</p>
     </> : null}
@@ -213,9 +245,9 @@ export function OldFavoriteScanOverviewStep({
         ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后{resumableFailedScan ? '继续扫描' : '重新扫描'}</button>
         : null}
     </> : null}
-    <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
-    {snapshot?.mode === 'incremental' && snapshot.protectedAidCount
-      ? <p role="status">增量扫描已跳过 {snapshot.protectedAidCount} 条已保护视频。</p>
+    <p>已发现 {folders.length} 个 B站收藏夹。</p>
+    {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
+      ? <p role="status">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
       : null}
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
@@ -230,14 +262,14 @@ export function OldFavoriteScanOverviewStep({
           <span>总数</span><small>（{totalUserSourceItemCount}）</small>
         </span>
         <span role="columnheader" className="favorite-ledger-panel__source-metric-heading favorite-ledger-panel__source-metric-heading--toggle">
-          <span>{sourceCountMode === 'selected' ? '已选来源' : '失效视频'}</span>
+          <span>{sourceMode.label}</span>
           <button type="button" className="favorite-ledger-panel__source-count-toggle"
-            aria-label={sourceCountMode === 'selected' ? `已选来源（${selectedSourceItemCount}）` : `失效视频（${invalidSourceItemCount}）`}
-            title={sourceCountMode === 'selected' ? '切换为失效视频' : '切换为已选来源'}
-            onClick={() => setSourceCountMode((current) => current === 'selected' ? 'invalid' : 'selected')}>
+            aria-label={`${sourceMode.label}（${sourceModeSummary}）`}
+            title={`切换为${SOURCE_COUNT_MODES[sourceMode.next].label}`}
+            onClick={() => setSourceCountMode(sourceMode.next)}>
             <span aria-hidden="true">⇄</span>
           </button>
-          <small>（{sourceCountMode === 'selected' ? selectedSourceItemCount : invalidSourceItemCount}）</small>
+          <small>（{sourceModeSummary}）</small>
         </span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
@@ -250,10 +282,8 @@ export function OldFavoriteScanOverviewStep({
                 onSelectSourceFolders([...next])
               }} /></span>
             <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
-            <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
-            <span role="cell" className="favorite-ledger-panel__source-count">{sourceCountMode === 'selected'
-              ? selectedSourceIds.has(folder.id) ? folder.itemCount : 0
-              : folder.invalidItemCount ?? 0}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, sourceCountMode)}</span>
           </label>
         </li>)}
       </ul>
@@ -261,13 +291,13 @@ export function OldFavoriteScanOverviewStep({
     {bilimiFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
         <span role="columnheader" aria-label="选择" /><span role="columnheader">bilimi 工作夹</span>
-        <span role="columnheader">已有</span><span role="columnheader">本轮待整理</span>
+        <span role="columnheader">总数</span><span role="columnheader">{sourceMode.label}</span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
         {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi">
           <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">0</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, sourceCountMode)}</span>
         </li>)}
       </ul>
     </div> : null}

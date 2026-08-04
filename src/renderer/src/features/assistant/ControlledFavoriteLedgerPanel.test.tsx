@@ -1364,7 +1364,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).not.toBeInTheDocument()
   })
 
-  it('keeps the legacy scan source tables for user folders and read-only Bilimi work folders', async () => {
+  it('keeps incomplete source tables selectable for users and read-only for Bilimi work folders', async () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1385,11 +1385,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     const userTable = await screen.findByRole('table', { name: '用户收藏夹' })
-    expect(within(userTable).getByRole('button', { name: '已选来源（2）' })).toBeInTheDocument()
+    expect(within(userTable).getByRole('button', { name: '本轮待整理（待确认）' })).toBeInTheDocument()
     expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
     const bilimiTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
     expect(within(bilimiTable).getByText('Bilimi Inbox')).toBeInTheDocument()
     expect(within(bilimiTable).getByText('7')).toBeInTheDocument()
+    expect(within(bilimiTable).getByText('待确认')).toBeInTheDocument()
   })
 
   it('rebuilds a corrupt workspace and restores the persisted snapshot after remount', async () => {

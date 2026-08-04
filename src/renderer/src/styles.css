@@ -5688,6 +5688,11 @@ body[data-floating-window="true"],
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+.favorite-ledger-panel__scan-metrics strong {
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+}
 .favorite-ledger-panel__tag-result-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -6004,6 +6009,11 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__source-count {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.favorite-ledger-panel__source-count {
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
 }
 .favorite-ledger-panel__source-list {
   display: grid;

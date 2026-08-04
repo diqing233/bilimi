@@ -26,12 +26,12 @@
 - Test: `src/shared/oldFavoriteWorkspace.test.ts`
 - Test: `electron/main/favoriteRepositoryService.test.ts`
 
-- [ ] Add failing tests for relationship total, global unavailable/protected/planned unique counts, and per-folder total/planned/protected/unavailable projections.
-- [ ] Add a failing test proving one AID in two folders contributes two relations but one global unique lifecycle state.
-- [ ] Add failing tests for active, source-pending, organization-conflict, and recycled lifecycle states.
-- [ ] Run focused tests and confirm failures are caused by missing fields/state transitions.
-- [ ] Add versioned shared types and normalization that preserve old snapshots without inventing authoritative remote facts.
-- [ ] Re-run focused tests and keep existing workspace/repository tests green.
+- [x] Add failing tests for relationship total, global unavailable/protected/planned unique counts, and per-folder total/planned/protected/unavailable projections.
+- [x] Add a failing test proving one AID in two folders contributes two relations but one global unique lifecycle state.
+- [x] Add failing tests for active, source-pending, organization-conflict, and recycled lifecycle states.
+- [x] Run focused tests and confirm failures are caused by missing fields/state transitions.
+- [x] Add versioned shared types and normalization that preserve old snapshots without inventing authoritative remote facts.
+- [x] Re-run focused tests and keep existing workspace/repository tests green.
 
 ### Task 2: Complete-scan authority and recycle transitions
 
@@ -41,11 +41,11 @@
 - Test: `electron/main/favoriteRepositoryService.test.ts`
 - Test: `electron/main/oldFavoriteWorkspaceCoordinator.test.ts`
 
-- [ ] Add failing tests where a complete scan moves a no-source saved video to recycle and an incomplete scan preserves it as source-pending.
-- [ ] Add failing tests where changed managed placement plus an ordinary source returns a saved video to organization with existing metadata/tags.
-- [ ] Add a failing test for a local-only saved result remaining protected when no remote placement was ever expected.
-- [ ] Implement authoritative observation epochs and lifecycle projection without mutating notes/transcripts/archives.
-- [ ] Verify the new transitions plus all existing protection/recovery tests.
+- [x] Add failing tests where a complete scan moves a no-source saved video to recycle and an incomplete scan preserves it as source-pending.
+- [x] Add failing tests where changed managed placement plus an ordinary source returns a saved video to organization with existing metadata/tags.
+- [x] Add a failing test for a local-only saved result remaining protected when no remote placement was ever expected.
+- [x] Implement authoritative observation epochs and lifecycle projection without mutating notes/transcripts/archives.
+- [x] Verify the new transitions plus all existing protection/recovery tests.
 
 ### Task 3: True streaming batches
 
@@ -56,13 +56,13 @@
 - Modify: `src/shared/oldFavoriteWorkspace.ts`
 - Test: corresponding `*.test.ts` files
 
-- [ ] Add a failing scan test proving the first configured-size eligible batch seals before later source pages finish.
-- [ ] Add failing tests proving unavailable/protected/duplicate AIDs do not consume batch slots.
-- [ ] Add a failing resume test proving sealed batches and source relations survive restart without duplication.
-- [ ] Add a failing late-duplicate test proving only the source relation changes.
-- [ ] Persist compact streaming segment descriptors and trigger tag preparation for sealed batches.
-- [ ] Preserve remote-read arbitration and bounded status publishing.
-- [ ] Verify scan, store, coordinator, arbiter, and risk-control suites.
+- [x] Add a failing scan test proving the first configured-size eligible batch seals before later source pages finish.
+- [x] Add failing tests proving unavailable/protected/duplicate AIDs do not consume batch slots.
+- [x] Add a failing resume test proving sealed batches and source relations survive restart without duplication.
+- [x] Add a failing late-duplicate test proving only the source relation changes.
+- [x] Persist compact streaming segment descriptors and trigger tag preparation for sealed batches.
+- [x] Preserve remote-read arbitration and bounded status publishing.
+- [x] Verify scan, store, coordinator, arbiter, and risk-control suites.
 
 ### Task 4: Scan overview projections
 
@@ -73,11 +73,11 @@
 - Modify: `src/renderer/src/styles.css`
 - Test: `src/renderer/src/styles.test.ts`
 
-- [ ] Add failing UI tests for the four metric cards and their exact tooltips.
-- [ ] Add failing tests for ordinary and managed folder actual totals plus the three-way projected column.
-- [ ] Add tests for unselected `—`, incomplete `待确认`, and current/all scope separation.
-- [ ] Render only compact projections; do not recalculate from mounted current-segment cards.
-- [ ] Verify narrow-sidebar alignment and no new long-list rendering.
+- [x] Add failing UI tests for the four metric cards and their exact tooltips.
+- [x] Add failing tests for ordinary and managed folder actual totals plus the three-way projected column.
+- [x] Add tests for unselected `—`, incomplete `待确认`, and current/all scope separation.
+- [x] Render only compact projections; do not recalculate from mounted current-segment cards.
+- [x] Verify narrow-sidebar alignment and no new long-list rendering.
 
 ### Task 5: Whole-round recommendation/archive/confirmation projections
 

@@ -898,6 +898,8 @@ describe('renderer porcelain theme styles', () => {
   it('styles the old favorites guide as a step-based review flow', () => {
     expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-title-row { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__scan-metrics strong { min-width: 0; text-align: right; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__source-count { min-width: 0; text-align: right; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: 20px minmax(0, 1fr) 40px 64px;')
     expect(compactStyles).not.toContain('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: minmax(0, 1fr) 52px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
