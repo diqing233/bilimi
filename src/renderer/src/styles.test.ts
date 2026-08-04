@@ -66,6 +66,13 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings[hidden] { display: none;')
   })
 
+  it('does not keep the transparent desktop pet repainting forever while idle or working', () => {
+    expectStyleSnippet('.layered-pet { position: relative; z-index: 1; display: block;')
+    expectStyleSnippet('animation: layered-pet-idle 3.8s ease-in-out 2;')
+    expectStyleSnippet('.layered-pet[data-pet-motion="working"] { animation-name: layered-pet-working; animation-duration: 1s; animation-iteration-count: 3;')
+    expectStyleSnippet('.layered-pet__layer--effect { animation: layered-pet-effect 1.2s ease-in-out 2;')
+  })
+
   it('keeps bordered controls rounded instead of square-cornered', () => {
     expect(normalizedStyles).not.toMatch(/border-(?:top|bottom)-(?:left|right)-radius:\s*0\b/)
 

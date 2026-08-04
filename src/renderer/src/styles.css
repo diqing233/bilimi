@@ -1564,7 +1564,7 @@ body[data-floating-window="true"],
   aspect-ratio: 1;
   pointer-events: none;
   transform-origin: 50% 78%;
-  animation: layered-pet-idle 3.8s ease-in-out infinite;
+  animation: layered-pet-idle 3.8s ease-in-out 2;
 }
 .layered-pet__layer {
   position: absolute;
@@ -1598,7 +1598,7 @@ body[data-floating-window="true"],
   animation-iteration-count: 1;
 }
 .layered-pet__layer--effect {
-  animation: layered-pet-effect 1.2s ease-in-out infinite;
+  animation: layered-pet-effect 1.2s ease-in-out 2;
 }
 .layered-pet__fallback {
   position: absolute;
