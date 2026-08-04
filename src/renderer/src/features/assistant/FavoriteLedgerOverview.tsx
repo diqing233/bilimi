@@ -92,14 +92,17 @@ function isRecoveredRemoteDraft(ledger: FavoriteLedger) {
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled = true, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }: FavoriteLedgerOverviewProps) {
+export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }: FavoriteLedgerOverviewProps) {
+  const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
+  const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
-  const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger)
+  const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
+  const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isDefaultSystemLocked(ledger)
   const enableEntries = (items: FavoriteLedger[]): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
-    enabled: ledger.enabled,
+    enabled: isDefaultSystemLocked(ledger) ? true : ledger.enabled,
     operable: isOperable(ledger),
     forceEnabledOnBulk: isRoundLocked(ledger)
   }))
@@ -220,7 +223,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const ledgersToDisplay = ledgerListExpanded ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
   const projectEnabled = (items: FavoriteLedger[]) => items.map((ledger) => ({
     ...ledger,
-    enabled: enableStore.isEnabled(ledger.id)
+    enabled: isDefaultSystemLocked(ledger) ? true : enableStore.isEnabled(ledger.id)
   }))
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const persist = (next: FavoriteLedger[]) => {

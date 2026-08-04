@@ -237,6 +237,18 @@ describe('FavoriteLedgerOverview', () => {
     ]), { deleteDisabled: false })
   })
 
+  it('keeps default ledgers checked and non-cancelable while the default system is enabled', () => {
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled ledgers={[
+      { id: 'music', displayName: 'bilimi\u00b7音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
+      { id: 'custom-tech', displayName: '科技', keywords: [], enabled: false, priority: 20, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn()} />)
+
+    const defaultToggle = screen.getByRole('button', { name: '移出同步 bilimi\u00b7音乐' })
+    expect(defaultToggle).toBeDisabled()
+    expect(defaultToggle).toHaveAttribute('data-enabled', 'true')
+    expect(screen.getByRole('button', { name: '加入同步 科技' })).toBeEnabled()
+  })
+
   it('updates rapid enable clicks immediately and persists only the final state', async () => {
     vi.useFakeTimers()
     const saveEnabled = vi.fn()
