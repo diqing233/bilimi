@@ -47,12 +47,16 @@ type RendererScopeSelection = {
 }
 type RendererSelection = { kind: 'aids'; aids: number[] } | RendererScopeSelection
 
-function rendererSource(value: unknown): RendererSource {
+function rendererSource(value: unknown, allowEmptyVirtual = false): RendererSource {
   if (!value || typeof value !== 'object') throw new Error('Favorite operation source is invalid.')
   const source = value as Record<string, unknown>
   if (source.kind === 'folder' && typeof source.folderId === 'string' && source.folderId.trim()) return { kind: 'folder', folderId: source.folderId.trim() }
   if (source.kind === 'virtual' && Array.isArray(source.eligibleAids) && Array.isArray(source.skippedAids)) {
-    return { kind: 'virtual', eligibleAids: aids(source.eligibleAids), skippedAids: source.skippedAids.length ? aids(source.skippedAids) : [] }
+    return {
+      kind: 'virtual',
+      eligibleAids: allowEmptyVirtual && !source.eligibleAids.length ? [] : aids(source.eligibleAids),
+      skippedAids: source.skippedAids.length ? aids(source.skippedAids) : []
+    }
   }
   throw new Error('Favorite operation source is invalid.')
 }
@@ -116,9 +120,13 @@ export function registerFavoriteLibraryOperationsIpc(options: {
       : await options.resolveSelection?.(normalized, selection) ?? (() => { throw new Error('Favorite scope selection is unavailable.') })()
     await current(normalized)
     if (!Array.isArray(selected) || !selected.length || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Favorite operation selection is invalid.')
-    const scope = await options.resolveSourceScope(normalized, rendererSource(requestedSource), selected)
+    const parsedSource = rendererSource(requestedSource, action === 'delete')
+    const authoritativeSource = action === 'delete' && parsedSource.kind === 'virtual'
+      ? { kind: 'virtual' as const, eligibleAids: [...selected], skippedAids: [] }
+      : parsedSource
+    const scope = await options.resolveSourceScope(normalized, authoritativeSource, selected)
     await current(normalized)
-    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy') {
+    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'delete') {
       throw new Error('This action is not permitted from a Bilibili source folder.')
     }
     return { normalized, selected, scope }

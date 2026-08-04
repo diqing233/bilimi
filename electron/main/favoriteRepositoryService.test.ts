@@ -8,6 +8,7 @@ import {
   createAccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryArchiveExport
 } from '../../src/shared/favoriteRepository'
+import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 
 const roots: string[] = []
@@ -631,6 +632,48 @@ describe('FavoriteRepositoryService', () => {
     await expect(readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('round-trips scan lifecycle authority without exporting device-bound remote observations', async () => {
+    const source = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-05T00:00:00.000Z' })
+    source.videos['1'] = { aid: 1, title: 'Observed video', tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }
+    source.positions['100:1'] = {
+      accountMid: '100',
+      aid: 1,
+      localDesiredFolderIds: ['bilimi-logical:knowledge'],
+      remoteObservedPhysicalFolderIds: ['remote-folder-1'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+      positionState: 'aligned',
+      lifecycleState: 'active',
+      sourceAuthority: 'complete',
+      observationEpoch: 'scan-2026-08-05',
+      observedAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+      revision: 1
+    }
+    const archive = createFavoriteRepositoryArchiveExport(source, {
+      generatedAt: '2026-08-05T00:01:00.000Z'
+    })
+    expect(JSON.stringify(archive)).not.toContain('remote-folder-1')
+
+    const service = new FavoriteRepositoryService({
+      root: await createRoot(),
+      now: () => '2026-08-05T00:02:00.000Z'
+    })
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:1': {
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          lifecycleState: 'active',
+          sourceAuthority: 'complete',
+          observationEpoch: 'scan-2026-08-05'
+        }
+      }
+    })
+  })
+
   it('imports validated recovery records while retaining local remote observations', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -831,6 +874,69 @@ describe('FavoriteRepositoryService', () => {
 
     await expect(service.getSnapshot('100')).resolves.toMatchObject({ videos: {}, tombstones: {} })
     await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0 })
+  })
+
+  it('keeps external note versions, transcripts, memos, and stars across local and managed-folder deletion commands', async () => {
+    const root = await createRoot()
+    const updatedAt = '2026-08-05T00:00:00.000Z'
+    const note = {
+      id: 'account:100:aid:1:cid:11',
+      source: { accountMid: '100', aid: 1, cid: 11, title: 'Protected note', url: 'https://www.bilibili.com/video/av1?p=1', tags: ['saved'] },
+      transcriptSource: 'audio' as const,
+      transcript: [{ start: 0, end: 1, text: 'keep transcript' }],
+      chapters: [],
+      overview: { shortSummary: ['keep summary'], keywords: ['saved'], timeline: [], highlights: [] },
+      annotations: [],
+      userMemo: 'keep memo',
+      starred: true,
+      createdAt: updatedAt,
+      updatedAt
+    }
+    const externalArchives: VideoNoteArchiveEntry[] = [{
+      id: 'archive-1', source: note.source, versions: [{ id: 'version-1', note, plainTranscript: 'keep transcript', summaryText: 'keep summary', createdAt: updatedAt }],
+      createdAt: updatedAt, updatedAt
+    }]
+    const externalTranscriptions: VideoAudioTranscriptionQueueItem[] = [{
+      id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, url: note.source.url, title: note.source.title,
+      status: 'completed', createdAt: updatedAt, updatedAt, draftNote: note, archiveNoteId: note.id, archiveVersionId: 'version-1'
+    }]
+    const archivesBefore = structuredClone(externalArchives)
+    const transcriptionsBefore = structuredClone(externalTranscriptions)
+    const service = new FavoriteRepositoryService({
+      root,
+      now: () => updatedAt,
+      getTranscriptionArchives: () => externalArchives,
+      getTranscriptionItems: () => externalTranscriptions
+    })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: updatedAt, type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt }
+      })
+    }
+    await service.commit('100', {
+      id: 'managed-folder', accountMid: '100', issuedAt: updatedAt, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习', shardNumber: 1, memberAids: [3],
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: '91000001'
+      }
+    })
+
+    await service.commit('100', {
+      id: 'delete-one', accountMid: '100', issuedAt: updatedAt, type: 'delete-favorite-from-library',
+      payload: { aid: 1, deletedAt: updatedAt }
+    })
+    await service.commit('100', {
+      id: 'delete-many', accountMid: '100', issuedAt: updatedAt, type: 'delete-favorites-from-library',
+      payload: { aids: [2], deletedAt: updatedAt }
+    })
+    await service.commit('100', {
+      id: 'delete-folder', accountMid: '100', issuedAt: updatedAt, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:knowledge' }
+    })
+
+    expect(externalArchives).toEqual(archivesBefore)
+    expect(externalTranscriptions).toEqual(transcriptionsBefore)
   })
 
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {

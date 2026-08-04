@@ -14,7 +14,7 @@
 
 - [x] Read `AGENTS.md` completely and honor discussion/start gating.
 - [x] Capture the dirty-tree baseline and preserve all 15 pre-existing modified files.
-- [ ] Record every newly touched file before each phase; do not stage unrelated changes.
+- [x] Record every newly touched file before each phase; do not stage unrelated changes.
 - [x] Do not reset, stash, revert, clean, package, push, modify installed builds, delete data, or restore `package.json`.
 - [x] Store diagnostic artifacts under `.codex-artifacts/` only.
 
@@ -119,7 +119,7 @@
 - Test: shared/classification/recommendation suites
 
 - [x] Add failing tests for formal managed, local draft, ambiguous bilimi-like, and ordinary folder capabilities.
-- [ ] Add collision tests for slug-equivalent recommendation sources and migration tests for legacy adopted IDs.
+- [x] Add collision tests for slug-equivalent recommendation sources and migration tests for legacy adopted IDs.
 - [x] Preserve user-edited rules, enabled state, priority, and bindings when recommendations reuse identities.
 - [x] Expose one policy consumed by settings, Favorite Library, provisioning, review, and remote deletion.
 - [x] Verify names alone never grant remote authority.
@@ -149,8 +149,8 @@
 - Test: Favorite Library component/integration/service suites
 
 - [x] Add failing tests for three-dot menus on both managed and ordinary groups with different permissions.
-- [ ] Restore ordinary-folder middle/detail actions while excluding move, ordinary remote mutation, and ordinary-folder remote deletion.
-- [ ] Add tests for local-only delete and local-plus-all-managed-placements delete with ordinary-source disclosure and high-risk confirmation.
+- [x] Restore ordinary-folder middle/detail actions while excluding move, ordinary remote mutation, and ordinary-folder remote deletion.
+- [x] Add tests for local-only delete and local-plus-all-managed-placements delete with ordinary-source disclosure and high-risk confirmation.
 - [x] Add status nested filters and source filters, including unknown-source exclusion from `仅在bilimi工作夹`.
 - [x] Add recycle navigation, restore, local clear, note/archive preservation, and reappearance tests.
 - [x] Preserve virtualization, pagination, detached menus, and selection stability.
@@ -163,8 +163,8 @@
 
 - [x] Add failing tests preserving title, UP, and existing predicted-location copy.
 - [x] Add the unprovisioned additive line and `最佳匹配：…（未备册）` case.
-- [ ] Prove unprovisioned review performs existing non-favorite actions without creating folders or auto-backfilling later.
-- [ ] Prove provisioned checked rules use the same stable identities as organization.
+- [x] Prove unprovisioned review performs existing non-favorite actions without creating folders or auto-backfilling later.
+- [x] Prove provisioned checked rules use the same stable identities as organization.
 
 ### Task 11: Migration and protected note/archive integration
 
@@ -174,21 +174,21 @@
 - Modify: `LocalDataSettings.tsx` only if contracts change
 - Test: migration/local-data/favorite-library-bridge/video-note identity suites
 
-- [ ] Add failing round-trip tests for bindings, checked/provisioned state, recycle records, observation authority, pending sync/reconcile work, and streaming workspace descriptors.
-- [ ] Add backward-compatibility tests for existing archives and older favorite snapshots.
-- [ ] Add explicit tests proving recycle/clear/folder deletion never removes note archives, transcripts, versions, memos, or stars.
-- [ ] Keep import preview atomic, account-scoped, and remote-action-free.
+- [x] Add failing round-trip tests for bindings, checked/provisioned state, recycle records, observation authority, pending sync/reconcile work, and streaming workspace descriptors.
+- [x] Add backward-compatibility tests for existing archives and older favorite snapshots.
+- [x] Add explicit tests proving recycle/clear/folder deletion never removes note archives, transcripts, versions, memos, or stars.
+- [x] Keep import preview atomic, account-scoped, and remote-action-free.
 
 ### Task 12: Verification and handoff
 
-- [ ] Run every phase-focused suite fresh and record exact counts/warnings.
-- [ ] Run the broader old-favorite, favorite-repository, Favorite Library, review, settings, migration, and note/archive suites.
+- [x] Run every phase-focused suite fresh and record exact counts/warnings.
+- [x] Run the broader old-favorite, favorite-repository, Favorite Library, review, settings, migration, and note/archive suites.
 - [x] Run direct TypeScript checking and separate pre-existing dirty-tree failures from new errors.
 - [x] Run `git diff --check` and review all touched files for unrelated changes/mojibake.
-- [ ] Restart only the development build with `node_modules\.bin\electron-vite.cmd dev`.
+- [x] Restart only the development build with `node_modules\.bin\electron-vite.cmd dev`.
 - [ ] In real Electron verify scanning, first-batch availability, current/all views, save-only pending state, provisioning, review hints, Favorite Library menus/filters/recycle behavior, migration preview, and note/archive access.
 - [ ] During scan, DeepSeek, provisioning, and sync verify pointer motion, resize, minimize/close, sidebar switching, and note editing remain responsive.
-- [ ] Report exact root causes, changes, evidence, warnings, and remaining performance/remote-risk limitations without claiming unmeasured latency improvements.
+- [x] Report exact root causes, changes, evidence, warnings, and remaining performance/remote-risk limitations without claiming unmeasured latency improvements.
 
 ## Local checkpoint evidence (2026-08-04)
 
@@ -197,4 +197,13 @@
 - `node_modules\.bin\tsc.cmd --noEmit` still fails against the existing dirty-tree baseline. Fresh output is `.codex-artifacts/tsc-checkpoint-20260805-final3.txt`; its SHA-256 matches the prior checkpoint exactly, so the diagnostics in the 27 touched files remain unchanged.
 - Real development Electron verification covered mutually exclusive Settings, 掌库, 札记, and 批阅 workspaces; Favorite Library recycle/source-filter navigation; sidebar resize; settings scroll; and minimize/restore. No Bilibili write, provisioning, deletion, backup, or synchronization action was triggered.
 - Pointer responsiveness and large-library performance remain unmeasured. Manual interaction completion is not latency evidence.
-- Still open in this plan: slug/adopted-ID migration collisions, full ordinary-folder detail parity and high-risk deletion disclosure, stable-identity review integration proof, Task 11 migration/note/archive coverage, and a real scan/sync acceptance run.
+- Remaining acceptance-only work: a real Bilibili scan/provision/sync run and measured pointer/large-library latency under active scan, DeepSeek, provisioning, and sync workloads.
+
+## Final local acceptance evidence (2026-08-05)
+
+- Full repository regression, excluding only the packaging configuration test that cannot run with the current scriptless `package.json`: 215 test files and 3,263 tests passed; the final fresh run completed in 324.9 seconds. Earlier full-run output is stored in `.codex-artifacts/vitest-full-20260805-acceptance.stdout.log` and `.codex-artifacts/vitest-full-20260805-acceptance.stderr.log`.
+- A fresh focused run across the nine modified test files passed 371/371 with exit code 0. The full run emitted 67 existing React `act(...)` warnings and one existing duplicate fixture key warning for `music`; it emitted no unhandled test error.
+- `node_modules\.bin\tsc.cmd --noEmit --pretty false` still exits 2 with 216 diagnostics. After normalizing line and column numbers, `.codex-artifacts/tsc-checkpoint-20260805-final5.txt` has zero added and zero removed diagnostics against the prior dirty-tree baseline.
+- `git diff --check` passed with only LF-to-CRLF notices. A UTF-8 scan of every modified source/test file found no replacement-character or common mojibake sequence.
+- Real development Electron verification covered mutually exclusive `批阅`/`札记`/`掌库`/`设置` views, the 2,309-video Favorite Library, ordinary-folder selection and local actions, expanded detail, two list data columns while detail is open, three after collapse, local-data migration navigation, sidebar resize and restore, and minimize/restore.
+- No Bilibili write, provisioning, deletion, scan, synchronization, or DeepSeek task was triggered during acceptance. Those external paths remain release/manual acceptance items; pointer latency and large-library throughput remain unquantified and are not claimed as solved.

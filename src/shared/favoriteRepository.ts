@@ -108,11 +108,12 @@ export type FavoriteRepositoryArchiveExport = {
   checksum?: string
   videos?: FavoriteRepositoryVideo[]
   positions?: Array<Pick<FavoriteRepositoryPositionRecord,
-    'aid' | 'localDesiredFolderIds' | 'positionState' | 'updatedAt'>>
+    'aid' | 'localDesiredFolderIds' | 'positionState' | 'observedAt' | 'updatedAt' |
+    'lifecycleState' | 'sourceAuthority' | 'observationEpoch'>>
   protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
   events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
-  /** Account-local recovery data. Position observations remain intentionally absent. */
+  /** Account-local recovery data. Device-bound remote entities stay local; portable lifecycle authority is retained. */
   recovery?: Pick<AccountFavoriteRepositorySnapshot,
     'folders' | 'memberships' | 'physicalShards' | 'workspace' | 'syncRecords' |
     'organizationRecords' | 'organizationBatches' | 'organizationMigrationInitialized'> & {
@@ -271,7 +272,7 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
   }))
 }
 
-/** Produces a portable, credential-free recovery archive. Remote observations intentionally stay local. */
+/** Produces a portable, credential-free recovery archive without device-bound remote entity identifiers. */
 export function createFavoriteRepositoryArchiveExport(
   snapshot: AccountFavoriteRepositorySnapshot,
   input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
@@ -301,6 +302,10 @@ export function createFavoriteRepositoryArchiveExport(
       // device and must not become remote restore targets.
       localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => /^bilimi-logical:\S+$/.test(folderId.trim())),
       positionState: position.positionState,
+      ...(position.observedAt ? { observedAt: position.observedAt } : {}),
+      ...(position.lifecycleState ? { lifecycleState: position.lifecycleState } : {}),
+      ...(position.sourceAuthority ? { sourceAuthority: position.sourceAuthority } : {}),
+      ...(position.observationEpoch ? { observationEpoch: position.observationEpoch } : {}),
       updatedAt: position.updatedAt
     })),
     protections: (snapshot.organizationRecords ?? []).map((record) => ({ aid: record.aid, completedAt: record.completedAt })),
@@ -343,8 +348,9 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
   normalizedAccountMid(archive.accountMid)
   normalizedTimestamp(archive.generatedAt)
   if (archive.videos !== undefined && (!Array.isArray(archive.videos) || !archive.videos.every(isRepositoryVideo))) throw new Error('Favorite repository archive is invalid.')
+  const portablePositionKeys = new Set(['aid', 'localDesiredFolderIds', 'positionState', 'observedAt', 'updatedAt', 'lifecycleState', 'sourceAuthority', 'observationEpoch'])
   if (archive.positions !== undefined && (!Array.isArray(archive.positions) || !archive.positions.every((position) =>
-    position && typeof position === 'object' && isPositionPayload({
+    position && typeof position === 'object' && Object.keys(position).every((key) => portablePositionKeys.has(key)) && isPositionPayload({
       ...(position as Record<string, unknown>), remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: []
     }) && Array.isArray((position as Record<string, unknown>).localDesiredFolderIds) &&
       ((position as Record<string, unknown>).localDesiredFolderIds as unknown[]).every((folderId) =>

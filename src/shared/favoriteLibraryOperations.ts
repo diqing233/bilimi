@@ -68,7 +68,7 @@ export function determineFavoriteOperationEligibility(input: {
     allowedActions: sourceScopeKind === 'bilimi-work-folder'
       ? [...BASE_ACTIONS, 'delete-managed-folder-local', 'delete-managed-folder-remote']
       : sourceScopeKind === 'bilibili-default' || sourceScopeKind === 'bilibili-user-folder'
-        ? ['copy']
+        ? ['copy', 'delete-local']
       : [...BASE_ACTIONS]
   }
 }
@@ -106,7 +106,7 @@ export function determineFavoriteOperationActionEligibility(input: {
     return { ...sourceEligibility, eligibleAids: [], skipped: skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason)) }
   }
   const eligibleAids = validAids.filter((aid) => {
-    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy') return true
+    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy' || input.action === 'delete-local') return true
     const scope = input.aidScopeKinds?.[aid]
     if (scope === 'bilibili-default' || scope === 'bilibili-user-folder') {
       skipped.push({ aid, reason: 'bilibili-folder-copy-only' })

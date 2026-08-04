@@ -570,6 +570,7 @@ export class FavoriteRepositoryService {
         const localDesiredFolderIds = [...new Set(imported.localDesiredFolderIds.map((id) => id.trim()).filter(Boolean))].sort()
         const remoteObservedPhysicalFolderIds = previous?.remoteObservedPhysicalFolderIds ?? []
         const remoteObservedLogicalFolderIds = previous?.remoteObservedLogicalFolderIds ?? []
+        const importedObservationIsCurrent = !previous || imported.updatedAt >= previous.updatedAt
         positions[key] = {
           accountMid: account,
           aid: imported.aid,
@@ -582,7 +583,10 @@ export class FavoriteRepositoryService {
               localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
               positionState: imported.positionState
             }),
-          ...(previous?.observedAt ? { observedAt: previous.observedAt } : {}),
+          ...(importedObservationIsCurrent && imported.observedAt ? { observedAt: imported.observedAt } : previous?.observedAt ? { observedAt: previous.observedAt } : {}),
+          ...(importedObservationIsCurrent && imported.lifecycleState ? { lifecycleState: imported.lifecycleState } : previous?.lifecycleState ? { lifecycleState: previous.lifecycleState } : {}),
+          ...(importedObservationIsCurrent && imported.sourceAuthority ? { sourceAuthority: imported.sourceAuthority } : previous?.sourceAuthority ? { sourceAuthority: previous.sourceAuthority } : {}),
+          ...(importedObservationIsCurrent && imported.observationEpoch ? { observationEpoch: imported.observationEpoch } : previous?.observationEpoch ? { observationEpoch: previous.observationEpoch } : {}),
           updatedAt: imported.updatedAt,
           ...(previous?.reason ? { reason: previous.reason } : {}),
           revision: repository.snapshot.revision + 1

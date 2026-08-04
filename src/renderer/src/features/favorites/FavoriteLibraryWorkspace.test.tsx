@@ -276,6 +276,15 @@ describe('Favorite Library workspace components', () => {
     expect(styles).toContain("@container (max-width: 760px) { .favorite-library[data-embedded='true'] .favorite-library__layout[data-embedded-layout='true'] { grid-template-columns: 150px minmax(0, 1fr); }")
   })
 
+  it('shows two list data columns with detail open and restores the action column when detail collapses', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain(".favorite-library__layout[data-detail-state='open'] .favorite-library__row-columns")
+    expect(styles).toContain(".favorite-library__layout[data-detail-state='open'] .favorite-library__row-transcription { display: none; }")
+    expect(styles).toContain(".favorite-library__layout[data-detail-state='collapsed'] .favorite-library__row-columns { grid-template-columns: 34px minmax(180px, 1fr) minmax(116px, .38fr) minmax(164px, .52fr); }")
+    expect(styles).toContain(".favorite-library__layout[data-detail-state='collapsed'] .favorite-library__row { grid-template-columns: minmax(180px, 1fr) minmax(116px, .38fr) minmax(164px, .52fr); }")
+  })
+
   it('limits workspace-collapse motion to the chevron without animating every mounted folder row', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 

@@ -406,11 +406,12 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(observer.areUnfavorited).toHaveBeenCalledWith('100', [1])
   })
 
-  it('rejects destructive actions from Bilibili source and virtual scopes without explicit eligibility evidence', async () => {
+  it('allows local deletion but rejects remote mutation from Bilibili sources and incomplete virtual evidence', async () => {
     const current = snapshot()
-    const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() } })
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repository(current) })
 
-    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' } as never)).rejects.toThrow('not permitted')
+    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' })).resolves.toMatchObject({ auditStatus: 'recorded' })
+    await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' })).rejects.toThrow('not permitted')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1] } as never)).rejects.toThrow('skipped')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1], skippedAids: [] })).resolves.toMatchObject({ aids: [1] })
   })

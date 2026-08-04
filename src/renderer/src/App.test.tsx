@@ -881,9 +881,88 @@ describe('App runtime integration', () => {
     expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
   })
 
-  it('persists confirmed review favorites with frozen video metadata and remote placement', async () => {
+  it('keeps unprovisioned review favorites local to the current action and never backfills them after provisioning', async () => {
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
     const preferences = createAppPreferences()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitFavoriteRepositoryCommand
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 700,
+          bvid: 'BV1review700',
+          title: '尚未备册的视频',
+          pageText: '游戏攻略'
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          steps: ['unexpected:favorite-write'],
+          missingTargets: [],
+          message: '不应执行收藏写入。'
+        }
+      }
+
+      return {
+        ok: true,
+        steps: script.includes('"action":"赐"')
+          ? ['like', 'coin:open', 'coin:1', 'coin:confirm']
+          : ['like'],
+        missingTargets: [],
+        message: '非收藏动作已完成。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1review700' }
+        })
+      )
+    })
+
+    await expect(
+      requestRuntime({ id: 'unprovisioned-reward', type: 'run-action', action: '赏' })
+    ).resolves.toMatchObject({ ok: true, steps: expect.arrayContaining(['like']) })
+    await expect(
+      requestRuntime({ id: 'unprovisioned-grant', type: 'run-action', action: '赐' })
+    ).resolves.toMatchObject({ ok: true, steps: expect.arrayContaining(['coin:confirm']) })
+
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
+      )
+    ).toBe(false)
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
+
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
+    expect(
+      executeJavaScript.mock.calls.some(([script]) => String(script).includes('/x/v3/fav/resource/deal'))
+    ).toBe(false)
+  })
+
+  it('persists confirmed review favorites with the stable ledger identity after its display name is edited', async () => {
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'game'
+          ? {
+              ...ledger,
+              displayName: '我的游戏归档'
+            }
+          : ledger
+      )
+    })
     const { requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(preferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -987,7 +1066,7 @@ describe('App runtime integration', () => {
           aid: 701,
           kind: 'entered',
           titleAtTime: '游戏机制解析',
-          folderTitlesAtTime: ['bilimi·游戏专区']
+          folderTitlesAtTime: ['我的游戏归档']
         })
       })
     )

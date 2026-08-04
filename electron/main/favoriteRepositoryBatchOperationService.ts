@@ -286,7 +286,7 @@ export class FavoriteRepositoryBatchOperationService {
   private requireScope(source: FavoriteOperationSourceScope | undefined, requestedAids: number[], action: 'copy' | 'move' | 'delete' | 'unfavorite') {
     if (!source || source.kind === 'bilimi-logical') return
     if (source.kind === 'bilibili-default' || source.kind === 'bilibili-user') {
-      if (action !== 'copy') throw new Error('This action is not permitted from a Bilibili source folder.')
+      if (action !== 'copy' && action !== 'delete') throw new Error('This action is not permitted from a Bilibili source folder.')
       return
     }
     const selected = aids(requestedAids)

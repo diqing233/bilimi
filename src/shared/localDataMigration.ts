@@ -361,12 +361,24 @@ function compareWorkspaces(left: unknown, right: unknown) {
   return stableJson(left).localeCompare(stableJson(right))
 }
 
+function compareEqualTimestampPositions(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const completeness = (record: Record<string, unknown>) =>
+    ['observedAt', 'lifecycleState', 'sourceAuthority', 'observationEpoch']
+      .reduce((score, key) => score + (record[key] === undefined ? 0 : 1), 0)
+  const completenessDifference = completeness(left) - completeness(right)
+  if (completenessDifference) return completenessDifference
+  const authorityRank = (record: Record<string, unknown>) => record.sourceAuthority === 'complete' ? 2 : record.sourceAuthority === 'incomplete' ? 1 : 0
+  const authorityDifference = authorityRank(left) - authorityRank(right)
+  if (authorityDifference) return authorityDifference
+  return stableJson(left).localeCompare(stableJson(right))
+}
+
 function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { checksum: string }, incoming: FavoriteRepositoryArchiveExport & { checksum: string }) {
-  const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp: (record: T) => string = updatedAt) => {
+  const mergeBy = <T extends Record<string, unknown>>(left: readonly T[] | undefined, right: readonly T[] | undefined, identity: (record: T) => string, timestamp: (record: T) => string = updatedAt, compareEqualTimestamp: (left: T, right: T) => number = (candidate, previous) => stableJson(candidate).localeCompare(stableJson(previous))) => {
     const values = new Map<string, T>()
     for (const record of [...(left ?? []), ...(right ?? [])]) {
       const key = identity(record); const previous = values.get(key)
-      if (!previous || timestamp(record) > timestamp(previous) || (timestamp(record) === timestamp(previous) && stableJson(record) > stableJson(previous))) values.set(key, structuredClone(record))
+      if (!previous || timestamp(record) > timestamp(previous) || (timestamp(record) === timestamp(previous) && compareEqualTimestamp(record, previous) > 0)) values.set(key, structuredClone(record))
     }
     return [...values.values()]
   }
@@ -393,7 +405,7 @@ function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { ch
   const merged: FavoriteRepositoryArchiveExport = {
     ...current, ...incoming,
     videos: mergeBy(current.videos, incoming.videos, (item) => String(item.aid)).filter((item) => !hardTombstonedAids.has(item.aid)),
-    positions: mergeBy(current.positions, incoming.positions, (item) => String(item.aid)).filter((item) => !hardTombstonedAids.has(item.aid)),
+    positions: mergeBy(current.positions, incoming.positions, (item) => String(item.aid), updatedAt, compareEqualTimestampPositions).filter((item) => !hardTombstonedAids.has(item.aid)),
     protections: mergeBy(current.protections, incoming.protections, (item) => String(item.aid), (record) => record.completedAt),
     events: mergeBy(current.events, incoming.events, (item) => item.id, (record) => record.occurredAt),
     archives: mergeBy(current.archives, incoming.archives, (item) => `${item.aid}:${item.archiveId}`, (record) => record.registeredAt),
