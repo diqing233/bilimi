@@ -264,6 +264,62 @@ describe('account favorite repository contracts', () => {
     expect(scanned.memberships['bilibili:1']).toEqual([])
   })
 
+  it('records an automatic recycle lifecycle without discarding metadata or local organization', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-04T00:00:00.000Z' }),
+      videos: { '1': { aid: 1, title: 'Reusable metadata', tags: ['tag-a'], tagEvidence: 'confirmed' as const, updatedAt: '2026-08-04T00:00:00.000Z' } },
+      memberships: { 'bilimi-logical:music': [1], 'bilibili:source': [1] },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-04T00:00:00.000Z' }],
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:music'],
+          remoteObservedPhysicalFolderIds: ['source'], remoteObservedLogicalFolderIds: [],
+          positionState: 'local-only-change' as const, observedAt: '2026-08-04T00:00:00.000Z',
+          updatedAt: '2026-08-04T00:00:00.000Z', revision: 1
+        }
+      }
+    }
+
+    const recycled = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'scan-lifecycle-recycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z',
+      type: 'reconcile-scan-lifecycle', payload: {
+        observationEpoch: 'scan-2', authority: 'complete',
+        observations: [{ aid: 1, remoteObserved: false }]
+      }
+    } as never, '2026-08-04T00:01:00.000Z')
+
+    expect(recycled.videos['1']).toMatchObject({ title: 'Reusable metadata', tags: ['tag-a'], tagEvidence: 'confirmed' })
+    expect(recycled.memberships['bilimi-logical:music']).toEqual([1])
+    expect(recycled.tombstones['100:1']).toMatchObject({ kind: 'recycled', allowRediscovery: true })
+    expect(recycled.positions['100:1']).toMatchObject({ lifecycleState: 'recycled', observationEpoch: 'scan-2', sourceAuthority: 'complete' })
+    expect(recycled.organizationRecords).toEqual([])
+    expect(isFavoriteRepositoryScanVisible(recycled, 1)).toBe(true)
+  })
+
+  it('restores a recycled record when a later Bilibili mirror observes it again', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-04T00:00:00.000Z' }),
+      videos: { '1': { aid: 1, title: 'Recycled title', tags: ['saved-tag'], updatedAt: '2026-08-04T00:00:00.000Z' } },
+      memberships: { 'bilimi-logical:music': [1] },
+      tombstones: {
+        '100:1': { accountMid: '100', aid: 1, deletedAt: '2026-08-04T00:00:00.000Z', allowRediscovery: true, kind: 'recycled' as const }
+      }
+    }
+
+    const scanned = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'mirror-after-recycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'scan-2', folders: [{ id: 'bilibili:source', title: 'Source', remoteFolderId: 'source' }],
+        memberAidsByFolderId: { 'bilibili:source': [1] },
+        videos: [{ aid: 1, title: 'Reappeared title', tags: [], updatedAt: '2026-08-04T00:01:00.000Z' }]
+      }
+    }, '2026-08-04T00:01:00.000Z')
+
+    expect(scanned.tombstones['100:1']).toBeUndefined()
+    expect(scanned.videos['1']).toMatchObject({ title: 'Reappeared title', tags: ['saved-tag'] })
+    expect(scanned.memberships['bilibili:source']).toEqual([1])
+  })
+
   it('creates and validates a credential-free portable archive with a stable checksum', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),

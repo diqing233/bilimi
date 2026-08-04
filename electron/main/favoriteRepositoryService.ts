@@ -6,6 +6,7 @@ import {
   createAccountFavoriteRepositorySnapshot,
   createFavoriteRepositoryPositionKey,
   deriveFavoriteRepositoryPositionState,
+  isFavoriteRepositoryRecycled,
   mergeFavoriteRepositoryVideo,
   validateFavoriteRepositoryArchiveExport,
   type AccountFavoriteRepositorySnapshot,
@@ -74,6 +75,7 @@ type FavoriteRepositoryLibraryIndex = {
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
   folderConflicts: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   allAids: number[]
+  recycledAids: number[]
   folderAidsByFolderId: Map<string, number[]>
   folderIdsByAid: Map<number, string[]>
   pendingStatesByAid: Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>
@@ -280,6 +282,7 @@ export type FavoriteRepositoryLibraryPageScope =
   | { kind: 'pending' }
   | { kind: 'protected' }
   | { kind: 'unsynced' }
+  | { kind: 'recycle' }
 
 export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
@@ -329,7 +332,7 @@ export type FavoriteRepositoryLibrarySummary = {
   workspaceVideoCount?: number
   /** Distinct videos across non-workspace, non-inbox favorite folders. */
   otherFavoriteVideoCount?: number
-  scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
+  scopeCounts: { all: number; pending: number; protected: number; unsynced: number; recycle?: number }
   folderConflicts?: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   physicalShardCount: number
   syncRecordCount: number
@@ -443,13 +446,16 @@ export class FavoriteRepositoryService {
       accountMid: snapshot.accountMid,
       revision: snapshot.revision,
       updatedAt: snapshot.updatedAt,
-      videoCount: Object.keys(snapshot.videos).length,
+      videoCount: index.allAids.length,
       folderCount: index.folders.length,
       folders: index.folders.map((folder) => ({ ...folder })),
       folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
       workspaceVideoCount,
       otherFavoriteVideoCount,
-      scopeCounts: { all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'), unsynced: stateCount('unsynced') },
+      scopeCounts: {
+        all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'),
+        unsynced: stateCount('unsynced'), recycle: index.recycledAids.length
+      },
       ...(index.folderConflicts.length ? { folderConflicts: index.folderConflicts.map((conflict) => ({
         title: conflict.title, folderIds: [...conflict.folderIds], reason: conflict.reason,
         candidates: conflict.candidates.map((candidate) => ({ ...candidate }))
@@ -1280,13 +1286,15 @@ export class FavoriteRepositoryService {
       }))
     const folderConflicts = [...titleConflicts, ...bindingConflicts]
       .sort((left, right) => left.title.localeCompare(right.title) || left.folderIds.join().localeCompare(right.folderIds.join()))
+    const recycledAids = new Set(Object.keys(snapshot.videos).map(Number)
+      .filter((aid) => Number.isSafeInteger(aid) && isFavoriteRepositoryRecycled(snapshot, aid)))
     const folderIdsByAid = new Map<number, Set<string>>()
     const aidsByCanonicalFolderId = new Map<string, Set<number>>()
     for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
       const canonicalFolderId = canonicalIdByRawId.get(folderId) ?? folderId
       const canonicalAids = aidsByCanonicalFolderId.get(canonicalFolderId) ?? new Set<number>()
       const validAids = aids.filter((aid) => Boolean(snapshot.videos[String(aid)]))
-      for (const aid of validAids) canonicalAids.add(aid)
+      for (const aid of validAids) if (!recycledAids.has(aid)) canonicalAids.add(aid)
       aidsByCanonicalFolderId.set(canonicalFolderId, canonicalAids)
       for (const aid of validAids) {
         const folderIds = folderIdsByAid.get(aid) ?? new Set<string>()
@@ -1298,7 +1306,8 @@ export class FavoriteRepositoryService {
       revision: snapshot.revision,
       folders,
       folderConflicts,
-      allAids: Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right),
+      allAids: Object.keys(snapshot.videos).map(Number).filter((aid) => Number.isSafeInteger(aid) && !recycledAids.has(aid)).sort((left, right) => left - right),
+      recycledAids: [...recycledAids].sort((left, right) => left - right),
       folderAidsByFolderId: new Map([...aidsByCanonicalFolderId].map(([id, aids]) => [id, [...aids].sort((left, right) => left - right)])),
       folderIdsByAid: new Map([...folderIdsByAid].map(([aid, ids]) => [aid, [...ids].sort((left, right) => left.localeCompare(right))])),
       pendingStatesByAid: this.pendingStatesByAid(snapshot),
@@ -1405,6 +1414,7 @@ export class FavoriteRepositoryService {
     scope: FavoriteRepositoryLibraryPageScope,
     index: FavoriteRepositoryLibraryIndex
   ) {
+    if (scope.kind === 'recycle') return index.recycledAids
     if (scope.kind === 'folder') {
       return index.folderAidsByFolderId.get(scope.folderId) ?? []
     }

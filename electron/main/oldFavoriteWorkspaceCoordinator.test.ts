@@ -167,6 +167,125 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('marks prior remote sources pending when an inventory scan has not completed', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await repository.commit('100', {
+      id: 'prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Saved', tags: ['known'], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'prior-position', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['local:music'], remoteObservedPhysicalFolderIds: ['ordinary-old'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'ordinary-new', title: 'New source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': { title: 'Saved', tags: ['known'] } },
+      positions: { '100:1': { lifecycleState: 'source-pending', sourceAuthority: 'incomplete' } }
+    })
+    await expect(repository.getSnapshot('100')).resolves.not.toMatchObject({
+      tombstones: { '100:1': expect.objectContaining({ kind: 'recycled' }) }
+    })
+  })
+
+  it('recycles prior remote-source videos only after a complete scan proves no source', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await repository.commit('100', {
+      id: 'prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'saved', folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'local:music': [1] },
+        videos: [{ aid: 1, title: 'Saved', tags: ['known'], tagEvidence: 'confirmed', updatedAt: '2026-08-04T00:00:00.000Z' }]
+      }
+    })
+    await repository.commit('100', {
+      id: 'prior-position', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['local:music'], remoteObservedPhysicalFolderIds: ['ordinary-old'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'ordinary-new', title: 'New source', itemCount: 0, isBilimiWorkFolder: false }]
+    })
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': { title: 'Saved', tags: ['known'] } },
+      memberships: { 'local:music': [1] },
+      tombstones: { '100:1': { kind: 'recycled', allowRediscovery: true } },
+      positions: { '100:1': { lifecycleState: 'recycled', sourceAuthority: 'complete' } }
+    })
+  })
+
+  it('returns a moved saved video to organization when an ordinary source remains', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await repository.commit('100', {
+      id: 'saved-video', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Saved metadata', tags: ['known'], tagEvidence: 'confirmed', updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'saved-position', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['managed-old'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'saved-protection', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-04T00:00:00.000Z' }] }
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'ordinary-new', title: 'Ordinary', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary-new', page: 1, hasMore: false,
+      items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['ordinary-new'] }]
+    })
+    const workspace = await coordinator.finishScan('100')
+
+    expect(workspace.plannedAids).toContain(1)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': { title: 'Saved metadata', tags: ['known'] } },
+      positions: { '100:1': { lifecycleState: 'organization-conflict', sourceAuthority: 'complete' } },
+      organizationRecords: []
+    })
+  })
+
+  it('keeps a local-only saved result protected when a complete scan has no remote source', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await repository.commit('100', {
+      id: 'local-only', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'saved', folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'local:music': [1] },
+        videos: [{ aid: 1, title: 'Local only', tags: ['known'], updatedAt: '2026-08-04T00:00:00.000Z' }],
+        organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['local:music'], completedAt: '2026-08-04T00:00:00.000Z' }]
+      }
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'ordinary', title: 'Ordinary', itemCount: 0, isBilimiWorkFolder: false }]
+    })
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': { title: 'Local only', tags: ['known'] } },
+      organizationRecords: [{ aid: 1, targetFolderIds: ['local:music'] }]
+    })
+    await expect(repository.getSnapshot('100')).resolves.not.toMatchObject({
+      tombstones: { '100:1': expect.objectContaining({ kind: 'recycled' }) }
+    })
+  })
+
   it('reprojects pending organization counts when the user changes selected ordinary sources', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

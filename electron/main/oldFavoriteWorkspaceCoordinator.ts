@@ -1328,6 +1328,14 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: '', classifications: [], history: [],
         scanMetadata: { sourceFolders, ...overview.scan, inventoryMetrics }
       })
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      await this.commitScanLifecycle(
+        workspace.accountMid,
+        `old-favorite-workspace:source-pending:${workspace.id}`,
+        this.scanRuns.get(workspace.accountMid) ?? workspace.id,
+        'incomplete',
+        Object.values(repository.positions).map((position) => ({ aid: position.aid, remoteObserved: false }))
+      )
       this.scanOverviews.set(workspace.accountMid, overview)
       this.inventoryMetrics.set(workspace.accountMid, inventoryMetrics)
       return true
@@ -2184,6 +2192,25 @@ export class OldFavoriteWorkspaceCoordinator {
         `old-favorite-workspace:observed:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}`,
         observedPhysicalFolderIdsByAid, false, undefined, mirrorUpdatedAt, undefined,
         workspace.mode === 'full', true)
+      const lifecycleSnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+      const ordinarySourceFolderIds = new Set(sourceFolders
+        .filter((folder) => !folder.isBilimiWorkFolder)
+        .map((folder) => folder.id))
+      await this.commitScanLifecycle(
+        workspace.accountMid,
+        `old-favorite-workspace:lifecycle:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}`,
+        workspace.id,
+        'complete',
+        Object.values(lifecycleSnapshot.positions).map((position) => {
+          const observed = observedPhysicalFolderIdsByAid.get(position.aid)
+          return {
+            aid: position.aid,
+            remoteObserved: Boolean(observed?.size),
+            ...(observed?.size ? { remoteFolderIds: [...observed].sort() } : {}),
+            ordinarySource: Boolean(observed && [...observed].some((folderId) => ordinarySourceFolderIds.has(folderId)))
+          }
+        })
+      )
       const formalManagedFolderIds = new Set(sourceFolders
         .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
         .map((folder) => folder.id))
@@ -5110,6 +5137,27 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       }
     }
+  }
+
+  private async commitScanLifecycle(
+    accountMid: string,
+    commandPrefix: string,
+    observationEpoch: string,
+    authority: 'complete' | 'incomplete',
+    observations: Array<{ aid: number; remoteObserved: boolean; remoteFolderIds?: string[]; ordinarySource?: boolean }>
+  ) {
+    const unique = [...new Map(observations.map((observation) => [observation.aid, observation])).values()]
+      .sort((left, right) => left.aid - right.aid)
+    if (!unique.length) return
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    await this.options.repository.commit(accountMid, {
+      id: commandPrefix,
+      accountMid,
+      issuedAt: this.now(),
+      expectedRevision: snapshot.revision,
+      type: 'reconcile-scan-lifecycle',
+      payload: { observationEpoch, authority, observations: unique }
+    })
   }
 
   private queue<T>(operation: () => Promise<T>) {

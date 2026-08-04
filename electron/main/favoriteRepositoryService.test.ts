@@ -727,7 +727,84 @@ describe('FavoriteRepositoryService', () => {
 
     await service.applyArchiveImport('100', { validate: () => archive })
 
-    await expect(service.getSnapshot('100')).resolves.toMatchObject({ videos: { '8': expect.objectContaining({ title: 'Can rediscover' }) } })
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '8': expect.objectContaining({ title: 'Can rediscover' }) },
+      tombstones: { '100:8': expect.not.objectContaining({ kind: 'recycled' }) }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [{ video: { aid: 8 } }]
+    })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0 })
+  })
+
+  it('keeps recycled metadata and local organization out of ordinary scopes while exposing a recycle scope', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'recycle-source', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'local:music': [1] },
+        videos: [{ aid: 1, title: 'Recycle me', tags: ['music'], tagEvidence: 'confirmed', updatedAt: '2026-08-04T00:00:00.000Z' }]
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:30.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['local:music'], remoteObservedPhysicalFolderIds: ['source'],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:30.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-lifecycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z',
+      type: 'reconcile-scan-lifecycle', payload: {
+        observationEpoch: 'scan-2', authority: 'complete', observations: [{ aid: 1, remoteObserved: false }]
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'local:music' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: { aid: 1, title: 'Recycle me', tags: ['music'] }, folderIds: ['local:music'] }]
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      video: { aid: 1, title: 'Recycle me', tags: ['music'] }, folderIds: ['local:music']
+    })
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      videoCount: 0, folderCounts: { 'local:music': 0 }, scopeCounts: { all: 0, recycle: 1 }
+    })
+  })
+
+  it('clears a recycled favorite-library record without touching external note or archive owners', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'recycle-video', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Recycle me', tags: ['saved'], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'recycle-prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:30.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['source'],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:30.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-lifecycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z',
+      type: 'reconcile-scan-lifecycle', payload: {
+        observationEpoch: 'scan-2', authority: 'complete', observations: [{ aid: 1, remoteObserved: false }]
+      }
+    })
+
+    await service.commit('100', {
+      id: 'clear-recycled', accountMid: '100', issuedAt: '2026-08-04T00:02:00.000Z',
+      type: 'clear-recycled-favorite', payload: { aid: 1 }
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({ videos: {}, tombstones: {} })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0 })
   })
 
   it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
