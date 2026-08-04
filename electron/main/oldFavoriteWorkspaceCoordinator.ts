@@ -2468,7 +2468,12 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace classifications must target the current segment.')
       }
       await this.assertAssignmentsUseSelectedSources(workspace, assignments)
-      const updated = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments })
+      const recommendations = await this.ensureRecommendations(workspace)
+      const adoptedCandidateIds = new Set(recommendations.adoptedCandidateIds)
+      const applicableAssignments = assignments.filter((assignment) =>
+        !workspace.classifications[String(assignment.aid)]?.targetLedgerIds.some((id) => adoptedCandidateIds.has(id)))
+      if (!applicableAssignments.length) return clone(workspace)
+      const updated = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments: applicableAssignments })
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
       const readiness = await this.applyReadinessHistoryChange(workspace, entry, 'forward')
@@ -3094,10 +3099,24 @@ export class OldFavoriteWorkspaceCoordinator {
       if (segment.readiness === 'saved' || segment.status === 'frozen') continue
       await this.selectSegment(accountMid, segment.id)
       final = await this.saveCurrentSegmentToLocalLibrary(accountMid)
+      await this.advanceRecoveryDecisionAfterOwnLocalCommit(accountMid)
     }
     if (originalSegmentId) await this.selectSegment(accountMid, originalSegmentId)
     if (!final) final = await this.requireWorkspace(accountMid)
     return this.completeWholeRunLocalSave(accountMid)
+  }
+
+  private async advanceRecoveryDecisionAfterOwnLocalCommit(accountMid: string) {
+    const workspace = await this.requireWorkspace(accountMid)
+    const recovery = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
+    if ('recovery' in recovery || !recovery.recoveryDecision || !recovery.recoveryBaseline) return
+    const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+    await this.options.workspaceStore.setRecoveryDecision(workspace.accountMid, workspace.id, {
+      ...recovery.recoveryDecision,
+      expectedRepositoryRevision: repository.revision,
+      evidenceFingerprint: recovery.recoveryBaseline.fingerprint,
+      recordedAt: this.now()
+    })
   }
 
   private async completeWholeRunLocalSave(accountMid: string): Promise<OldFavoriteWorkspace> {

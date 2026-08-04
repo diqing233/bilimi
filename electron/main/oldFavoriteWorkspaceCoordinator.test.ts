@@ -421,6 +421,46 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('continues a recovered multi-batch local save after its own first-batch repository commit', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      initializeOnOpen: false, segmentSize: () => 500,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: ['knowledge'], confidence: 'high' as const }))
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false }]
+    })
+    const items = Array.from({ length: 501 }, (_unused, index) => index + 1)
+      .map((aid) => ({ aid, title: `Video ${aid}`, tags: ['ready'], sourceFolderIds: ['source'] }))
+    for (let offset = 0; offset < items.length; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: Math.floor(offset / 50) + 1, items: items.slice(offset, offset + 50)
+      })
+    }
+    await coordinator.finishScan('100')
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing recovery summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId,
+      choice: 'continue-original',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+    await coordinator.setExecutionIntent('100', 'local')
+
+    await expect(coordinator.continueExecutionIntent('100')).resolves.toBe(true)
+    const completed = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(completed).toMatchObject({ status: 'completed', completionMode: 'local' })
+    expect(completed.executionIntent).toBeUndefined()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:knowledge': Array.from({ length: 501 }, (_unused, index) => index + 1) },
+      workspace: { status: 'completed', completionMode: 'local' }
+    })
+  })
+
   it('does not revive a whole-run execution intent after the Bilibili plan has been frozen and claimed', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3206,7 +3246,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await coordinator.finishScan('100')
-    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const recommendations = requireSnapshot(await coordinator.getSnapshot('100')).recommendations
+    const recommendationId = recommendations.candidates.find((candidate) => candidate.kind === 'author')?.id
+    if (!recommendationId) throw new Error('recommendation unexpectedly unavailable')
+    await coordinator.setRecommendedCandidates('100', [recommendationId])
     const prepared = requireSnapshot(await coordinator.getSnapshot('100'))
     classifyCurrentItems.mockClear()
     const progress = vi.fn()
@@ -3306,6 +3349,52 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       classifications: {
         '1': { targetLedgerIds: ['system'], source: 'system-high' },
         '2': { targetLedgerIds: ['deepseek'], source: 'deepseek' }
+      }
+    })
+  })
+
+  it('keeps an adopted recommendation classification when a later DeepSeek batch targets the same video', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItem: (item, recommendedLedgers = []) => ({
+        targetLedgerIds: recommendedLedgers.length && item.author === 'UP Alpha'
+          ? [recommendedLedgers[0]!.id]
+          : ['system'],
+        confidence: 'high'
+      })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Recommended', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Also recommended', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const recommendationId = 'custom-author-up-alpha'
+    await coordinator.setRecommendedCandidates('100', [recommendationId])
+    const beforeDeepSeek = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!beforeDeepSeek.currentSegment) throw new Error('workspace unexpectedly unavailable')
+
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['deepseek-game'] }], {
+      workspaceId: beforeDeepSeek.workspaceId,
+      currentSegmentId: beforeDeepSeek.currentSegment.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: Object.fromEntries(Object.entries(beforeDeepSeek.classifications).map(([aid, classification]) => [aid, {
+        targetLedgerIds: classification.targetLedgerIds,
+        source: classification.source
+      }]))
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: [recommendationId], source: 'system-high' }
       }
     })
   })
