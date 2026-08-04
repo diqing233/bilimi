@@ -298,6 +298,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:restore-to-library', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   forgetFavoriteLibraryTombstone: (accountMid: string, aid: number, expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library:forget-tombstone', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
+  clearRecycledFavoriteLibraryVideo: (accountMid: string, aid: number, expectedRevision: number) =>
+    ipcRenderer.invoke('favorite-library:clear-recycled', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   previewFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[]) =>
     ipcRenderer.invoke('favorite-library:unfavorite-preview', accountMid, aids) as Promise<FavoriteLibraryUnfavoritePreview>,
   confirmFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[], executionToken: string) =>

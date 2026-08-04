@@ -4956,6 +4956,7 @@ export function FloatingAssistantApp({
                   )
                 }
                 videoCategory={videoCategory}
+                favoriteProvisioningHint={hasMissingFavoriteLedgers ? `最佳匹配：${videoCategory}（未备册）` : undefined}
                 currentAccountMid={resolvedSnapshot.accountMid}
                 videoTitle={resolvedVideoTitle}
                 videoAuthor={resolvedVideoAuthor}

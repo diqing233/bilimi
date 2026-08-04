@@ -119,6 +119,8 @@ type EventJournalEntry = {
 }
 
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
+/** Filters by the observed source folders without exposing the full membership index to the renderer. */
+export type FavoriteRepositoryLibrarySourceFilter = 'with-other' | 'bilimi-only'
 export type FavoriteRepositoryLibraryStateFilters = {
   sync?: FavoriteRepositoryLibraryStates['sync']
   protection?: FavoriteRepositoryLibraryStates['protection']
@@ -141,6 +143,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
+  sourceFilter?: FavoriteRepositoryLibrarySourceFilter
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
@@ -1439,17 +1442,27 @@ export class FavoriteRepositoryService {
   ) {
     const query = options.query?.trim().toLocaleLowerCase()
     const filter = options.filter ?? 'all'
+    const sourceFilter = options.sourceFilter
     const sort = options.sort ?? 'updated-desc'
     const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
     const transcriptionStatesByAid = transcriptionFilters.size > 0
       ? this.transcriptionStatesByAid(snapshot)
       : undefined
+    const matchesSource = (aid: number) => {
+      if (!sourceFilter) return true
+      const sourceFolderIds = index.folderIdsByAid.get(aid) ?? []
+      if (sourceFilter === 'with-other') return sourceFolderIds.some((folderId) => folderId.startsWith('bilibili:'))
+      return sourceFolderIds.length > 0 && sourceFolderIds.every((folderId) => folderId.startsWith('bilimi-logical:'))
+    }
     // Callers without a library sort retain the legacy bounded aid-read path.
-    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) return aids
+    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) {
+      return sourceFilter ? aids.filter(matchesSource) : aids
+    }
     return aids.filter((aid) => {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
       const states = index.pendingStatesByAid.get(aid) ?? new Set()
+      if (!matchesSource(aid)) return false
       const matchesQuery = !query || [video.title, video.author ?? '', video.description ?? '', ...video.tags]
         .some((value) => value.toLocaleLowerCase().includes(query))
       if (!matchesQuery) return false
@@ -1504,6 +1517,7 @@ export class FavoriteRepositoryService {
       scope: scope.kind === 'folder' ? [scope.kind, scope.folderId] : [scope.kind],
       query: options.query?.trim().toLocaleLowerCase() ?? '',
       filter: options.filter ?? 'all',
+      sourceFilter: options.sourceFilter ?? '',
       stateFilters: options.stateFilters ?? {},
       sort: options.sort ?? '',
       transcriptionFilters: [...transcriptionFilters].sort(),

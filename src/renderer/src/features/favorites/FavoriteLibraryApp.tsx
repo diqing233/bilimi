@@ -10,6 +10,7 @@ import type {
   FavoriteRepositoryEventPage,
   FavoriteRepositoryArchiveRestorePreview
 } from '../../../../../electron/main/favoriteRepositoryIpc'
+import type { FavoriteRepositoryLibrarySourceFilter } from '../../../../../electron/main/favoriteRepositoryService'
 import type {
   FavoriteRepositoryArchiveImportPreview,
   FavoriteRepositoryRestoreExecutionResult,
@@ -47,7 +48,8 @@ import {
 } from './favoriteLibraryModel'
 import './FavoriteLibraryApp.css'
 
-type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
+type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' } | { kind: 'recycle' }
+type MutableLibraryScope = Exclude<LibraryScope, { kind: 'recycle' }>
 type FavoriteLibraryStateFilterSelection = {
   sync: 'all' | 'synced' | 'unsynced'
   protection: 'all' | 'protected' | 'unprotected'
@@ -69,8 +71,8 @@ function apiStateFilters(filters: FavoriteLibraryStateFilterSelection): Favorite
 
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
-  scope: LibraryScope
-  options: { query?: string; filter?: FavoriteLibraryFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] }
+  scope: MutableLibraryScope
+  options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] }
   excludedAids: number[]
 }
 
@@ -149,6 +151,7 @@ function scopeForNavigation(id: string): LibraryScope {
   if (id === 'pending') return { kind: 'pending' }
   if (id === 'protected') return { kind: 'protected' }
   if (id === 'unsynced') return { kind: 'unsynced' }
+  if (id === 'recycle') return { kind: 'recycle' }
   if (id.startsWith('folder:')) return { kind: 'folder', folderId: id.slice('folder:'.length) }
   return { kind: 'all' }
 }
@@ -161,6 +164,7 @@ type CachedFavoriteLibraryUi = {
   pageSize: 25 | 50 | 100
   searchQuery: string
   libraryStateFilters: FavoriteLibraryStateFilterSelection
+  sourceFilter: FavoriteRepositoryLibrarySourceFilter | 'all'
   rowSort: FavoriteLibrarySort
   transcriptionFilters: FavoriteLibraryTranscriptionFilter[]
   scrollTop: number
@@ -307,6 +311,7 @@ export function FavoriteLibraryApp({
   const selectionStore = selectionStoreRef.current
   const [searchQuery, setSearchQuery] = useState('')
   const [libraryStateFilters, setLibraryStateFilters] = useState<FavoriteLibraryStateFilterSelection>({ sync: 'all', protection: 'all', organization: 'all' })
+  const [sourceFilter, setSourceFilter] = useState<FavoriteRepositoryLibrarySourceFilter | 'all'>('all')
   const [rowSort, setRowSort] = useState<FavoriteLibrarySort>('updated-desc')
   const [transcriptionFilters, setTranscriptionFilters] = useState<FavoriteLibraryTranscriptionFilter[]>([])
   const [batchEligibilityNotice, setBatchEligibilityNotice] = useState<string>()
@@ -392,9 +397,9 @@ export function FavoriteLibraryApp({
   useEffect(() => {
     if (!accountMid || !summary || !page || scopeId !== pageScopeId) return
     viewCacheRef.current.setReady(accountMid, summary, page, {
-      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, libraryStateFilters, rowSort, transcriptionFilters, scrollTop: listScrollTop, selected, detailOpen
+      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, scrollTop: listScrollTop, selected, detailOpen
     })
-  }, [accountMid, detailOpen, libraryStateFilters, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowSort, scopeId, searchQuery, selected, summary, transcriptionFilters])
+  }, [accountMid, detailOpen, libraryStateFilters, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowSort, scopeId, searchQuery, selected, sourceFilter, summary, transcriptionFilters])
 
   useEffect(() => {
     onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
@@ -408,11 +413,12 @@ export function FavoriteLibraryApp({
     return {
       query: searchQuery,
       filter: 'all' as const,
+      ...(sourceFilter !== 'all' ? { sourceFilter } : {}),
       ...(Object.keys(stateFilters).length ? { stateFilters } : {}),
       sort: rowSort,
       transcriptionFilters
     }
-  }, [libraryStateFilters, rowSort, searchQuery, transcriptionFilters])
+  }, [libraryStateFilters, rowSort, searchQuery, sourceFilter, transcriptionFilters])
   const pageOptionsRef = useRef(pageOptions)
   pageOptionsRef.current = pageOptions
   const load = useCallback(async (
@@ -420,7 +426,7 @@ export function FavoriteLibraryApp({
     nextScope: LibraryScope,
     requestedPage = pageNumberRef.current,
     limit = pageSize,
-    options: { query?: string; filter?: FavoriteLibraryFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] } = {},
+    options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[] } = {},
     preserveSelection = false
   ) => {
     const requestId = ++requestIdRef.current
@@ -431,6 +437,7 @@ export function FavoriteLibraryApp({
       page: requestedPage,
       ...(options.query?.trim() ? { query: options.query.trim() } : {}),
       ...(options.filter && options.filter !== 'all' ? { filter: options.filter } : {}),
+      ...(options.sourceFilter ? { sourceFilter: options.sourceFilter } : {}),
       ...(options.stateFilters && Object.keys(options.stateFilters).length ? { stateFilters: options.stateFilters } : {}),
       ...(options.sort && options.sort !== 'updated-desc' ? { sort: options.sort } : {}),
       ...(options.transcriptionFilters?.length ? { transcriptionFilters: options.transcriptionFilters } : {})
@@ -662,6 +669,7 @@ export function FavoriteLibraryApp({
             ? current
             : next
         })
+        setSourceFilter(cachedUi?.sourceFilter ?? 'all')
         setRowSort(cachedUi?.rowSort ?? 'updated-desc')
         setTranscriptionFilters((current) => {
           const next = cachedUi?.transcriptionFilters ?? []
@@ -677,16 +685,17 @@ export function FavoriteLibraryApp({
       const nextScope = sameAccount ? scopeRef.current : cachedUi ? scopeForNavigation(cachedUi.scopeId) : { kind: 'all' } as const
       const nextPageNumber = sameAccount ? pageNumberRef.current : cachedUi?.pageNumber ?? 1
       const nextPageSize = sameAccount ? pageSize : cachedUi?.pageSize ?? 50
-      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'rowSort' | 'transcriptionFilters'> = sameAccount
-        ? { searchQuery, libraryStateFilters, rowSort, transcriptionFilters }
+      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'sourceFilter' | 'rowSort' | 'transcriptionFilters'> = sameAccount
+        ? { searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters }
         : cachedUi
-          ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters }
-          : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, rowSort: 'updated-desc', transcriptionFilters: [] }
+          ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, sourceFilter: cachedUi.sourceFilter ?? 'all', rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters }
+          : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, sourceFilter: 'all', rowSort: 'updated-desc', transcriptionFilters: [] }
       const pageRequestId = ++requestIdRef.current
       const pageRequest = api.getFavoriteRepositoryLibraryPage?.(mid, nextScope, {
         limit: nextPageSize,
         page: nextPageNumber,
         ...(nextOptions.searchQuery.trim() ? { query: nextOptions.searchQuery.trim() } : {}),
+        ...(nextOptions.sourceFilter !== 'all' ? { sourceFilter: nextOptions.sourceFilter } : {}),
         ...(Object.keys(apiStateFilters(nextOptions.libraryStateFilters)).length ? { stateFilters: apiStateFilters(nextOptions.libraryStateFilters) } : {}),
         ...(nextOptions.rowSort !== 'updated-desc' ? { sort: nextOptions.rowSort } : {}),
         ...(nextOptions.transcriptionFilters?.length ? { transcriptionFilters: nextOptions.transcriptionFilters } : {})
@@ -704,7 +713,7 @@ export function FavoriteLibraryApp({
       setPageNumber(nextPageNumber)
       viewCacheRef.current.setReady(mid, nextSummary, nextPage, cachedUi ?? {
         scopeId: navigationForScope(nextScope), pageNumber: nextPageNumber, pageSize: nextPageSize,
-        searchQuery: nextOptions.searchQuery, libraryStateFilters: nextOptions.libraryStateFilters, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, scrollTop: sameAccount ? listScrollTop : 0,
+        searchQuery: nextOptions.searchQuery, libraryStateFilters: nextOptions.libraryStateFilters, sourceFilter: nextOptions.sourceFilter, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, scrollTop: sameAccount ? listScrollTop : 0,
         selected: sameAccount ? selected : undefined, detailOpen: sameAccount ? detailOpen : true
       })
       if (sameAccount) {
@@ -721,7 +730,7 @@ export function FavoriteLibraryApp({
         setLibraryLoadState('error')
       }
     }
-  }, [pageOptions, pageSize])
+  }, [pageOptions, pageSize, sourceFilter])
 
   useEffect(() => {
     if (!active) return
@@ -840,12 +849,12 @@ export function FavoriteLibraryApp({
       ? summary?.folderCounts?.[pageScopeId.slice('folder:'.length)]
       : summary?.scopeCounts?.[pageScopeId as keyof typeof summary.scopeCounts]
   const displayedTotal = page?.totalCount ?? currentScopeTotal ?? rows.length
-  const hasActiveResultFilter = Boolean(searchQuery.trim()) || Object.keys(apiStateFilters(libraryStateFilters)).length > 0 || transcriptionFilters.length > 0
+  const hasActiveResultFilter = Boolean(searchQuery.trim()) || sourceFilter !== 'all' || Object.keys(apiStateFilters(libraryStateFilters)).length > 0 || transcriptionFilters.length > 0
   const currentScopeLabel = pageScopeId === 'all'
     ? text.all
     : pageScopeId.startsWith('folder:')
       ? folders.find((folder) => folder.id === pageScopeId.slice('folder:'.length))?.title ?? text.results
-      : pageScopeId === 'pending' ? text.pending : text.results
+      : pageScopeId === 'pending' ? text.pending : pageScopeId === 'recycle' ? '回收站' : text.results
   // A summary may return before the initial page; neither is a valid empty-library result alone.
   const workspaceTitle = !page
     ? libraryLoadState === 'error' ? '收藏库无法读取' : '正在读取收藏库'
@@ -859,7 +868,7 @@ export function FavoriteLibraryApp({
     { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)].filter((state) => state !== 'transcription') }
   ) : undefined
   const navigation = useMemo(
-    () => summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : [],
+    () => summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary), summary.scopeCounts?.recycle ?? 0) : [],
     [folders, summary]
   )
   const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
@@ -871,7 +880,7 @@ export function FavoriteLibraryApp({
       return {
         id: item.id,
         label,
-        count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
+        count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'recycle' ? (summary?.scopeCounts?.recycle ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
         managed,
         workspace,
         removable: item.kind === 'folder' && item.source === 'bilibili',
@@ -879,9 +888,10 @@ export function FavoriteLibraryApp({
       }
     })
     const workspaceItems = items.filter((item) => item.workspace || item.protected)
+    const rangeItems = items.filter((item) => item.id === 'all' || item.id === 'pending' || item.id === 'recycle')
     const otherFavoriteItems = items.filter((item) => item.id.startsWith('folder:') && !item.workspace && !item.protected)
     return [
-      { id: 'range', label: '', items: items.filter((item) => item.id === 'all') },
+      { id: 'range', label: '', items: rangeItems },
       { id: 'workspace', label: 'bilimi 工作夹', videoCount: summary?.workspaceVideoCount, items: workspaceItems },
       { id: 'bilibili', label: '其他收藏夹', videoCount: summary?.otherFavoriteVideoCount, items: otherFavoriteItems }
     ]
@@ -1085,6 +1095,16 @@ export function FavoriteLibraryApp({
     setDeleteConfirmationOpen(false)
     setDeleteOtherWorkFolders(false)
   }
+  const restoreRecycledVideo = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !selected || !summary || !api?.restoreFavoriteLibraryVideo) throw new Error(text.unavailable)
+    await api.restoreFavoriteLibraryVideo(accountMid, selected.aid, summary.revision)
+  }
+  const clearRecycledVideo = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !selected || !summary || !api?.clearRecycledFavoriteLibraryVideo) throw new Error(text.unavailable)
+    await api.clearRecycledFavoriteLibraryVideo(accountMid, selected.aid, summary.revision)
+  }
   const deleteSelectedFromLibrary = async () => {
     const api = window.bilimiDesktop
     const selection = operationSelection(selectionStore.getSnapshot())
@@ -1248,6 +1268,7 @@ export function FavoriteLibraryApp({
     }
   }
   const currentFolderId = scope.kind === 'folder' ? scope.folderId : undefined
+  const isRecycleScope = scope.kind === 'recycle'
   const eligibilityIndex = useMemo(() => buildFavoriteLibraryEligibilityIndex(folders, page?.items ?? []), [folders, page?.items])
   const currentLogicalFolderId = currentFolderId && eligibilityIndex.folderById.get(currentFolderId)?.kind === 'bilimi-logical'
     ? currentFolderId
@@ -1266,11 +1287,14 @@ export function FavoriteLibraryApp({
         eligibleAids: sourceEligibility.eligibleAids.filter((aid) => requestedAids.includes(aid)),
         skippedAids: sourceEligibility.skipped.map((item) => item.aid)
       }, [currentFolderId, selectionEligibility])
-  const operationSelection = useCallback((selection: FavoriteLibrarySelectionSnapshot): FavoriteLibraryOperationSelection => selection.selectAllScope
-    ? { kind: 'scope', scope, options: pageOptions, excludedAids: [...selection.excludedAids] }
-    : [...selection.selectedAids], [pageOptions, scope])
+  const operationSelection = useCallback((selection: FavoriteLibrarySelectionSnapshot): FavoriteLibraryOperationSelection => {
+    if (scope.kind === 'recycle') return [...selection.selectedAids]
+    return selection.selectAllScope
+      ? { kind: 'scope', scope, options: pageOptions, excludedAids: [...selection.excludedAids] }
+      : [...selection.selectedAids]
+  }, [pageOptions, scope])
   const detailSourceEligibility = selectionEligibility({ selectedAids: [], selectAllScope: false, excludedAids: [] })
-  const detailAllowsOnlyCopy = detailSourceEligibility.sourceScopeKind === 'bilibili-default' || detailSourceEligibility.sourceScopeKind === 'bilibili-user-folder'
+  const detailAllowsOnlyCopy = isRecycleScope || detailSourceEligibility.sourceScopeKind === 'bilibili-default' || detailSourceEligibility.sourceScopeKind === 'bilibili-user-folder'
   const detailSourceVideo = detailSnapshot && detailSnapshot.video.aid === selected?.aid ? detailSnapshot.video : selected
   const detailQueueItem = selected && detailSourceVideo
     ? latestTranscriptionForRow(transcriptionQueue, accountMid, selected.aid, detailSourceVideo.cid)
@@ -1482,13 +1506,23 @@ export function FavoriteLibraryApp({
           onSelect={(id) => {
             if (!accountMid) return false
             const selectionAttempt = ++selectionAttemptRef.current
+            refreshIdRef.current += 1
             const confirmedScopeId = pageScopeId
+            const nextScope = scopeForNavigation(id)
+            const enteringRecycle = nextScope.kind === 'recycle'
+            const nextPageOptions = enteringRecycle ? { sort: rowSort } : pageOptions
             setScopeId(id)
-            return load(accountMid, scopeForNavigation(id), 1, pageSize, pageOptions).then((applied) => {
+            return load(accountMid, nextScope, 1, pageSize, nextPageOptions).then((applied) => {
               if (selectionAttempt !== selectionAttemptRef.current) return false
               if (!applied) {
                 setScopeId(confirmedScopeId)
                 return false
+              }
+              if (enteringRecycle) {
+                setSearchQuery('')
+                setLibraryStateFilters({ sync: 'all', protection: 'all', organization: 'all' })
+                setSourceFilter('all')
+                setTranscriptionFilters([])
               }
               setPageNumber(1)
               setListScrollTop(0)
@@ -1504,9 +1538,23 @@ export function FavoriteLibraryApp({
             })
           }}
           onManagedFolderAction={(id, action) => {
+            const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
+            if (folder?.kind === 'bilibili') {
+              if (!accountMid) return
+              if (action === 'edit') {
+                void window.bilimiDesktop?.openFavoriteLibrarySource?.(accountMid, folder.id)
+                return
+              }
+              void window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder?.(accountMid, folder.id)
+                .then(() => {
+                  if (scopeId === id) setScopeId('all')
+                  return refresh(accountMid)
+                })
+                .catch(() => setError(text.actionFailed))
+              return
+            }
             if (action === 'edit') {
               uiCallbacks?.onManagedFolderAction?.(id, action)
-              const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
               if (!folder?.logicalLedgerId) {
                 setError(text.unavailable)
                 return
@@ -1514,7 +1562,6 @@ export function FavoriteLibraryApp({
               void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', ledgerId: folder.logicalLedgerId, sidebar: true })
               return
             }
-            const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
             if (!folder || !accountMid) return
             void window.bilimiDesktop?.previewFavoriteLibraryManagedFolderDelete?.(accountMid, folder.id)
               .then((preview) => {
@@ -1642,7 +1689,9 @@ export function FavoriteLibraryApp({
               'copy', 'refresh', 'transcribe', 'cancel-transcribe', 'download-documents',
               'reorganize'
             ]
-            const batchAllowedActions = !selectionSnapshot.selectAllScope && selectionSnapshot.selectedAids.length > 0 && !eligibleSelectedAids.length
+            const batchAllowedActions = isRecycleScope
+              ? []
+              : !selectionSnapshot.selectAllScope && selectionSnapshot.selectedAids.length > 0 && !eligibleSelectedAids.length
               ? ['copy', 'reorganize', 'download-documents'] as const
               : sourceEligibility.sourceScopeKind === 'bilibili-default' || sourceEligibility.sourceScopeKind === 'bilibili-user-folder'
                 ? commonActions
@@ -1754,7 +1803,9 @@ export function FavoriteLibraryApp({
               const next = { ...libraryStateFilters, protection }; setLibraryStateFilters(next); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
             }} /><FavoriteLibraryColumnMenu label="整理筛选" value={libraryStateFilters.organization} options={[{ value: 'all', label: '整理：全部' }, { value: 'organized', label: '已整理' }, { value: 'unorganized', label: '未整理' }]} onChange={(organization) => {
               const next = { ...libraryStateFilters, organization }; setLibraryStateFilters(next); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
-            }} /></span></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
+            }} /></span></span><span>{`来源（${sourceFilter === 'with-other' ? '有其它收藏夹' : sourceFilter === 'bilimi-only' ? '仅 bilimi 工作夹' : '全部'}）`} <FavoriteLibraryColumnMenu label="收藏夹来源筛选" value={sourceFilter} options={[{ value: 'all', label: '来源：全部' }, { value: 'with-other', label: '有其它收藏夹' }, { value: 'bilimi-only', label: '仅 bilimi 工作夹' }]} onChange={(nextSourceFilter) => {
+              setSourceFilter(nextSourceFilter); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sourceFilter: nextSourceFilter === 'all' ? undefined : nextSourceFilter })
+            }} /></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
               setTranscriptionFilters(nextFilters); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, transcriptionFilters: nextFilters })
             }} /></span>
           </div>
@@ -1763,7 +1814,7 @@ export function FavoriteLibraryApp({
             items={rows}
             className="favorite-library__list"
             scrollTop={listScrollTop}
-            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${libraryStateFilters.sync}:${libraryStateFilters.protection}:${libraryStateFilters.organization}:${rowSort}:${transcriptionFilters.join(',')}`}
+            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${sourceFilter}:${libraryStateFilters.sync}:${libraryStateFilters.protection}:${libraryStateFilters.organization}:${rowSort}:${transcriptionFilters.join(',')}`}
             onScrollTopChange={setListScrollTop}
             renderItem={(row) => (
               (() => {
@@ -1865,7 +1916,8 @@ export function FavoriteLibraryApp({
               const displayedStatusExplanation = statusExplanation ?? unavailableExplanation
               return <section className="favorite-library__status-tags" aria-label="视频状态"><h3>状态</h3><div className="favorite-library__status-row">{chips.map((chip) => <button key={chip.label} type="button" aria-label={chip.label} aria-pressed={statusExplanation === chip.explanation} data-tone={statusTone(chip.value)} onClick={() => setStatusExplanation(chip.explanation)}>{chip.value}</button>)}</div>{displayedStatusExplanation ? <p role="status">{displayedStatusExplanation}</p> : null}</section>
             })()}
-            <section><h3>收藏归属</h3><div className="favorite-library__detail-action-row"><FavoriteLibraryDestinationButton action="copy" logicalFolders={logicalFolders.map((folder) => ({ id: folder.id, title: folder.title }))} onConfirm={(folderIds) => void runAction(async () => {
+            {isRecycleScope ? <section className="favorite-library__detail-danger"><h3>回收站操作</h3><p>这里保留已无实际收藏夹来源的视频及其本地信息；清除只影响收藏库，不会删除札记、转写或档案。</p><div className="favorite-library__detail-action-row"><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(restoreRecycledVideo)}>恢复到收藏库</button><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => void runDetailAction(clearRecycledVideo)}>彻底清除本地记录</button></div></section> : null}
+            {!isRecycleScope ? <section><h3>收藏归属</h3><div className="favorite-library__detail-action-row"><FavoriteLibraryDestinationButton action="copy" logicalFolders={logicalFolders.map((folder) => ({ id: folder.id, title: folder.title }))} onConfirm={(folderIds) => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!accountMid || !summary || !selected || !api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
               return api.copyFavoriteLibrarySelection(accountMid, [selected.aid], folderIds, summary.revision, operationSource([selected.aid]))
@@ -1884,7 +1936,7 @@ export function FavoriteLibraryApp({
             })}>以收藏库为准并同步</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(async () => {
               await adoptRemotePlacement()
               setPlacementConflictChoiceOpen(false)
-            })}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : '未匹配分类'}</p><p>B站收藏夹：{detailRemotePositions.length ? detailRemotePositions.join('、') : '尚未扫描或未映射'}</p><p>归属状态：{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length))}</p></section>
+            })}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : '未匹配分类'}</p><p>B站收藏夹：{detailRemotePositions.length ? detailRemotePositions.join('、') : '尚未扫描或未映射'}</p><p>归属状态：{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length))}</p></section> : null}
             <section><h3>音频与档案</h3><div className="favorite-library__detail-action-row"><VideoSummaryMenu actions={[{ id: 'transcribe', label: '转写音频', disabled: !detailCanStartTranscription, onSelect: () => runDetailTranscriptionAction('start') }, { id: 'cancel-transcribe', label: '取消转写', disabled: !detailCanCancelTranscription, onSelect: () => runDetailTranscriptionAction('cancel') }]} download={{ disabled: detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成', onSelect: openDetailDocumentExport }} /><button type="button" aria-label="查看档案详情" className="favorite-library__inline-action" disabled={detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成'} onClick={() => void runDetailAction(openArchiveDetail)}>笔记档案详情</button></div><p>{text.transcriptionState}：{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '等待处理' : '暂无转写任务')}</p><p>{text.archive}：{detailSnapshot?.archive.status ?? text.noArchive}{detailSnapshot?.archive.versionCount ? ` · ${detailSnapshot.archive.versionCount} 个版本` : ''}</p></section>
             <section><h3>来源与时间</h3><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button><p>{detailSourceMethod} · {formatDetailTimestamp(detailSourceAt)}</p>{detail.folders.length ? <p>来自 {detail.folders.map((folder) => folder.title).join('、')}</p> : null}{detailSnapshot?.sourceShards?.length ? <p>归入 {detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}{eventsOpen ? <ol className="favorite-library__events" aria-label="完整处理记录">{events?.items.map((event) => <li key={event.id} data-event-kind={event.kind}>{formatRepositoryEventKind(event.kind)} <span className="sr-only">{event.kind}</span> · {formatDetailTimestamp(event.occurredAt)}{event.detail ? ` · ${event.detail}` : ''}</li>)}</ol> : null}
               {events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更早记录</button> : null}

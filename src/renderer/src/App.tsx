@@ -1879,6 +1879,12 @@ export default function App() {
     const actionFavoriteLedgers = actionAccountMid
       ? effectiveFavoriteLedgersForAccount(preferences, actionAccountMid)
       : preferences.favoriteLedgers
+    const favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
+    const favoriteProvisioned = Boolean(
+      favoriteLedgerStatus?.ok &&
+      favoriteLedgerStatus.missingLedgerIds.length === 0 &&
+      !(favoriteLedgerStatus.backupConflictLedgerIds?.length)
+    )
     const videoContentContext = await readVideoContentContext()
     const archiveTargets = planFavoriteArchiveTargets({
       context: videoContentContext,
@@ -2025,6 +2031,7 @@ export default function App() {
         favoriteLedgers: actionFavoriteLedgers,
         targetLedgerId,
         targetLedgerIds,
+        favoriteProvisioned,
         resultMessagePrefix: undefined
       })
     } finally {
@@ -2041,7 +2048,7 @@ export default function App() {
       publishRuntimeFeedback(resultMessagePrefix)
     }
 
-    if (result.ok && actionUsesFavorite(action)) {
+    if (result.ok && actionUsesFavorite(action) && favoriteProvisioned) {
       const occurredAt = new Date().toISOString()
       const operationId = `review-favorite:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
       const repositoryCommands = createConfirmedReviewFavoriteCommands({
@@ -2073,7 +2080,7 @@ export default function App() {
     }
 
     if (result.ok && action !== '阅') {
-      if (targetLedgerId === 'inbox' && action === '藏') {
+      if (favoriteProvisioned && targetLedgerId === 'inbox' && action === '藏') {
         const queueItem = pendingQueueItemFromCurrentVideo(videoContentContext, targetLedgerId)
 
         if (queueItem) {

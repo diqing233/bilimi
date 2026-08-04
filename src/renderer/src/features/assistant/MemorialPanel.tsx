@@ -41,6 +41,7 @@ type MemorialPanelProps = {
   onSeekVideoNoteSource?: (source: VideoNote['source'], seconds: number) => void | Promise<void>
   onVideoNotesCopyFeedback?: VideoNotesPanelProps['onCopyFeedback']
   videoCategory?: string
+  favoriteProvisioningHint?: string
   currentAccountMid?: string
   videoTitle: string
   videoAuthor?: string
@@ -194,6 +195,7 @@ export function MemorialPanel({
   onSeekVideoNoteSource,
   onVideoNotesCopyFeedback,
   videoCategory = '解闷小品',
+  favoriteProvisioningHint,
   currentAccountMid,
   videoTitle,
   videoAuthor,
@@ -268,6 +270,7 @@ export function MemorialPanel({
                 <>
                   <p>UP 主：{authorLabel}</p>
                   <p>小咪准备归类到：{videoCategory}</p>
+                  {favoriteProvisioningHint ? <p className="memorial-panel__favorite-provisioning-hint">{favoriteProvisioningHint}</p> : null}
                 </>
               ) : (
                 <>

@@ -15,8 +15,8 @@
 - [x] Read `AGENTS.md` completely and honor discussion/start gating.
 - [x] Capture the dirty-tree baseline and preserve all 15 pre-existing modified files.
 - [ ] Record every newly touched file before each phase; do not stage unrelated changes.
-- [ ] Do not reset, stash, revert, clean, package, push, modify installed builds, delete data, or restore `package.json`.
-- [ ] Store diagnostic artifacts under `.codex-artifacts/` only.
+- [x] Do not reset, stash, revert, clean, package, push, modify installed builds, delete data, or restore `package.json`.
+- [x] Store diagnostic artifacts under `.codex-artifacts/` only.
 
 ### Task 1: Canonical inventory metrics and lifecycle types
 
@@ -118,11 +118,11 @@
 - Modify: recommendation persistence/coordinator files as required
 - Test: shared/classification/recommendation suites
 
-- [ ] Add failing tests for formal managed, local draft, ambiguous bilimi-like, and ordinary folder capabilities.
+- [x] Add failing tests for formal managed, local draft, ambiguous bilimi-like, and ordinary folder capabilities.
 - [ ] Add collision tests for slug-equivalent recommendation sources and migration tests for legacy adopted IDs.
-- [ ] Preserve user-edited rules, enabled state, priority, and bindings when recommendations reuse identities.
-- [ ] Expose one policy consumed by settings, Favorite Library, provisioning, review, and remote deletion.
-- [ ] Verify names alone never grant remote authority.
+- [x] Preserve user-edited rules, enabled state, priority, and bindings when recommendations reuse identities.
+- [x] Expose one policy consumed by settings, Favorite Library, provisioning, review, and remote deletion.
+- [x] Verify names alone never grant remote authority.
 
 ### Task 8: Provisioning UI and default/reset behavior
 
@@ -132,11 +132,11 @@
 - Modify: `electron/main/index.ts` narrow wiring only
 - Test: overview/app/render-isolation tests
 
-- [ ] Add failing tests replacing the small `同步` control and copy with `备册` semantics.
-- [ ] Add tests for default rules checked/non-cancelable only while the setting is enabled.
-- [ ] Add reset tests: restore default names/keywords, preserve custom definitions, uncheck non-defaults, persist immediately, no unsaved labels.
-- [ ] Add deletion-mode tests: temporary all-unchecked view, reliable-bound targets only, cancel restores exact prior selections.
-- [ ] Keep settings memo isolation and pointer responsiveness tests intact.
+- [x] Add failing tests replacing the small `同步` control and copy with `备册` semantics.
+- [x] Add tests for default rules checked/non-cancelable only while the setting is enabled.
+- [x] Add reset tests: restore default names/keywords, preserve custom definitions, uncheck non-defaults, persist immediately, no unsaved labels.
+- [x] Add deletion-mode tests: temporary all-unchecked view, reliable-bound targets only, cancel restores exact prior selections.
+- [x] Keep settings memo isolation and pointer responsiveness tests intact.
 
 ### Task 9: Favorite Library navigation, operations, filters, and recycle bin
 
@@ -148,12 +148,12 @@
 - Modify: repository operation services/IPC/preload/global declarations
 - Test: Favorite Library component/integration/service suites
 
-- [ ] Add failing tests for three-dot menus on both managed and ordinary groups with different permissions.
+- [x] Add failing tests for three-dot menus on both managed and ordinary groups with different permissions.
 - [ ] Restore ordinary-folder middle/detail actions while excluding move, ordinary remote mutation, and ordinary-folder remote deletion.
 - [ ] Add tests for local-only delete and local-plus-all-managed-placements delete with ordinary-source disclosure and high-risk confirmation.
-- [ ] Add status nested filters and source filters, including unknown-source exclusion from `仅在bilimi工作夹`.
-- [ ] Add recycle navigation, restore, local clear, note/archive preservation, and reappearance tests.
-- [ ] Preserve virtualization, pagination, detached menus, and selection stability.
+- [x] Add status nested filters and source filters, including unknown-source exclusion from `仅在bilimi工作夹`.
+- [x] Add recycle navigation, restore, local clear, note/archive preservation, and reappearance tests.
+- [x] Preserve virtualization, pagination, detached menus, and selection stability.
 
 ### Task 10: Review provisioning hints
 
@@ -161,8 +161,8 @@
 - Modify: review presentation/classification files in `FloatingAssistantApp.tsx` and/or `App.tsx` only at existing boundaries
 - Test: relevant review/app tests
 
-- [ ] Add failing tests preserving title, UP, and existing predicted-location copy.
-- [ ] Add the unprovisioned additive line and `最佳匹配：…（未备册）` case.
+- [x] Add failing tests preserving title, UP, and existing predicted-location copy.
+- [x] Add the unprovisioned additive line and `最佳匹配：…（未备册）` case.
 - [ ] Prove unprovisioned review performs existing non-favorite actions without creating folders or auto-backfilling later.
 - [ ] Prove provisioned checked rules use the same stable identities as organization.
 
@@ -183,9 +183,18 @@
 
 - [ ] Run every phase-focused suite fresh and record exact counts/warnings.
 - [ ] Run the broader old-favorite, favorite-repository, Favorite Library, review, settings, migration, and note/archive suites.
-- [ ] Run direct TypeScript checking and separate pre-existing dirty-tree failures from new errors.
-- [ ] Run `git diff --check` and review all touched files for unrelated changes/mojibake.
+- [x] Run direct TypeScript checking and separate pre-existing dirty-tree failures from new errors.
+- [x] Run `git diff --check` and review all touched files for unrelated changes/mojibake.
 - [ ] Restart only the development build with `node_modules\.bin\electron-vite.cmd dev`.
 - [ ] In real Electron verify scanning, first-batch availability, current/all views, save-only pending state, provisioning, review hints, Favorite Library menus/filters/recycle behavior, migration preview, and note/archive access.
 - [ ] During scan, DeepSeek, provisioning, and sync verify pointer motion, resize, minimize/close, sidebar switching, and note editing remain responsive.
 - [ ] Report exact root causes, changes, evidence, warnings, and remaining performance/remote-risk limitations without claiming unmeasured latency improvements.
+
+## Local checkpoint evidence (2026-08-04)
+
+- Focused lifecycle/repository/review/settings suites: 11 files, 584 tests passed. Coverage includes flushing and merging pending bulk/single ledger toggles before deletion mode, keeping normal backup separate from explicit managed-folder deletion, routing permanent recycle clearing through `clear-recycled-favorite`, preserving the latest normal selection through deletion confirmation, and entering recycle with search/source/status/transcription filters reset. Existing output still includes React `act(...)` warnings and the duplicate fixture key `music` warning.
+- The full repository Vitest run was attempted but timed out after five minutes without an explicit test failure; it is not recorded as passing.
+- `node_modules\.bin\tsc.cmd --noEmit` still fails against the existing dirty-tree baseline. Fresh output is `.codex-artifacts/tsc-checkpoint-20260805-final3.txt`; its SHA-256 matches the prior checkpoint exactly, so the diagnostics in the 27 touched files remain unchanged.
+- Real development Electron verification covered mutually exclusive Settings, 掌库, 札记, and 批阅 workspaces; Favorite Library recycle/source-filter navigation; sidebar resize; settings scroll; and minimize/restore. No Bilibili write, provisioning, deletion, backup, or synchronization action was triggered.
+- Pointer responsiveness and large-library performance remain unmeasured. Manual interaction completion is not latency evidence.
+- Still open in this plan: slug/adopted-ID migration collisions, full ordinary-folder detail parity and high-risk deletion disclosure, stable-identity review integration proof, Task 11 migration/note/archive coverage, and a real scan/sync acceptance run.

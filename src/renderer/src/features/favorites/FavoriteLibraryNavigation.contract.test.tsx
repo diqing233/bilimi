@@ -408,6 +408,20 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.queryByRole('button', { name: '远程工作夹 菜单' })).not.toBeInTheDocument()
   })
 
+  it('offers the same detached menu for an ordinary Bilibili folder without granting managed actions', async () => {
+    render(<FavoriteLibraryNavigation
+      groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '普通收藏夹', count: 3, removable: true }] }]}
+      collapsedGroups={{}}
+      selectedId="folder:remote"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '普通收藏夹 菜单' }))
+    expect(await screen.findByRole('menuitem', { name: '编辑信息' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '删除' })).toBeInTheDocument()
+  })
+
   it('keeps mounted navigation rows bounded for a 30000-folder group', () => {
     const items = Array.from({ length: 30_000 }, (_, index) => ({
       id: `folder:${index}`,

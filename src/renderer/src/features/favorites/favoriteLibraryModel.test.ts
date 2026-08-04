@@ -130,6 +130,7 @@ describe('favoriteLibraryModel', () => {
     expect(buildFavoriteLibraryNavigation(folders, 3)).toEqual([
       { id: 'all', kind: 'all', title: '全部收藏' },
       { id: 'pending', kind: 'pending', title: '待处理', count: 3 },
+      { id: 'recycle', kind: 'recycle', title: '回收站', count: 0 },
       { id: 'folder:remote', kind: 'folder', folderId: 'remote', title: 'Bili', source: 'bilibili' },
       { id: 'folder:logical', kind: 'folder', folderId: 'logical', title: 'Bilimi logical', source: 'bilimi-logical' },
       { id: 'folder:local', kind: 'folder', folderId: 'local', title: 'Local', source: 'local' }
@@ -146,6 +147,14 @@ describe('favoriteLibraryModel', () => {
       expect.objectContaining({ folderId: 'local:knowledge', title: 'bilimi·知识学习' }),
       expect.objectContaining({ folderId: 'local:movie-tv', title: 'bilimi·影视动漫' })
     ]))
+  })
+
+  it('keeps the recycle bin in navigation even when it is empty', () => {
+    expect(buildFavoriteLibraryNavigation([], 0, 7)).toEqual([
+      { id: 'all', kind: 'all', title: '全部收藏' },
+      { id: 'pending', kind: 'pending', title: '待处理', count: 0 },
+      { id: 'recycle', kind: 'recycle', title: '回收站', count: 7 }
+    ])
   })
 
   it('creates a detail model and carries pagination cursors forward unchanged', () => {

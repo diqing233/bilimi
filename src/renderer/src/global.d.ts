@@ -153,7 +153,7 @@ type BilimiDesktopApi = {
   ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
   getFavoriteRepositoryLibraryPage?: (
     accountMid: string,
-    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' } | { kind: 'recycle' },
     options: import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPageOptions
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
   getFavoriteRepositoryLibraryVideoDetail?: (
@@ -199,6 +199,7 @@ type BilimiDesktopApi = {
   deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   restoreFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   forgetFavoriteLibraryTombstone?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  clearRecycledFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   previewFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[]) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoritePreview>
   confirmFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoriteConfirmation>
   executeFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string, confirmationToken: string) => Promise<FavoriteLibraryCommandResult>

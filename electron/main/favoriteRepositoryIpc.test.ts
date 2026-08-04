@@ -153,6 +153,20 @@ describe('registerFavoriteRepositoryIpc', () => {
     ], 4, false)).rejects.toThrow('logical folder')
   })
 
+  it('forwards permanent recycle clearing to the dedicated local lifecycle command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const clearRecycledFavorite = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [9] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      commandService: { clearRecycledFavorite } as never
+    })
+
+    await expect(ipcMain.invoke('favorite-library:clear-recycled', 7, '100', 9, 4))
+      .resolves.toMatchObject({ status: 'succeeded', affectedAids: [9] })
+    expect(clearRecycledFavorite).toHaveBeenCalledWith('100', 9, 4)
+  })
+
   it('requires a trusted, account-bound second confirmation before cancelling explicitly previewed Bilibili favorites', async () => {
     const ipcMain = new FakeIpcMain()
     let currentTime = 1_000
@@ -639,6 +653,8 @@ describe('registerFavoriteRepositoryIpc', () => {
           { video: { aid: 2 }, pendingStates: ['unsynced', 'continuation'] }
         ]
       })
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'recycle' }, { limit: 10 })
+    expect(service.getLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'recycle' }, { limit: 10 })
   })
 
   it('forwards validated global library page, query, filter, and sort options to the main repository reader', async () => {
@@ -650,11 +666,11 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
 
     await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
-      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
     })
 
     expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
-      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
     })
   })
 
@@ -674,6 +690,9 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
     await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
       limit: 50, transcriptionFilters: ['unknown']
+    })).rejects.toThrow('Favorite library page options are invalid.')
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, sourceFilter: 'unknown'
     })).rejects.toThrow('Favorite library page options are invalid.')
   })
 

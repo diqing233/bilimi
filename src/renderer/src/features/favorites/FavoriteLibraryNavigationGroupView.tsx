@@ -68,8 +68,7 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
       {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
         <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : undefined} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
         <span className="favorite-library__navigation-trailing-slot"><span className="favorite-library__navigation-count">{item.count}</span>
-          {group.id === 'workspace' && item.managed && !item.protected ? renderManagedMenu(item, !collapsed) : null}
-          {group.id === 'bilibili' && item.removable ? <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 从收藏库移除`} title="仅从收藏库移除" onClick={() => onOrdinaryFolderRemove(item.id)}>×</button> : null}
+          {((group.id === 'workspace' && item.managed && !item.protected) || (group.id === 'bilibili' && item.removable)) ? renderManagedMenu(item, !collapsed) : null}
         </span>
       </div>)}
     </div> : null}

@@ -49,6 +49,36 @@ function emptyLedgerStatus() {
   }
 }
 
+async function primeProvisionedFavoriteStatus(
+  requestRuntime: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload | undefined>,
+  ledgers = createDefaultFavoriteLedgers()
+) {
+  const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+    executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+  }
+  const executeJavaScript = webview.executeJavaScript
+  if (!executeJavaScript) throw new Error('Test webview script runner is unavailable.')
+  const provisionedLedgers = ledgers.map((ledger, index) => ({
+    ...ledger,
+    bilibiliFolderId: ledger.bilibiliFolderId ?? String(9_000 + index)
+  }))
+  Object.assign(window.bilimiDesktop, {
+    readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+  })
+  Object.assign(webview, {
+    executeJavaScript: vi.fn((script: string, userGesture?: boolean) =>
+      isLedgerStatusScript(script)
+        ? Promise.resolve({
+            ...emptyLedgerStatus(),
+            ledgers: provisionedLedgers,
+            backupConflictLedgerIds: []
+          })
+        : executeJavaScript(script, userGesture)
+    )
+  })
+  await requestRuntime({ id: `prime-provisioned-${Math.random()}`, type: 'snapshot' })
+}
+
 function createAppPreferences(
   overrides: Partial<AssistantPreferences> = {}
 ): AssistantPreferences {
@@ -898,6 +928,8 @@ describe('App runtime integration', () => {
         }
       })
     })
+
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
 
     act(() => {
       webview.dispatchEvent(
@@ -2213,7 +2245,8 @@ describe('App runtime integration', () => {
     const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
-      savePreferences
+      savePreferences,
+      commitFavoriteRepositoryCommand: vi.fn().mockResolvedValue(undefined)
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -2248,6 +2281,8 @@ describe('App runtime integration', () => {
       }
     })
     Object.assign(webview, { executeJavaScript })
+
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
 
     act(() => {
       webview.dispatchEvent(
@@ -2357,7 +2392,8 @@ describe('App runtime integration', () => {
     const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
-      savePreferences
+      savePreferences,
+      commitFavoriteRepositoryCommand: vi.fn().mockResolvedValue(undefined)
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -2400,6 +2436,8 @@ describe('App runtime integration', () => {
       }
     })
     Object.assign(webview, { executeJavaScript })
+
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
 
     act(() => {
       webview.dispatchEvent(
@@ -2647,6 +2685,7 @@ describe('App runtime integration', () => {
         return { ok: true, steps: ['favorite'], missingTargets: [], message: 'Favorite completed.' }
       })
     })
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
     act(() => {
       webview.dispatchEvent(
         new CustomEvent('did-navigate-in-page', {
@@ -3071,6 +3110,8 @@ describe('App runtime integration', () => {
       )
     })
 
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
+
     const result = await requestRuntime({
       id: 'run-daily-deepseek-fail',
       type: 'run-action',
@@ -3198,6 +3239,8 @@ describe('App runtime integration', () => {
       )
     })
 
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
+
     const result = await requestRuntime({
       id: 'run-daily-deepseek-reject',
       type: 'run-action',
@@ -3279,6 +3322,8 @@ describe('App runtime integration', () => {
         }
       })
     })
+
+    await primeProvisionedFavoriteStatus(requestRuntimeDirect, preferences.favoriteLedgers)
 
     act(() => {
       webview.dispatchEvent(
@@ -3469,6 +3514,8 @@ describe('App runtime integration', () => {
         }
       })
     })
+
+    await primeProvisionedFavoriteStatus(requestRuntime)
 
     act(() => {
       webview.dispatchEvent(

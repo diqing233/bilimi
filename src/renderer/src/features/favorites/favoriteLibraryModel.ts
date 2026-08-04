@@ -77,6 +77,7 @@ export function createFavoriteLibraryViewCache<Summary, Page, UiState>() {
 export type FavoriteLibraryNavigationItem =
   | { id: 'all'; kind: 'all'; title: string }
   | { id: 'pending'; kind: 'pending'; title: string; count: number }
+  | { id: 'recycle'; kind: 'recycle'; title: string; count: number }
   | {
       id: string
       kind: 'folder'
@@ -229,7 +230,8 @@ export function buildPendingLibraryRows(input: {
 
 export function buildFavoriteLibraryNavigation(
   folders: readonly FavoriteRepositoryFolder[],
-  pendingCount: number
+  pendingCount: number,
+  recycleCount = 0
 ): FavoriteLibraryNavigationItem[] {
   const kindOrder: Record<FavoriteRepositoryFolder['kind'], number> = {
     bilibili: 0,
@@ -251,6 +253,7 @@ export function buildFavoriteLibraryNavigation(
   return [
     { id: 'all', kind: 'all', title: '全部收藏' },
     { id: 'pending', kind: 'pending', title: '待处理', count: Math.max(0, pendingCount) },
+    { id: 'recycle', kind: 'recycle', title: '回收站', count: Math.max(0, recycleCount) },
     ...folderItems
   ]
 }

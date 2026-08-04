@@ -12,6 +12,7 @@ import type {
 import type {
   FavoriteRepositoryLibraryDetail,
   FavoriteRepositoryLibraryFilter,
+  FavoriteRepositoryLibrarySourceFilter,
   FavoriteRepositoryLibraryStateFilters,
   FavoriteRepositoryLibrarySort,
   FavoriteRepositoryTranscriptionFilter,
@@ -39,6 +40,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
+  sourceFilter?: FavoriteRepositoryLibrarySourceFilter
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
@@ -50,6 +52,7 @@ type LibraryPageScope =
   | { kind: 'pending' }
   | { kind: 'protected' }
   | { kind: 'unsynced' }
+  | { kind: 'recycle' }
 
 const MAX_AFFECTED_FOLDER_IDS = 100
 const DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -81,7 +84,7 @@ export type FavoriteRepositorySnapshotSummary = {
   folderCounts: Record<string, number>
   workspaceVideoCount?: number
   otherFavoriteVideoCount?: number
-  scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
+  scopeCounts: { all: number; pending: number; protected: number; unsynced: number; recycle?: number }
   folderConflicts?: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   physicalShardCount: number
   syncRecordCount: number
@@ -181,10 +184,13 @@ function pageOptions(value: unknown): FolderPageOptions {
 
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
-  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
   if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  if (candidate.sourceFilter !== undefined && !['with-other', 'bilimi-only'].includes(candidate.sourceFilter as string)) {
     throw new Error('Favorite library page options are invalid.')
   }
   if (candidate.stateFilters !== undefined && (!candidate.stateFilters || typeof candidate.stateFilters !== 'object' || Array.isArray(candidate.stateFilters))) {
@@ -213,6 +219,7 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
     ...(candidate.page ? { page: candidate.page as number } : {}),
     ...(query ? { query } : {}),
     ...(candidate.filter ? { filter: candidate.filter as FavoriteRepositoryLibraryFilter } : {}),
+    ...(candidate.sourceFilter ? { sourceFilter: candidate.sourceFilter as FavoriteRepositoryLibrarySourceFilter } : {}),
     ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}),
     ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
     ...(transcriptionFilters?.length ? { transcriptionFilters } : {})
@@ -225,7 +232,7 @@ function libraryPageScope(value: unknown): LibraryPageScope {
   }
   const candidate = value as { kind?: unknown; folderId?: unknown }
   if (candidate.kind === 'all' && Object.keys(candidate).length === 1) return { kind: 'all' }
-  if ((candidate.kind === 'pending' || candidate.kind === 'protected' || candidate.kind === 'unsynced') && Object.keys(candidate).length === 1) return { kind: candidate.kind }
+  if ((candidate.kind === 'pending' || candidate.kind === 'protected' || candidate.kind === 'unsynced' || candidate.kind === 'recycle') && Object.keys(candidate).length === 1) return { kind: candidate.kind }
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && candidate.folderId.trim() && Object.keys(candidate).length === 2) {
     return { kind: 'folder', folderId: candidate.folderId.trim() }
   }
@@ -398,7 +405,7 @@ export function registerFavoriteRepositoryIpc(options: {
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
-  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone' | 'cancelBilibiliFavorites'>
+  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone' | 'clearRecycledFavorite' | 'cancelBilibiliFavorites'>
   archiveService?: Pick<FavoriteRepositoryArchiveService, 'exportAccount' | 'previewImport' | 'applyImport' | 'createRestorePlanFromManagedScan' | 'executeRestorePlan' | 'reconcileRestorePlan'>
   archiveRestoreWriter?: FavoriteRepositoryRestoreWriter
   /** Injectable only for deterministic expiry tests; production uses Date.now(). */
@@ -658,7 +665,8 @@ export function registerFavoriteRepositoryIpc(options: {
   for (const [channel, method] of [
     ['favorite-library:delete-from-library', 'deleteFromLibrary'],
     ['favorite-library:restore-to-library', 'restoreToLibrary'],
-    ['favorite-library:forget-tombstone', 'forgetTombstone']
+    ['favorite-library:forget-tombstone', 'forgetTombstone'],
+    ['favorite-library:clear-recycled', 'clearRecycledFavorite']
   ] as const) {
     options.ipcMain.handle(channel, async (event, requestedAccountMid: string, requestedAid: unknown, requestedRevision: unknown) => {
       assertTrusted(event)

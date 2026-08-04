@@ -32,6 +32,30 @@ describe('MemorialPanel', () => {
     expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
   })
 
+  it('adds only the unprovisioned favorite hint without changing the author or category lines', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={[]}
+        videoCategory="影视动漫"
+        favoriteProvisioningHint="最佳匹配：影视动漫（未备册）"
+        videoTitle="测试稿件"
+        videoAuthor="电影观察员"
+        hasCurrentVideo={true}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
+    expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
+    expect(screen.getByText('最佳匹配：影视动漫（未备册）')).toBeInTheDocument()
+  })
+
   it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
     render(
       <MemorialPanel

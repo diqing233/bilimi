@@ -21,6 +21,8 @@ type ExecuteAssistantActionArgs = {
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
   targetLedgerIds?: string[]
+  /** When false, review may perform likes/coins but must not mutate favorites. */
+  favoriteProvisioned?: boolean
   resultMessagePrefix?: string
 }
 
@@ -48,6 +50,10 @@ function favoriteTargetLabel(args: ExecuteAssistantActionArgs): string {
 
 function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   const targetLabel = favoriteTargetLabel(args)
+
+  if (args.favoriteProvisioned === false) {
+    return `已完成本次操作；备册后可归类到 ${targetLabel}。`
+  }
 
   if (args.action === '赏') {
     return `已点赞，归类存入 ${targetLabel}。`
@@ -235,9 +241,10 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
   }
 
   const pageClickOnly = args.favoriteApiFallbackEnabled === false
-  const skipPageFavorite = usesFavorite(args.action) && !pageClickOnly
+  const favoriteUnavailable = args.favoriteProvisioned === false
+  const skipPageFavorite = usesFavorite(args.action) && (favoriteUnavailable || !pageClickOnly)
 
-  if (args.action === '藏' && skipPageFavorite) {
+  if (args.action === '藏' && skipPageFavorite && !favoriteUnavailable) {
     return runFavoriteApiFallback(args, {
       ok: true,
       steps: [],
@@ -261,7 +268,7 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     return runTrustedDanmakuSubmit(args, domResult)
   }
 
-  if (!shouldUseFavoriteApi(domResult, args.action)) {
+  if (favoriteUnavailable || !shouldUseFavoriteApi(domResult, args.action)) {
     return domResult
   }
 

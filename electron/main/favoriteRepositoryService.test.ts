@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createFavoriteRepositoryArchiveExport,
   createFavoriteRepositoryArchiveExportChecksum,
+  createAccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryArchiveExport
 } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
@@ -64,6 +65,31 @@ describe('FavoriteRepositoryService', () => {
     await expect(page(['completed', 'running'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
     await expect(page([])).resolves.toMatchObject({ totalCount: 5 })
     await expect(page(['none'], 1)).resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 4 } }], nextCursor: '1' })
+  })
+
+  it('filters source membership server-side without expanding the membership index to the renderer', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-27T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-27T00:00:00.000Z' })
+    snapshot.folders = [
+      { id: 'bilimi-logical:knowledge', title: 'bilimi·知识学习', kind: 'bilimi-logical', syncState: 'bound', logicalLedgerId: 'knowledge' },
+      { id: 'bilibili:other', title: '其它收藏夹', kind: 'bilibili', syncState: 'bound', remoteFolderId: 'other' },
+      { id: 'mystery:source', title: '未知来源', kind: 'local', syncState: 'local-only' }
+    ]
+    snapshot.memberships = {
+      'bilimi-logical:knowledge': [1, 2],
+      'bilibili:other': [2, 3],
+      'mystery:source': [4]
+    }
+    snapshot.videos = Object.fromEntries([1, 2, 3, 4].map((aid) => [String(aid), { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-27T00:00:00.000Z' }]))
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sourceFilter: 'with-other' }))
+      .resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 2 } }, { video: { aid: 3 } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sourceFilter: 'bilimi-only' }))
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
   })
 
   it('derives completed transcriptions from each archive version source when a BV archive spans accounts and parts', async () => {

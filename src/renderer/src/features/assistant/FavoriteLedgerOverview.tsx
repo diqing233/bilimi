@@ -42,8 +42,8 @@ type FavoriteLedgerOverviewProps = {
 
 const LEDGER_SYNC_HINTS = [
   '自定义收藏夹：点击收藏夹名称可以编辑。',
-  '同步到 B 站：修改完成后点击“同步”。',
-  '停止同步：取消勾选不会删除已有收藏夹。',
+  '备册到 B 站：修改完成后点击“备册”，创建或更新 bilimi 工作夹。',
+  '停止备册：取消勾选不会删除已有收藏夹；如需删除，请打开右侧删除模式。',
   '分类依据：关键词、UP 名称和标签用于本地识别；DeepSeek 仅作辅助判断。'
 ]
 const LEDGER_SYNC_HINT = LEDGER_SYNC_HINTS.join('\n')
@@ -100,10 +100,10 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isDefaultSystemLocked(ledger)
-  const enableEntries = (items: FavoriteLedger[]): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
+  const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
-    enabled: isDefaultSystemLocked(ledger) ? true : ledger.enabled,
-    operable: isOperable(ledger),
+    enabled: enabledOverride?.get(ledger.id) ?? (deletionMode ? false : isDefaultSystemLocked(ledger) ? true : ledger.enabled),
+    operable: deletionMode ? Boolean(ledger.bilibiliFolderId) && !isRecoveredRemoteDraft(ledger) : isOperable(ledger),
     forceEnabledOnBulk: isRoundLocked(ledger)
   }))
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(() => window.localStorage.getItem('bilimi:ledger-hint-open') === 'true')
@@ -117,6 +117,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [deletionCandidates, setDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
   const [deletionConfirmed, setDeletionConfirmed] = useState(false)
   const [deletionReviewOpen, setDeletionReviewOpen] = useState(false)
+  const [deletionModeActive, setDeletionModeActive] = useState(false)
+  const [deletionModePreviousEnabled, setDeletionModePreviousEnabled] = useState<Map<string, boolean> | null>(null)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
@@ -127,9 +129,11 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const persistVersionRef = useRef(0)
   const toggleSaveTimerRef = useRef<number | null>(null)
   const pendingToggleSaveRef = useRef(new Map<string, { previous: boolean; enabled: boolean; version: number }>())
-  const pendingBulkSaveRef = useRef<{ previousEnabled: Map<string, boolean> } | null>(null)
+  const pendingBulkSaveRef = useRef<{ previousEnabled: Map<string, boolean>; enabledById: Map<string, boolean> } | null>(null)
   const toggleVersionsRef = useRef(new Map<string, number>())
   const toggleSaveInFlightRef = useRef(false)
+  const deletionModeActiveRef = useRef(false)
+  const deletionModePreviousEnabledRef = useRef<Map<string, boolean> | null>(null)
   const onSaveLedgersRef = useRef(onSaveLedgers)
   const onSaveLedgerEnabledRef = useRef(onSaveLedgerEnabled)
   const editorRef = useRef<HTMLElement | null>(null)
@@ -144,11 +148,15 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     toggleSaveTimerRef.current = null
     pendingToggleSaveRef.current.clear()
     pendingBulkSaveRef.current = null
-    enableStore.reset(enableEntries(ledgers))
+    enableStore.reset(enableEntries(ledgers, false))
     setDraftLedgers(ledgers)
     setSavedLedgerSnapshots(Object.fromEntries(ledgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     setActiveLedgerId(null)
     setNewLedger(false)
+    setDeletionModeActive(false)
+    setDeletionModePreviousEnabled(null)
+    deletionModeActiveRef.current = false
+    deletionModePreviousEnabledRef.current = null
   }, [externalLedgerSignature])
   useEffect(() => () => {
     if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)
@@ -221,9 +229,9 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const valid = Boolean(active && title.trim() && validation.valid && !duplicate)
   const canToggleLedgerList = draftLedgers.length > COLLAPSED_LEDGER_COUNT
   const ledgersToDisplay = ledgerListExpanded ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
-  const projectEnabled = (items: FavoriteLedger[]) => items.map((ledger) => ({
+  const projectEnabled = (items: FavoriteLedger[], enabledById: ReadonlyMap<string, boolean> = enableStore.getEnabledById()) => items.map((ledger) => ({
     ...ledger,
-    enabled: isDefaultSystemLocked(ledger) ? true : enableStore.isEnabled(ledger.id)
+    enabled: isDefaultSystemLocked(ledger) ? true : enabledById.get(ledger.id) ?? ledger.enabled
   }))
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const persist = (next: FavoriteLedger[]) => {
@@ -247,16 +255,29 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     const persistVersion = ++persistVersionRef.current
     toggleSaveInFlightRef.current = true
     const save = scheduledBulk
-      ? Promise.resolve(onSaveLedgersRef.current(projectEnabled(draftLedgers), { deleteDisabled: false })).catch(() => {
+      ? (() => {
+          const latestEnabledById = new Map(scheduledBulk.enabledById)
+          for (const [id, mutation] of scheduled) latestEnabledById.set(id, mutation.enabled)
+          return Promise.resolve(onSaveLedgersRef.current(projectEnabled(draftLedgers, latestEnabledById), { deleteDisabled: false }))
+        })().catch(() => {
           if (persistVersionRef.current !== persistVersion || pendingToggleSaveRef.current.size || pendingBulkSaveRef.current) return
-          enableStore.replaceEnabled(scheduledBulk.previousEnabled)
+          if (deletionModeActiveRef.current) {
+            const rollback = new Map(scheduledBulk.previousEnabled)
+            deletionModePreviousEnabledRef.current = rollback
+            setDeletionModePreviousEnabled(rollback)
+          } else enableStore.replaceEnabled(scheduledBulk.previousEnabled)
         })
       : Promise.all([...scheduled].map(async ([id, mutation]) => {
           try {
             await onSaveLedgerEnabledRef.current?.(id, mutation.enabled)
           } catch {
             if (toggleVersionsRef.current.get(id) !== mutation.version) return
-            enableStore.setEnabled(id, mutation.previous)
+            if (deletionModeActiveRef.current && deletionModePreviousEnabledRef.current) {
+              const rollback = new Map(deletionModePreviousEnabledRef.current)
+              rollback.set(id, mutation.previous)
+              deletionModePreviousEnabledRef.current = rollback
+              setDeletionModePreviousEnabled(rollback)
+            } else enableStore.setEnabled(id, mutation.previous)
           }
         }))
     void save.finally(() => {
@@ -275,6 +296,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     if (draftMutationLocked) return
     const previousEnabled = enableStore.isEnabled(id)
     if (!enableStore.toggle(id)) return
+    if (deletionModeActive) return
     const version = (toggleVersionsRef.current.get(id) ?? 0) + 1
     toggleVersionsRef.current.set(id, version)
     const previousMutation = pendingToggleSaveRef.current.get(id)
@@ -289,9 +311,34 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     if (draftMutationLocked) return
     const previousEnabled = enableStore.getEnabledById()
     if (!enableStore.toggleAll()) return
+    if (deletionModeActive) return
     pendingToggleSaveRef.current.clear()
-    pendingBulkSaveRef.current ??= { previousEnabled }
+    pendingBulkSaveRef.current = {
+      previousEnabled: pendingBulkSaveRef.current?.previousEnabled ?? previousEnabled,
+      enabledById: enableStore.getEnabledById()
+    }
     scheduleTogglePersist()
+  }
+  const enterDeletionMode = () => {
+    if (draftMutationLocked || deletionModeActive) return
+    const previousEnabled = enableStore.getEnabledById()
+    deletionModeActiveRef.current = true
+    deletionModePreviousEnabledRef.current = previousEnabled
+    setDeletionModePreviousEnabled(previousEnabled)
+    setDeletionModeActive(true)
+    if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)
+    toggleSaveTimerRef.current = null
+    flushTogglePersist()
+    enableStore.reset(enableEntries(draftLedgers, true))
+  }
+  const cancelDeletionMode = () => {
+    if (!deletionModeActive) return
+    const previousEnabled = deletionModePreviousEnabledRef.current ?? deletionModePreviousEnabled
+    deletionModeActiveRef.current = false
+    deletionModePreviousEnabledRef.current = null
+    setDeletionModeActive(false)
+    setDeletionModePreviousEnabled(null)
+    enableStore.reset(enableEntries(draftLedgers, false, previousEnabled ?? undefined))
   }
   const beginDrag = (id: string, event: DragEvent<HTMLButtonElement>) => {
     if (draftMutationLocked) return
@@ -338,6 +385,39 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
     setActiveLedgerId(null); setNewLedger(false)
   }
+  const resetLedgers = () => {
+    const defaults = createDefaultFavoriteLedgers()
+    const existingDefaults = new Map(draftLedgers.filter((ledger) => ledger.isDefault).map((ledger) => [ledger.id, ledger]))
+    const resetDefaults = defaults.map((template) => {
+      const existing = existingDefaults.get(template.id)
+      return {
+        ...template,
+        ...(existing ?? {}),
+        displayName: template.displayName,
+        keywords: [...template.keywords],
+        enabled: defaultFavoriteSystemEnabled ? true : template.enabled,
+        priority: template.priority,
+        isDefault: true
+      }
+    })
+    const resetCustom = draftLedgers
+      .filter((ledger) => !ledger.isDefault)
+      .map((ledger, index) => ({ ...ledger, enabled: false, priority: (resetDefaults.length + index + 1) * 10 }))
+    const next = [...resetDefaults, ...resetCustom]
+    const previous = draftLedgers
+    const persistVersion = ++persistVersionRef.current
+    setDraftLedgers(next)
+    enableStore.reset(enableEntries(next, false))
+    setSavedLedgerSnapshots(Object.fromEntries(next.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+    setActiveLedgerId(null)
+    setNewLedger(false)
+    void Promise.resolve(onSaveLedgers(next, { deleteDisabled: false })).catch(() => {
+      if (persistVersionRef.current !== persistVersion) return
+      setDraftLedgers(previous)
+      enableStore.reset(enableEntries(previous, false))
+      setSavedLedgerSnapshots(Object.fromEntries(previous.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+    })
+  }
   const save = async () => {
     if (!valid || draftMutationLocked || !active || !activeLedgerId) return
     const savingLedgerId = activeLedgerId
@@ -366,30 +446,55 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   }
   const requestSync = async () => {
     if (draftMutationLocked) return
-    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     const currentLedgers = projectEnabled(draftLedgers)
-    const disabledIds = currentLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
-    const candidates = accountMid && disabledIds.length
-      ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(accountMid, disabledIds)
+    if (!deletionModeActive) {
+      await onSyncLedgers(currentLedgers, { deleteDisabled: false })
+      return
+    }
+    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
+    const candidateIds = currentLedgers.filter((ledger) => enableStore.isEnabled(ledger.id)).map((ledger) => ledger.id)
+    const candidates = accountMid && candidateIds.length
+      ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(accountMid, candidateIds)
       : []
     if (candidates?.length) {
       setDeletionCandidates(candidates)
       return
     }
-    await onSyncLedgers(currentLedgers, { deleteDisabled: false })
+    return
   }
   const confirmManagedDeletion = async () => {
     if (draftMutationLocked) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !deletionCandidates || !deletionConfirmed) return
-    await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, deletionCandidates.map((candidate) => candidate.logicalLedgerId))
-    await onSyncLedgers(draftLedgers, { deleteDisabled: false })
+    const deletedIds = new Set(deletionCandidates.map((candidate) => candidate.logicalLedgerId))
+    await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, [...deletedIds])
+    if (deletionModeActive) {
+      const previousEnabled = deletionModePreviousEnabledRef.current ?? deletionModePreviousEnabled
+      const next = draftLedgers.map((ledger) => ({
+        ...ledger,
+        enabled: deletedIds.has(ledger.id)
+          ? false
+          : isDefaultSystemLocked(ledger)
+            ? true
+            : previousEnabled?.get(ledger.id) ?? ledger.enabled
+      }))
+      setDraftLedgers(next)
+      enableStore.reset(enableEntries(next, false))
+      setSavedLedgerSnapshots(Object.fromEntries(next.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+      await onSaveLedgers(next, { deleteDisabled: false })
+      deletionModeActiveRef.current = false
+      deletionModePreviousEnabledRef.current = null
+      setDeletionModeActive(false)
+      setDeletionModePreviousEnabled(null)
+    } else {
+      await onSyncLedgers(projectEnabled(draftLedgers), { deleteDisabled: false })
+    }
     setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionReviewOpen(false)
   }
   return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
-        <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" disabled={draftMutationLocked} onClick={() => void requestSync()}>同步</button></div></div>
+        <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked || deletionModeActive} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={draftMutationLocked} onClick={() => void requestSync()}>{deletionModeActive ? '删除并同步' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除模式' : '打开删除 bilimi 工作夹模式'} disabled={draftMutationLocked} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>{deletionModeActive ? '×' : '▾'}</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINTS.map((hint) => <p key={hint}>{hint}</p>)}</div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
@@ -414,7 +519,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
                 setActiveLedgerId(ledger.id)
                 setNewLedger(false)
               }}>{ledgerLabel}</button>
-              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? '移出同步' : '加入同步'} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || !isOperable(ledger)} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
+              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? (deletionModeActive ? '取消删除' : '移出同步') : (deletionModeActive ? '加入删除' : '加入同步')} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || (deletionModeActive ? !Boolean(ledger.bilibiliFolderId) || isRecoveredRemoteDraft(ledger) : !isOperable(ledger))} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
             </>
             }}</FavoriteLedgerEnableButton>
           </div>
@@ -454,7 +559,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
         <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
       </OldFavoriteModal> : null}
     </div>
-    {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { setDraftLedgers(createDefaultFavoriteLedgers()); setActiveLedgerId(null); setNewLedger(false); setResetConfirmOpen(false) }}><p>仅恢复默认收藏夹名称和分类规则，不会删除已有收藏夹。</p></OldFavoriteModal> : null}
+    {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { resetLedgers(); setResetConfirmOpen(false) }}><p>恢复默认收藏夹名称和分类规则，保留自建收藏夹但取消其勾选，不会删除已有收藏夹。</p></OldFavoriteModal> : null}
   </section>
 }
 
