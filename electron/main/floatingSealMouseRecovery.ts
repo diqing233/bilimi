@@ -17,10 +17,12 @@ type RecoveryWindow = {
 
 type RecoveryControllerOptions = {
   getCursorPoint: () => Point
-  schedulePoll: (callback: () => void) => unknown
+  schedulePoll: (callback: () => void, delayMs: number) => unknown
   cancelPoll: (handle: unknown) => void
   window: RecoveryWindow
 }
+
+const POLL_DELAY_MS = 80
 
 export function createFloatingSealMouseRecoveryController({
   getCursorPoint,
@@ -37,6 +39,15 @@ export function createFloatingSealMouseRecoveryController({
     if (pollHandle === undefined) return
     cancelPoll(pollHandle)
     pollHandle = undefined
+  }
+
+  function scheduleNextPoll() {
+    if (!transparent || !visible || window.isDestroyed() || pollHandle !== undefined) return
+    pollHandle = schedulePoll(() => {
+      pollHandle = undefined
+      restoreWhenCursorEntersInteractiveRegion()
+      scheduleNextPoll()
+    }, POLL_DELAY_MS)
   }
 
   function restoreWhenCursorEntersInteractiveRegion() {
@@ -69,12 +80,12 @@ export function createFloatingSealMouseRecoveryController({
       transparent = nextTransparent
       setFloatingSealMouseTransparency(window, nextTransparent)
       stopPolling()
-      if (nextTransparent && visible) pollHandle = schedulePoll(restoreWhenCursorEntersInteractiveRegion)
+      if (nextTransparent && visible) scheduleNextPoll()
     },
     setVisible(nextVisible: boolean) {
       visible = nextVisible
       stopPolling()
-      if (visible && transparent) pollHandle = schedulePoll(restoreWhenCursorEntersInteractiveRegion)
+      if (visible && transparent) scheduleNextPoll()
     },
     updateInteractiveRegions(regions: unknown[]) {
       interactiveRegions = regions.flatMap((region) => {

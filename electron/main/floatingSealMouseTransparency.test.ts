@@ -9,14 +9,14 @@ describe('setFloatingSealMouseTransparency', () => {
 
     expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(false)
   })
-  it('ignores mouse events with forwarding while the cursor is over transparent host pixels', () => {
+  it('ignores mouse events without forwarding every physical pointer move to the transparent window', () => {
     const window = {
       setIgnoreMouseEvents: vi.fn()
     }
 
     setFloatingSealMouseTransparency(window, true)
 
-    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true })
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true)
   })
 
   it('accepts mouse events while the cursor is over pet controls', () => {

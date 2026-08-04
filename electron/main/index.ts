@@ -439,8 +439,8 @@ function createFloatingSealWindow() {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
     floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
       getCursorPoint: () => screen.getCursorScreenPoint(),
-      schedulePoll: (callback) => setInterval(callback, 40),
-      cancelPoll: (handle) => clearInterval(handle as NodeJS.Timeout),
+      schedulePoll: (callback, delayMs) => setTimeout(callback, delayMs),
+      cancelPoll: (handle) => clearTimeout(handle as NodeJS.Timeout),
       window: seal
     })
     floatingSealMouseRecovery.setVisible(false)

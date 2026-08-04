@@ -23,7 +23,7 @@ describe('createFloatingSealMouseRecoveryController', () => {
     controller.setTransparent(true)
     poll?.()
 
-    expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(1, true, { forward: true })
+    expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(1, true)
     expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(2, false)
   })
 
@@ -49,7 +49,7 @@ describe('createFloatingSealMouseRecoveryController', () => {
     poll?.()
 
     expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(1)
-    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true })
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true)
   })
 
   it('stops native polling when the window becomes interactive or is disposed', () => {
@@ -97,5 +97,30 @@ describe('createFloatingSealMouseRecoveryController', () => {
     expect(schedulePoll).toHaveBeenCalledOnce()
     controller.setVisible(false)
     expect(cancelPoll).toHaveBeenCalledWith(5)
+  })
+
+  it('polls at a low fixed rate instead of reading the system cursor every 40 ms', () => {
+    const scheduled: Array<{ callback: () => void; delayMs: number }> = []
+    const controller = createFloatingSealMouseRecoveryController({
+      getCursorPoint: () => ({ x: 500, y: 500 }),
+      schedulePoll: (callback, delayMs) => {
+        scheduled.push({ callback, delayMs })
+        return scheduled.length
+      },
+      cancelPoll: vi.fn(),
+      window: {
+        getBounds: () => ({ x: 0, y: 0, width: 320, height: 380 }),
+        isDestroyed: () => false,
+        setIgnoreMouseEvents: vi.fn()
+      }
+    })
+
+    controller.setTransparent(true)
+    expect(scheduled.map((item) => item.delayMs)).toEqual([80])
+
+    scheduled[0].callback()
+    scheduled[1].callback()
+    scheduled[2].callback()
+    expect(scheduled.map((item) => item.delayMs)).toEqual([80, 80, 80, 80])
   })
 })
