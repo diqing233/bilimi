@@ -1586,6 +1586,7 @@ body[data-floating-window="true"],
 .layered-pet[data-pet-motion="working"] {
   animation-name: layered-pet-working;
   animation-duration: 1s;
+  animation-iteration-count: 3;
 }
 .layered-pet[data-pet-motion="error"] {
   animation-name: layered-pet-error;
