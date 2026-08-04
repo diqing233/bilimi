@@ -6586,6 +6586,47 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('commits the local result before provisioning a missing Bilibili target', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let localSnapshotAtProvisioning: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>> | undefined
+    const pageBridgeManager = {
+      bind: vi.fn().mockResolvedValue(undefined),
+      release: vi.fn(),
+      pageBridge: vi.fn(() => ({
+        readFolderInventory: vi.fn().mockImplementation(async () => ({
+          observedAccountMid: '100', folders: []
+        })),
+        createFolder: vi.fn().mockImplementation(async () => {
+          localSnapshotAtProvisioning = await repository.getSnapshot('100')
+          return { observedAccountMid: '100', folder: { id: 'remote-music-1', title: 'bilimi·Music', memberCount: 0 } }
+        }),
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+      }))
+    }
+    const bindings = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3', pageBridgeManager
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings,
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·Music'),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await coordinator.freezeForBilibiliExecution('100')
+
+    expect(localSnapshotAtProvisioning).toMatchObject({
+      videos: { '1': expect.objectContaining({ aid: 1 }) },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['local:music'] }],
+      positions: { '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }) }
+    })
+  })
+
   it('keeps the complete local result after a Bilibili write fails', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

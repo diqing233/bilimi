@@ -3410,6 +3410,10 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
     await this.assertDeepSeekExecutionReadyForAccount(accountMid)
+    // Establish the local archive boundary before provisioning or inspecting
+    // any remote target.  The commit is idempotent, so callers that already
+    // performed the local-first save simply take the fast path.
+    await this.commitCompleteLocalResultForRemoteExecution(accountMid)
     await this.stageUnclassifiedSelectedVideos(accountMid)
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const preparation = await this.queue(async () => {
@@ -3928,7 +3932,10 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const selectedItems = items.filter((item) => !isUnavailableScanItem(item) &&
         (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
-      if (!selectedItems.length) throw new Error('Old favorite workspace selected plan is empty.')
+      // A user may intentionally deselect every ordinary source. There is no
+      // local result to commit in that case, but the remote plan may still be
+      // frozen as an empty no-op for the confirmation flow.
+      if (!selectedItems.length) return
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const existingLogicalFolderIds = new Set(repository.folders
         .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
@@ -3971,6 +3978,18 @@ export class OldFavoriteWorkspaceCoordinator {
           syncState: 'local-only' as const
         }
       }))
+      const placements = selectedItems.map((item) => {
+        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
+        const prior = repository.positions[`${workspace.accountMid}:${item.aid}`]
+        return {
+          aid: item.aid,
+          localDesiredFolderIds: targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort(),
+          remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
+          remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
+          updatedAt: this.now(),
+          reason: 'old-favorite-local-first'
+        }
+      })
       await this.options.repository.commit(workspace.accountMid, {
         id: `old-favorite-workspace:remote-local:${workspace.id}`,
         accountMid: workspace.accountMid,
@@ -3989,29 +4008,10 @@ export class OldFavoriteWorkspaceCoordinator {
             tags: [...(item.tags ?? [])],
             updatedAt: this.now()
           })),
-          organizationRecords
+          organizationRecords,
+          placements
         }
       })
-      const afterCommit = await this.options.repository.getSnapshot(workspace.accountMid)
-      for (const item of selectedItems) {
-        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
-        const desired = targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort()
-        const prior = afterCommit.positions[`${workspace.accountMid}:${item.aid}`]
-        await this.options.repository.commit(workspace.accountMid, {
-          id: `old-favorite-workspace:remote-local-position:${workspace.id}:${item.aid}`,
-          accountMid: workspace.accountMid,
-          issuedAt: this.now(),
-          type: 'set-favorite-position',
-          payload: {
-            aid: item.aid,
-            localDesiredFolderIds: desired,
-            remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
-            remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
-            updatedAt: this.now(),
-            reason: 'old-favorite-local-first'
-          }
-        })
-      }
   }
 
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {

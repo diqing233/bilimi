@@ -103,11 +103,11 @@
 - Modify: `useOldFavoriteWorkspace.ts`
 - Test: coordinator/sync/hook/confirmation suites
 
-- [ ] Add failing tests proving every local/current/whole-run result is committed before the first remote write.
-- [ ] Add failing tests for save-only completion creating pending sync without automatic later execution.
-- [ ] Add tests for resumed remote work handling only remaining immutable operations.
-- [ ] Keep inventory reads and remote writes mutually exclusive while allowing DeepSeek to run independently.
-- [ ] Verify local results survive remote failure and restart.
+- [x] Add failing tests proving every local/current/whole-run result is committed before the first remote write.
+- [x] Add failing tests for save-only completion creating pending sync without automatic later execution.
+- [x] Add tests for resumed remote work handling only remaining immutable operations.
+- [x] Keep inventory reads and remote writes mutually exclusive while allowing DeepSeek to run independently.
+- [x] Verify local results survive remote failure and restart.
 
 ### Task 7: Central ledger identity and permission policy
 

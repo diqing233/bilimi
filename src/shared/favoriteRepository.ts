@@ -4,6 +4,9 @@ export type FavoriteRepositoryLocalPlanPayload = {
   folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
   videos?: FavoriteRepositoryVideo[]
   organizationRecords?: FavoriteRepositoryOrganizationRecord[]
+  placements?: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & {
+    positionState?: FavoriteRepositoryPositionState
+  }>
   workspace?: FavoriteRepositoryWorkspace
 }
 
@@ -1125,6 +1128,10 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string')))) invalidCommand()
       if (payload.organizationRecords !== undefined && (!Array.isArray(payload.organizationRecords) ||
         !payload.organizationRecords.every(isOrganizationRecord))) invalidCommand()
+      if (payload.placements !== undefined && (!Array.isArray(payload.placements) ||
+        payload.placements.some((placement) => !placement || typeof placement !== 'object' || Array.isArray(placement) ||
+          !isPositionPayload(placement as Record<string, unknown>)) ||
+        new Set((payload.placements as Array<Record<string, unknown>>).map((placement) => Number(placement.aid))).size !== payload.placements.length)) invalidCommand()
       if (payload.workspace !== undefined) {
         const workspace = payload.workspace as Record<string, unknown>
         if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace) ||
@@ -1446,6 +1453,7 @@ export function applyFavoriteRepositoryCommand(
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
       }
+      for (const placement of command.payload.placements ?? []) applyPlacement(placement)
       removeFromLocalInbox([
         ...organizationRecords.map((record) => record.aid),
         ...Array.from(membersByFolderId)
