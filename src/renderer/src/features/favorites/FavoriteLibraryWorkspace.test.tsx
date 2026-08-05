@@ -11,14 +11,15 @@ import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 describe('Favorite Library workspace components', () => {
   it('pins virtual navigation geometry to the compact row box without clipping text', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
-    expect(styles).toContain('.favorite-library__navigation-row { display: flex; align-items: center; min-height: 30px; height: 30px; box-sizing: border-box; }')
-    expect(styles).toContain('.favorite-library__navigation-row > button:first-child { display: flex; flex: 1; align-items: center; min-width: 0; height: 100%;')
+    expect(styles).toContain('.favorite-library__navigation-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; min-height: 30px; height: 30px; box-sizing: border-box; }')
+    expect(styles).toContain('.favorite-library__navigation-row > button:first-child { display: flex; min-width: 0; height: 100%;')
   })
   it('keeps the embedded workspace title controls compact without a heavy menu outline', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
     expect(styles).toContain('.favorite-library__navigation-group-heading { display: flex; align-items: center; min-height: 28px;')
-    expect(styles).toContain('.favorite-library__folder-menu, .favorite-library__workspace-menu { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; width: 28px; min-width: 28px; padding: 5px 0; border: 0; background: transparent; color: #64748b; opacity: 0; pointer-events: none; }')
+    expect(styles).toContain('.favorite-library__folder-menu, .favorite-library__workspace-menu { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 4ch; padding: 5px 0; border: 0; background: transparent; color: #64748b; opacity: 0; pointer-events: none; }')
+    expect(styles).toContain('.favorite-library__navigation-group-heading:hover .favorite-library__ordinary-group-menu')
     expect(styles).toContain('.favorite-library__navigation-group-toggle { flex: 1 1 auto;')
     expect(styles).toContain('.favorite-library__folder-menu-items hr { width: 100%; height: 1px; margin: 3px 0;')
     expect(styles).toContain('.favorite-library__batch-floating-menu { position: fixed;')
@@ -305,9 +306,17 @@ describe('Favorite Library workspace components', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
     expect(styles).toContain('.favorite-library__navigation-group-heading { display: flex; align-items: center; min-height: 28px; padding: 0 0 0 8px; }')
-    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; color: #64748b; font-variant-numeric: tabular-nums; text-align: right; }')
-    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; flex: 0 0 28px; align-items: center; justify-items: end; min-width: 28px;')
+    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; min-width: 4ch; color: #64748b; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }')
+    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; min-width: 4ch; padding-right: 2px; align-items: center; justify-items: end;')
     expect(styles).toContain('.favorite-library__folder-menu-wrap { grid-area: 1 / 1; display: inline-flex; align-self: stretch; }')
+  })
+
+  it('reserves a non-shrinking count column so long folder names cannot hide their totals', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('.favorite-library__navigation-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content;')
+    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; min-width: 4ch; padding-right: 2px;')
+    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; min-width: 4ch;')
   })
 
   it('does not animate more-information content when reduced motion is requested', () => {

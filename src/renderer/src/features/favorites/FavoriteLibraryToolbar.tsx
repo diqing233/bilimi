@@ -114,17 +114,32 @@ export function FavoriteLibraryColumnMenu<T extends string>({
   label,
   value,
   options,
-  onChange
+  onChange,
+  portal = false
 }: {
   label: string
   value: T
   options: Array<{ value: T; label: string }>
   onChange: (value: T) => void
+  portal?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [position, setPosition] = useState<CSSProperties>()
+  const reposition = useCallback(() => {
+    if (!portal) return
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (rect) setPosition({ top: `${rect.bottom + 5}px`, left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 220))}px` })
+  }, [portal])
+  useEffect(() => {
+    if (!open || !portal) return
+    reposition(); window.addEventListener('resize', reposition); window.addEventListener('scroll', reposition, true)
+    return () => { window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
+  }, [open, portal, reposition])
+  const menu = open ? <span role="menu" className={`favorite-library__column-menu-options${portal ? ' favorite-library__column-menu-options--portal' : ''}`} style={portal ? position : undefined}>{options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={option.value === value} onClick={() => { onChange(option.value); setOpen(false) }}>{option.label}</button>)}</span> : null
   return <span className="favorite-library__column-menu">
-    <button type="button" className="favorite-library__column-menu-trigger" aria-label={label} aria-expanded={open} onClick={() => setOpen((currentOpen) => !currentOpen)}><Chevron /></button>
-    {open ? <span role="menu" className="favorite-library__column-menu-options">{options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={option.value === value} onClick={() => { onChange(option.value); setOpen(false) }}>{option.label}</button>)}</span> : null}
+    <button ref={triggerRef} type="button" className="favorite-library__column-menu-trigger" aria-label={label} aria-expanded={open} onClick={() => { setOpen((currentOpen) => !currentOpen); requestAnimationFrame(reposition) }}><Chevron /></button>
+    {portal && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu}
   </span>
 }
 
@@ -148,12 +163,15 @@ export function FavoriteLibraryStateFilterMenu({
   onChange: <K extends keyof FavoriteLibraryStateFilterValue>(key: K, nextValue: FavoriteLibraryStateFilterValue[K]) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [activeGroup, setActiveGroup] = useState<keyof FavoriteLibraryStateFilterValue | null>(null)
   return <span className="favorite-library__column-menu favorite-library__state-filter-menu">
     <button type="button" className="favorite-library__column-menu-trigger" aria-label="状态筛选" aria-expanded={open} onClick={() => setOpen((current) => !current)}><Chevron /></button>
     {open ? <span role="menu" aria-label="状态筛选" className="favorite-library__column-menu-options favorite-library__state-filter-options">
       {favoriteLibraryStateFilterGroups.map((group) => <span className="favorite-library__state-filter-group" key={group.key}>
-        <strong>{group.label}</strong>
-        {group.options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={value[group.key] === option.value} onClick={() => onChange(group.key, option.value)}>{option.label}</button>)}
+        <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={activeGroup === group.key} onClick={() => setActiveGroup((current) => current === group.key ? null : group.key)}>{group.label.replace('状态', '')} <Chevron /></button>
+        {activeGroup === group.key ? <span role="menu" aria-label={group.label} className="favorite-library__state-filter-submenu">
+          {group.options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={value[group.key] === option.value} onClick={() => { onChange(group.key, option.value); setActiveGroup(null) }}>{option.label}</button>)}
+        </span> : null}
       </span>)}
     </span> : null}
   </span>

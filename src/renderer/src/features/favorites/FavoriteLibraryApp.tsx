@@ -179,6 +179,7 @@ export type FavoriteLibraryUiCallbacks = {
   onBatchAction?: (action: FavoriteLibraryBatchAction, aids: number[]) => void
   onManagedFolderAction?: (folderId: string, action: 'edit' | 'delete') => void
   onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
+  onOrdinaryFolderEdit?: (folderId: string) => void
 }
 
 function formatDetailTimestamp(value?: string) {
@@ -334,6 +335,7 @@ export function FavoriteLibraryApp({
   const [deleteOtherWorkFolders, setDeleteOtherWorkFolders] = useState(false)
   const [removeManagedOtherFolders, setRemoveManagedOtherFolders] = useState(false)
   const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
+  const [ordinaryGroupDeleteConfirmationOpen, setOrdinaryGroupDeleteConfirmationOpen] = useState(false)
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{
     aids: number[]
     executionToken: string
@@ -1494,6 +1496,15 @@ export function FavoriteLibraryApp({
         <p>将仅从收藏库删除 {selectedCount} 个所选视频，不会取消 B 站收藏，也不会删除已有转写、档案、保护记录或处理历史。</p>
         <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setBatchLocalDeleteConfirmationOpen(false)}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(deleteSelectedFromLibrary)}>确认仅从收藏库删除所选视频</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
+      {ordinaryGroupDeleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认全部从收藏库删除" onClose={() => setOrdinaryGroupDeleteConfirmationOpen(false)}>
+        <p>将仅从收藏库删除 {folders.filter((folder) => folder.kind === 'bilibili').length} 个其他收藏夹，不会取消 B 站收藏，也不会删除视频、转写、档案或处理记录。</p>
+        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setOrdinaryGroupDeleteConfirmationOpen(false)}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(async () => {
+          if (!accountMid || !window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder) throw new Error(text.unavailable)
+          for (const folder of folders.filter((candidate) => candidate.kind === 'bilibili')) await window.bilimiDesktop.dismissFavoriteLibraryOrdinaryFolder(accountMid, folder.id)
+          setOrdinaryGroupDeleteConfirmationOpen(false)
+          if (scope.kind === 'folder' && folders.some((folder) => `folder:${folder.id}` === scopeId && folder.kind === 'bilibili')) setScopeId('all')
+        })}>确认全部从收藏库删除</button></div>
+      </FavoriteLibraryConfirmationDialog> : null}
       {managedFolderGroupDialog ? <FavoriteLibraryConfirmationDialog label="删除全部工作夹" onClose={() => { setManagedFolderGroupDialog(undefined); setManagedFolderGroupRemoteConfirming(false) }}>
         <p>将删除 {managedFolderGroupDialog.folders.length} 个工作夹的本地收藏库归属（inbox 不参与）。</p>
         <p>受影响视频 {managedFolderGroupDialog.affectedVideoCount} 个。{managedFolderGroupDialog.remoteAllowed ? '所有远程绑定唯一且已完整扫描。' : '存在未绑定、歧义或扫描不完整的工作夹，禁止同步删除 B 站。'}</p>
@@ -1593,7 +1604,7 @@ export function FavoriteLibraryApp({
             if (folder?.kind === 'bilibili') {
               if (!accountMid) return
               if (action === 'edit') {
-                void window.bilimiDesktop?.openFavoriteLibrarySource?.(accountMid, folder.id)
+                uiCallbacks?.onOrdinaryFolderEdit?.(folder.id)
                 return
               }
               void window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder?.(accountMid, folder.id)
@@ -1652,6 +1663,9 @@ export function FavoriteLibraryApp({
                 return refresh(accountMid)
               })
               .catch(() => setError(text.actionFailed))
+          }}
+          onOrdinaryGroupAction={(action) => {
+            if (action === 'delete-all') setOrdinaryGroupDeleteConfirmationOpen(true)
           }}
           onWorkspaceAction={(action) => {
             if (action === 'create') {
@@ -1861,7 +1875,7 @@ export function FavoriteLibraryApp({
               setRowSort(sort); setPageNumber(1); setListScrollTop(0); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sort })
             }} /></span><span>状态 <FavoriteLibraryStateFilterMenu value={libraryStateFilters} onChange={(key, value) => applyLibraryStateFilters({ ...libraryStateFilters, [key]: value })} /></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
               setTranscriptionFilters(nextFilters); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, transcriptionFilters: nextFilters })
-            }} /></span><span>{`来源（${sourceFilter === 'with-other' ? '有其它收藏夹' : sourceFilter === 'bilimi-only' ? '仅 bilimi 工作夹' : '全部'}）`} <FavoriteLibraryColumnMenu label="收藏夹来源筛选" value={sourceFilter} options={[{ value: 'all', label: '来源：全部' }, { value: 'with-other', label: '有其它收藏夹' }, { value: 'bilimi-only', label: '仅 bilimi 工作夹' }]} onChange={(nextSourceFilter) => {
+            }} /></span><span>{`来源（${sourceFilter === 'with-other' ? '有其它收藏夹' : sourceFilter === 'bilimi-only' ? '仅 bilimi 工作夹' : '全部'}）`} <FavoriteLibraryColumnMenu label="收藏夹来源筛选" portal value={sourceFilter} options={[{ value: 'all', label: '来源：全部' }, { value: 'with-other', label: '有其它收藏夹' }, { value: 'bilimi-only', label: '仅 bilimi 工作夹' }]} onChange={(nextSourceFilter) => {
               setSourceFilter(nextSourceFilter); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sourceFilter: nextSourceFilter === 'all' ? undefined : nextSourceFilter })
             }} /></span>
           </div>
@@ -1924,7 +1938,7 @@ export function FavoriteLibraryApp({
                       ? { aids: [row.aid] }
                       : { targets: [{ aid: row.aid, cid: row.cid }] })
                   })}>{transcriptionLabel}</button><button type="button" disabled={!archiveAvailable} onClick={() => void runDetailAction(() => openRowArchiveDetail(row, queueItem?.cid ?? rowDetail?.video.cid))}>档案详情</button></span>
-                  <span className="favorite-library__row-source" title={sourceLabel}>{sourceLabel}</span>
+                  <span className="favorite-library__row-source" title={sourceLabel}>{sourceNames.length ? Array.from({ length: Math.ceil(sourceNames.length / 2) }, (_, rowIndex) => <span className="favorite-library__row-source-line" key={rowIndex}>{sourceNames.slice(rowIndex * 2, rowIndex * 2 + 2).map((sourceName, index) => <span key={sourceName} title={sourceName}>{index ? '、' : ''}{sourceName}</span>)}</span>) : <span className="favorite-library__row-source-line">未记录</span>}</span>
                 </div>
               </div>
                 )

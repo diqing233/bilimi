@@ -2602,6 +2602,13 @@ export default function App() {
           open={favoriteLibraryOpen}
           onClose={() => setFavoriteLibraryOpen(false)}
           onResizeActiveChange={setFavoriteLibraryResizing}
+          uiCallbacks={{
+            onOrdinaryFolderEdit: () => {
+              const message = '其他收藏夹请自行在 B 站修改。'
+              publishRuntimeFeedback(message)
+              window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
+            }
+          }}
         />
         </div>
       </div>

@@ -763,6 +763,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '收藏夹来源筛选' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '仅 bilimi 工作夹' }))
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
     fireEvent.click(screen.getByRole('button', { name: '转写筛选' }))
@@ -785,6 +786,7 @@ describe('FavoriteLibraryApp', () => {
     ])
     expect(screen.getByText('转写（全部）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
     expect(screen.getByRole('menuitemradio', { name: '同步：全部' })).toHaveAttribute('aria-checked', 'true')
   })
 
@@ -811,14 +813,37 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: '保护筛选' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '整理筛选' })).not.toBeInTheDocument()
 
+    const headings = screen.getByTestId('favorite-library-column-headings')
+    expect(headings.querySelector('.favorite-library__header-filter-group')).toBeNull()
+    expect(Array.from(headings.children).map((child) => child.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      '', '视频名称（最近更新）', '状态', '转写（全部）', '来源（全部）'
+    ])
+
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    expect(screen.getByRole('menuitem', { name: '同步' })).toHaveAttribute('aria-haspopup', 'menu')
+    expect(screen.getByRole('menuitem', { name: '保护' })).toHaveAttribute('aria-haspopup', 'menu')
+    expect(screen.getByRole('menuitem', { name: '整理' })).toHaveAttribute('aria-haspopup', 'menu')
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
+    expect(screen.getByRole('menu', { name: '同步状态' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '保护' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '已保护' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '整理' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未整理' }))
 
     await waitFor(() => expect(getPage.mock.calls.at(-1)?.[2]?.stateFilters).toEqual({
       sync: 'unsynced', protection: 'protected', organization: 'unorganized'
     }))
+  })
+
+  it('ports the fourth-column source menu above the detail pane and centers multiple sources two per row', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'), 'utf8')
+
+    expect(source).toContain('label="收藏夹来源筛选" portal')
+    expect(source).toContain('sourceNames.slice(rowIndex * 2, rowIndex * 2 + 2).map((sourceName, index) => <span key={sourceName} title={sourceName}>{index ? \'、\' : \'\'}{sourceName}</span>)')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__row-source { display: grid; align-items: center; justify-items: stretch;')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__row-source-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+    expect(source).toContain("{index ? '、' : ''}{sourceName}")
   })
   it('hides adopting a Bilibili position until a completed remote observation exists', async () => {
     const adoptFavoriteLibraryRemotePlacement = vi.fn()
@@ -965,6 +990,33 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
 
     expect((await screen.findByRole('button', { name: 'bilimi 原神' })).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'bilibili')
+  })
+
+  it('keeps ordinary-folder editing local and confirms before hiding every ordinary folder', async () => {
+    const dismissFavoriteLibraryOrdinaryFolder = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const onOrdinaryFolderEdit = vi.fn()
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 2, folders: [
+        { id: 'bilibili:2', title: '普通收藏夹一', kind: 'bilibili', remoteFolderId: '2', syncState: 'synced' },
+        { id: 'bilibili:3', title: '普通收藏夹二', kind: 'bilibili', remoteFolderId: '3', syncState: 'synced' }
+      ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] }),
+      dismissFavoriteLibraryOrdinaryFolder,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp uiCallbacks={{ onOrdinaryFolderEdit }} />)
+    fireEvent.click(await screen.findByRole('button', { name: '普通收藏夹一 菜单' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑信息' }))
+    expect(onOrdinaryFolderEdit).toHaveBeenCalledWith('bilibili:2')
+    fireEvent.click(screen.getByRole('button', { name: '其他收藏夹管理菜单' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '全部从收藏库删除' }))
+    expect(screen.getByRole('alertdialog', { name: '确认全部从收藏库删除' })).toHaveTextContent('不会取消 B 站收藏')
+    expect(dismissFavoriteLibraryOrdinaryFolder).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认全部从收藏库删除' }))
+    await waitFor(() => expect(dismissFavoriteLibraryOrdinaryFolder).toHaveBeenNthCalledWith(1, '100', 'bilibili:2'))
+    expect(dismissFavoriteLibraryOrdinaryFolder).toHaveBeenNthCalledWith(2, '100', 'bilibili:3')
   })
 
   it('keeps ordinary-folder detail operations local while preserving refresh, organization, transcription, and archive access', async () => {
@@ -2794,6 +2846,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(screen.queryByRole('button', { name: '同步筛选' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
     expect(await screen.findByText('Status result')).toBeInTheDocument()
     expect(list.scrollTop).toBe(0)
