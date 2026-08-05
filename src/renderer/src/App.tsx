@@ -1563,6 +1563,43 @@ export default function App() {
     }
   }
 
+  async function ensureFavoriteLedger(logicalFolderId: string): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) return loginFailure
+
+    const accountMid = await readBilibiliAccountMid()
+    const ledgerId = logicalFolderId.trim().replace(/^bilimi-logical:/, '')
+    const currentLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const targetLedger = currentLedgers.find((ledger) => ledger.id === ledgerId && ledger.enabled)
+    if (!targetLedger) {
+      return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
+    }
+
+    const result = await runScript(
+      buildEnsureFavoriteLedgersScript([targetLedger])
+    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+
+    if (Array.isArray(result.ledgers)) {
+      const returnedById = new Map(result.ledgers.map((ledger) => [ledger.id, ledger]))
+      const mergedLedgers = currentLedgers.map((ledger) => returnedById.get(ledger.id) ?? ledger)
+      if (JSON.stringify(mergedLedgers) !== JSON.stringify(currentLedgers)) {
+        const nextPreferences = createInitialAssistantPreferences({
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, mergedLedgers)
+        })
+        const saved = window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
+        const savedPreferences = createInitialAssistantPreferences(saved)
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
+      }
+      favoriteLedgerStatusCacheRef.current = undefined
+      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+    }
+
+    return result
+  }
+
   async function saveFavoriteLedgers(
     nextLedgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions
@@ -2422,6 +2459,8 @@ export default function App() {
           return seekVideoTime(request.seconds)
         case 'ensure-ledgers':
           return ensureFavoriteLedgers()
+        case 'ensure-ledger':
+          return ensureFavoriteLedger(request.logicalFolderId)
         case 'save-ledgers':
           return saveFavoriteLedgers(request.ledgers, request.options)
         case 'open-bilibili-favorites':

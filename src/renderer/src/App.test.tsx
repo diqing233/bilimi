@@ -1113,6 +1113,61 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('provisions one requested ledger while retaining every other account ledger', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers()
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: ledgers
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const music = ledgers.find((ledger) => ledger.id === 'music')!
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          expect(script).toContain('"id":"music"')
+          expect(script).not.toContain('"id":"knowledge"')
+          return {
+            ok: true,
+            ledgers: [{ ...music, bilibiliFolderId: '9901', syncState: 'bound' }],
+            steps: ['api:ledger:list'],
+            missingTargets: [],
+            message: '当前册目已备齐。'
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({ id: 'backup-one-ledger', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:music' }))
+      .resolves.toMatchObject({ ok: true })
+
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: 'music', bilibiliFolderId: '9901' }),
+            expect.objectContaining({ id: 'knowledge' })
+          ])
+        })
+      })
+    }))
+  })
+
   it('restores default backup targets when the master system is enabled after cancel all', async () => {
     const accountMid = '100'
     const disabledLedgers = createDefaultFavoriteLedgers().map((ledger) => ({

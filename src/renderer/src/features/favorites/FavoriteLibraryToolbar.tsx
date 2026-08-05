@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { createPortal } from 'react-dom'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
 
-export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'reorganize' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'unfavorite-remote'
+export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'reorganize' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'remove-managed-placement'
 export type FavoriteLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 export type FavoriteLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
 export type FavoriteLibraryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
@@ -125,6 +125,37 @@ export function FavoriteLibraryColumnMenu<T extends string>({
   return <span className="favorite-library__column-menu">
     <button type="button" className="favorite-library__column-menu-trigger" aria-label={label} aria-expanded={open} onClick={() => setOpen((currentOpen) => !currentOpen)}><Chevron /></button>
     {open ? <span role="menu" className="favorite-library__column-menu-options">{options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={option.value === value} onClick={() => { onChange(option.value); setOpen(false) }}>{option.label}</button>)}</span> : null}
+  </span>
+}
+
+export type FavoriteLibraryStateFilterValue = {
+  sync: 'all' | 'synced' | 'unsynced'
+  protection: 'all' | 'protected' | 'unprotected'
+  organization: 'all' | 'organized' | 'unorganized'
+}
+
+const favoriteLibraryStateFilterGroups = [
+  { key: 'sync', label: '同步状态', options: [{ value: 'all', label: '同步：全部' }, { value: 'synced', label: '已同步' }, { value: 'unsynced', label: '未同步' }] },
+  { key: 'protection', label: '保护状态', options: [{ value: 'all', label: '保护：全部' }, { value: 'protected', label: '已保护' }, { value: 'unprotected', label: '未保护' }] },
+  { key: 'organization', label: '整理状态', options: [{ value: 'all', label: '整理：全部' }, { value: 'organized', label: '已整理' }, { value: 'unorganized', label: '未整理' }] }
+] as const
+
+export function FavoriteLibraryStateFilterMenu({
+  value,
+  onChange
+}: {
+  value: FavoriteLibraryStateFilterValue
+  onChange: <K extends keyof FavoriteLibraryStateFilterValue>(key: K, nextValue: FavoriteLibraryStateFilterValue[K]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return <span className="favorite-library__column-menu favorite-library__state-filter-menu">
+    <button type="button" className="favorite-library__column-menu-trigger" aria-label="状态筛选" aria-expanded={open} onClick={() => setOpen((current) => !current)}><Chevron /></button>
+    {open ? <span role="menu" aria-label="状态筛选" className="favorite-library__column-menu-options favorite-library__state-filter-options">
+      {favoriteLibraryStateFilterGroups.map((group) => <span className="favorite-library__state-filter-group" key={group.key}>
+        <strong>{group.label}</strong>
+        {group.options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={value[group.key] === option.value} onClick={() => onChange(group.key, option.value)}>{option.label}</button>)}
+      </span>)}
+    </span> : null}
   </span>
 }
 
@@ -303,7 +334,7 @@ function BatchActions({
     closeMenu()
   }
   const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息'], ['reorganize', '重新整理']]
-  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['unfavorite-remote', '取消B站收藏']]
+  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['remove-managed-placement', '移出 bilimi 工作夹']]
   const hasMoreActions = allowed('sync') || dangerActions.some(([action]) => allowed(action))
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>

@@ -745,6 +745,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'recycle-favorites'
+      payload: { aids: number[]; deletedAt: string; reason?: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'delete-local-managed-folder'
       payload: { logicalFolderId: string }
     }
@@ -1279,6 +1287,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         Number.isNaN(Date.parse(payload.deletedAt)) || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
       return
     case 'delete-favorites-from-library':
+    case 'recycle-favorites':
       if (!Array.isArray(payload.aids) || !payload.aids.length || payload.aids.length > 100 ||
         !isValidAidList(payload.aids) || new Set(payload.aids).size !== payload.aids.length ||
         typeof payload.deletedAt !== 'string' || Number.isNaN(Date.parse(payload.deletedAt)) ||
@@ -1851,6 +1860,19 @@ export function applyFavoriteRepositoryCommand(
           memberships = { ...memberships, [folderId]: before.filter((aid) => !removed.has(aid)) }
           affectedFolderIds.push(folderId)
         }
+      }
+      affectedAids = selected
+      break
+    }
+    case 'recycle-favorites': {
+      const selected = uniquePositiveAids(command.payload.aids)
+      for (const aid of selected) {
+        const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)
+        tombstones[key] = {
+          accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
+          ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: true, kind: 'recycled'
+        }
+        if (positions[key]) positions[key] = { ...positions[key], lifecycleState: 'recycled' }
       }
       affectedAids = selected
       break

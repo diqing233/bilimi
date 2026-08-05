@@ -91,7 +91,7 @@ export type FavoriteRepositorySnapshotSummary = {
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
   pendingAidCount: number
   remoteReconciliations: Array<{
-    kind: 'unfavorite' | 'managed-folder'
+    kind: 'unfavorite' | 'managed-folder' | 'managed-placement'
     operationId: string
   }>
   workspace?: {

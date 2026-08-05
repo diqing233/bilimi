@@ -342,7 +342,7 @@ export type FavoriteRepositoryLibrarySummary = {
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
   pendingAidCount: number
   remoteReconciliations: Array<{
-    kind: 'unfavorite' | 'managed-folder'
+    kind: 'unfavorite' | 'managed-folder' | 'managed-placement'
     operationId: string
   }>
   workspace?: {
@@ -1391,13 +1391,18 @@ export class FavoriteRepositoryService {
   }
 
   private remoteReconciliations(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibrarySummary['remoteReconciliations'] {
-    return snapshot.syncRecords.flatMap((record) => {
-      if (record.status !== 'reconciliation-required') return []
+    return snapshot.syncRecords.flatMap((record): FavoriteRepositoryLibrarySummary['remoteReconciliations'] => {
+      const isManagedPlacementRecovery = record.operationKey === 'favorite-library-managed-placement-removal' &&
+        (record.status === 'reconciliation-required' || record.status === 'result-unknown')
+      if (record.status !== 'reconciliation-required' && !isManagedPlacementRecovery) return []
       if (record.operationKey === 'favorite-library-unfavorite' && record.id.startsWith('favorite-remote-unfavorite:')) {
         return [{ kind: 'unfavorite' as const, operationId: record.id.slice('favorite-remote-unfavorite:'.length) }]
       }
       if (record.operationKey === 'managed-folder-delete' && record.id.startsWith('managed-folder-delete:')) {
         return [{ kind: 'managed-folder' as const, operationId: record.id.slice('managed-folder-delete:'.length) }]
+      }
+      if (record.operationKey === 'favorite-library-managed-placement-removal' && record.id.startsWith('favorite-managed-placement-removal:')) {
+        return [{ kind: 'managed-placement' as const, operationId: record.id.slice('favorite-managed-placement-removal:'.length) }]
       }
       return []
     })

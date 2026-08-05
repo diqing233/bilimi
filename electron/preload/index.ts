@@ -270,6 +270,14 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:execute-unfavorite', accountMid, executionToken, confirmationToken) as Promise<unknown>,
   reconcileFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, operationId: string) =>
     ipcRenderer.invoke('favorite-library-operations:reconcile-unfavorite', accountMid, operationId) as Promise<unknown>,
+  previewFavoriteLibraryManagedPlacementRemoval: (accountMid: string, selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
+    ipcRenderer.invoke('favorite-library-operations:preview-managed-placement-removal', accountMid, selection, logicalFolderIds, expectedRevision, source) as Promise<unknown>,
+  confirmFavoriteLibraryManagedPlacementRemoval: (accountMid: string, executionToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:confirm-managed-placement-removal', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
+  executeFavoriteLibraryManagedPlacementRemoval: (accountMid: string, executionToken: string, confirmationToken: string) =>
+    ipcRenderer.invoke('favorite-library-operations:execute-managed-placement-removal', accountMid, executionToken, confirmationToken) as Promise<unknown>,
+  reconcileFavoriteLibraryManagedPlacementRemoval: (accountMid: string, operationId: string) =>
+    ipcRenderer.invoke('favorite-library-operations:reconcile-managed-placement-removal', accountMid, operationId) as Promise<unknown>,
   previewFavoriteLibraryManagedFolderDelete: (accountMid: string, folderId: string) =>
     ipcRenderer.invoke('favorite-library-operations:preview-managed-folder-delete', accountMid, folderId) as Promise<unknown>,
   previewFavoriteLibraryManagedFolderGroupDelete: (accountMid: string) =>
@@ -618,6 +626,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }
   },
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
+  ensureFavoriteLedger: (logicalFolderId: string) => ipcRenderer.invoke('floating-assistant:ensure-ledger', logicalFolderId),
   saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),

@@ -1576,6 +1576,99 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
       ? pendingKeywordSuggestions
       : processedKeywordSuggestions
 
+  // Keep the large learning surface as one memoized element. Preference patches
+  // for unrelated settings retain these array references and skip rebuilding
+  // hundreds of record/suggestion rows.
+  const organizationStrategySettings = useMemo(() => (
+    <fieldset className="assistant-settings__group assistant-settings__group--learning" data-settings-section="learning">
+      <legend>整理策略</legend>
+      <div className="assistant-settings__inline-options">
+        {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
+          <label key={option.value}>
+            <input type="radio" name="favorite-archive-strategy" checked={preferences.favoriteArchiveStrategy === option.value} onChange={() => actions.current.persistPreferencePatch({ favoriteArchiveStrategy: option.value })} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      <label>
+        <input type="checkbox" checked={preferences.favoriteCorrectionLearningEnabled} onChange={(event) => actions.current.persistPreferencePatch({ favoriteCorrectionLearningEnabled: event.currentTarget.checked })} />
+        <span>记录归档调整</span>
+      </label>
+      <small className="assistant-settings__option-help" title={FAVORITE_CORRECTION_LEARNING_HELP}>{FAVORITE_CORRECTION_LEARNING_HELP}</small>
+      {settingsLearningMessage ? <p className="assistant-settings__status" role="status">{settingsLearningMessage}</p> : null}
+      <div className="assistant-settings__subsection assistant-settings__subsection--records">
+        <div className="assistant-settings__subsection-heading">
+          <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
+          <button type="button" onClick={clearCorrectionRecords} disabled={preferences.favoriteCorrectionRecords.length === 0}>清空调整记录</button>
+        </div>
+        {preferences.favoriteCorrectionRecords.length > 0 ? <div className="assistant-settings__record-track assistant-settings__learning-list" role="list" aria-label="归档调整记录">
+          {preferences.favoriteCorrectionRecords.map((record: FavoriteCorrectionRecord) => {
+            const originalLedger = getLedgerDisplayName(preferences.favoriteLedgers, record.originalLedgerId)
+            const userLedgers = joinSettingValues(record.userLedgerIds.map((ledgerId) => getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)))
+            const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
+            return <article key={record.id} className="assistant-settings__record-card assistant-settings__learning-item" role="listitem">
+              <div className="assistant-settings__learning-head"><span className="assistant-settings__learning-summary"><strong title={record.title}>{record.title}</strong><small title={summaryText}>{summaryText}</small></span><span className="assistant-settings__learning-actions"><button type="button" aria-label={`删除调整 ${record.title}`} onClick={() => actions.current.deleteCorrectionRecord(record.id)}>删除</button></span></div>
+              <div className="assistant-settings__learning-detail">
+                <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
+                <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
+                <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
+                <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
+                <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
+                <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
+                <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
+                <span title={String(record.confidence ?? '未记录')}>分类把握：{record.confidence ?? '未记录'}</span>
+                <span title={String(record.scoreGap ?? '未记录')}>领先第二候选：{record.scoreGap ?? '未记录'}</span>
+              </div>
+            </article>
+          })}
+        </div> : <p className="assistant-settings__empty">暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。</p>}
+      </div>
+      <div className="assistant-settings__subsection">
+        <div className="assistant-settings__subsection-heading">
+          <strong>DeepSeek 建议（{pendingKeywordSuggestions.length}）</strong>
+          <span className="assistant-settings__view-toggle" role="group" aria-label="DeepSeek 建议视图">
+            <button type="button" aria-pressed={settingsKeywordSuggestionView === 'pending'} onClick={() => actions.current.setSettingsKeywordSuggestionView('pending')}>待处理</button>
+            <button type="button" aria-pressed={settingsKeywordSuggestionView === 'processed'} onClick={() => actions.current.setSettingsKeywordSuggestionView('processed')}>已处理</button>
+          </span>
+        </div>
+        {visibleKeywordSuggestions.length > 0 ? <div className="assistant-settings__record-track assistant-settings__keyword-list" role="list" aria-label={settingsKeywordSuggestionView === 'pending' ? '待处理 DeepSeek 建议' : '已处理 DeepSeek 建议'}>
+          {visibleKeywordSuggestions.map((suggestion) => {
+            const targetLabel = getLedgerDisplayName(preferences.favoriteLedgers, suggestion.ledgerId)
+            const keywordLabel = suggestion.keyword?.trim() || suggestion.replacement?.trim() || suggestion.id
+            const isPending = suggestion.status === 'pending'
+            return <article key={suggestion.id} className="assistant-settings__record-card assistant-settings__keyword-item" role="listitem">
+              <div className="assistant-settings__keyword-summary">
+                <div className="assistant-settings__keyword-head"><strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>{KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}</strong>{!isPending ? <button type="button" className="assistant-settings__keyword-restore" aria-label={`撤回建议 ${keywordLabel}`} onClick={() => actions.current.restoreKeywordSuggestionToPending(suggestion)}>撤回</button> : null}</div>
+                <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}</span>
+                <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
+                <span title={suggestion.keyword?.trim() || '未记录'}>关键词：<span>{suggestion.keyword?.trim() || '未记录'}</span></span>
+                <span title={suggestion.replacement?.trim() || '未记录'}>替换词：<span>{suggestion.replacement?.trim() || '未记录'}</span></span>
+                <small title={suggestion.reason}>理由：{suggestion.reason}</small>
+              </div>
+              {isPending ? <div className="assistant-settings__keyword-actions">
+                <button type="button" aria-label={`采纳建议 ${keywordLabel}`} onClick={() => actions.current.acceptKeywordSuggestion(suggestion)}>采纳</button>
+                <button type="button" aria-label={`忽略建议 ${keywordLabel}`} onClick={() => actions.current.updateKeywordSuggestionStatus(suggestion.id, 'ignored')}>忽略</button>
+                <button type="button" aria-label={`删除建议 ${keywordLabel}`} onClick={() => actions.current.updateKeywordSuggestionStatus(suggestion.id, 'deleted')}>删除</button>
+              </div> : null}
+            </article>
+          })}
+        </div> : <p className="assistant-settings__empty">暂无 DeepSeek 建议</p>}
+      </div>
+    </fieldset>
+  ), [
+    clearCorrectionRecords,
+    pendingKeywordSuggestions,
+    preferences.favoriteArchiveStrategy,
+    preferences.favoriteCorrectionLearningEnabled,
+    preferences.favoriteCorrectionRecords,
+    preferences.favoriteKeywordSuggestions,
+    preferences.favoriteLedgers,
+    processedKeywordSuggestions,
+    settingsKeywordSuggestionView,
+    settingsLearningMessage,
+    visibleKeywordSuggestions
+  ])
+
   return <>
             <header>
               <div className="assistant-settings__title-row">
@@ -1824,237 +1917,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 </>
               ) : null}
             </fieldset>
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--learning"
-              data-settings-section="learning"
-            >
-              <legend>整理策略</legend>
-              <div className="assistant-settings__inline-options">
-                {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      name="favorite-archive-strategy"
-                      checked={preferences.favoriteArchiveStrategy === option.value}
-                      onChange={() =>
-                        actions.current.persistPreferencePatch({ favoriteArchiveStrategy: option.value })
-                      }
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.favoriteCorrectionLearningEnabled}
-                  onChange={(event) =>
-                    actions.current.persistPreferencePatch({
-                      favoriteCorrectionLearningEnabled: event.currentTarget.checked
-                    })
-                  }
-                />
-                <span>记录归档调整</span>
-              </label>
-              <small
-                className="assistant-settings__option-help"
-                title={FAVORITE_CORRECTION_LEARNING_HELP}
-              >
-                {FAVORITE_CORRECTION_LEARNING_HELP}
-              </small>
-              {settingsLearningMessage ? (
-                <p className="assistant-settings__status" role="status">
-                  {settingsLearningMessage}
-                </p>
-              ) : null}
-              <div className="assistant-settings__subsection assistant-settings__subsection--records">
-                <div className="assistant-settings__subsection-heading">
-                  <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
-                  <button
-                    type="button"
-                    onClick={clearCorrectionRecords}
-                    disabled={preferences.favoriteCorrectionRecords.length === 0}
-                  >
-                    清空调整记录
-                  </button>
-                </div>
-                {preferences.favoriteCorrectionRecords.length > 0 ? (
-                  <div
-                    className="assistant-settings__record-track assistant-settings__learning-list"
-                    role="list"
-                    aria-label="归档调整记录"
-                  >
-                    {preferences.favoriteCorrectionRecords.map(
-                      (record: FavoriteCorrectionRecord) => {
-                        const originalLedger = getLedgerDisplayName(
-                          preferences.favoriteLedgers,
-                          record.originalLedgerId
-                        )
-                        const userLedgers = joinSettingValues(
-                          record.userLedgerIds.map((ledgerId) =>
-                            getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
-                          )
-                        )
-                        const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
-
-                        return (
-                          <article
-                            key={record.id}
-                            className="assistant-settings__record-card assistant-settings__learning-item"
-                            role="listitem"
-                          >
-                            <div className="assistant-settings__learning-head">
-                              <span className="assistant-settings__learning-summary">
-                                <strong title={record.title}>{record.title}</strong>
-                                <small title={summaryText}>{summaryText}</small>
-                              </span>
-                              <span className="assistant-settings__learning-actions">
-                                <button
-                                  type="button"
-                                  aria-label={`删除调整 ${record.title}`}
-                                  onClick={() => actions.current.deleteCorrectionRecord(record.id)}
-                                >
-                                  删除
-                                </button>
-                              </span>
-                            </div>
-                            <div className="assistant-settings__learning-detail">
-                              <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
-                              <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
-                              <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
-                              <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
-                              <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
-                              <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
-                              <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
-                              <span title={String(record.confidence ?? '未记录')}>分类把握：{record.confidence ?? '未记录'}</span>
-                              <span title={String(record.scoreGap ?? '未记录')}>领先第二候选：{record.scoreGap ?? '未记录'}</span>
-                            </div>
-                          </article>
-                        )
-                      }
-                    )}
-                  </div>
-                ) : (
-                  <p className="assistant-settings__empty">
-                    暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。
-                  </p>
-                )}
-              </div>
-              <div className="assistant-settings__subsection">
-                <div className="assistant-settings__subsection-heading">
-                  <strong>DeepSeek 建议（{pendingKeywordSuggestions.length}）</strong>
-                  <span className="assistant-settings__view-toggle" role="group" aria-label="DeepSeek 建议视图">
-                    <button
-                      type="button"
-                      aria-pressed={settingsKeywordSuggestionView === 'pending'}
-                      onClick={() => actions.current.setSettingsKeywordSuggestionView('pending')}
-                    >
-                      待处理
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={settingsKeywordSuggestionView === 'processed'}
-                      onClick={() => actions.current.setSettingsKeywordSuggestionView('processed')}
-                    >
-                      已处理
-                    </button>
-                  </span>
-                </div>
-                {visibleKeywordSuggestions.length > 0 ? (
-                  <div
-                    className="assistant-settings__record-track assistant-settings__keyword-list"
-                    role="list"
-                    aria-label={
-                      settingsKeywordSuggestionView === 'pending'
-                        ? '待处理 DeepSeek 建议'
-                        : '已处理 DeepSeek 建议'
-                    }
-                  >
-                    {visibleKeywordSuggestions.map((suggestion) => {
-                      const targetLabel = getLedgerDisplayName(
-                        preferences.favoriteLedgers,
-                        suggestion.ledgerId
-                      )
-                      const keywordLabel =
-                        suggestion.keyword?.trim() ||
-                        suggestion.replacement?.trim() ||
-                        suggestion.id
-                      const isPending = suggestion.status === 'pending'
-
-                      return (
-                        <article
-                          key={suggestion.id}
-                          className="assistant-settings__record-card assistant-settings__keyword-item"
-                          role="listitem"
-                        >
-                          <div className="assistant-settings__keyword-summary">
-                            <div className="assistant-settings__keyword-head">
-                              <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
-                                {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
-                              </strong>
-                              {!isPending ? (
-                                <button
-                                  type="button"
-                                  className="assistant-settings__keyword-restore"
-                                  aria-label={`撤回建议 ${keywordLabel}`}
-                                  onClick={() => actions.current.restoreKeywordSuggestionToPending(suggestion)}
-                                >
-                                  撤回
-                                </button>
-                              ) : null}
-                            </div>
-                            <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>
-                              状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}
-                            </span>
-                            <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
-                            <span title={suggestion.keyword?.trim() || '未记录'}>
-                              关键词：<span>{suggestion.keyword?.trim() || '未记录'}</span>
-                            </span>
-                            <span title={suggestion.replacement?.trim() || '未记录'}>
-                              替换词：<span>{suggestion.replacement?.trim() || '未记录'}</span>
-                            </span>
-                            <small title={suggestion.reason}>理由：{suggestion.reason}</small>
-                          </div>
-                          {isPending ? (
-                            <div className="assistant-settings__keyword-actions">
-                              <button
-                                type="button"
-                                aria-label={`采纳建议 ${keywordLabel}`}
-                                onClick={() => actions.current.acceptKeywordSuggestion(suggestion)}
-                              >
-                                <span>采纳</span>
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`忽略建议 ${keywordLabel}`}
-                                onClick={() =>
-                                  actions.current.updateKeywordSuggestionStatus(suggestion.id, 'ignored')
-                                }
-                              >
-                                <span>忽略</span>
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`删除建议 ${keywordLabel}`}
-                                onClick={() =>
-                                  actions.current.updateKeywordSuggestionStatus(suggestion.id, 'deleted')
-                                }
-                              >
-                                <span>删除</span>
-                              </button>
-                            </div>
-                          ) : null}
-                        </article>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="assistant-settings__empty">
-                    暂无 DeepSeek 建议
-                  </p>
-                )}
-              </div>
-            </fieldset>
+            {organizationStrategySettings}
             <fieldset
               className="assistant-settings__group assistant-settings__group--pet"
               data-settings-section="pet"

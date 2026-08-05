@@ -484,6 +484,24 @@ describe('FavoriteRepositoryService', () => {
       ]))
   })
 
+  it('keeps an unknown managed-placement removal actionable after service restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'managed-placement-result', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'favorite-managed-placement-removal:restart-placement', commandId: 'restart-placement', status: 'result-unknown',
+        affectedAids: [1], targetFolderIds: ['bilimi-logical:source'], updatedAt: '2026-08-05T00:00:00.000Z',
+        operationKey: 'favorite-library-managed-placement-removal'
+      }
+    })
+
+    const restarted = new FavoriteRepositoryService({ root })
+    await expect(restarted.getLibrarySummary('100')).resolves.toMatchObject({
+      remoteReconciliations: [{ kind: 'managed-placement', operationId: 'restart-placement' }]
+    })
+  })
+
   it('deletes only the confirmed account local repository projection', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
@@ -1428,7 +1446,7 @@ describe('FavoriteRepositoryService', () => {
     for (const [shardNumber, remoteFolderId, memberAids] of [[1, 'music-1', [1, 2]], [2, 'music-2', [2, 3]]] as const) {
       await service.commit('100', {
         id: `music-shard-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
-        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids, remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [...memberAids], remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
       })
     }
     await service.commit('100', {

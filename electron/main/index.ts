@@ -1630,6 +1630,11 @@ function registerAssistantPreferenceHandlers() {
     assertTrustedOldFavoriteAssistantSender(event)
     return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
   })
+  ipcMain.handle('floating-assistant:ensure-ledger', (event, logicalFolderId: string) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (typeof logicalFolderId !== 'string' || !logicalFolderId.trim()) throw new Error('Favorite ledger id is required.')
+    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledger', logicalFolderId: logicalFolderId.trim() })
+  })
   ipcMain.handle(
     'floating-assistant:save-ledgers',
     (event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
@@ -1779,6 +1784,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   favoriteRepositoryBatchOperationService = new FavoriteRepositoryBatchOperationService({
     repository: favoriteRepositoryService,
+    placementSync: favoriteRepositorySyncService,
     remoteUnfavorite: createFavoriteLibraryRemoteUnfavorite({
       pageBridgeManager: favoriteRepositoryPageBridgeManager!,
       remoteOperations: favoriteRepositoryRemoteOperations

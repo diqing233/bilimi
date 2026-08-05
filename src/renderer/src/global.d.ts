@@ -108,6 +108,7 @@ type BilimiDesktopApi = {
     totalItemCount: number
   }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
+  ensureFavoriteLedger?: (logicalFolderId: string) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
@@ -185,6 +186,10 @@ type BilimiDesktopApi = {
   confirmFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, operationId: string) => Promise<unknown>
+  previewFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<unknown>
+  confirmFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
+  executeFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
+  reconcileFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, operationId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderDelete?: (accountMid: string, folderId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderGroupDelete?: (accountMid: string) => Promise<unknown>
   deleteFavoriteLibraryManagedFolderLocal?: (accountMid: string, executionToken: string) => Promise<unknown>

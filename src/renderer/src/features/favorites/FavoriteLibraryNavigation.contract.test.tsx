@@ -417,6 +417,7 @@ describe('FavoriteLibraryNavigation contract', () => {
       onSelect={vi.fn()}
     />)
 
+    expect(screen.getByRole('button', { name: '普通收藏夹' })).toHaveAttribute('title', '普通收藏夹')
     fireEvent.click(screen.getByRole('button', { name: '普通收藏夹 菜单' }))
     expect(await screen.findByRole('menuitem', { name: '编辑信息' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '删除' })).toBeInTheDocument()
