@@ -1,5 +1,6 @@
 import type {
   ApplyWorkspaceClassificationBatchOptions,
+  OldFavoriteWorkspaceDeepSeekProcessedItem,
   OldFavoriteWorkspaceRecoveryRequired,
   OldFavoriteWorkspaceRecoverySummary
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -22,6 +23,7 @@ type IpcEvent = {
       totalVideoCount?: number
       successfulVideoCount?: number
       failedVideoCount?: number
+      processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
       completedItemCount?: number
       totalItemCount?: number
     }) => void
@@ -66,7 +68,7 @@ type WorkspaceCommand =
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
-  | { type: 'set-whole-run-execution-intent'; mode: 'local' | 'bilibili' }
+  | { type: 'set-whole-run-execution-intent'; mode: 'local' | 'bilibili'; includeInbox?: boolean }
   | { type: 'cancel-whole-run-execution-intent' }
   | { type: 'use-original-classifications-for-failed-deepseek' }
   | {
@@ -78,7 +80,7 @@ type WorkspaceCommand =
     }
   | { type: 'abandon-current-workspace' }
   | { type: 'freeze-bilibili-execution' }
-  | { type: 'confirm-and-execute-bilibili-plan' }
+  | { type: 'confirm-and-execute-bilibili-plan'; includeInbox?: boolean }
   | { type: 'execute-frozen-bilibili-plan' }
   | { type: 'reconcile-frozen-bilibili-plan' }
   | { type: 'resume-reconciled-bilibili-plan' }
@@ -235,15 +237,17 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'freeze-bilibili-execution' && Object.keys(candidate).length === 1) {
     return { type: 'freeze-bilibili-execution' }
   }
-  if (candidate.type === 'confirm-and-execute-bilibili-plan' && Object.keys(candidate).length === 1) {
-    return { type: 'confirm-and-execute-bilibili-plan' }
+  if (candidate.type === 'confirm-and-execute-bilibili-plan' &&
+    (Object.keys(candidate).length === 1 || (Object.keys(candidate).length === 2 && typeof candidate.includeInbox === 'boolean'))) {
+    return { type: 'confirm-and-execute-bilibili-plan', ...(candidate.includeInbox === true ? { includeInbox: true } : {}) }
   }
   if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
     return { type: 'save-current-segment-locally' }
   }
   if (candidate.type === 'set-whole-run-execution-intent' &&
-    (candidate.mode === 'local' || candidate.mode === 'bilibili') && Object.keys(candidate).length === 2) {
-    return { type: 'set-whole-run-execution-intent', mode: candidate.mode }
+    (candidate.mode === 'local' || candidate.mode === 'bilibili') &&
+    (Object.keys(candidate).length === 2 || (Object.keys(candidate).length === 3 && typeof candidate.includeInbox === 'boolean'))) {
+    return { type: 'set-whole-run-execution-intent', mode: candidate.mode, ...(candidate.includeInbox === true ? { includeInbox: true } : {}) }
   }
   if (candidate.type === 'cancel-whole-run-execution-intent' && Object.keys(candidate).length === 1) {
     return { type: 'cancel-whole-run-execution-intent' }
@@ -308,15 +312,6 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:open', async (event, requestedAccountMid: string) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
     const opened = await options.coordinator.getSnapshot(accountMid)
-    if (opened && !('recovery' in opened) && opened.executionIntent) {
-      void (async () => {
-        const readySegmentIds = opened.segments
-          .filter((segment) => segment.readiness === 'ready')
-          .map((segment) => segment.id)
-        await options.deepSeekService?.resumePendingAllSegments?.(accountMid, readySegmentIds)
-        await options.coordinator.continueExecutionIntent(accountMid)
-      })().catch(() => undefined)
-    }
     return snapshot(opened)
   })
   // Reading a recovery summary never resumes scanning, reconciliation, or remote writes.
@@ -463,7 +458,8 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
     if (requested.type === 'set-whole-run-execution-intent') {
-      await options.coordinator.setExecutionIntent(accountMid, requested.mode)
+      if (requested.includeInbox === true) await options.coordinator.setExecutionIntent(accountMid, requested.mode, true)
+      else await options.coordinator.setExecutionIntent(accountMid, requested.mode)
       await options.coordinator.continueExecutionIntent(accountMid)
     }
     if (requested.type === 'cancel-whole-run-execution-intent') await options.coordinator.setExecutionIntent(accountMid, null)
@@ -481,7 +477,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     }
     if (requested.type === 'abandon-current-workspace') await options.coordinator.abandonCurrentWorkspace(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
-    if (requested.type === 'confirm-and-execute-bilibili-plan') return options.coordinator.beginBilibiliExecution(accountMid)
+    if (requested.type === 'confirm-and-execute-bilibili-plan') {
+      return requested.includeInbox === true
+        ? options.coordinator.beginBilibiliExecution(accountMid, { includeInbox: true })
+        : options.coordinator.beginBilibiliExecution(accountMid)
+    }
     if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)
     if (requested.type === 'reconcile-frozen-bilibili-plan') await options.coordinator.bindAndReconcileFrozenBilibiliPlan(accountMid)
     if (requested.type === 'resume-reconciled-bilibili-plan') await options.coordinator.resumeReconciledBilibiliPlan(accountMid)

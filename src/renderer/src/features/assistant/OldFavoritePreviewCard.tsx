@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceClassification, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 type PreviewItem = NonNullable<OldFavoriteWorkspaceSnapshot['currentSegment']>['items'][number]
 
@@ -32,7 +33,7 @@ export function OldFavoritePreviewCard({
   onToggleBatchSelection = () => undefined,
   onApplyManualClassification
 }: OldFavoritePreviewCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useExclusiveMenu()
   const [multiSelectOpen, setMultiSelectOpen] = useState(false)
   const [draftTargetLedgerIds, setDraftTargetLedgerIds] = useState<string[]>([])
   const triggerRef = useRef<HTMLButtonElement>(null)

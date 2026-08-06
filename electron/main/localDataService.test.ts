@@ -223,12 +223,14 @@ describe('LocalDataService', () => {
     await expect(service.previewImport(archive)).rejects.toThrow('newer')
   })
 
-  it('keeps cleanup UID-scoped and coordinates shutdown plus login removal for a full clear', async () => {
+  it('keeps cleanup UID-scoped and coordinates an in-app reset plus login removal for a full clear', async () => {
     const { root, accounts, service } = await makeService()
     const stopActiveWork = vi.fn()
     const clearLoginSessions = vi.fn()
-    const exitApp = vi.fn()
-    service.setDestructiveHooks({ stopActiveWork, clearLoginSessions, exitApp })
+    const rebuildEmptyRuntime = vi.fn()
+    const cleanupCompleted = vi.fn()
+    const yieldToEventLoop = vi.fn().mockResolvedValue(undefined)
+    service.setDestructiveHooks({ stopActiveWork, clearLoginSessions, rebuildEmptyRuntime, cleanupCompleted, yieldToEventLoop })
     await writeFile(join(root, 'local-repository.json'), 'local-only')
     await service.applyCleanup({ level: 'current-account-data', uid: '100' })
     expect(accounts['100']).toBeUndefined()
@@ -236,8 +238,27 @@ describe('LocalDataService', () => {
     await service.applyCleanup({ level: 'all-user-data', confirmation: '全部清除' })
     expect(stopActiveWork).toHaveBeenCalledOnce()
     expect(clearLoginSessions).toHaveBeenCalledOnce()
-    expect(exitApp).toHaveBeenCalledOnce()
+    expect(rebuildEmptyRuntime).toHaveBeenCalledOnce()
+    expect(cleanupCompleted).toHaveBeenCalledOnce()
+    expect(yieldToEventLoop).toHaveBeenCalled()
     await expect(access(join(root, 'local-repository.json'))).rejects.toThrow()
+  })
+
+  it('does not delete Electron runtime profile entries while the app stays open', async () => {
+    const { root, service } = await makeService()
+    await mkdir(join(root, 'Network'), { recursive: true })
+    await writeFile(join(root, 'Network', 'Cookies'), 'runtime-owned')
+    await writeFile(join(root, 'Local State'), 'runtime-owned')
+    await writeFile(join(root, 'config.json'), 'bilimi-owned')
+
+    const clearRuntimeStorage = vi.fn()
+    service.setDestructiveHooks({ clearRuntimeStorage })
+    await service.applyCleanup({ level: 'all-user-data', confirmation: '\u5168\u90e8\u6e05\u9664' })
+
+    await expect(readFile(join(root, 'Network', 'Cookies'), 'utf8')).resolves.toBe('runtime-owned')
+    await expect(readFile(join(root, 'Local State'), 'utf8')).resolves.toBe('runtime-owned')
+    await expect(access(join(root, 'config.json'))).rejects.toThrow()
+    expect(clearRuntimeStorage).toHaveBeenCalledOnce()
   })
 
   it('removes account-scoped favorite tombstones with every account during a full user-data clear', async () => {
@@ -317,7 +338,7 @@ describe('LocalDataService', () => {
     await expect(service.previewCleanup({ level: 'all-user-data' })).rejects.toThrow('confirmation')
     await expect(service.previewCleanup({ level: 'current-account-data' })).rejects.toThrow('UID')
     await expect(service.previewCleanup({ level: 'cache' })).resolves.toMatchObject({ releasableBytes: 2 * 1024 * 1024, affectsBilibiliServerData: false })
-    await expect(service.previewCleanup({ level: 'all-user-data', confirmation: '全部清除' })).resolves.toMatchObject({ requiresExit: true, affectsBilibiliServerData: false })
+    await expect(service.previewCleanup({ level: 'all-user-data', confirmation: '全部清除' })).resolves.toMatchObject({ requiresExit: false, affectsBilibiliServerData: false })
     service.cancelUsageCalculation()
   })
 })

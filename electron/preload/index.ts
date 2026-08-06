@@ -79,7 +79,7 @@ type FavoriteLibraryOperationSelection = number[] | {
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: {
       accountMid: string
@@ -122,6 +123,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       totalVideoCount: number
       successfulVideoCount: number
       failedVideoCount: number
+      processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
     }) => callback(progress)
     ipcRenderer.on('old-favorite-workspace-v1:deepseek-progress', listener)
     return () => ipcRenderer.removeListener('old-favorite-workspace-v1:deepseek-progress', listener)
@@ -249,6 +251,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
+  onLocalDataReset: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('local-data:reset', listener)
+    return () => ipcRenderer.removeListener('local-data:reset', listener)
+  },
   onFavoriteRepositoryAccountDataCleared: (callback: (accountMid: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, accountMid: unknown) => {
       if (typeof accountMid === 'string') callback(accountMid)

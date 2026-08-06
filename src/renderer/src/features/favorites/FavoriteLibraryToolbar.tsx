@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
 
 export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'reorganize' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'remove-managed-placement'
@@ -123,7 +124,7 @@ export function FavoriteLibraryColumnMenu<T extends string>({
   onChange: (value: T) => void
   portal?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [position, setPosition] = useState<CSSProperties>()
   const reposition = useCallback(() => {
@@ -162,7 +163,7 @@ export function FavoriteLibraryStateFilterMenu({
   value: FavoriteLibraryStateFilterValue
   onChange: <K extends keyof FavoriteLibraryStateFilterValue>(key: K, nextValue: FavoriteLibraryStateFilterValue[K]) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const [activeGroup, setActiveGroup] = useState<keyof FavoriteLibraryStateFilterValue | null>(null)
   return <span className="favorite-library__column-menu favorite-library__state-filter-menu">
     <button type="button" className="favorite-library__column-menu-trigger" aria-label="状态筛选" aria-expanded={open} onClick={() => setOpen((current) => !current)}><Chevron /></button>
@@ -185,7 +186,7 @@ export function FavoriteLibraryMultiSelectColumnMenu({
   options: Array<{ value: FavoriteLibraryTranscriptionFilter; label: string }>
   onChange: (values: FavoriteLibraryTranscriptionFilter[]) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const rootRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -237,7 +238,7 @@ export function FavoriteLibraryDestinationButton({
   onConfirm: (folderIds: string[]) => void
   disabled?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const [destinationIds, setDestinationIds] = useState<string[]>([])
   const rootRef = useRef<HTMLSpanElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -294,7 +295,7 @@ function BatchActions({
   onBatchPlacement?: (action: 'copy' | 'move', folderIds: string[]) => void
 }) {
   const disabledTitle = disabled ? '请先勾选视频' : undefined
-  const [openMenu, setOpenMenu] = useState<'copy' | 'move' | 'more' | undefined>()
+  const [openMenu, setOpenMenu] = useExclusiveMenu<'copy' | 'move' | 'more' | undefined>(undefined)
   const [destinationIds, setDestinationIds] = useState<string[]>([])
   const [focusDestinationFirst, setFocusDestinationFirst] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)

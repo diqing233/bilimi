@@ -59,7 +59,7 @@ import type {
 } from '@shared/videoNoteBatchExport'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
@@ -93,6 +93,7 @@ type BilimiDesktopApi = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }) => void) => () => void
   onOldFavoriteWorkspacePreviewPreparationProgress?: (callback: (progress: {
     accountMid: string
@@ -178,6 +179,7 @@ type BilimiDesktopApi = {
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
+  onLocalDataReset?: (callback: () => void) => () => void
   onFavoriteRepositoryAccountDataCleared?: (callback: (accountMid: string) => void) => () => void
   copyFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
   moveFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>

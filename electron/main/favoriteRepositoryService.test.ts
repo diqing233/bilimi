@@ -1361,8 +1361,8 @@ describe('FavoriteRepositoryService', () => {
     expect(summary.folderCount).toBe(2)
     expect(summary.workspaceVideoCount).toBe(3)
     expect(summary.folders).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music' }),
-      expect.objectContaining({ id: 'bilimi-logical:film', kind: 'bilimi-logical', logicalLedgerId: 'film' })
+      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music', remoteFolderId: '3990843511' }),
+      expect.objectContaining({ id: 'bilimi-logical:film', kind: 'bilimi-logical', logicalLedgerId: 'film', remoteFolderId: '3990843512' })
     ]))
     await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, { limit: 10 }))
       .resolves.toMatchObject({
@@ -1374,6 +1374,64 @@ describe('FavoriteRepositoryService', () => {
     })
     await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: expect.arrayContaining(['bilimi-logical:music']) })
     await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3])
+  })
+
+  it('projects persisted local draft ledger ids and keeps ordinary local folders separate', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-draft-folders', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:custom-author-honker233': [1], 'local:personal': [2] },
+        folders: [
+          { id: 'local:custom-author-honker233', title: 'bilimi\u00b7honker233', kind: 'local', syncState: 'local-only' },
+          { id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100', {
+      localDraftLedgerIds: ['custom-author-honker233', 'missing-ledger']
+    })
+    expect(summary).toMatchObject({
+      workspaceVideoCount: 1,
+      otherFavoriteVideoCount: 1,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'local:custom-author-honker233', kind: 'local', logicalLedgerId: 'custom-author-honker233' })
+      ])
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:personal')).not.toHaveProperty('logicalLedgerId')
+  })
+
+  it('projects orphaned custom local folders as drafts without projecting ordinary local folders', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'orphaned-custom-draft', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:custom-author-honker233': [1], 'local:custom-note': [2], 'local:personal': [3] },
+        folders: [
+          { id: 'local:custom-author-honker233', title: 'bilimi·honker233', kind: 'local', syncState: 'local-only' },
+          { id: 'local:custom-note', title: 'Personal custom folder', kind: 'local', syncState: 'local-only' },
+          { id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only' }
+        ],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folders.find((folder) => folder.id === 'local:custom-author-honker233')).toMatchObject({
+      kind: 'local', logicalLedgerId: 'custom-author-honker233'
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:custom-note')).toMatchObject({
+      kind: 'local', logicalLedgerId: 'custom-note'
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:personal')).not.toHaveProperty('logicalLedgerId')
+    expect(summary.workspaceVideoCount).toBe(2)
+    expect(summary.otherFavoriteVideoCount).toBe(1)
   })
 
   it('aggregates pending Bilimi shard mirrors without listing them again as ordinary folders', async () => {
@@ -1614,6 +1672,34 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('100')).resolves.toMatchObject({
       folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:1' })]),
       memberships: { 'bilibili:1': [1] }
+    })
+  })
+
+  it('refreshes library navigation after an ordinary folder is dismissed without a repository revision', async () => {
+    const root = await createRoot()
+    const dismissedRemoteFolderIds = new Set<string>()
+    const service = new FavoriteRepositoryService({
+      root, now: () => '2026-07-23T00:00:00.000Z',
+      isRemoteFolderDismissed: (_accountMid, remoteFolderId) => dismissedRemoteFolderIds.has(remoteFolderId)
+    })
+    await service.commit('100', {
+      id: 'source-mirror-dismiss-after-read', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        folders: [
+          { id: 'bilibili:1', title: '待隐藏收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '保留收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ folderCount: 2 })
+    dismissedRemoteFolderIds.add('1')
+    service.invalidateLibraryReadCache('100')
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1, folders: [expect.objectContaining({ id: 'bilibili:2' })]
     })
   })
 

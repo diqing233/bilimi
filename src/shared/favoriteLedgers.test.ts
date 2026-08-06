@@ -7,6 +7,7 @@ import {
   createRecommendedFavoriteLedgerName,
   createRecommendedFavoriteLedgerNameForKind,
   createRecommendedFavoriteLedgerNames,
+  disambiguateRecommendedFavoriteLedgerNames,
   favoriteLedgerNameLength,
   favoriteLedgerNameValidation,
   favoriteLedgerNamesById,
@@ -15,6 +16,29 @@ import {
   normalizeFavoriteLedgers,
   suggestFavoriteLedgerNames
 } from './favoriteLedgers'
+
+describe('recommended favorite ledger naming', () => {
+  it('uses readable source labels instead of exposing a hash when author and tag names collide', () => {
+    const author = createRecommendedFavoriteLedgerNameForKind('author', '明日方舟', [])
+    const tag = createRecommendedFavoriteLedgerNameForKind('tag', '明日方舟', [author])
+    expect(author).toBe('bilimi·明日方舟')
+    expect(tag).toBe('bilimi·明日方舟（标签）')
+  })
+
+  it('keeps both readable source labels within the Bilibili name limit', () => {
+    const displayName = 'bilimi·这是一个非常非常长的名称'
+    const candidates = disambiguateRecommendedFavoriteLedgerNames([
+      { kind: 'author' as const, sourceName: '这是一个非常非常长的名称', displayName },
+      { kind: 'tag' as const, sourceName: '这是一个非常非常长的名称', displayName }
+    ])
+
+    expect(candidates.map((candidate) => candidate.displayName)).toEqual([
+      'bilimi·这是一个非常非常长（UP）',
+      'bilimi·这是一个非常非常长（标签）'
+    ])
+    expect(candidates.every((candidate) => favoriteLedgerNameValidation(candidate.displayName).valid)).toBe(true)
+  })
+})
 
 describe('favorite ledger model', () => {
   it('counts Unicode code points and validates the complete Bilibili ledger name', () => {

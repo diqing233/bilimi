@@ -95,7 +95,7 @@ describe('Favorite Library workspace components', () => {
       onSelect={onSelect}
       groups={[
         { id: 'bilibili', label: 'B站收藏', items: [{ id: 'all', label: '全部收藏', count: 0 }] },
-        { id: 'workspace', label: '工作区', items: [{ id: 'folder:managed', label: 'bilimi 工作夹', count: 2, managed: true }, { id: 'folder:unmatched', label: '未匹配分类', count: 0, protected: true }] },
+        { id: 'workspace', label: '工作区', items: [{ id: 'folder:managed', label: 'bilimi 工作夹', count: 2, managed: true }, { id: 'folder:unmatched', label: '暂存', count: 0, protected: true }] },
         { id: 'local', label: '本地', items: [{ id: 'pending', label: '待处理', count: 0 }] }
       ]}
     />)
@@ -106,7 +106,7 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹' }))
     expect(onSelect).toHaveBeenCalledWith('folder:managed')
     expect(screen.getByRole('button', { name: 'bilimi 工作夹 菜单' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '未匹配分类 菜单' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '暂存 菜单' })).not.toBeInTheDocument()
   })
 
   it('offers the separate bilimi workspace group menu actions', () => {

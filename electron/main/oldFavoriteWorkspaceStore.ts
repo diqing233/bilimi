@@ -66,6 +66,7 @@ type RuleAnalysisCheckpoint = {
 }
 type OverviewSegmentSummary = {
   id: string
+  aids?: number[]
   firstAid?: number
   lastAid?: number
   sourceFolderCounts: Record<string, number>
@@ -109,6 +110,7 @@ type Overlay = {
     failedAids?: number[]
     reusedTagItemCount?: number
     taggedAids?: number[]
+    confirmedUntaggedAids?: number[]
     acceptedSegmentIds?: string[]
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
@@ -634,6 +636,7 @@ export class OldFavoriteWorkspaceStore {
             failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])],
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
             taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])],
+            confirmedUntaggedAids: [...new Set(overlay.tagEnrichment.confirmedUntaggedAids ?? [])],
             acceptedSegmentIds: [...new Set(overlay.tagEnrichment.acceptedSegmentIds ?? [])]
           }
         }
@@ -650,6 +653,9 @@ export class OldFavoriteWorkspaceStore {
             tagEnrichment.taggedAids = tags.length
               ? [...new Set([...(tagEnrichment.taggedAids ?? []), delta.aid])].sort((left, right) => left - right)
               : (tagEnrichment.taggedAids ?? []).filter((aid) => aid !== delta.aid)
+            tagEnrichment.confirmedUntaggedAids = tags.length
+              ? (tagEnrichment.confirmedUntaggedAids ?? []).filter((aid) => aid !== delta.aid)
+              : [...new Set([...(tagEnrichment.confirmedUntaggedAids ?? []), delta.aid])].sort((left, right) => left - right)
             tagUpdates.set(delta.aid, tags)
             tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
             tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'

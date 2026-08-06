@@ -60,6 +60,7 @@ export function createRecommendedFavoriteLedgerId(
 }
 
 function createRecommendedNameFromBase(
+  kind: RecommendedFavoriteLedgerKind,
   baseName: string,
   sourceName: string,
   existingDisplayNames: Iterable<string>
@@ -73,7 +74,9 @@ function createRecommendedNameFromBase(
   for (let attempt = 0; ; attempt += 1) {
     const suffix = attempt === 0
       ? ''
-      : `·${stableNameSuffix(sourceName)}${attempt === 1 ? '' : attempt.toString(36)}`
+      : attempt === 1
+        ? kind === 'author' ? '（UP）' : kind === 'tag' ? '（标签）' : '（系列）'
+        : `·${stableNameSuffix(sourceName)}${attempt.toString(36)}`
     const shortenedBaseName = truncateUnicode(
       normalizedBaseName,
       availableLength - favoriteLedgerNameLength(suffix)
@@ -92,7 +95,7 @@ export function createRecommendedFavoriteLedgerNameForKind(
   const baseName = kind === 'author'
     ? normalizedSourceName.split('-', 1)[0]?.trim() || normalizedSourceName || '收藏夹'
     : normalizedSourceName || '收藏夹'
-  return createRecommendedNameFromBase(baseName, sourceName, existingDisplayNames)
+  return createRecommendedNameFromBase(kind, baseName, sourceName, existingDisplayNames)
 }
 
 export function createRecommendedFavoriteLedgerName(
@@ -139,6 +142,28 @@ export function createRecommendedFavoriteLedgerNamesForKind(
   }
 
   return namesBySource
+}
+
+export function disambiguateRecommendedFavoriteLedgerNames<
+  T extends { kind: RecommendedFavoriteLedgerKind; sourceName: string; displayName: string }
+>(candidates: ReadonlyArray<T>): T[] {
+  const byName = new Map<string, T[]>()
+  for (const candidate of candidates) {
+    const key = candidate.displayName.toLocaleLowerCase()
+    const group = byName.get(key) ?? []
+    group.push(candidate)
+    byName.set(key, group)
+  }
+  return candidates.map((candidate): T => {
+    const group = byName.get(candidate.displayName.toLocaleLowerCase()) ?? []
+    if (group.length < 2) return candidate
+    const label = candidate.kind === 'author' ? '（UP）' : candidate.kind === 'tag' ? '（标签）' : '（系列）'
+    const displayName = `${truncateUnicode(
+      candidate.displayName,
+      BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(label)
+    )}${label}`
+    return { ...candidate, displayName }
+  })
 }
 
 const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s\-路]*/i
@@ -492,8 +517,8 @@ export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
   return DEFAULT_FAVORITE_LEDGERS.map(cloneLedger)
 }
 
-export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  const normalized = ledgers
+export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[] | unknown): FavoriteLedger[] {
+  const normalized = (Array.isArray(ledgers) ? ledgers : [])
     .filter(
       (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
     )

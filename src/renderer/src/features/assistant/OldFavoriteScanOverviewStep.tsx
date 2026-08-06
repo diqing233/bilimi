@@ -15,8 +15,13 @@ const SOURCE_COUNT_MODES: Record<SourceCountMode, {
   unavailable: { label: '失效视频', next: 'planned', field: 'unavailableAidCount' }
 }
 
-function sourceProjectionValue(folder: SourceFolderProjection, mode: SourceCountMode): number | '—' | '待确认' {
+function sourceProjectionValue(
+  folder: SourceFolderProjection,
+  mode: SourceCountMode,
+  currentSegmentPlannedCounts?: ReadonlyMap<string, number>
+): number | '—' | '待确认' {
   if (mode === 'planned' && !folder.isBilimiWorkFolder && !folder.selected) return '—'
+  if (mode === 'planned' && currentSegmentPlannedCounts) return currentSegmentPlannedCounts.get(folder.id) ?? 0
   const value = folder[SOURCE_COUNT_MODES[mode].field]
   return folder.confirmed && value !== null ? value : '待确认'
 }
@@ -24,6 +29,7 @@ function sourceProjectionValue(folder: SourceFolderProjection, mode: SourceCount
 type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
+  tagControlsLoading?: boolean
   scanStarting: boolean
   scanStartFailure: string | null
   onRetry: () => void
@@ -56,6 +62,7 @@ function scanFailureGuidance(reason: string | null | undefined) {
 export function OldFavoriteScanOverviewStep({
   snapshot,
   loading,
+  tagControlsLoading = false,
   scanStarting,
   scanStartFailure,
   onRetry,
@@ -129,21 +136,30 @@ export function OldFavoriteScanOverviewStep({
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
   const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
-  const failedTagItemCount = Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
-  const confirmedUntaggedItemCount = tagEnrichment?.confirmedUntaggedItemCount ?? 0
-  const reusedTagItemCount = tagEnrichment?.reusedTagItemCount ?? 0
-  const fetchedTagItemCount = tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
+  const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
+  const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
+  const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
+  const reusedTagItemCount = scopedTagEnrichment?.reusedTagItemCount ?? tagEnrichment?.reusedTagItemCount ?? 0
+  const fetchedTagItemCount = scopedTagEnrichment?.fetchedTagItemCount ?? tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
+  const tagTotalItemCount = scopedTagEnrichment?.totalItemCount ?? tagEnrichment?.totalItemCount ?? 0
+  const tagCompletedItemCount = scopedTagEnrichment?.completedItemCount ?? tagEnrichment?.completedItemCount ?? 0
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
   const relationshipCount = inventoryMetrics?.relationshipCount ?? totalItemCount
   const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
+  const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
   const lifecycleCountsConfirmed = inventoryMetrics?.authority !== 'incomplete'
   const allUserSourcesSelected = userFolders.length > 0 && selectedSourceIds.size === userFolders.length
   const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.relationshipCount, 0)
   const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.unavailableAidCount ?? 0), 0)
   const unavailableAidCount = inventoryMetrics?.unavailableAidCount ?? invalidSourceItemCount
-  const sourceMode = SOURCE_COUNT_MODES[sourceCountMode]
-  const sourceModeValues = userFolders.map((folder) => sourceProjectionValue(folder, sourceCountMode))
+  const effectiveSourceCountMode: SourceCountMode = viewScope === 'current' ? 'planned' : sourceCountMode
+  const sourceMode = SOURCE_COUNT_MODES[effectiveSourceCountMode]
+  const currentSegmentPlannedCounts = viewScope === 'current' && activeSnapshot?.currentSegmentMetrics
+    ? new Map(activeSnapshot.currentSegmentMetrics.sourceFolders.map((folder) => [folder.id, folder.plannedAidCount]))
+    : undefined
+  const sourceModeLabel = viewScope === 'current' ? '本批来源关系' : sourceMode.label
+  const sourceModeValues = userFolders.map((folder) => sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts))
   const sourceModeSummary = sourceModeValues.some((value) => value === '待确认')
     ? '待确认'
     : sourceModeValues.reduce<number>((count, value) => count + (typeof value === 'number' ? value : 0), 0)
@@ -161,7 +177,7 @@ export function OldFavoriteScanOverviewStep({
         ? '扫描概览：扫描中'
         : '扫描概览已完成，请从左向右依次完成本轮整理。'
 
-  const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview?.available
+  const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview
 
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <div className="favorite-ledger-panel__step-title-row">
@@ -183,33 +199,36 @@ export function OldFavoriteScanOverviewStep({
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
         <strong>{untaggedItemCount ? `${untaggedItemCount} 条尚未取得标签` : '已识别'}</strong>
       </div> : null}
-      {snapshot?.segments.length && snapshot.segments.length > 1 && currentSegmentSummary ? <div>
+      {viewScope === 'current' && snapshot?.segments.length && snapshot.segments.length > 1 && currentSegmentSummary ? <div>
         <span>当前批次</span>
         <progress aria-label="当前批次标签进度" max={Math.max(currentSegmentSummary.itemCount, 1)}
           value={currentSegmentSummary.completedTagItemCount} />
         <span>当前批 {currentSegmentSummary.completedTagItemCount} / {currentSegmentSummary.itemCount} 条</span>
-        <strong>{currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
+        <strong>{currentSegmentSummary.readiness === 'waiting' ? '等待扫描' : currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
       </div> : null}
     </div>
     {snapshot ? <>
-      <div className="favorite-ledger-panel__scan-metrics" aria-label="本轮整理统计">
-        <article aria-label="扫描总数" title="B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。">
-          <span>扫描总数</span><strong>{relationshipCount}</strong>
+      <div className="favorite-ledger-panel__scan-metrics" aria-label={viewScope === 'current' ? '本批整理统计' : '本轮整理统计'}>
+        <article aria-label={viewScope === 'current' ? '本批视频' : '扫描总数'} title={viewScope === 'current'
+          ? '当前批次中实际进入整理流程的去重视频数量。'
+          : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
+          <span>{viewScope === 'current' ? '本批视频' : '扫描总数'}</span>
+          <strong>{viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
         </article>
-        <article aria-label="本轮待整理" title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
-          <span>本轮待整理</span><strong>{lifecycleCountsConfirmed ? plannedAidCount : '待确认'}</strong>
+        <article aria-label={viewScope === 'current' ? '本批待整理' : '本轮待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
+          <span>{viewScope === 'current' ? '本批待整理' : '本轮待整理'}</span><strong>{lifecycleCountsConfirmed ? viewScope === 'current' ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>
         </article>
-        <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
+        {viewScope === 'all' ? <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
           <span>已保护跳过</span><strong>{lifecycleCountsConfirmed ? protectedAidCount : '待确认'}</strong>
-        </article>
-        <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
+        </article> : null}
+        {viewScope === 'all' ? <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
           <span>失效视频</span><strong>{lifecycleCountsConfirmed ? unavailableAidCount : '待确认'}</strong>
-        </article>
+        </article> : null}
       </div>
       <p className="favorite-ledger-panel__scan-explanation">扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。</p>
     </> : null}
     {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
+      <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
       <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
         <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
         <span><small>本轮获取标签</small><strong>{fetchedTagItemCount}</strong></span>
@@ -218,12 +237,12 @@ export function OldFavoriteScanOverviewStep({
       </div>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'running'
-          ? <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-          : <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
-        ? <button type="button" disabled={loading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
+        ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
       {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
@@ -261,14 +280,15 @@ export function OldFavoriteScanOverviewStep({
         <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
           <span>总数</span><small>（{totalUserSourceItemCount}）</small>
         </span>
-        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading favorite-ledger-panel__source-metric-heading--toggle">
-          <span>{sourceMode.label}</span>
-          <button type="button" className="favorite-ledger-panel__source-count-toggle"
-            aria-label={`${sourceMode.label}（${sourceModeSummary}）`}
+        <span role="columnheader" aria-label={viewScope === 'current' ? `${sourceModeLabel}（${sourceModeSummary}）` : undefined}
+          className={`favorite-ledger-panel__source-metric-heading${viewScope === 'all' ? ' favorite-ledger-panel__source-metric-heading--toggle' : ''}`}>
+          <span>{sourceModeLabel}</span>
+          {viewScope === 'all' ? <button type="button" className="favorite-ledger-panel__source-count-toggle"
+            aria-label={`${sourceModeLabel}（${sourceModeSummary}）`}
             title={`切换为${SOURCE_COUNT_MODES[sourceMode.next].label}`}
             onClick={() => setSourceCountMode(sourceMode.next)}>
             <span aria-hidden="true">⇄</span>
-          </button>
+          </button> : null}
           <small>（{sourceModeSummary}）</small>
         </span>
       </div>
@@ -283,7 +303,7 @@ export function OldFavoriteScanOverviewStep({
               }} /></span>
             <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
-            <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, sourceCountMode)}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
           </label>
         </li>)}
       </ul>
@@ -291,13 +311,13 @@ export function OldFavoriteScanOverviewStep({
     {bilimiFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
         <span role="columnheader" aria-label="选择" /><span role="columnheader">bilimi 工作夹</span>
-        <span role="columnheader">总数</span><span role="columnheader">{sourceMode.label}</span>
+        <span role="columnheader">总数</span><span role="columnheader">{sourceModeLabel}</span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
         {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi">
           <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
           <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, sourceCountMode)}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
         </li>)}
       </ul>
     </div> : null}

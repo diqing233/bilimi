@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { startTransition } from 'react'
 import { useSyncExternalStore } from 'react'
 import { FavoriteLibraryNavigationGroupView } from './FavoriteLibraryNavigationGroupView'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type FavoriteLibraryNavigationItem = {
   id: string
@@ -143,7 +144,7 @@ export function FavoriteLibraryNavigation({
   />, document.body) : null}</>
 }
 function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-all') => void }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<CSSProperties>()
@@ -166,7 +167,7 @@ function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-al
   </span>
 }
 function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
   const triggerRef = useRef<HTMLButtonElement>(null)

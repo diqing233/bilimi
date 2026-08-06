@@ -181,15 +181,38 @@ describe('old favorite workspace', () => {
     })
   })
 
-  it('rejects classification changes for a frozen segment', () => {
+  it('lets the latest classification operation replace any earlier source', () => {
+    const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
+    const manual = applyWorkspaceClassificationBatch(preview, {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const deepSeek = applyWorkspaceClassificationBatch(manual, {
+      source: 'deepseek', assignments: [{ aid: 1, targetLedgerIds: ['deepseek'] }]
+    })
+    const automatic = applyWorkspaceClassificationBatch(deepSeek, {
+      source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['recommended'] }]
+    })
+
+    expect(automatic.classifications['1']).toMatchObject({
+      targetLedgerIds: ['recommended'], source: 'system-high'
+    })
+    expect(automatic.history).toHaveLength(3)
+  })
+
+  it('reopens a frozen segment when its classification is edited', () => {
     const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
     const frozen = freezeWorkspaceSegment(preview, 'segment-1')
 
-    expect(() => applyWorkspaceClassificationBatch(frozen, {
+    const reopened = applyWorkspaceClassificationBatch(frozen, {
       source: 'manual',
       assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
-    })).toThrow('Old favorite workspace is frozen.')
+    })
+
+    expect(reopened.status).toBe('previewing')
+    expect(reopened.segments[0]?.status).toBe('previewing')
+    expect(reopened.classifications['1']).toMatchObject({ targetLedgerIds: ['music'] })
   })
 
   it('rejects undo and redo after a segment has frozen the classification plan', () => {

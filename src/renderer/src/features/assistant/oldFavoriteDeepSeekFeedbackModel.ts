@@ -12,6 +12,7 @@ export type DeepSeekFeedbackView = {
     failedVideos: number
     totalVideos: number
     value: number
+    processedItems: NonNullable<DeepSeekWorkspaceFeedback['progress']>['processedItems']
   }
   failures: Array<{ chunkIndex: number; affectedVideoCount: number; message: string }>
 }
@@ -32,13 +33,14 @@ export function toDeepSeekFeedbackView(
       pendingVideos,
       failedVideos,
       totalVideos: feedback.progress.totalVideoCount,
+      processedItems: feedback.progress.processedItems ?? [],
       value: feedback.progress.totalVideoCount > 0
         ? Math.round((appliedVideos / feedback.progress.totalVideoCount) * 100)
         : 0
     }
   })() : undefined
 
-  if (feedback.status === 'running') {
+  if (feedback.status === 'running' || feedback.status === 'waiting') {
     return {
       kind: 'running',
       action: cancelRequested ? 'cancelling' : 'cancel',

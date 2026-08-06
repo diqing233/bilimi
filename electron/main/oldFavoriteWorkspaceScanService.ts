@@ -131,6 +131,10 @@ export class OldFavoriteWorkspaceScanService {
     }
   }
 
+  resumeAfterDestructiveMaintenance() {
+    this.destructiveMaintenance = false
+  }
+
   private request(accountMid: string, request: RuntimeRequest) {
     const work = () => this.options.requestRuntime(request)
     return this.options.remoteOperations?.run(accountMid, work) ?? work()

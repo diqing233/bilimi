@@ -236,6 +236,45 @@ describe('FloatingAssistantApp render isolation', () => {
     expect(screen.getByRole('button', { name: '重置 DeepSeek' })).toBeEnabled()
   })
 
+  it('updates the global DeepSeek status when the saved-key patch arrives without a full preference reload', async () => {
+    let emitPreferencePatch: Parameters<NonNullable<Window['bilimiDesktop']['onAssistantPreferencePatchChanged']>>[0] | undefined
+    const preferences = createInitialAssistantPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      deepseekArchiveOrganizationEnabled: true
+    })
+    installDesktopApi(preferences, {
+      onAssistantPreferencePatchChanged: vi.fn((callback) => {
+        emitPreferencePatch = callback
+        return () => {}
+      })
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+    expect(await screen.findByText('DeepSeek 待配置')).toBeInTheDocument()
+
+    act(() => {
+      emitPreferencePatch?.({ deepseekApiKeyStored: true })
+    })
+
+    await waitFor(() => expect(screen.getByText('DeepSeek 待测试')).toBeInTheDocument())
+  })
+
+  it('reconciles the global DeepSeek status with the persisted key status on startup', async () => {
+    const preferences = createInitialAssistantPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      deepseekArchiveOrganizationEnabled: true
+    })
+    installDesktopApi(preferences, {
+      loadDeepSeekApiKeyStatus: vi.fn(async () => ({ configured: true, protection: 'encrypted' }))
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    await waitFor(() => expect(screen.getByText('DeepSeek 待测试')).toBeInTheDocument())
+  })
+
   it('does not rerender the settings workspace while a manual DeepSeek test is pending', async () => {
     const result = deferred<{ ok: boolean; message: string }>()
     installDesktopApi(createInitialAssistantPreferences({ deepseekEnabled: true }), {

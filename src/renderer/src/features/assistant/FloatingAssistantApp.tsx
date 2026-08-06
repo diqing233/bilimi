@@ -56,6 +56,7 @@ import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 import { LocalDataSettings } from './LocalDataSettings'
+import { readLocalDataInfoWithRetry } from './localDataRefresh'
 import { PanelMotionTuningSettings } from './PanelMotionTuningSettings'
 import { TranscriptionModelSettings } from './TranscriptionModelSettings'
 import { SettingsPreferenceCheckbox } from './SettingsPreferenceField'
@@ -80,6 +81,7 @@ import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcription
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
+import { projectFavoriteLedgerDraft } from './favoriteLedgerDraftProjection'
 
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
@@ -176,6 +178,14 @@ export function statusLightNavigation(id: StatusLightId, _activeView: AssistantW
   return { tab: 'ledger' as const }
 }
 
+export function settingsSectionScrollTop(
+  bodyRect: Pick<DOMRect, 'top'>,
+  targetRect: Pick<DOMRect, 'top'>,
+  currentScrollTop: number
+) {
+  return Math.max(0, currentScrollTop + targetRect.top - bodyRect.top)
+}
+
 const WORKSPACE_TABS: Array<{
   id: AssistantWorkspaceTab
   label: string
@@ -195,7 +205,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; ledgerTitle?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
 }
 
 export function findArchivedSummaryTextForNote(
@@ -2354,6 +2364,7 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
+  const deepSeekKeyConfiguredRef = useRef<boolean | undefined>(undefined)
   const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
     useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
@@ -2373,6 +2384,7 @@ export function FloatingAssistantApp({
   const localDataInfoGeneration = useRef(0)
   const localDataInfoLoaded = useRef(false)
   const localDataInfoRefreshInFlight = useRef<Promise<void> | null>(null)
+  const localDataResetInProgress = useRef(false)
   const settingsScrollFrame = useRef<number | null>(null)
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [temporaryGlobalFeedbackMessage, setTemporaryGlobalFeedbackMessage] = useState('')
@@ -2422,6 +2434,7 @@ export function FloatingAssistantApp({
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [settingsWorkspaceOpened, setSettingsWorkspaceOpened] = useState(activeTab === 'settings')
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
+  const [requestedLedgerTitle, setRequestedLedgerTitle] = useState<string>()
   const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)
   const [createLedgerRequested, setCreateLedgerRequested] = useState(false)
   const [createLedgerRequestVersion, setCreateLedgerRequestVersion] = useState(0)
@@ -2489,13 +2502,16 @@ export function FloatingAssistantApp({
     void loadVideoNoteArchives({ silent: true, accountMid })
   }, [loadVideoNoteArchives, snapshot?.accountMid, transcriptionQueue.items, videoNoteArchives])
 
-  const refreshLocalDataInfo = useCallback(async ({ force = false } = {}) => {
+  const refreshLocalDataInfo = useCallback(async ({ force = false, retryTransient = false } = {}) => {
     if (!window.bilimiDesktop?.getLocalDataInfo) return
     if (!force && localDataInfoLoaded.current) return
     if (!force && localDataInfoRefreshInFlight.current) return localDataInfoRefreshInFlight.current
 
     const generation = ++localDataInfoGeneration.current
-    const refresh = window.bilimiDesktop.getLocalDataInfo()
+    const refresh = readLocalDataInfoWithRetry(
+      () => window.bilimiDesktop!.getLocalDataInfo!(),
+      { attempts: retryTransient ? 3 : 1 }
+    )
       .then((info) => {
         if (generation !== localDataInfoGeneration.current) return
         localDataInfoLoaded.current = true
@@ -2758,7 +2774,13 @@ export function FloatingAssistantApp({
         lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
         setGlobalFeedback(nextSnapshot.runtimeFeedback)
       }
-      const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotPreferencesFromRuntime = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotPreferences = deepSeekKeyConfiguredRef.current === undefined
+        ? snapshotPreferencesFromRuntime
+        : createInitialAssistantPreferences({
+            ...snapshotPreferencesFromRuntime,
+            deepseekApiKeyStored: deepSeekKeyConfiguredRef.current
+          })
       const lastLocalPreferenceChangeAt = Math.max(
         lastPreferenceChangeAt.current,
         lastPreferenceSaveAt.current
@@ -2814,8 +2836,22 @@ export function FloatingAssistantApp({
       try {
         const keyStatus = await window.bilimiDesktop.loadDeepSeekApiKeyStatus()
 
-        if (!cancelled && mounted.current) {
+        if (!cancelled) {
+          const keyConfigured = deepSeekKeyStatusConfigured(keyStatus)
+          deepSeekKeyConfiguredRef.current = keyConfigured
           setDeepSeekKeyFieldStatus(deepSeekKeyFieldStatusFromKeyStatus(keyStatus))
+          if (preferencesRef.current.deepseekApiKeyStored !== keyConfigured) {
+            const reconciledPreferences = createInitialAssistantPreferences({
+              ...preferencesRef.current,
+              deepseekApiKeyStored: keyConfigured
+            })
+            preferencesRef.current = reconciledPreferences
+            committedPreferencesRef.current = createInitialAssistantPreferences({
+              ...committedPreferencesRef.current,
+              deepseekApiKeyStored: keyConfigured
+            })
+            startTransition(() => setPreferences(reconciledPreferences))
+          }
         }
       } catch {
         if (!cancelled && mounted.current) {
@@ -2898,6 +2934,7 @@ export function FloatingAssistantApp({
   }, [loadSnapshot])
 
   useEffect(() => window.bilimiDesktop?.onBilibiliAccountChanged?.(() => {
+    if (localDataResetInProgress.current) return
     localDataInfoGeneration.current += 1
     localDataInfoLoaded.current = false
     localDataInfoRefreshInFlight.current = null
@@ -2912,6 +2949,23 @@ export function FloatingAssistantApp({
       if (activeView === 'settings') void refreshLocalDataInfo()
     })
   }), [activeView, loadSnapshot, loadVideoNoteArchives, refreshLocalDataInfo])
+
+  useEffect(() => window.bilimiDesktop?.onLocalDataReset?.(() => {
+    localDataResetInProgress.current = true
+    localDataInfoGeneration.current += 1
+    localDataInfoLoaded.current = false
+    localDataInfoRefreshInFlight.current = null
+    setLocalDataInfo(null)
+    setLocalDataUnavailable(false)
+    videoNoteArchiveLoadGeneration.current += 1
+    setVideoNoteArchiveSelection(EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION)
+    setVideoNoteArchives([])
+    void loadSnapshot({ resetVideoNote: true }).finally(() => {
+      void refreshLocalDataInfo({ force: true, retryTransient: true }).finally(() => {
+        localDataResetInProgress.current = false
+      })
+    })
+  }), [loadSnapshot, refreshLocalDataInfo])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
@@ -3046,6 +3100,9 @@ export function FloatingAssistantApp({
         latestPetHoverShortcutMutationIdRef.current = meta.mutationId
       }
       const nextPreferences = applyImmediatePreferencePatch(preferencesRef.current, patch)
+      if (patch.deepseekApiKeyStored !== undefined) {
+        deepSeekKeyConfiguredRef.current = Boolean(patch.deepseekApiKeyStored)
+      }
       committedPreferencesRef.current = applyImmediatePreferencePatch(committedPreferencesRef.current, patch)
       if (patch.petHoverShortcuts !== undefined) {
         petHoverShortcutFieldStoreRef.current.set(patch.petHoverShortcuts)
@@ -3053,8 +3110,7 @@ export function FloatingAssistantApp({
       if (Object.keys(patch).every((key) =>
         key === 'assistantSidebarWidthPx' ||
         key === 'petHoverShortcuts' ||
-        key === 'bilibiliConnectionMode' ||
-        key === 'deepseekApiKeyStored'
+        key === 'bilibiliConnectionMode'
       )) {
         preferencesRef.current = nextPreferences
         return
@@ -3124,8 +3180,12 @@ export function FloatingAssistantApp({
     commentIntentOpen ||
     commentIntentBusy
   const hasBilibiliPageOpen = BILIBILI_PAGE_PATTERN.test(resolvedSnapshot.activeTabUrl?.trim() ?? '')
-  const activeFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
+  const configuredFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
     preferences.favoriteLedgers
+  const activeFavoriteLedgers = useMemo(
+    () => projectFavoriteLedgerDraft(configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle),
+    [configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle]
+  )
   const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {
     return favoriteWorkspaceReadinessMessage({
@@ -3430,19 +3490,37 @@ export function FloatingAssistantApp({
     }
   }
 
-  function jumpToSettingsSection(section: SettingsJumpValue) {
+  function jumpToSettingsSection(section: SettingsJumpValue, options: { behavior?: ScrollBehavior } = {}) {
     setSettingsJumpValue(section)
     const selector = `[data-settings-section="${section}"]`
-    const target = settingsBodyRef.current?.querySelector(selector) ?? document.querySelector(selector)
-    if (target && 'scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
-      target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    const body = settingsBodyRef.current
+    const target = body?.querySelector<HTMLElement>(selector) ?? document.querySelector<HTMLElement>(selector)
+    if (!target) return
+
+    if (body && body.contains(target)) {
+      const nextTop = settingsSectionScrollTop(
+        body.getBoundingClientRect(),
+        target.getBoundingClientRect(),
+        body.scrollTop
+      )
+      body.scrollTop = nextTop
+      if (typeof body.scrollTo === 'function') {
+        body.scrollTo({ top: nextTop, behavior: options.behavior ?? 'smooth' })
+      }
+      return
+    }
+
+    if ('scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'start', behavior: options.behavior ?? 'smooth' })
     }
   }
 
   function openSettingsSection(section: SettingsJumpValue) {
     setActiveTab('settings')
     setSettingsJumpValue(section)
-    window.setTimeout(() => jumpToSettingsSection(section), 0)
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => jumpToSettingsSection(section, { behavior: 'auto' }))
+    }, 0)
   }
 
   function syncSettingsJumpFromScroll() {
@@ -4327,6 +4405,7 @@ export function FloatingAssistantApp({
   useEffect(() => {
     if (!workspaceRequest) return
     setRequestedLedgerId(workspaceRequest.ledgerId)
+    setRequestedLedgerTitle(workspaceRequest.ledgerTitle)
     setRequestedLedgerRequestVersion(workspaceRequest.requestId ?? 0)
     setCreateLedgerRequested(Boolean(workspaceRequest.createLedger))
     if (workspaceRequest.createLedger) setCreateLedgerRequestVersion(workspaceRequest.requestId ?? 0)

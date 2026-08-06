@@ -77,7 +77,7 @@ function createSourceFolders(): FavoriteSourceFolder[] {
 }
 
 describe('createFavoriteLedgerInsights', () => {
-  it('summarizes existing favorites by author, tag, category, and title series without AI', () => {
+  it('summarizes existing favorites by author, tag, and category without title-series candidates', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: createSourceFolders(),
       existingLedgerNames: []
@@ -102,10 +102,6 @@ describe('createFavoriteLedgerInsights', () => {
       { name: '默认收藏夹', count: 4 },
       { name: '剪辑参考', count: 3 }
     ])
-    expect(insights.titleSeries[0]).toMatchObject({
-      name: 'AI工具效率教程',
-      count: 4
-    })
   })
 
   it('creates deterministic candidate ledgers from strong old-favorite signals', () => {
@@ -124,13 +120,7 @@ describe('createFavoriteLedgerInsights', () => {
         confidence: 'high',
         reason: expect.stringContaining('高频标签')
       }),
-      expect.objectContaining({
-        kind: 'series',
-        displayName: 'bilimi·AI工具效率教程',
-        keywords: ['AI工具效率教程'],
-        count: 4,
-        confidence: 'high'
-      }),
+      expect.not.objectContaining({ kind: 'series' }),
       expect.objectContaining({
         kind: 'category',
         displayName: 'bilimi·科技',

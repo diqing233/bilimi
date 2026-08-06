@@ -22,13 +22,24 @@ export type LocalDataPersistence = {
 }
 export type LocalDataServiceOptions = { root: string; appVersion: string; persistence: LocalDataPersistence }
 export type LocalDataCleanupLevel = 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data'
-type Hooks = { stopActiveWork?: () => void | Promise<void>; cleanupFailed?: () => void | Promise<void>; clearLoginSessions?: () => void | Promise<void>; exitApp?: () => void | Promise<void> }
+type Hooks = {
+  stopActiveWork?: () => void | Promise<void>
+  cleanupFailed?: () => void | Promise<void>
+  clearLoginSessions?: () => void | Promise<void>
+  clearRuntimeStorage?: () => void | Promise<void>
+  rebuildEmptyRuntime?: () => void | Promise<void>
+  cleanupCompleted?: () => void | Promise<void>
+  yieldToEventLoop?: () => void | Promise<void>
+}
 export type LocalDataImportPreview = {
   token: string
   accounts: Array<{ uid: string; action: 'merge' | 'add' }>
 }
 
-const EXCLUDED_NAMES = /^(Cookies|Network|Cache|Code Cache|GPUCache|logs?|temp|temporary|audio-temp|lock|proxy)$/iu
+// Electron/Chromium keeps these profile entries open while the app is running.
+// They must be cleared through Session APIs instead of recursive filesystem
+// deletion, otherwise an in-app reset can fail or stall on Windows file locks.
+const ELECTRON_RUNTIME_PROFILE_NAMES = /^(?:blob_storage|Cache|Code Cache|DawnGraphiteCache|DawnWebGPUCache|Dictionaries|GPUCache|IndexedDB|Local Storage|Network|Partitions|Session Storage|Service Worker|Shared Dictionary|Cookies(?:-journal)?|DIPS(?:-wal)?|Local State|lockfile|Preferences|SharedStorage(?:-wal)?|.*\.bdic)$/iu
 
 export class LocalDataService {
   private hooks: Hooks = {}
@@ -92,7 +103,7 @@ export class LocalDataService {
     const releasableBytes = input.level === 'cache' || input.level === 'current-account-temp'
       ? await this.directorySize(targets[0])
       : 0
-    return { ...input, targets, releasableBytes, requiresExit: input.level === 'all-user-data', affectsBilibiliServerData: false }
+    return { ...input, targets, releasableBytes, requiresExit: false, affectsBilibiliServerData: false }
   }
 
   async applyImport(preview: LocalDataImportPreview, input: { mode: 'merge' | 'overwrite'; injectFailureAfterStage?: boolean }) {
@@ -139,13 +150,19 @@ export class LocalDataService {
         await this.options.persistence.writeAccounts({})
         await this.options.persistence.writeSharedSettings({})
         await this.hooks.clearLoginSessions?.()
+        await this.hooks.clearRuntimeStorage?.()
         // The profile root is local-only. Remove residual repository, draft,
         // cache, log, and temporary files after coordinated structured cleanup.
         const entries = await readdir(this.options.root, { withFileTypes: true }).catch(() => [])
-        await Promise.all(entries.filter((entry) => !entry.isSymbolicLink()).map((entry) =>
-          rm(join(this.options.root, entry.name), { recursive: entry.isDirectory(), force: true })
-        ))
-        await this.hooks.exitApp?.()
+        for (const entry of entries.filter((candidate) =>
+          !candidate.isSymbolicLink() && !ELECTRON_RUNTIME_PROFILE_NAMES.test(candidate.name)
+        )) {
+          await rm(join(this.options.root, entry.name), { recursive: entry.isDirectory(), force: true })
+          await (this.hooks.yieldToEventLoop?.() ?? new Promise<void>((resolve) => setImmediate(resolve)))
+        }
+        await mkdir(this.options.root, { recursive: true })
+        await this.hooks.rebuildEmptyRuntime?.()
+        await this.hooks.cleanupCompleted?.()
       } catch (error) {
         await this.hooks.cleanupFailed?.()
         throw error

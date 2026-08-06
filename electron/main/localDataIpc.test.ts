@@ -26,4 +26,57 @@ describe('registerLocalDataIpc', () => {
     await ipcMain.invoke('local-data:preview-cleanup', 'all-user-data', undefined, '全部清除')
     expect(service.previewCleanup).toHaveBeenCalledWith({ level: 'all-user-data', confirmation: '全部清除' })
   })
+
+  it('keeps local account inventory available when the current Bilibili account cannot be read', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { listAccounts: vi.fn().mockResolvedValue([{ uid: '100', retained: true }]) }
+    registerLocalDataIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue(''),
+      getCurrentAccount: vi.fn().mockRejectedValue(new Error('Bilibili session unavailable')),
+      userDataPath: 'C:/data', chooseExportPath: vi.fn(), chooseImportPath: vi.fn(), openUserDataPath: vi.fn()
+    })
+
+    await expect(ipcMain.invoke('local-data:get-info')).resolves.toEqual({
+      path: 'C:/data', accounts: [{ uid: '100', retained: true }]
+    })
+  })
+
+  it('runs the signed-in account cleanup lifecycle only for the current Bilibili account', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { applyCleanup: vi.fn().mockResolvedValue(undefined) }
+    const onCurrentAccountDataClear = vi.fn(async (_uid: string, clearLocalData: () => Promise<void>) => { await clearLocalData() })
+    const onAccountDataCleared = vi.fn()
+    registerLocalDataIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), getCurrentAccount: vi.fn().mockResolvedValue({ mid: '100' }),
+      userDataPath: 'C:/data', chooseExportPath: vi.fn(), chooseImportPath: vi.fn(), openUserDataPath: vi.fn(),
+      onCurrentAccountDataClear, onAccountDataCleared
+    })
+
+    await ipcMain.invoke('local-data:apply-cleanup', 'current-account-data', '100')
+    expect(onCurrentAccountDataClear).toHaveBeenCalledTimes(1)
+    expect(service.applyCleanup).toHaveBeenCalledWith({ level: 'current-account-data', uid: '100' })
+    expect(onAccountDataCleared).toHaveBeenCalledWith('100')
+
+    await ipcMain.invoke('local-data:apply-cleanup', 'current-account-data', '200')
+    expect(onCurrentAccountDataClear).toHaveBeenCalledTimes(1)
+    expect(service.applyCleanup).toHaveBeenLastCalledWith({ level: 'current-account-data', uid: '200' })
+  })
+
+  it('does not publish account deletion when the current-account lifecycle fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { applyCleanup: vi.fn() }
+    const onAccountDataCleared = vi.fn()
+    registerLocalDataIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), getCurrentAccount: vi.fn().mockResolvedValue({ mid: '100' }),
+      userDataPath: 'C:/data', chooseExportPath: vi.fn(), chooseImportPath: vi.fn(), openUserDataPath: vi.fn(),
+      onCurrentAccountDataClear: vi.fn().mockRejectedValue(new Error('session clear failed')), onAccountDataCleared
+    })
+
+    await expect(ipcMain.invoke('local-data:apply-cleanup', 'current-account-data', '100')).rejects.toThrow('session clear failed')
+    expect(service.applyCleanup).not.toHaveBeenCalled()
+    expect(onAccountDataCleared).not.toHaveBeenCalled()
+  })
 })

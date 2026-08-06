@@ -56,16 +56,22 @@ export function enableDefaultLedgersForOrganization(
 /** Gives adopted workspace recommendations precedence without mutating saved preferences. */
 export function mergeOldFavoriteWorkspaceLedgers(
   savedLedgers: FavoriteLedger[],
-  recommendedLedgers: FavoriteLedger[]
+  recommendedLedgers: FavoriteLedger[],
+  excludedRecommendedLedgers: FavoriteLedger[] = []
 ) {
+  const availableSavedLedgers = savedLedgers.filter((saved) =>
+    !excludedRecommendedLedgers.some((excluded) =>
+      (excluded.id === saved.id || sameLogicalRecommendation(excluded, saved)) &&
+      !recommendedLedgers.some((recommended) =>
+        recommended.id === saved.id || sameLogicalRecommendation(recommended, saved))))
   const consumedSavedIds = new Set<string>()
   const resolvedRecommendations = recommendedLedgers.map((recommended) => {
-    const exactId = savedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
+    const exactId = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
     if (exactId) {
       consumedSavedIds.add(exactId.id)
       return { ...recommended, keywords: [...recommended.keywords] }
     }
-    const saved = savedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
+    const saved = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
     if (!saved) return { ...recommended, keywords: [...recommended.keywords] }
     consumedSavedIds.add(saved.id)
     return {
@@ -77,7 +83,7 @@ export function mergeOldFavoriteWorkspaceLedgers(
   })
   return [
     ...resolvedRecommendations,
-    ...savedLedgers
+    ...availableSavedLedgers
       .filter((ledger) => !consumedSavedIds.has(ledger.id) && !recommendedLedgers.some((recommended) => recommended.id === ledger.id))
       .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
   ]

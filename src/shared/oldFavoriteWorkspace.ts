@@ -187,6 +187,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     untaggedItemCount?: number
   }
   inventoryMetrics?: OldFavoriteInventoryMetricProjection
+  currentSegmentMetrics?: {
+    plannedAidCount: number
+    sourceFolders: Array<{ id: string; plannedAidCount: number }>
+  }
   tagEnrichment?: {
     status: 'running' | 'paused' | 'accepted' | 'complete'
     totalItemCount: number
@@ -196,11 +200,15 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+    scopes?: {
+      currentSegment: OldFavoriteTagScopeStatistics
+      wholeRun: OldFavoriteTagScopeStatistics
+    }
   }
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
-    status: 'running' | 'waiting' | 'failed' | 'canceled'
+    status: 'running' | 'waiting' | 'failed' | 'canceled' | 'completed'
     completedSegmentCount: number
     waitingSegmentCount: number
     totalVideoCount?: number
@@ -210,6 +218,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
+    includeInbox?: boolean
     status: 'waiting' | 'running' | 'blocked'
     waitingSegmentCount: number
     waitingForDeepSeek: boolean
@@ -229,7 +238,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     index: number
     status: 'previewing' | 'frozen'
     itemCount: number
-    readiness: 'tagging' | 'ready' | 'saved'
+    readiness: 'waiting' | 'tagging' | 'ready' | 'saved'
     completedTagItemCount: number
     pendingTagItemCount: number
   }>
@@ -258,6 +267,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     processedItemCount: number
     classifiedItemCount: number
     unmatchedItemCount: number
+    deepSeekPendingItemCount?: number
+    waitingTagItemCount?: number
+    unscannedItemCount?: number
+    savedItemCount?: number
     waitingItemCount: number
     recommendationCounts: Array<{ id: string; count: number }>
     archiveTargets: Array<{
@@ -300,6 +313,12 @@ export type OldFavoriteWorkspaceSnapshot = {
         afterTargetLedgerIds: string[]
         reason: string
         movedCount: number
+        details?: Array<{
+          aid: number
+          title?: string
+          beforeTargetLedgerIds: string[]
+          afterTargetLedgerIds: string[]
+        }>
       }
     }>
   }
@@ -311,6 +330,16 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   preserveCompletedLocalResults: true
   accountMid: string
   workspaceId: string
+}
+
+export type OldFavoriteTagScopeStatistics = {
+  totalItemCount: number
+  completedItemCount: number
+  pendingItemCount: number
+  failedItemCount: number
+  reusedTagItemCount: number
+  fetchedTagItemCount: number
+  confirmedUntaggedItemCount: number
 }
 
 /** A compact, manifest/marker-only recovery entry point. It never resumes work. */
@@ -417,10 +446,19 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
 export type OldFavoriteWorkspaceExecutionIntent = {
   workspaceId: string
   mode: 'local' | 'bilibili'
+  includeInbox?: boolean
   status: 'waiting' | 'running' | 'blocked'
 }
 
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
+export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
+  aid: number
+  title?: string
+  beforeTargetLedgerIds: string[]
+  afterTargetLedgerIds: string[]
+  changed: boolean
+}
+
 export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
   /** Cancellation waits for the in-flight request, then applies only completed batches. */
@@ -435,6 +473,8 @@ export type OldFavoriteWorkspaceDeepSeekResult = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    /** Trusted main-process results for request groups that have already settled. */
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }
   failures: OldFavoriteWorkspaceDeepSeekFailure[]
 }
@@ -541,10 +581,6 @@ function isClassificationEqual(
   right: OldFavoriteWorkspaceClassification | undefined
 ) {
   return JSON.stringify(left) === JSON.stringify(right)
-}
-
-function classificationPriority(source: OldFavoriteWorkspaceClassificationSource) {
-  return { 'system-low': 0, 'system-high': 1, deepseek: 2, fallback: 3, manual: 4 }[source]
 }
 
 function segmentForAid(workspace: OldFavoriteWorkspace, aid: number) {
@@ -707,7 +743,7 @@ export function applyWorkspaceClassificationBatch(
   workspace: OldFavoriteWorkspace,
   options: ApplyWorkspaceClassificationBatchOptions
 ): OldFavoriteWorkspace {
-  if (workspace.status !== 'previewing') {
+  if (workspace.status !== 'previewing' && workspace.status !== 'frozen') {
     throw new Error('Old favorite workspace is frozen.')
   }
   if (!['manual', 'fallback', 'deepseek', 'system-high', 'system-low'].includes(options.source) || !Array.isArray(options.assignments)) {
@@ -721,15 +757,9 @@ export function applyWorkspaceClassificationBatch(
     }
     const segment = segmentForAid(workspace, assignment.aid)
     if (!segment) throw new Error('Old favorite workspace aid is not in the active plan.')
-    if (segment.status === 'frozen') throw new Error('Old favorite workspace segment is frozen.')
     const targetLedgerIds = normalizeLedgerIds(assignment.targetLedgerIds)
     if (options.source === 'system-low' && targetLedgerIds.length > 1) {
       throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
-    }
-    const existing = workspace.classifications[String(assignment.aid)]
-    if (existing && classificationPriority(existing.source) > classificationPriority(options.source) &&
-      !(options.replaceExistingSystem && existing.source.startsWith('system-') && options.source.startsWith('system-'))) {
-      continue
     }
     assignments.set(assignment.aid, {
       aid: assignment.aid,
@@ -755,7 +785,18 @@ export function applyWorkspaceClassificationBatch(
     source: options.source,
     changes: changes.map(cloneHistoryChange)
   }]
-  return { ...workspace, classifications, history, historyCursor: history.length }
+  const changedSegmentIds = new Set(changes.map((change) => segmentForAid(workspace, change.aid)?.id).filter((id): id is string => Boolean(id)))
+  const segments = workspace.segments.map((segment) => changedSegmentIds.has(segment.id)
+    ? { ...segment, status: 'previewing' as const }
+    : segment)
+  return {
+    ...workspace,
+    status: 'previewing',
+    segments,
+    classifications,
+    history,
+    historyCursor: history.length
+  }
 }
 
 export function undoWorkspaceChange(workspace: OldFavoriteWorkspace): OldFavoriteWorkspace {

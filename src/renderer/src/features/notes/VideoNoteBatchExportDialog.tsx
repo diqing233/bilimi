@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BilimiModal } from '../../components/BilimiModal'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import type {
   VideoNoteBatchArchiveSelection,
   VideoNoteBatchExportPreview,
@@ -34,7 +35,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
   const [formats, setFormats] = useState<Array<'markdown' | 'word'>>(initialFormats)
   const [scope, setScope] = useState<'current' | 'complete'>(initialScope)
   const [selectedContent, setSelectedContent] = useState<VideoNoteBatchExportCurrentContent>(currentContent ?? 'plain')
-  const [contentMenuOpen, setContentMenuOpen] = useState(false)
+  const [contentMenuOpen, setContentMenuOpen] = useExclusiveMenu()
   const [includeNotes, setIncludeNotes] = useState(hasNotes)
   const [summary, setSummary] = useState<Preview>()
   const [result, setResult] = useState<Result>()

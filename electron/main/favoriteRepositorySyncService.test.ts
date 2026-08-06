@@ -246,6 +246,44 @@ describe('FavoriteRepositorySyncService', () => {
       videos: {}
     })
   })
+
+  it.each([
+    ['unknown', 'remote-ambiguous'],
+    ['rejected', 'csrf-missing']
+  ] as const)('keeps every local binding when the first remote deletion is %s', async (status, reason) => {
+    const repository = await createRepository()
+    for (const [suffix, logicalLedgerId] of [['a', 'disabled'], ['b', 'disabled-b']] as const) {
+      await repository.commit('100', {
+        id: `binding-${suffix}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [],
+          remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId: `remote-${suffix}`
+        }
+      })
+    }
+    const deleteFolder = vi.fn().mockResolvedValue({ status, observedAccountMid: '100', reason })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-a', title: 'bilimi·disabled', memberCount: 0 },
+          { id: 'remote-b', title: 'bilimi·disabled-b', memberCount: 0 }
+        ] })
+      },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.deleteManagedFolders('100', ['disabled', 'disabled-b'])).rejects.toThrow(reason)
+    expect(deleteFolder).toHaveBeenCalledTimes(1)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: [
+        expect.objectContaining({ remoteFolderId: 'remote-a' }),
+        expect.objectContaining({ remoteFolderId: 'remote-b' })
+      ]
+    })
+  })
+
   it('uses the legacy cooldown after the twenty-fifth successful remote write', async () => {
     const repository = await createRepository()
     const frozenPlan = planWithAppendOperations(27)

@@ -339,7 +339,8 @@ describe('FavoriteLibraryDrawer integration', () => {
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '不相关的搜索' } })
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, query: '不相关的搜索' }))
-    fireEvent.click(screen.getByRole('button', { name: '同步筛选' }))
+    fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, {
       limit: 50,

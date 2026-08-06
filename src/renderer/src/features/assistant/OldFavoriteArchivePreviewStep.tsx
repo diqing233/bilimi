@@ -1,6 +1,6 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
-import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
@@ -8,12 +8,17 @@ import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 const INITIAL_GROUP_ITEM_LIMIT = 6
 
 function isUnavailablePreviewItem(item: { unavailable?: boolean; title?: string; author?: string }) {
   return item.unavailable === true || item.title?.trim() === '已失效视频' || item.author?.trim() === '账号已注销'
+}
+
+function haveSameTargets(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((targetLedgerId) => right.includes(targetLedgerId))
 }
 
 export function groupOldFavoritePreviewItems<Item extends { aid: number }>(
@@ -67,12 +72,14 @@ type OldFavoriteArchivePreviewStepProps = {
   onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
+  recommendedCandidateIds?: string[]
+  enabledLedgerIds?: ReadonlySet<string>
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
 }
 
 type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
-  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications'>
+  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications' | 'recommendedCandidateIds' | 'enabledLedgerIds'>
 
 const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   snapshot,
@@ -80,12 +87,14 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   loading,
   mutationLocked = false,
   onApplyManualClassification,
-  onApplyManualClassifications
+  onApplyManualClassifications,
+  recommendedCandidateIds,
+  enabledLedgerIds
 }: OldFavoriteArchiveGroupsProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [batchGroupId, setBatchGroupId] = useState<string | null>(null)
   const [batchSelectedAids, setBatchSelectedAids] = useState<Set<number>>(() => new Set())
-  const [batchTargetOpen, setBatchTargetOpen] = useState(false)
+  const [batchTargetOpen, setBatchTargetOpen] = useExclusiveMenu()
   const [batchTargetPosition, setBatchTargetPosition] = useState({ top: 0, left: 0 })
   const [recentlyMovedAidByLedgerId, setRecentlyMovedAidByLedgerId] = useState<Record<string, number>>({})
   const groupsRootRef = useRef<HTMLDivElement>(null)
@@ -100,8 +109,21 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     .map((folder) => folder.id))
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
-  const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
-  const classified = groupOldFavoritePreviewItems(items, snapshot.classifications, new Set(ledgers.map((ledger) => ledger.id)))
+  const recommendationIds = useMemo(() => new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id)), [snapshot.recommendations.candidates])
+  const selectedRecommendationKey = (recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds).join('\u0001')
+  const effectiveClassifications = useMemo(() => {
+    const selectedRecommendations = new Set(selectedRecommendationKey.split('\u0001').filter(Boolean))
+    return Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => {
+      const targetLedgerIds = classification.targetLedgerIds.filter((ledgerId) =>
+        ledgerId === 'inbox' || (enabledLedgerIds?.has(ledgerId) ?? true) && (!recommendationIds.has(ledgerId) || selectedRecommendations.has(ledgerId)))
+      return [aid, targetLedgerIds.length === classification.targetLedgerIds.length
+        ? classification
+        : { ...classification, targetLedgerIds }]
+    }))
+  }, [enabledLedgerIds, recommendationIds, selectedRecommendationKey, snapshot.classifications])
+  const selectedRecommendations = useMemo(() => new Set(selectedRecommendationKey.split('\u0001').filter(Boolean)), [selectedRecommendationKey])
+  const unmatched = items.filter((item) => !effectiveClassifications[String(item.aid)]?.targetLedgerIds.length)
+  const classified = groupOldFavoritePreviewItems(items, effectiveClassifications, new Set(ledgers.map((ledger) => ledger.id)))
   const previewGroups = [
     ...(unmatched.length ? [{ id: 'unclassified', title: '未匹配到合适分类', items: unmatched }] : []),
     ...[...classified.entries()].map(([id, groupedItems]) => ({
@@ -113,6 +135,10 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
           Number(right.aid === recentlyMovedAidByLedgerId[id]) - Number(left.aid === recentlyMovedAidByLedgerId[id]))
     }))
   ]
+  for (const ledger of ledgers) {
+    if (!recommendationIds.has(ledger.id) || !selectedRecommendations.has(ledger.id) || previewGroups.some((group) => group.id === ledger.id)) continue
+    previewGroups.push({ id: ledger.id, title: ledger.displayName, items: [] })
+  }
   const handleManualClassification = (aid: number, currentLedgerId: string | undefined, nextTargetLedgerIds: string[]) => {
     const previousTargetLedgerIds = snapshot.classifications[String(aid)]?.targetLedgerIds ?? []
     const targetLedgerId = nextTargetLedgerIds.find((ledgerId) => !previousTargetLedgerIds.includes(ledgerId))
@@ -125,7 +151,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const renderItem = (item: typeof items[number], currentLedgerId?: string, batchSelectable = false) => <OldFavoritePreviewCard
     item={item}
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
-    classification={snapshot.classifications[String(item.aid)]}
+    classification={effectiveClassifications[String(item.aid)]}
     currentLedgerId={currentLedgerId}
     originalTargetLedgerIds={snapshot.originalTargetLedgerIdsByAid?.[String(item.aid)]}
     ledgers={ledgers}
@@ -253,7 +279,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
               {batchTargetOpen ? createPortal(<div ref={batchTargetMenuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating favorite-ledger-panel__batch-target-menu"
                 style={{ top: batchTargetPosition.top, left: batchTargetPosition.left }} role="menu" aria-label={`批量转移 ${group.title}`}>
                 <button type="button" role="menuitem" onClick={() => applyBatchTarget('inbox')}>暂存</button>
-                {ledgers.filter((ledger) => ledger.id !== 'inbox').map((ledger) => <button key={ledger.id} type="button" role="menuitem" onClick={() => applyBatchTarget(ledger.id)}>{ledger.displayName}</button>)}
+                {ledgers.filter((ledger) => ledger.id !== 'inbox' && (enabledLedgerIds?.has(ledger.id) ?? ledger.enabled)).map((ledger) => <button key={ledger.id} type="button" role="menuitem" onClick={() => applyBatchTarget(ledger.id)}>{ledger.displayName}</button>)}
               </div>, document.body) : null}
             </> : <>
               <button type="button" disabled={loading || mutationLocked} onClick={() => {
@@ -295,6 +321,8 @@ export function OldFavoriteArchivePreviewStep({
   onMoveHistoryCursor,
   onApplyManualClassification,
   onApplyManualClassifications,
+  recommendedCandidateIds = [],
+  enabledLedgerIds,
   viewScope: controlledViewScope,
   onViewScopeChange,
 }: OldFavoriteArchivePreviewStepProps) {
@@ -303,8 +331,9 @@ export function OldFavoriteArchivePreviewStep({
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
-  const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useExclusiveMenu()
+  const [deepSeekDetailsOpen, setDeepSeekDetailsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useExclusiveMenu()
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
   const historyMenuRef = useRef<HTMLDivElement>(null)
   const [historyMenuPosition, setHistoryMenuPosition] = useState({ top: 0, left: 0 })
@@ -319,10 +348,12 @@ export function OldFavoriteArchivePreviewStep({
     'system-high': '高置信度自动分类',
     'system-low': '低置信度自动分类'
   } as const
-  const ledgerNames = new Map(ledgers.filter((ledger) => ledger.enabled).map((ledger) => [ledger.id, ledger.displayName]))
+  const ledgerNames = new Map(ledgers.filter((ledger) => enabledLedgerIds?.has(ledger.id) ?? ledger.enabled).map((ledger) => [ledger.id, ledger.displayName]))
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const historyTargetLabel = (targetLedgerIds: string[]) =>
     targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'
+  const detailTargetLabel = (targetLedgerIds: string[]) =>
+    targetLedgerIds.map((id) => id === 'inbox' ? '暂存' : ledgerNames.get(id) ?? id).join('、') || '未分类'
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
@@ -339,6 +370,29 @@ export function OldFavoriteArchivePreviewStep({
   const currentHistoryEntry = historyEntries.find((entry) => entry.cursor === snapshot.history.cursor)
   const previousHistoryEntries = historyEntries.filter((entry) => entry.cursor !== snapshot.history.cursor)
   const currentHistoryLabel = currentHistoryEntry ? historyLabel(currentHistoryEntry) : '初始自动分类'
+  const deepSeekProcessedItems = deepSeekFeedbackView?.progress?.processedItems
+  const currentSegmentAidSet = useMemo(() => new Set(snapshot.currentSegment?.aids ?? []), [snapshot.currentSegment?.aids])
+  const deepSeekDetails = useMemo(() => {
+    const detailsByAid = new Map<number, OldFavoriteWorkspaceDeepSeekProcessedItem>()
+    const appliedHistoryEntries = historyEntries
+      .filter((entry) => entry.source === 'deepseek' && entry.cursor <= snapshot.history.cursor)
+      .sort((left, right) => left.cursor - right.cursor)
+    for (const entry of appliedHistoryEntries) {
+      for (const detail of entry.summary?.details ?? []) {
+        if (detail.title?.trim() === '已失效视频') continue
+        detailsByAid.set(detail.aid, {
+          ...detail,
+          changed: !haveSameTargets(detail.beforeTargetLedgerIds, detail.afterTargetLedgerIds)
+        })
+      }
+    }
+    for (const detail of deepSeekProcessedItems ?? []) {
+      if (detail.title?.trim() === '已失效视频') continue
+      detailsByAid.set(detail.aid, detail)
+    }
+    return [...detailsByAid.values()].filter((detail) => viewScope === 'all' || !hasMultipleSegments || currentSegmentAidSet.has(detail.aid))
+  }, [currentSegmentAidSet, deepSeekProcessedItems, hasMultipleSegments, historyEntries, snapshot.history.cursor, viewScope])
+  useEffect(() => setDeepSeekDetailsOpen(false), [snapshot.workspaceId])
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) return false
@@ -444,12 +498,13 @@ export function OldFavoriteArchivePreviewStep({
               </button>}
             </div>
           </div>
-          {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
+          {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled favorite-ledger-panel__deepseek-archive-disabled--warning">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
-          {deepSeekFeedbackView ? <div className="favorite-ledger-panel__deepseek-result"
-            role={deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status'}>
-            <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
-            {deepSeekFeedbackView.progress ? <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedbackView.kind === 'running'}>
+          {deepSeekFeedbackView || deepSeekDetails.length ? <div className="favorite-ledger-panel__deepseek-result"
+            role={deepSeekFeedbackView ? deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status' : undefined}>
+            {deepSeekFeedbackView ? <>
+              <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
+              {deepSeekFeedbackView.progress ? <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedbackView.kind === 'running'}>
               <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
                 <span>DeepSeek 请求组 {deepSeekFeedbackView.progress.settledGroups} / {deepSeekFeedbackView.progress.totalGroups} 已结算</span>
                 <span>已应用 {deepSeekFeedbackView.progress.appliedVideos} / {deepSeekFeedbackView.progress.totalVideos} 条视频</span>
@@ -460,12 +515,24 @@ export function OldFavoriteArchivePreviewStep({
                 className="favorite-ledger-panel__deepseek-archive-progress-track" role="progressbar">
                 <span style={{ width: `${deepSeekFeedbackView.progress.value}%` }} />
               </div>
-            </div> : null}
-            {deepSeekFeedbackView.failures.length ? <details className="favorite-ledger-panel__deepseek-result-details">
-              <summary>查看失败详情</summary>
-              {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
+              </div> : null}
+              {deepSeekFeedbackView.failures.length ? <details className="favorite-ledger-panel__deepseek-result-details">
+                <summary>查看失败详情</summary>
+                {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
+              </details> : null}
+            </> : null}
+            {deepSeekDetails.length ? <details className="favorite-ledger-panel__deepseek-result-details favorite-ledger-panel__deepseek-result-details--organization" open={deepSeekDetailsOpen}>
+              <summary onClick={(event: { preventDefault: () => void }) => {
+                event.preventDefault()
+                setDeepSeekDetailsOpen((open: boolean) => !open)
+              }}>查看整理明细（{deepSeekDetails.length} 条）</summary>
+              {deepSeekDetailsOpen ? deepSeekDetails.map((detail: OldFavoriteWorkspaceDeepSeekProcessedItem) => <p key={detail.aid}>
+                {detail.title?.trim() || `av${detail.aid}`}：{detail.changed
+                  ? `${detailTargetLabel(detail.beforeTargetLedgerIds)} → ${detailTargetLabel(detail.afterTargetLedgerIds)}`
+                  : `保持原分类（${detailTargetLabel(detail.afterTargetLedgerIds)}）`}
+              </p>) : null}
             </details> : null}
-            {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
+            {deepSeekFeedbackView?.action === 'retry' ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
         <div className="favorite-ledger-panel__archive-tool-divider favorite-ledger-panel__archive-tool-divider--full-width" aria-hidden="true" />
@@ -503,11 +570,12 @@ export function OldFavoriteArchivePreviewStep({
       </div>
     </div>
     {hasMultipleSegments ? <div className="favorite-ledger-panel__scope-panel" hidden={viewScope !== 'all'} data-testid="whole-run-archive-view">
-      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets />
+      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} />
     </div> : null}
     <div className="favorite-ledger-panel__scope-panel" hidden={hasMultipleSegments && viewScope === 'all'} data-testid="current-archive-view">
       <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
-        onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications} />
+        onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications}
+        recommendedCandidateIds={recommendedCandidateIds} enabledLedgerIds={enabledLedgerIds} />
     </div>
   </section>
 }

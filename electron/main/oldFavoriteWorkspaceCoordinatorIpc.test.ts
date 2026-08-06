@@ -769,7 +769,7 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
-  it('resumes a persisted whole-run execution intent when the workspace is reopened', async () => {
+  it('keeps a persisted whole-run execution intent paused when the workspace is reopened', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue({
@@ -785,7 +785,7 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 7, '100')).resolves.toMatchObject({
       executionIntent: { mode: 'local', status: 'waiting' }
     })
-    expect(coordinator.continueExecutionIntent).toHaveBeenCalledWith('100')
+    expect(coordinator.continueExecutionIntent).not.toHaveBeenCalled()
   })
 
   it('prepares recommendation preview with progress and cancels it through an out-of-band command', async () => {

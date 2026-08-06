@@ -139,15 +139,20 @@ export class FavoriteRepositoryManagedFolderService {
       .filter((folder) => folder.kind === 'bilimi-logical' && folder.id !== 'local:inbox')
       .map((folder) => folder.id)
       .sort()
-    const folders = folderIds.map((folderId) => {
+    const folders = await Promise.all(folderIds.map(async (folderId) => {
       const preview = this.previewFromSnapshot(normalizedAccount, folderId, snapshot)
       const logicalLedgerId = this.logicalLedgerId(folderId)
       const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
-      const remoteAllowed = Boolean(preview.remoteBinding) && shards.length > 0 && shards.every((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      const repositoryBindingEligible = Boolean(preview.remoteBinding) && shards.length > 0 &&
+        shards.every((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      const remoteExists = repositoryBindingEligible && preview.remoteBinding && this.options.remoteObserver
+        ? await this.observeRemoteFolder(normalizedAccount, preview.remoteBinding.remoteFolderId)
+        : 'unknown'
+      const remoteAllowed = repositoryBindingEligible && remoteExists === 'present'
       return { ...preview, remoteAllowed }
-    })
+    }))
     const affectedVideoCount = new Set(folderIds.flatMap((folderId) => snapshot.memberships[folderId] ?? [])).size
-    return { accountMid: normalizedAccount, folderCount: folders.length, affectedVideoCount, remoteAllowed: folders.length > 0 && folders.every((folder) => folder.remoteAllowed), folders }
+    return { accountMid: normalizedAccount, folderCount: folders.length, affectedVideoCount, remoteAllowed: folders.some((folder) => folder.remoteAllowed), folders }
   }
 
   async deleteLocal(accountMid: string, executionToken: string) {
@@ -156,10 +161,13 @@ export class FavoriteRepositoryManagedFolderService {
     if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
     const auditAids = [...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])]
     const timestamp = this.now()
-    await this.options.repository.commitWithAudit(operation.accountMid, {
+    const command: FavoriteRepositoryCommand = {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
-    }, this.events(auditAids, 'managed-folder-delete-local', timestamp))
+    }
+    const auditEvents = this.events(auditAids, 'managed-folder-delete-local', timestamp)
+    if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)
+    else await this.options.repository.commit(operation.accountMid, command)
     for (const remoteFolderId of operation.localDismissRemoteFolderIds) {
       this.options.dismissRemoteFolder?.(operation.accountMid, remoteFolderId)
     }
@@ -182,6 +190,11 @@ export class FavoriteRepositoryManagedFolderService {
     }
     operation.confirmationToken = undefined
     if (!this.options.remote) throw new Error('Managed folder remote deletion is unavailable.')
+    // A prior interrupted request must be observed before this new user-confirmed
+    // request is allowed through. Observation is read-only; it never retries the
+    // older delete. If the folder remains present, reconciliation records that
+    // older request as failed and releases this fresh request to proceed.
+    if (this.options.remoteObserver) await this.settlePriorUnknownDeletions(operation)
     try {
       await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
         operation.accountMid, { priority: 'user-single' }, async () => {
@@ -262,6 +275,31 @@ export class FavoriteRepositoryManagedFolderService {
     return operation
   }
 
+  private async settlePriorUnknownDeletions(operation: PendingDeletion) {
+    const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
+    const priorOperationIds = snapshot.syncRecords
+      .filter((record) => record.operationKey === 'managed-folder-delete' &&
+        ['result-unknown', 'reconciliation-required'].includes(record.status) &&
+        record.targetFolderIds?.includes(operation.logicalFolderId) &&
+        record.id !== `managed-folder-delete:${operation.operationId}`)
+      .map((record) => record.id.replace(/^managed-folder-delete:/, ''))
+      .filter((operationId) => operationId && operationId !== operation.operationId)
+    for (const priorOperationId of [...new Set(priorOperationIds)]) {
+      await this.reconcile(operation.accountMid, priorOperationId)
+    }
+  }
+
+  private async observeRemoteFolder(accountMid: string, remoteFolderId: string) {
+    try {
+      return await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
+        accountMid, { priority: 'reconcile' },
+        () => this.options.remoteObserver!.remoteFolderExists(accountMid, remoteFolderId)
+      )
+    } catch {
+      return 'unknown' as const
+    }
+  }
+
   private async recoverOperation(accountMid: string, operationId: string): Promise<PendingDeletion | undefined> {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const record = snapshot.syncRecords.find((item) => item.id === `managed-folder-delete:${operationId}` && item.operationKey === 'managed-folder-delete')
@@ -286,14 +324,17 @@ export class FavoriteRepositoryManagedFolderService {
 
   private async commitLocalProjection(operation: PendingDeletion, snapshot: Awaited<ReturnType<Repository['getSnapshot']>>) {
     const timestamp = this.now()
-    await this.options.repository.commitWithAudit(operation.accountMid, {
+    const command: FavoriteRepositoryCommand = {
       id: `managed-folder:delete-local:${operation.operationId}`,
       accountMid: operation.accountMid,
       issuedAt: timestamp,
       expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder',
       payload: { logicalFolderId: operation.logicalFolderId }
-    }, this.events([...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])], 'managed-folder-delete-remote', timestamp))
+    }
+    const auditEvents = this.events([...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])], 'managed-folder-delete-remote', timestamp)
+    if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)
+    else await this.options.repository.commit(operation.accountMid, command)
   }
 
   private async recordResult(operation: PendingDeletion, status: 'failed' | 'result-unknown' | 'succeeded', reason?: string) {

@@ -62,21 +62,24 @@ export function publishDeepSeekTask(task: DeepSeekTask) {
   }
 
   const channel = new BroadcastChannel(DEEPSEEK_TASK_CHANNEL)
+  let finished = false
   const heartbeat = window.setInterval(() => {
     channel.postMessage({ action: 'heartbeat', task } satisfies DeepSeekTaskMessage)
   }, 5_000)
   channel.onmessage = (event) => {
     const message = event.data as Partial<DeepSeekTaskMessage> | null
-    if (message?.action === 'query') {
+    if (!finished && message?.action === 'query') {
       channel.postMessage({ action: 'start', task } satisfies DeepSeekTaskMessage)
     }
   }
   channel.postMessage({ action: 'start', task } satisfies DeepSeekTaskMessage)
 
   return () => {
+    if (finished) return
+    finished = true
     window.clearInterval(heartbeat)
     channel.postMessage({ action: 'finish', id: task.id } satisfies DeepSeekTaskMessage)
-    channel.close()
+    window.setTimeout(() => channel.close(), 0)
   }
 }
 

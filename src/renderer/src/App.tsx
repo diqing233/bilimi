@@ -1428,13 +1428,31 @@ export default function App() {
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
       return cached.status
     }
+    const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
+      ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
+      : null
+    const trustedRepositoryBindings = new Map((repositorySummary?.folders ?? [])
+      .filter((folder) => folder.kind === 'bilimi-logical' && folder.syncState === 'bound' && folder.logicalLedgerId && folder.remoteFolderId)
+      .map((folder) => [folder.logicalLedgerId!, folder.remoteFolderId!] as const))
+    const ledgersWithRepositoryCandidates = favoriteLedgers.map((ledger) => {
+      const trustedRemoteFolderId = trustedRepositoryBindings.get(ledger.id)
+      return trustedRemoteFolderId ? { ...ledger, bilibiliFolderId: trustedRemoteFolderId } : ledger
+    })
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(favoriteLedgers)
+      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = status as FavoriteLedgerStatus
-      const recoveredLedgers = status.ledgers ?? favoriteLedgers
+      const recoveredLedgers = status.ledgers ?? ledgersWithRepositoryCandidates
+      const missingLedgerIds = status.missingLedgerIds
+      const recoveredStatus: FavoriteLedgerStatus = {
+        ok: missingLedgerIds.length === 0 && !(status.backupConflictLedgerIds?.length),
+        ledgers: recoveredLedgers,
+        missingLedgerIds,
+        backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
+        message: status.message
+      }
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
       const bindingsChanged = JSON.stringify(recoveredLedgers) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, recoveredLedgers)
@@ -1459,10 +1477,10 @@ export default function App() {
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
         checkedAt: Date.now(),
-        status: status as FavoriteLedgerStatus
+        status: recoveredStatus
       }
 
-      return status as FavoriteLedgerStatus
+      return recoveredStatus
     }
 
     const fallbackStatus = {
