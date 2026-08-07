@@ -131,7 +131,7 @@ describe('useOldFavoriteWorkspace', () => {
     const completed = {
       ...recommendationWorkspace(),
       recommendations: {
-        candidates: [{ id: 'custom-music', displayName: 'bilimi·音乐', kind: 'series' as const, count: 1, reason: 'local' }],
+        candidates: [{ id: 'custom-music', displayName: 'bilimi·音乐', kind: 'category' as const, count: 1, reason: 'local' }],
         adoptedCandidateIds: ['custom-music']
       }
     }
@@ -789,7 +789,12 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('requests cancellation through the workspace command without superseding the DeepSeek result', async () => {
     const pending = deferred<{ snapshot: ReturnType<typeof workspace>; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; failures: []; canceled: true }>()
-    const command = vi.fn().mockResolvedValue(workspace('100'))
+    const canceled = {
+      ...workspace('100'),
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'canceled' as const, completedSegmentCount: 0, waitingSegmentCount: 0 }
+    }
+    const cancelCommand = deferred<typeof canceled>()
+    const command = vi.fn().mockReturnValue(cancelCommand.promise)
     window.bilimiDesktop = {
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
       commandOldFavoriteWorkspaceV1: command
@@ -798,16 +803,61 @@ describe('useOldFavoriteWorkspace', () => {
 
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
     await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
-    await act(async () => { await result.current.cancelCurrentSegmentDeepSeek() })
+    let cancellation: Promise<boolean> | undefined
+    act(() => { cancellation = result.current.cancelCurrentSegmentDeepSeek() })
 
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'cancel-deepseek-current-segment' })
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', message: '正在结束当前批次，后续批次不会再开始。'
+    }))
     expect(result.current.deepSeekCancelRequested).toBe(true)
+
+    cancelCommand.resolve(canceled)
+    await act(async () => { await cancellation })
+    expect(result.current.deepSeekCancelRequested).toBe(false)
+    expect(result.current.deepSeekFeedback?.status).toBe('canceled')
+    expect(result.current.snapshot).toEqual(canceled)
+
     pending.resolve({
       snapshot: workspace('100'), canceled: true,
       progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }, failures: []
     })
     await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('canceled'))
-    expect(result.current.snapshot).toEqual(workspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toEqual(workspace('100')))
+  })
+
+  it('unlocks DeepSeek after canceling a restored background run', async () => {
+    const running = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'running' as const, completedSegmentCount: 1, waitingSegmentCount: 0 }
+    }
+    const canceled = {
+      ...running,
+      deepSeekRun: { ...running.deepSeekRun, status: 'canceled' as const }
+    }
+    const cancelCommand = deferred<typeof canceled>()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(running),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockReturnValue(cancelCommand.promise)
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    let cancellation: Promise<boolean> | undefined
+    act(() => { cancellation = result.current.cancelCurrentSegmentDeepSeek() })
+    await waitFor(() => expect(result.current.deepSeekCancelRequested).toBe(true))
+    expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', message: '正在结束当前批次，后续批次不会再开始。'
+    })
+
+    cancelCommand.resolve(canceled)
+    await act(async () => { await cancellation })
+
+    expect(result.current.snapshot).toEqual(canceled)
+    expect(result.current.deepSeekFeedback?.status).toBe('canceled')
+    expect(result.current.deepSeekCancelRequested).toBe(false)
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, result.current.deepSeekCancelRequested).action).toBe('none')
   })
 
   it('requests optional Bilibili mirror clearing only with a full reorganization scan', async () => {
@@ -822,7 +872,7 @@ describe('useOldFavoriteWorkspace', () => {
 
   it('renders main-process DeepSeek chunk progress before the final result returns', async () => {
     const pending = deferred<{ snapshot: ReturnType<typeof workspace>; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; referencedConstraintLedgerNames: string[]; failures: [] }>()
-    let publishProgress: ((progress: { accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }) => void) | undefined
+    let publishProgress: ((progress: { accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number; processedItems?: Array<{ aid: number; title?: string; beforeTargetLedgerIds: string[]; afterTargetLedgerIds: string[]; changed: boolean }> }) => void) | undefined
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({ ...workspace('100'), status: 'previewing' as const }),
       organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
@@ -833,11 +883,75 @@ describe('useOldFavoriteWorkspace', () => {
     await waitFor(() => expect((result.current.snapshot && 'status' in result.current.snapshot ? result.current.snapshot.status : undefined)).toBe('previewing'))
     act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
     await waitFor(() => expect(publishProgress).toBeTypeOf('function'))
-    act(() => { publishProgress?.({ accountMid: '100', workspaceId: 'workspace-100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
+    act(() => { publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0,
+      processedItems: [{ aid: 1, title: 'Processed', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }]
+    }) })
 
     expect(result.current.deepSeekFeedback).toMatchObject({
-      status: 'running', progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }
+      status: 'running', progress: {
+        totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0,
+        processedItems: [{ aid: 1, title: 'Processed', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }]
+      }
     })
+    await act(async () => { pending.resolve({
+      snapshot: { ...workspace('100'), status: 'previewing' as const },
+      progress: { totalChunks: 2, completedChunks: 2, totalVideoCount: 21, successfulVideoCount: 21, failedVideoCount: 0 },
+      referencedConstraintLedgerNames: [], failures: []
+    }); await pending.promise })
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'completed',
+      progress: { processedItems: [{ aid: 1, title: 'Processed', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }] }
+    }))
+  })
+
+  it('does not let a stale canceled checkpoint hide cancellation after restarting DeepSeek', async () => {
+    const canceled = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'canceled' as const, completedSegmentCount: 1, waitingSegmentCount: 0 }
+    }
+    const pending = deferred<{ snapshot: typeof canceled; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }>()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(canceled),
+      organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise)
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toEqual(canceled))
+    act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all', 'all') })
+
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', message: 'DeepSeek 正在依次整理本轮所有批次…'
+    }))
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, result.current.deepSeekCancelRequested).action).toBe('cancel')
+  })
+
+  it('replaces stale canceled feedback when the same DeepSeek workspace resumes running', async () => {
+    const running = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'running' as const, completedSegmentCount: 0, waitingSegmentCount: 1 }
+    }
+    const canceled = {
+      ...running,
+      deepSeekRun: { ...running.deepSeekRun, status: 'canceled' as const }
+    }
+    const open = vi.fn()
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(canceled)
+      .mockResolvedValueOnce(running)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh() })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('canceled'))
+    await act(async () => { await result.current.refresh() })
+
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', message: 'DeepSeek 正在依次整理本轮所有批次…'
+    }))
   })
 
   it('clears DeepSeek feedback for a full reorganization and ignores progress from the replaced workspace', async () => {

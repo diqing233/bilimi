@@ -11,14 +11,15 @@ import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 describe('Favorite Library workspace components', () => {
   it('pins virtual navigation geometry to the compact row box without clipping text', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
-    expect(styles).toContain('.favorite-library__navigation-row { display: flex; align-items: center; min-height: 30px; height: 30px; box-sizing: border-box; }')
-    expect(styles).toContain('.favorite-library__navigation-row > button:first-child { display: flex; flex: 1; align-items: center; min-width: 0; height: 100%;')
+    expect(styles).toContain('.favorite-library__navigation-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; min-height: 30px; height: 30px; box-sizing: border-box; }')
+    expect(styles).toContain('.favorite-library__navigation-row > button:first-child { display: flex; min-width: 0; height: 100%;')
   })
   it('keeps the embedded workspace title controls compact without a heavy menu outline', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
     expect(styles).toContain('.favorite-library__navigation-group-heading { display: flex; align-items: center; min-height: 28px;')
-    expect(styles).toContain('.favorite-library__folder-menu, .favorite-library__workspace-menu { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; width: 28px; min-width: 28px; padding: 5px 0; border: 0; background: transparent; color: #64748b; opacity: 0; pointer-events: none; }')
+    expect(styles).toContain('.favorite-library__folder-menu, .favorite-library__workspace-menu { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 4ch; padding: 5px 0; border: 0; background: transparent; color: #64748b; opacity: 0; pointer-events: none; }')
+    expect(styles).toContain('.favorite-library__navigation-group-heading:hover .favorite-library__ordinary-group-menu')
     expect(styles).toContain('.favorite-library__navigation-group-toggle { flex: 1 1 auto;')
     expect(styles).toContain('.favorite-library__folder-menu-items hr { width: 100%; height: 1px; margin: 3px 0;')
     expect(styles).toContain('.favorite-library__batch-floating-menu { position: fixed;')
@@ -27,11 +28,20 @@ describe('Favorite Library workspace components', () => {
   it('limits porcelain scrollbars to favorite-library-owned scroll containers', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
-    expect(styles).toContain('.favorite-library__nav, .favorite-library__list, .favorite-library__detail { scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); }')
+    expect(styles).toContain('.favorite-library__nav, .favorite-library__navigation-groups, .favorite-library__list, .favorite-library__detail { scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); }')
     expect(styles).toContain('.favorite-library__batch-destination-scroll, .favorite-library__batch-floating-menu { scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); }')
-    expect(styles).toContain('.favorite-library__nav::-webkit-scrollbar, .favorite-library__list::-webkit-scrollbar, .favorite-library__detail::-webkit-scrollbar { width: 6px; height: 6px; }')
+    expect(styles).toContain('.favorite-library__nav { overflow-x: hidden; overflow-y: auto; }')
+    expect(styles).toContain('.favorite-library__nav::-webkit-scrollbar { width: 6px; height: 0; }')
     expect(styles).toContain('.favorite-library__nav::-webkit-scrollbar-thumb, .favorite-library__list::-webkit-scrollbar-thumb, .favorite-library__detail::-webkit-scrollbar-thumb, .favorite-library__batch-destination-scroll::-webkit-scrollbar-thumb, .favorite-library__batch-floating-menu::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: #5d8fc8; background-clip: padding-box; }')
     expect(styles).not.toContain('body::-webkit-scrollbar')
+  })
+
+  it('keeps title, status, transcription, and source columns bounded in both detail states', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('--favorite-library-row-columns: minmax(0, 1fr) minmax(92px, .34fr) minmax(118px, .42fr) minmax(96px, .34fr);')
+    expect(styles).toContain('.favorite-library__row-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+    expect(styles).not.toContain(".favorite-library__layout[data-detail-state='open'] .favorite-library__row-transcription { display: none; }")
   })
 
   it('uses compact porcelain controls for current workspace actions', () => {
@@ -85,7 +95,7 @@ describe('Favorite Library workspace components', () => {
       onSelect={onSelect}
       groups={[
         { id: 'bilibili', label: 'B站收藏', items: [{ id: 'all', label: '全部收藏', count: 0 }] },
-        { id: 'workspace', label: '工作区', items: [{ id: 'folder:managed', label: 'bilimi 工作夹', count: 2, managed: true }, { id: 'folder:unmatched', label: '未匹配分类', count: 0, protected: true }] },
+        { id: 'workspace', label: '工作区', items: [{ id: 'folder:managed', label: 'bilimi 工作夹', count: 2, managed: true }, { id: 'folder:unmatched', label: '暂存', count: 0, protected: true }] },
         { id: 'local', label: '本地', items: [{ id: 'pending', label: '待处理', count: 0 }] }
       ]}
     />)
@@ -96,7 +106,7 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹' }))
     expect(onSelect).toHaveBeenCalledWith('folder:managed')
     expect(screen.getByRole('button', { name: 'bilimi 工作夹 菜单' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '未匹配分类 菜单' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '暂存 菜单' })).not.toBeInTheDocument()
   })
 
   it('offers the separate bilimi workspace group menu actions', () => {
@@ -128,7 +138,7 @@ describe('Favorite Library workspace components', () => {
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '取消B站收藏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移出 bilimi 工作夹' })).toBeInTheDocument()
   })
 
   it('keeps more batch actions fixed while its detached popup is outside the toolbar', () => {
@@ -143,7 +153,7 @@ describe('Favorite Library workspace components', () => {
     const menu = screen.getByRole('menu', { name: '更多批量操作菜单' })
     expect(container.querySelector('[data-testid="favorite-library-toolbar"]')).not.toContainElement(menu)
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toHaveClass('favorite-library__danger-action')
-    expect(screen.getByRole('button', { name: '取消B站收藏' })).toHaveClass('favorite-library__danger-action')
+    expect(screen.getByRole('button', { name: '移出 bilimi 工作夹' })).toHaveClass('favorite-library__danger-action')
   })
 
   it('can disable only cancel-waiting transcription when no selected item is pending', () => {
@@ -254,7 +264,7 @@ describe('Favorite Library workspace components', () => {
 
     expect(styles).toContain('.favorite-library__footer-region { min-width: 0; border: 1px solid #c9dcf5; border-top: 1px solid #c9dcf5;')
     expect(styles).toContain('.favorite-library__row-wrap input { flex: 0 0 auto; align-self: center;')
-    expect(styles).toContain('.favorite-library__row { display: grid; box-sizing: border-box; align-items: center; grid-template-columns: minmax(180px, 1fr) minmax(116px, .38fr) minmax(164px, .52fr); width: 100%; min-height: 64px;')
+    expect(styles).toContain('.favorite-library__row { display: grid; box-sizing: border-box; align-items: center; grid-template-columns: var(--favorite-library-row-columns); width: 100%; min-height: 64px;')
   })
 
   it('uses one elevated white list workspace while preserving the blue column header', () => {
@@ -269,11 +279,19 @@ describe('Favorite Library workspace components', () => {
   it('balances the quiet navigation, primary list, and secondary detail surfaces', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
-    expect(styles).toContain('.favorite-library__navigation-groups { grid-column: 1; grid-row: 1 / 3; display: grid; align-content: start; gap: 0; margin: 0; padding: 10px 8px; border: 1px solid rgb(201 220 245 / .72); border-radius: 10px; background: rgb(255 255 255 / .62); box-shadow: none; overflow: auto; }')
+    expect(styles).toContain('.favorite-library__navigation-groups { grid-column: 1; grid-row: 1 / 3; display: grid; align-content: start; gap: 0; margin: 0; padding: 10px 8px; border: 1px solid rgb(201 220 245 / .72); border-radius: 10px; background: rgb(255 255 255 / .62); box-shadow: none; overflow-x: hidden; overflow-y: auto; }')
     expect(styles).toContain(".favorite-library__navigation-row > button[aria-current='page'] { border-radius: 7px; color: #1d4ed8; background: #e5f0ff; font-weight: 700; }")
     expect(styles).toContain('border: 1px solid #c9dcf5; box-shadow: 0 3px 12px rgb(45 91 140 / .08); border-radius: 12px; overflow: auto; background: #fff;')
     expect(styles).toContain(".favorite-library__status-tags button[data-tone='success'] { border-color: #cce8d7; background: #edf9f2; color: #25613b; }")
     expect(styles).toContain("@container (max-width: 760px) { .favorite-library[data-embedded='true'] .favorite-library__layout[data-embedded-layout='true'] { grid-template-columns: 150px minmax(0, 1fr); }")
+  })
+
+  it('keeps all four list data columns visible with detail open or collapsed', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).not.toContain(".favorite-library__layout[data-detail-state='open'] .favorite-library__row-transcription { display: none; }")
+    expect(styles).toContain('.favorite-library__row-columns { display: grid; grid-template-columns: 34px var(--favorite-library-row-columns);')
+    expect(styles).toContain('.favorite-library__row { display: grid; box-sizing: border-box; align-items: center; grid-template-columns: var(--favorite-library-row-columns);')
   })
 
   it('limits workspace-collapse motion to the chevron without animating every mounted folder row', () => {
@@ -288,9 +306,17 @@ describe('Favorite Library workspace components', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
     expect(styles).toContain('.favorite-library__navigation-group-heading { display: flex; align-items: center; min-height: 28px; padding: 0 0 0 8px; }')
-    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; color: #64748b; font-variant-numeric: tabular-nums; text-align: right; }')
-    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; flex: 0 0 28px; align-items: center; justify-items: end; min-width: 28px;')
+    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; min-width: 4ch; color: #64748b; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }')
+    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; min-width: 4ch; padding-right: 2px; align-items: center; justify-items: end;')
     expect(styles).toContain('.favorite-library__folder-menu-wrap { grid-area: 1 / 1; display: inline-flex; align-self: stretch; }')
+  })
+
+  it('reserves a non-shrinking count column so long folder names cannot hide their totals', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('.favorite-library__navigation-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content;')
+    expect(styles).toContain('.favorite-library__navigation-trailing-slot { display: grid; min-width: 4ch; padding-right: 2px;')
+    expect(styles).toContain('.favorite-library__navigation-count { grid-area: 1 / 1; min-width: 4ch;')
   })
 
   it('does not animate more-information content when reduced motion is requested', () => {

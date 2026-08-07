@@ -1,9 +1,14 @@
 export type FavoriteRepositoryLocalPlanPayload = {
   workspaceId: string
   memberAidsByFolderId: Record<string, number[]>
+  /** Replaces prior local and bilimi-logical organization for these videos before applying this plan. */
+  replaceManagedAids?: number[]
   folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
   videos?: FavoriteRepositoryVideo[]
   organizationRecords?: FavoriteRepositoryOrganizationRecord[]
+  placements?: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & {
+    positionState?: FavoriteRepositoryPositionState
+  }>
   workspace?: FavoriteRepositoryWorkspace
 }
 
@@ -43,6 +48,8 @@ export type FavoriteRepositoryPositionState =
   | 'target-missing'
   | 'needs-review'
 
+export type FavoriteRepositoryLifecycleState = 'active' | 'source-pending' | 'organization-conflict' | 'recycled'
+
 /** Current local intent and last observed remote placement; protection is deliberately not part of this record. */
 export type FavoriteRepositoryPositionRecord = {
   accountMid: string
@@ -55,6 +62,9 @@ export type FavoriteRepositoryPositionRecord = {
   updatedAt: string
   reason?: string
   revision: number
+  lifecycleState?: FavoriteRepositoryLifecycleState
+  sourceAuthority?: 'complete' | 'incomplete'
+  observationEpoch?: string
 }
 
 export type FavoriteRepositoryEventKind =
@@ -88,6 +98,8 @@ export type FavoriteRepositoryTombstone = {
   deletedAt: string
   reason?: string
   allowRediscovery: boolean
+  /** Missing on legacy records; non-rediscoverable legacy records remain explicit user deletions. */
+  kind?: 'user-deleted' | 'recycled'
 }
 
 export type FavoriteRepositoryArchiveExport = {
@@ -98,11 +110,12 @@ export type FavoriteRepositoryArchiveExport = {
   checksum?: string
   videos?: FavoriteRepositoryVideo[]
   positions?: Array<Pick<FavoriteRepositoryPositionRecord,
-    'aid' | 'localDesiredFolderIds' | 'positionState' | 'updatedAt'>>
+    'aid' | 'localDesiredFolderIds' | 'positionState' | 'observedAt' | 'updatedAt' |
+    'lifecycleState' | 'sourceAuthority' | 'observationEpoch'>>
   protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
   events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
-  /** Account-local recovery data. Position observations remain intentionally absent. */
+  /** Account-local recovery data. Device-bound remote entities stay local; portable lifecycle authority is retained. */
   recovery?: Pick<AccountFavoriteRepositorySnapshot,
     'folders' | 'memberships' | 'physicalShards' | 'workspace' | 'syncRecords' |
     'organizationRecords' | 'organizationBatches' | 'organizationMigrationInitialized'> & {
@@ -261,7 +274,7 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
   }))
 }
 
-/** Produces a portable, credential-free recovery archive. Remote observations intentionally stay local. */
+/** Produces a portable, credential-free recovery archive without device-bound remote entity identifiers. */
 export function createFavoriteRepositoryArchiveExport(
   snapshot: AccountFavoriteRepositorySnapshot,
   input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
@@ -291,6 +304,10 @@ export function createFavoriteRepositoryArchiveExport(
       // device and must not become remote restore targets.
       localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => /^bilimi-logical:\S+$/.test(folderId.trim())),
       positionState: position.positionState,
+      ...(position.observedAt ? { observedAt: position.observedAt } : {}),
+      ...(position.lifecycleState ? { lifecycleState: position.lifecycleState } : {}),
+      ...(position.sourceAuthority ? { sourceAuthority: position.sourceAuthority } : {}),
+      ...(position.observationEpoch ? { observationEpoch: position.observationEpoch } : {}),
       updatedAt: position.updatedAt
     })),
     protections: (snapshot.organizationRecords ?? []).map((record) => ({ aid: record.aid, completedAt: record.completedAt })),
@@ -333,8 +350,9 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
   normalizedAccountMid(archive.accountMid)
   normalizedTimestamp(archive.generatedAt)
   if (archive.videos !== undefined && (!Array.isArray(archive.videos) || !archive.videos.every(isRepositoryVideo))) throw new Error('Favorite repository archive is invalid.')
+  const portablePositionKeys = new Set(['aid', 'localDesiredFolderIds', 'positionState', 'observedAt', 'updatedAt', 'lifecycleState', 'sourceAuthority', 'observationEpoch'])
   if (archive.positions !== undefined && (!Array.isArray(archive.positions) || !archive.positions.every((position) =>
-    position && typeof position === 'object' && isPositionPayload({
+    position && typeof position === 'object' && Object.keys(position).every((key) => portablePositionKeys.has(key)) && isPositionPayload({
       ...(position as Record<string, unknown>), remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: []
     }) && Array.isArray((position as Record<string, unknown>).localDesiredFolderIds) &&
       ((position as Record<string, unknown>).localDesiredFolderIds as unknown[]).every((folderId) =>
@@ -672,6 +690,23 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'reconcile-scan-lifecycle'
+      payload: {
+        observationEpoch: string
+        authority: 'complete' | 'incomplete'
+        observations: Array<{
+          aid: number
+          remoteObserved: boolean
+          remoteFolderIds?: string[]
+          ordinarySource?: boolean
+        }>
+      }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'record-favorite-event'
       payload: Omit<FavoriteRepositoryEvent, 'accountMid'>
     }
@@ -712,6 +747,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'recycle-favorites'
+      payload: { aids: number[]; deletedAt: string; reason?: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'delete-local-managed-folder'
       payload: { logicalFolderId: string }
     }
@@ -721,6 +764,14 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       expectedRevision?: number
       type: 'restore-favorite-to-library' | 'forget-favorite-tombstone'
+      payload: { aid: number }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'clear-recycled-favorite'
       payload: { aid: number }
     }
 
@@ -975,10 +1026,11 @@ function isPortableRecoveryOrganizationChange(value: unknown, accountMid: string
 function isPortableRecoveryTombstone(value: unknown, accountMid: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const tombstone = value as Record<string, unknown>
-  const allowedKeys = new Set(['accountMid', 'aid', 'deletedAt', 'reason', 'allowRediscovery'])
+  const allowedKeys = new Set(['accountMid', 'aid', 'deletedAt', 'reason', 'allowRediscovery', 'kind'])
   return !Object.keys(tombstone).some((key) => !allowedKeys.has(key)) && typeof tombstone.accountMid === 'string' && normalizedAccountMid(tombstone.accountMid) === accountMid &&
     Number.isSafeInteger(tombstone.aid) && Number(tombstone.aid) > 0 && typeof tombstone.deletedAt === 'string' && !Number.isNaN(Date.parse(tombstone.deletedAt)) &&
-    typeof tombstone.allowRediscovery === 'boolean' && (tombstone.reason === undefined || typeof tombstone.reason === 'string')
+    typeof tombstone.allowRediscovery === 'boolean' && (tombstone.reason === undefined || typeof tombstone.reason === 'string') &&
+    (tombstone.kind === undefined || tombstone.kind === 'user-deleted' || tombstone.kind === 'recycled')
 }
 
 function normalizeFolderMembers(memberAidsByFolderId: Record<string, number[]>) {
@@ -1028,6 +1080,9 @@ function isPositionPayload(value: Record<string, unknown>) {
     typeof value.updatedAt === 'string' && !Number.isNaN(Date.parse(value.updatedAt)) &&
     (value.observedAt === undefined || (typeof value.observedAt === 'string' && !Number.isNaN(Date.parse(value.observedAt)))) &&
     (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.lifecycleState === undefined || ['active', 'source-pending', 'organization-conflict', 'recycled'].includes(String(value.lifecycleState))) &&
+    (value.sourceAuthority === undefined || value.sourceAuthority === 'complete' || value.sourceAuthority === 'incomplete') &&
+    (value.observationEpoch === undefined || (typeof value.observationEpoch === 'string' && !!value.observationEpoch.trim())) &&
     (value.positionState === undefined || isPositionState(value.positionState))
 }
 
@@ -1077,6 +1132,8 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       for (const aids of Object.values(payload.memberAidsByFolderId as Record<string, unknown>)) {
         if (!isValidAidList(aids)) invalidCommand()
       }
+      if (payload.replaceManagedAids !== undefined && (!isValidAidList(payload.replaceManagedAids) ||
+        new Set(payload.replaceManagedAids).size !== payload.replaceManagedAids.length)) invalidCommand()
       if (payload.folders !== undefined && (!Array.isArray(payload.folders) || !payload.folders.every(isLocalPlanFolder))) invalidCommand()
       if (payload.videos !== undefined && (!Array.isArray(payload.videos) || payload.videos.some((video) =>
         !video || typeof video !== 'object' || Array.isArray(video) ||
@@ -1089,6 +1146,10 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string')))) invalidCommand()
       if (payload.organizationRecords !== undefined && (!Array.isArray(payload.organizationRecords) ||
         !payload.organizationRecords.every(isOrganizationRecord))) invalidCommand()
+      if (payload.placements !== undefined && (!Array.isArray(payload.placements) ||
+        payload.placements.some((placement) => !placement || typeof placement !== 'object' || Array.isArray(placement) ||
+          !isPositionPayload(placement as Record<string, unknown>)) ||
+        new Set((payload.placements as Array<Record<string, unknown>>).map((placement) => Number(placement.aid))).size !== payload.placements.length)) invalidCommand()
       if (payload.workspace !== undefined) {
         const workspace = payload.workspace as Record<string, unknown>
         if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace) ||
@@ -1201,6 +1262,18 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'set-favorite-placements':
       if (!isPlacementList(payload.placements)) invalidCommand()
       return
+    case 'reconcile-scan-lifecycle':
+      if (typeof payload.observationEpoch !== 'string' || !payload.observationEpoch.trim() ||
+        (payload.authority !== 'complete' && payload.authority !== 'incomplete') || !Array.isArray(payload.observations) || payload.observations.length > 100_000 ||
+        payload.observations.some((observation) => !observation || typeof observation !== 'object' || Array.isArray(observation) ||
+          !Number.isSafeInteger((observation as Record<string, unknown>).aid) || Number((observation as Record<string, unknown>).aid) <= 0 ||
+          typeof (observation as Record<string, unknown>).remoteObserved !== 'boolean' ||
+          ((observation as Record<string, unknown>).remoteFolderIds !== undefined &&
+            (!Array.isArray((observation as Record<string, unknown>).remoteFolderIds) ||
+              ((observation as Record<string, unknown>).remoteFolderIds as unknown[]).some((id) => typeof id !== 'string' || !id.trim()))) ||
+          ((observation as Record<string, unknown>).ordinarySource !== undefined && typeof (observation as Record<string, unknown>).ordinarySource !== 'boolean')) ||
+        new Set(payload.observations.map((observation) => Number((observation as Record<string, unknown>).aid))).size !== payload.observations.length) invalidCommand()
+      return
     case 'record-favorite-event':
       if (!isRepositoryEvent(payload)) invalidCommand()
       return
@@ -1218,6 +1291,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         Number.isNaN(Date.parse(payload.deletedAt)) || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
       return
     case 'delete-favorites-from-library':
+    case 'recycle-favorites':
       if (!Array.isArray(payload.aids) || !payload.aids.length || payload.aids.length > 100 ||
         !isValidAidList(payload.aids) || new Set(payload.aids).size !== payload.aids.length ||
         typeof payload.deletedAt !== 'string' || Number.isNaN(Date.parse(payload.deletedAt)) ||
@@ -1228,6 +1302,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'restore-favorite-to-library':
     case 'forget-favorite-tombstone':
+      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0) invalidCommand()
+      return
+    case 'clear-recycled-favorite':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0) invalidCommand()
       return
     default:
@@ -1303,6 +1380,9 @@ export function applyFavoriteRepositoryCommand(
       positionState: deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
         ...(payload.positionState ? { positionState: payload.positionState } : {}) }),
       ...(payload.observedAt ? { observedAt: normalizedTimestamp(payload.observedAt) } : {}),
+      ...(payload.lifecycleState ? { lifecycleState: payload.lifecycleState } : {}),
+      ...(payload.sourceAuthority ? { sourceAuthority: payload.sourceAuthority } : {}),
+      ...(payload.observationEpoch ? { observationEpoch: payload.observationEpoch.trim() } : {}),
       updatedAt: normalizedTimestamp(payload.updatedAt), ...(payload.reason ? { reason: payload.reason } : {}), revision: snapshot.revision + 1
     }
     const formalFolderIds = Object.keys(memberships).filter((folderId) =>
@@ -1365,6 +1445,31 @@ export function applyFavoriteRepositoryCommand(
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
+      const replaceManagedAids = new Set(command.payload.replaceManagedAids ?? [])
+      if (replaceManagedAids.size) {
+        const managedFolderIds = Object.keys(memberships).filter((folderId) =>
+          folderId.startsWith('local:') || folderId.startsWith('bilimi-logical:'))
+        for (const folderId of managedFolderIds) {
+          const priorMembers = memberships[folderId] ?? []
+          if (!priorMembers.some((aid) => replaceManagedAids.has(aid))) continue
+          memberships = {
+            ...memberships,
+            [folderId]: priorMembers.filter((aid) => !replaceManagedAids.has(aid))
+          }
+          affectedFolderIds.push(folderId)
+        }
+        organizationRecords = organizationRecords.filter((record) => !replaceManagedAids.has(record.aid))
+        for (const aid of replaceManagedAids) {
+          const existing = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+          if (!existing) continue
+          applyPlacement({
+            ...existing,
+            localDesiredFolderIds: [],
+            updatedAt: normalizedAcceptedAt
+          })
+        }
+        affectedAids.push(...replaceManagedAids)
+      }
       memberships = {
         ...memberships,
         ...Object.fromEntries(Array.from(membersByFolderId, ([folderId, aids]) => [
@@ -1392,6 +1497,7 @@ export function applyFavoriteRepositoryCommand(
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
       }
+      for (const placement of command.payload.placements ?? []) applyPlacement(placement)
       removeFromLocalInbox([
         ...organizationRecords.map((record) => record.aid),
         ...Array.from(membersByFolderId)
@@ -1458,6 +1564,10 @@ export function applyFavoriteRepositoryCommand(
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.includes(folderId)))
       for (const folder of mirrorFolders) memberships[folder.id] = membersByFolderId.get(folder.id) ?? []
       const mirroredAids = new Set([...membersByFolderId.values()].flat())
+      for (const aid of mirroredAids) {
+        const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)
+        if (tombstones[key]?.kind === 'recycled') delete tombstones[key]
+      }
       const retainedAids = new Set(Object.values(memberships).flat())
       for (const [aid, video] of Object.entries(videos)) {
         if (!mirroredAids.has(Number(aid)) && !retainedAids.has(Number(aid))) delete videos[aid]
@@ -1668,6 +1778,59 @@ export function applyFavoriteRepositoryCommand(
       for (const placement of command.payload.placements) applyPlacement(placement)
       break
     }
+    case 'reconcile-scan-lifecycle': {
+      for (const observation of command.payload.observations) {
+        const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, observation.aid)
+        const existing = positions[key]
+        if (command.payload.authority === 'incomplete') {
+          if (!existing && !videos[String(observation.aid)]) continue
+          positions[key] = {
+            accountMid: snapshot.accountMid, aid: observation.aid,
+            localDesiredFolderIds: existing?.localDesiredFolderIds ?? [],
+            remoteObservedPhysicalFolderIds: existing?.remoteObservedPhysicalFolderIds ?? [],
+            remoteObservedLogicalFolderIds: existing?.remoteObservedLogicalFolderIds ?? [],
+            positionState: existing?.positionState ?? 'local-only-change',
+            ...(existing?.observedAt ? { observedAt: existing.observedAt } : {}),
+            ...(existing?.reason ? { reason: existing.reason } : {}),
+            updatedAt: normalizedTimestamp(command.issuedAt), revision: snapshot.revision + 1,
+            lifecycleState: 'source-pending', sourceAuthority: 'incomplete', observationEpoch: command.payload.observationEpoch.trim()
+          }
+          affectedAids.push(observation.aid)
+          continue
+        }
+        const remoteFolderIds = normalizeFolderIds(observation.remoteFolderIds ?? existing?.remoteObservedPhysicalFolderIds ?? [])
+        const localDesiredFolderIds = existing?.localDesiredFolderIds ?? []
+        const expectedRemote = (existing?.remoteObservedPhysicalFolderIds.length ?? 0) > 0 ||
+          (existing?.remoteObservedLogicalFolderIds.length ?? 0) > 0
+        const localOnly = localDesiredFolderIds.length > 0 && !expectedRemote
+        const lifecycleState: FavoriteRepositoryLifecycleState = observation.remoteObserved
+          ? (observation.ordinarySource && localDesiredFolderIds.length > 0 ? 'organization-conflict' : 'active')
+          : localOnly ? 'active' : expectedRemote ? 'recycled' : 'active'
+        positions[key] = {
+          accountMid: snapshot.accountMid, aid: observation.aid,
+          localDesiredFolderIds, remoteObservedPhysicalFolderIds: remoteFolderIds,
+          remoteObservedLogicalFolderIds: existing?.remoteObservedLogicalFolderIds ?? [],
+          positionState: existing?.positionState ?? 'local-only-change',
+          ...(existing?.observedAt ? { observedAt: existing.observedAt } : {}),
+          ...(existing?.reason ? { reason: existing.reason } : {}),
+          updatedAt: normalizedTimestamp(command.issuedAt), revision: snapshot.revision + 1,
+          lifecycleState, sourceAuthority: 'complete', observationEpoch: command.payload.observationEpoch.trim()
+        }
+        if (lifecycleState === 'recycled') {
+          tombstones[key] = {
+            accountMid: snapshot.accountMid, aid: observation.aid, deletedAt: normalizedTimestamp(command.issuedAt),
+            reason: 'complete-scan-no-source', allowRediscovery: true, kind: 'recycled'
+          }
+          organizationRecords = organizationRecords.filter((record) => record.aid !== observation.aid)
+        } else if (lifecycleState === 'organization-conflict') {
+          organizationRecords = organizationRecords.filter((record) => record.aid !== observation.aid)
+        } else if (tombstones[key]?.kind === 'recycled') {
+          delete tombstones[key]
+        }
+        affectedAids.push(observation.aid)
+      }
+      break
+    }
     case 'record-favorite-event':
       affectedAids = [command.payload.aid]
       break
@@ -1680,7 +1843,8 @@ export function applyFavoriteRepositoryCommand(
         accountMid: snapshot.accountMid,
         aid,
         deletedAt: normalizedTimestamp(command.payload.deletedAt),
-        allowRediscovery: command.payload.allowRediscovery ?? false
+        allowRediscovery: command.payload.allowRediscovery ?? false,
+        ...(command.payload.allowRediscovery ? {} : { kind: 'user-deleted' as const })
       }
       affectedAids = [aid]
       break
@@ -1689,7 +1853,7 @@ export function applyFavoriteRepositoryCommand(
       const aid = command.payload.aid
       tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)] = {
         accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
-        ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false
+        ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false, kind: 'user-deleted'
       }
       delete videos[String(aid)]
       delete libraryMirrors[String(aid)]
@@ -1711,7 +1875,7 @@ export function applyFavoriteRepositoryCommand(
       for (const aid of selected) {
         tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)] = {
           accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
-          ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false
+          ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: false, kind: 'user-deleted'
         }
         delete videos[String(aid)]
         delete libraryMirrors[String(aid)]
@@ -1729,6 +1893,19 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = selected
       break
     }
+    case 'recycle-favorites': {
+      const selected = uniquePositiveAids(command.payload.aids)
+      for (const aid of selected) {
+        const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)
+        tombstones[key] = {
+          accountMid: snapshot.accountMid, aid, deletedAt: normalizedTimestamp(command.payload.deletedAt),
+          ...(command.payload.reason ? { reason: command.payload.reason } : {}), allowRediscovery: true, kind: 'recycled'
+        }
+        if (positions[key]) positions[key] = { ...positions[key], lifecycleState: 'recycled' }
+      }
+      affectedAids = selected
+      break
+    }
     case 'delete-local-managed-folder': {
       const logicalFolderId = command.payload.logicalFolderId.trim()
       const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
@@ -1742,25 +1919,58 @@ export function applyFavoriteRepositoryCommand(
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
         if (!position.localDesiredFolderIds.includes(logicalFolderId)) continue
+        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId)
         positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
           ...position,
-          localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId),
+          localDesiredFolderIds,
           positionState: 'local-only-change', updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
         }
         affected.add(position.aid)
       }
-      affectedFolderIds = [...removedFolderIds]
+      const remainingLogicalFolderIds = folders
+        .filter((folder) => folder.kind === 'bilimi-logical')
+        .map((folder) => folder.id)
+      const inbox = new Set(memberships['local:inbox'] ?? [])
+      for (const aid of affected) {
+        const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+        const hasRemainingLogicalPlacement = position
+          ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
+          : remainingLogicalFolderIds.some((folderId) => memberships[folderId]?.includes(aid))
+        if (!hasRemainingLogicalPlacement) inbox.add(aid)
+      }
+      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
+      affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
       break
     }
     case 'restore-favorite-to-library':
       delete tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)]
+      if (positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)]) {
+        positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)] = {
+          ...positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)], lifecycleState: 'active'
+        }
+      }
       affectedAids = [command.payload.aid]
       break
     case 'forget-favorite-tombstone':
       delete tombstones[createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)]
       affectedAids = [command.payload.aid]
       break
+    case 'clear-recycled-favorite': {
+      const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, command.payload.aid)
+      if (tombstones[key]?.kind !== 'recycled') throw new Error('Favorite is not in the recycle bin.')
+      delete videos[String(command.payload.aid)]
+      delete libraryMirrors[String(command.payload.aid)]
+      delete tombstones[key]
+      delete positions[key]
+      for (const folderId of Object.keys(memberships)) {
+        const before = memberships[folderId] ?? []
+        if (before.includes(command.payload.aid)) memberships = { ...memberships, [folderId]: before.filter((aid) => aid !== command.payload.aid) }
+      }
+      organizationRecords = organizationRecords.filter((record) => record.aid !== command.payload.aid)
+      affectedAids = [command.payload.aid]
+      break
+    }
   }
 
   return {
@@ -1789,4 +1999,8 @@ export function applyFavoriteRepositoryCommand(
 export function isFavoriteRepositoryScanVisible(snapshot: AccountFavoriteRepositorySnapshot, aid: number) {
   const tombstone = snapshot.tombstones?.[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
   return !tombstone || tombstone.allowRediscovery
+}
+
+export function isFavoriteRepositoryRecycled(snapshot: AccountFavoriteRepositorySnapshot, aid: number) {
+  return snapshot.tombstones?.[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]?.kind === 'recycled'
 }

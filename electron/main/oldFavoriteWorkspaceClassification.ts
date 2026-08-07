@@ -1,5 +1,14 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 
+function normalizedRuleKeywords(ledger: FavoriteLedger) {
+  return ledger.keywords.map((keyword) => keyword.trim().toLocaleLowerCase()).filter(Boolean).sort()
+}
+
+function sameLogicalRecommendation(left: FavoriteLedger, right: FavoriteLedger) {
+  if ((left.ruleType ?? 'keyword') !== (right.ruleType ?? 'keyword')) return false
+  return JSON.stringify(normalizedRuleKeywords(left)) === JSON.stringify(normalizedRuleKeywords(right))
+}
+
 export async function classifyOldFavoriteItemsCooperatively<Item, Result>(
   items: readonly Item[],
   classifyBatch: (items: Item[]) => Result[] | Promise<Result[]>,
@@ -47,13 +56,35 @@ export function enableDefaultLedgersForOrganization(
 /** Gives adopted workspace recommendations precedence without mutating saved preferences. */
 export function mergeOldFavoriteWorkspaceLedgers(
   savedLedgers: FavoriteLedger[],
-  recommendedLedgers: FavoriteLedger[]
+  recommendedLedgers: FavoriteLedger[],
+  excludedRecommendedLedgers: FavoriteLedger[] = []
 ) {
-  const recommendedIds = new Set(recommendedLedgers.map((ledger) => ledger.id))
+  const availableSavedLedgers = savedLedgers.filter((saved) =>
+    !excludedRecommendedLedgers.some((excluded) =>
+      (excluded.id === saved.id || sameLogicalRecommendation(excluded, saved)) &&
+      !recommendedLedgers.some((recommended) =>
+        recommended.id === saved.id || sameLogicalRecommendation(recommended, saved))))
+  const consumedSavedIds = new Set<string>()
+  const resolvedRecommendations = recommendedLedgers.map((recommended) => {
+    const exactId = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
+    if (exactId) {
+      consumedSavedIds.add(exactId.id)
+      return { ...recommended, keywords: [...recommended.keywords] }
+    }
+    const saved = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
+    if (!saved) return { ...recommended, keywords: [...recommended.keywords] }
+    consumedSavedIds.add(saved.id)
+    return {
+      ...saved,
+      keywords: [...saved.keywords],
+      enabled: true,
+      priority: recommended.priority
+    }
+  })
   return [
-    ...recommendedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })),
-    ...savedLedgers
-      .filter((ledger) => !recommendedIds.has(ledger.id))
+    ...resolvedRecommendations,
+    ...availableSavedLedgers
+      .filter((ledger) => !consumedSavedIds.has(ledger.id) && !recommendedLedgers.some((recommended) => recommended.id === ledger.id))
       .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
   ]
 }

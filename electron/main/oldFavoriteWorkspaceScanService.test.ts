@@ -588,6 +588,64 @@ describe('OldFavoriteWorkspaceScanService', () => {
     })
   })
 
+  it('starts tag preparation for a sealed batch before a later source page finishes', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    let resolveLaterPage!: (value: {
+      status: 'ok'; observedAccountMid: string; items: never[]; hasMore: false
+    }) => void
+    const laterPage = new Promise<{
+      status: 'ok'; observedAccountMid: string; items: never[]; hasMore: false
+    }>((resolve) => { resolveLaterPage = resolve })
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(),
+      recordScanPage: vi.fn()
+        .mockResolvedValueOnce({ sealedSegmentIds: ['segment-1'] })
+        .mockResolvedValueOnce(true),
+      finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValue([]),
+      getSnapshot: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', tagEnrichment: { status: 'running' }
+      }),
+      recordTagEnrichment: vi.fn().mockResolvedValue(true), pauseTagEnrichment: vi.fn()
+    }
+    const runtime = vi.fn((request: { type: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          folders: [{ id: 'source-1', title: 'Source', mediaCount: 51 }]
+        })
+      }
+      if (request.type === 'old-favorite-workspace-read-video-tags') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', aid: 1, tags: ['Technology'] })
+      }
+      if (runtime.mock.calls.filter(([candidate]) => candidate.type === 'old-favorite-workspace-read-source-page').length === 1) {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: true
+        })
+      }
+      return laterPage
+    })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime as never,
+      wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith(
+      '100', 1, ['Technology'], 'workspace-1'
+    ))
+    expect(coordinator.finishScan).not.toHaveBeenCalled()
+    resolveLaterPage({ status: 'ok', observedAccountMid: '100', items: [], hasMore: false })
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+  })
+
   it('reads Bilimi work-folder members in batches before ordinary source pages', async () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),

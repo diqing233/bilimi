@@ -9,13 +9,14 @@ type FavoriteLibraryNavigationGroupViewProps = {
   onToggle: (groupId: string, collapsed: boolean) => void
   workspaceMenuResetKey: string
   renderWorkspaceMenu: (resetKey: string) => ReactNode
+  renderOrdinaryGroupMenu: ReactNode
   renderManagedMenu: (item: FavoriteLibraryNavigationGroup['items'][number], active: boolean) => ReactNode
   onOrdinaryFolderRemove: (id: string) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
 }
 
 export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryNavigationGroupView({
-  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderManagedMenu, onOrdinaryFolderRemove, onSelect
+  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderOrdinaryGroupMenu, renderManagedMenu, onOrdinaryFolderRemove, onSelect
 }: FavoriteLibraryNavigationGroupViewProps) {
   const fixed = group.id === 'range'
   const aggregate = useMemo(() => {
@@ -62,14 +63,13 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
         title={`\u5171 ${aggregate.folderCount} \u4e2a${folderKind}\n\u5171 ${aggregate.placementCount} \u6761\u6536\u85cf\u5f52\u5c5e\n\u53bb\u91cd\u540e ${aggregate.groupVideoCount} \u4e2a\u89c6\u9891`} onClick={() => onToggle(group.id, !collapsed)}>
         <span className="favorite-library__navigation-group-label">{group.label}</span><Chevron />
       </button>
-      <span className="favorite-library__navigation-trailing-slot">{group.id === 'workspace' ? renderWorkspaceMenu(workspaceMenuResetKey) : null}</span>
+      <span className="favorite-library__navigation-trailing-slot">{group.id === 'workspace' ? renderWorkspaceMenu(workspaceMenuResetKey) : renderOrdinaryGroupMenu}</span>
     </div>}
     {(fixed || !collapsed) ? <div ref={itemsRef} className={`favorite-library__navigation-items${group.items.length > windowSize ? ' favorite-library__navigation-items--virtual' : ''}`} style={group.items.length > windowSize ? { height: `${group.items.length * rowHeight}px`, position: 'relative' } : undefined}>
-      {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
-        <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : undefined} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
+      {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${item.managed && !item.protected ? ' favorite-library__navigation-row--managed' : ''}${((group.id === 'workspace' && item.managed && !item.protected) || (group.id === 'bilibili' && item.removable)) ? ' favorite-library__navigation-row--menu' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
+        <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : item.label} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
         <span className="favorite-library__navigation-trailing-slot"><span className="favorite-library__navigation-count">{item.count}</span>
-          {group.id === 'workspace' && item.managed && !item.protected ? renderManagedMenu(item, !collapsed) : null}
-          {group.id === 'bilibili' && item.removable ? <button type="button" className="favorite-library__folder-menu" aria-label={`${item.label} 从收藏库移除`} title="仅从收藏库移除" onClick={() => onOrdinaryFolderRemove(item.id)}>×</button> : null}
+          {((group.id === 'workspace' && item.managed && !item.protected) || (group.id === 'bilibili' && item.removable)) ? renderManagedMenu(item, !collapsed) : null}
         </span>
       </div>)}
     </div> : null}

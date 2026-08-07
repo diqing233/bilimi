@@ -277,6 +277,18 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
+  it('rebuilds defaults from the sparse store left by an in-app full clear', () => {
+    const store = createFakeStore()
+    for (const key of Object.keys(store.snapshot)) delete (store.snapshot as Record<string, unknown>)[key]
+    Object.assign(store.snapshot, { rememberCloseChoice: false, closeChoiceMigrationVersion: 1 })
+
+    const preferences = loadAssistantPreferences(store)
+
+    expect(preferences.favoriteLedgers).toEqual(DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers)
+    expect(preferences.favoriteAccountPreferences).toEqual({})
+    expect(preferences.favoritesFolderName).toBe(DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName)
+  })
+
   it('writes an ordinary preference patch without rewriting untouched heavy branches', () => {
     const correctionRecords = [{
       id: 'record-1', aid: 1, title: 'Heavy', originalLedgerId: 'inbox', userLedgerIds: ['game'],
@@ -334,6 +346,17 @@ describe('assistant preference store helpers', () => {
     const written = writeAssistantPreferencePatch(store, { petHoverShortcuts: [] })
 
     expect(written).toEqual({ petHoverShortcuts: [] })
+    expect(store.setCalls.at(-1)).toEqual(written)
+  })
+
+  it('writes the old-favorite batch size through the narrow preference patch', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, {
+      oldFavoriteWorkspaceSegmentSize: 2_000
+    })
+
+    expect(written).toEqual({ oldFavoriteWorkspaceSegmentSize: 2_000 })
     expect(store.setCalls.at(-1)).toEqual(written)
   })
 
@@ -869,7 +892,7 @@ describe('assistant preference store helpers', () => {
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
-      oldFavoriteWorkspaceSegmentSize: 1_000,
+      oldFavoriteWorkspaceSegmentSize: 2_000,
       favoriteArchiveStrategy: 'aggressive',
       favoriteCorrectionRecords: [
         expect.objectContaining({

@@ -1428,13 +1428,31 @@ export default function App() {
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
       return cached.status
     }
+    const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
+      ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
+      : null
+    const trustedRepositoryBindings = new Map((repositorySummary?.folders ?? [])
+      .filter((folder) => folder.kind === 'bilimi-logical' && folder.syncState === 'bound' && folder.logicalLedgerId && folder.remoteFolderId)
+      .map((folder) => [folder.logicalLedgerId!, folder.remoteFolderId!] as const))
+    const ledgersWithRepositoryCandidates = favoriteLedgers.map((ledger) => {
+      const trustedRemoteFolderId = trustedRepositoryBindings.get(ledger.id)
+      return trustedRemoteFolderId ? { ...ledger, bilibiliFolderId: trustedRemoteFolderId } : ledger
+    })
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(favoriteLedgers)
+      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = status as FavoriteLedgerStatus
-      const recoveredLedgers = status.ledgers ?? favoriteLedgers
+      const recoveredLedgers = status.ledgers ?? ledgersWithRepositoryCandidates
+      const missingLedgerIds = status.missingLedgerIds
+      const recoveredStatus: FavoriteLedgerStatus = {
+        ok: missingLedgerIds.length === 0 && !(status.backupConflictLedgerIds?.length),
+        ledgers: recoveredLedgers,
+        missingLedgerIds,
+        backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
+        message: status.message
+      }
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
       const bindingsChanged = JSON.stringify(recoveredLedgers) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, recoveredLedgers)
@@ -1443,13 +1461,7 @@ export default function App() {
       setPreferences(nextPreferences)
 
       if (bindingsChanged && window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: recoveredLedgers }
-            )
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
+        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
         const savedPreferences = createInitialAssistantPreferences(saved)
         preferencesRef.current = savedPreferences
         setPreferences(savedPreferences)
@@ -1465,10 +1477,10 @@ export default function App() {
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
         checkedAt: Date.now(),
-        status: status as FavoriteLedgerStatus
+        status: recoveredStatus
       }
 
-      return status as FavoriteLedgerStatus
+      return recoveredStatus
     }
 
     const fallbackStatus = {
@@ -1488,7 +1500,9 @@ export default function App() {
   }
 
   async function ensureFavoriteLedgersForAccount(accountMid: string): Promise<AssistantAutomationResult> {
-    const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const favoriteLedgers = accountMid
+      ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
+      : favoriteLedgersForActiveAccount(accountMid)
 
     const result = await runScript(
       buildEnsureFavoriteLedgersScript(favoriteLedgers)
@@ -1501,15 +1515,9 @@ export default function App() {
       })
 
       if (ledgersChanged) {
-        const saved = window.bilimiDesktop?.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: result.ledgers }
-            )
-          : window.bilimiDesktop?.savePreferences
-            ? await window.bilimiDesktop.savePreferences(nextPreferences)
-            : nextPreferences
+        const saved = window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
         const savedPreferences = createInitialAssistantPreferences(saved)
         preferencesRef.current = savedPreferences
         setPreferences(savedPreferences)
@@ -1573,6 +1581,43 @@ export default function App() {
     }
   }
 
+  async function ensureFavoriteLedger(logicalFolderId: string): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) return loginFailure
+
+    const accountMid = await readBilibiliAccountMid()
+    const ledgerId = logicalFolderId.trim().replace(/^bilimi-logical:/, '')
+    const currentLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const targetLedger = currentLedgers.find((ledger) => ledger.id === ledgerId && ledger.enabled)
+    if (!targetLedger) {
+      return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
+    }
+
+    const result = await runScript(
+      buildEnsureFavoriteLedgersScript([targetLedger])
+    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+
+    if (Array.isArray(result.ledgers)) {
+      const returnedById = new Map(result.ledgers.map((ledger) => [ledger.id, ledger]))
+      const mergedLedgers = currentLedgers.map((ledger) => returnedById.get(ledger.id) ?? ledger)
+      if (JSON.stringify(mergedLedgers) !== JSON.stringify(currentLedgers)) {
+        const nextPreferences = createInitialAssistantPreferences({
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, mergedLedgers)
+        })
+        const saved = window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
+        const savedPreferences = createInitialAssistantPreferences(saved)
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
+      }
+      favoriteLedgerStatusCacheRef.current = undefined
+      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+    }
+
+    return result
+  }
+
   async function saveFavoriteLedgers(
     nextLedgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions
@@ -1591,19 +1636,17 @@ export default function App() {
 
     if (Array.isArray(result.ledgers)) {
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferences, accountMid, result.ledgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
       })
+      preferencesRef.current = nextPreferences
       setPreferences(nextPreferences)
 
       if (window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences(
-              accountMid
-                ? { favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences }
-                : { favoriteLedgers: result.ledgers }
-            )
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
-        setPreferences(createInitialAssistantPreferences(saved))
+        const savedPreferences = createInitialAssistantPreferences(
+          await window.bilimiDesktop.savePreferences(nextPreferences)
+        )
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
       }
 
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
@@ -1891,6 +1934,12 @@ export default function App() {
     const actionFavoriteLedgers = actionAccountMid
       ? effectiveFavoriteLedgersForAccount(preferences, actionAccountMid)
       : preferences.favoriteLedgers
+    const favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
+    const favoriteProvisioned = Boolean(
+      favoriteLedgerStatus?.ok &&
+      favoriteLedgerStatus.missingLedgerIds.length === 0 &&
+      !(favoriteLedgerStatus.backupConflictLedgerIds?.length)
+    )
     const videoContentContext = await readVideoContentContext()
     const archiveTargets = planFavoriteArchiveTargets({
       context: videoContentContext,
@@ -2037,6 +2086,7 @@ export default function App() {
         favoriteLedgers: actionFavoriteLedgers,
         targetLedgerId,
         targetLedgerIds,
+        favoriteProvisioned,
         resultMessagePrefix: undefined
       })
     } finally {
@@ -2053,7 +2103,7 @@ export default function App() {
       publishRuntimeFeedback(resultMessagePrefix)
     }
 
-    if (result.ok && actionUsesFavorite(action)) {
+    if (result.ok && actionUsesFavorite(action) && favoriteProvisioned) {
       const occurredAt = new Date().toISOString()
       const operationId = `review-favorite:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
       const repositoryCommands = createConfirmedReviewFavoriteCommands({
@@ -2085,7 +2135,7 @@ export default function App() {
     }
 
     if (result.ok && action !== '阅') {
-      if (targetLedgerId === 'inbox' && action === '藏') {
+      if (favoriteProvisioned && targetLedgerId === 'inbox' && action === '藏') {
         const queueItem = pendingQueueItemFromCurrentVideo(videoContentContext, targetLedgerId)
 
         if (queueItem) {
@@ -2427,6 +2477,8 @@ export default function App() {
           return seekVideoTime(request.seconds)
         case 'ensure-ledgers':
           return ensureFavoriteLedgers()
+        case 'ensure-ledger':
+          return ensureFavoriteLedger(request.logicalFolderId)
         case 'save-ledgers':
           return saveFavoriteLedgers(request.ledgers, request.options)
         case 'open-bilibili-favorites':
@@ -2568,6 +2620,13 @@ export default function App() {
           open={favoriteLibraryOpen}
           onClose={() => setFavoriteLibraryOpen(false)}
           onResizeActiveChange={setFavoriteLibraryResizing}
+          uiCallbacks={{
+            onOrdinaryFolderEdit: () => {
+              const message = '其他收藏夹请自行在 B 站修改。'
+              publishRuntimeFeedback(message)
+              window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
+            }
+          }}
         />
         </div>
       </div>

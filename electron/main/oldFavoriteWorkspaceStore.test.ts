@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
 const roots: string[] = []
@@ -157,6 +157,179 @@ describe('OldFavoriteWorkspaceStore', () => {
     expect(recovered).toMatchObject({ workspaceId: 'workspace-1', loadedSegmentAids: [] })
     await expect(recoveredStore.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
   }, 20_000)
+
+  it('restores compact streaming batch descriptors without loading staged scan item files', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.appendScanPage('100', 'workspace-1', {
+      runId: 'scan-run-1', folderId: 'source-1', page: 1,
+      items: [{ aid: 1, title: 'One', sourceFolderIds: ['source-1'] }, { aid: 2, title: 'Two', sourceFolderIds: ['source-1'] }]
+    })
+    await store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      sealedSegments: [{ id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source-1'] }] }],
+      openAids: [2]
+    })
+
+    const reader = new OldFavoriteWorkspaceStore({ root })
+    await expect(reader.recover('100', 'workspace-1')).resolves.toMatchObject({
+      workspaceId: 'workspace-1',
+      loadedSegmentAids: [1],
+      streamingScan: {
+        segmentSize: 500,
+        sealedSegments: [{ id: 'segment-1', index: 0, itemCount: 1, aids: [1] }],
+        openAids: [2],
+        observedAids: [1, 2]
+      }
+    })
+    await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual([
+      'manifest.json', 'baseline/segment-1.json'
+    ])
+  })
+
+  it('publishes the staged page cursor and streaming checkpoint through one manifest boundary', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+
+    await store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      page: {
+        runId: 'scan-run-1', folderId: 'source-1', page: 1, hasMore: true,
+        items: [{ aid: 1, title: 'One', sourceFolderIds: ['source-1'] }]
+      },
+      sealedSegments: [],
+      openAids: [1],
+      openItems: [{ aid: 1, title: 'One', sourceFolderIds: ['source-1'] }],
+      observedAids: [1]
+    })
+
+    await expect(store.readScanPageCursors('100', 'workspace-1')).resolves.toEqual([
+      { folderId: 'source-1', page: 1, hasMore: true }
+    ])
+    await expect(store.readScanPages('100', 'workspace-1')).resolves.toEqual([
+      {
+        folderId: 'source-1', page: 1, hasMore: true,
+        items: [{ aid: 1, title: 'One', sourceFolderIds: ['source-1'] }]
+      }
+    ])
+    await expect(store.recover('100', 'workspace-1')).resolves.toMatchObject({
+      streamingScan: { openAids: [1], observedAids: [1] }
+    })
+  })
+
+  it('keeps the prior sealed segment recoverable when a changed-segment manifest switch fails', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      sealedSegments: [{
+        id: 'segment-1', aids: [1],
+        items: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a'] }]
+      }],
+      openAids: [],
+      observedAids: [1]
+    })
+    const writableStore = store as unknown as {
+      atomicWrite(path: string, content: string): Promise<void>
+    }
+    const atomicWrite = writableStore.atomicWrite.bind(store)
+    vi.spyOn(writableStore, 'atomicWrite').mockImplementation(async (path, content) => {
+      if (path.endsWith('manifest.json')) throw new Error('manifest-switch-failed')
+      await atomicWrite(path, content)
+    })
+
+    await expect(store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      sealedSegments: [{
+        id: 'segment-1', aids: [1],
+        items: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a', 'source-b'] }]
+      }],
+      openAids: [],
+      observedAids: [1],
+      changedSegmentIds: ['segment-1']
+    })).rejects.toThrow('manifest-switch-failed')
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      workspaceId: 'workspace-1',
+      loadedSegmentItems: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a'] }]
+    })
+  })
+
+  it('keeps the scanning baseline recoverable when the completed manifest switch fails', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      sealedSegments: [{
+        id: 'segment-1', aids: [1],
+        items: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a'] }]
+      }],
+      openAids: [],
+      observedAids: [1]
+    })
+    const writableStore = store as unknown as {
+      atomicWrite(path: string, content: string): Promise<void>
+    }
+    const atomicWrite = writableStore.atomicWrite.bind(store)
+    vi.spyOn(writableStore, 'atomicWrite').mockImplementation(async (path, content) => {
+      if (path.endsWith('manifest.json')) throw new Error('completed-manifest-switch-failed')
+      await atomicWrite(path, content)
+    })
+
+    await expect(store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1',
+      segments: [{
+        id: 'segment-1', aids: [1],
+        items: [{ aid: 1, title: 'First', tags: ['enriched'], sourceFolderIds: ['source-a'] }]
+      }]
+    })).rejects.toThrow('completed-manifest-switch-failed')
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      status: 'scanning',
+      loadedSegmentItems: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a'] }]
+    })
+  })
+
+  it('reads resume cursors from the manifest without loading staged page payloads', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.appendScanPage('100', 'workspace-1', {
+      runId: 'scan-run-1', folderId: 'source-1', page: 1, hasMore: false,
+      items: [{ aid: 1, sourceFolderIds: ['source-1'] }]
+    })
+    const reader = new OldFavoriteWorkspaceStore({ root })
+
+    await expect(reader.readScanPageCursors('100', 'workspace-1')).resolves.toEqual([
+      { folderId: 'source-1', page: 1, hasMore: false }
+    ])
+    await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
+  })
 
   it('reads a verified recovery summary without loading the active baseline segment or scan pages', async () => {
     const root = await createRoot()

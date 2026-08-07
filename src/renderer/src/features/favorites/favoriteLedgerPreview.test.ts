@@ -310,8 +310,8 @@ describe('createFavoriteLedgerPreview', () => {
       candidateTargets: [
         expect.objectContaining({
           candidateKey: 'tag-cluster:摄影',
-          ledgerId: 'custom-tag-cluster-摄影',
-          displayName: 'bilimi·摄影'
+          ledgerId: 'custom-tag-摄影',
+          displayName: expect.stringMatching(/^bilimi·摄影/)
         })
       ]
     })
@@ -361,7 +361,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({ ledgerId: 'movie-tv', folderId: '9001', selected: true }),
         expect.objectContaining({
           ledgerId: 'custom-author-影视飓风',
-          displayName: 'bilimi·影视飓风追更',
+          displayName: 'bilimi·影视飓风',
           selectedCandidateTarget: true,
           selected: false
         })
@@ -533,7 +533,7 @@ describe('createFavoriteLedgerPreview', () => {
       candidateTargets: expect.arrayContaining([
         expect.objectContaining({
           candidateKey: 'tag-cluster:原神',
-          ledgerId: 'custom-tag-cluster-原神',
+          ledgerId: 'custom-tag-原神',
           displayName: 'bilimi·原神',
           keywords: ['原神']
         })
@@ -543,7 +543,7 @@ describe('createFavoriteLedgerPreview', () => {
       expect.arrayContaining([
         expect.objectContaining({ ledgerId: 'game', folderId: '9002', selected: true }),
         expect.objectContaining({
-          ledgerId: 'custom-tag-cluster-原神',
+          ledgerId: 'custom-tag-原神',
           displayName: 'bilimi·原神',
           selectedCandidateTarget: true,
           selected: false

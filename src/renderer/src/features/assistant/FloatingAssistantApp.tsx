@@ -32,7 +32,7 @@ import { createAssistantPreferenceOriginId } from '@shared/assistantPreferencePa
 import { createNotePosterText } from '@shared/videoNoteArchive'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveProtection'
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -56,6 +56,7 @@ import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 import { LocalDataSettings } from './LocalDataSettings'
+import { readLocalDataInfoWithRetry } from './localDataRefresh'
 import { PanelMotionTuningSettings } from './PanelMotionTuningSettings'
 import { TranscriptionModelSettings } from './TranscriptionModelSettings'
 import { SettingsPreferenceCheckbox } from './SettingsPreferenceField'
@@ -80,11 +81,12 @@ import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcription
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
+import { projectFavoriteLedgerDraft } from './favoriteLedgerDraftProjection'
 
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
 }
-import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
+import { getLocalDeepSeekTasks, publishDeepSeekTask, startLocalDeepSeekTask, subscribeDeepSeekTasks, subscribeLocalDeepSeekTasks } from './deepSeekTaskSignal'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -176,6 +178,14 @@ export function statusLightNavigation(id: StatusLightId, _activeView: AssistantW
   return { tab: 'ledger' as const }
 }
 
+export function settingsSectionScrollTop(
+  bodyRect: Pick<DOMRect, 'top'>,
+  targetRect: Pick<DOMRect, 'top'>,
+  currentScrollTop: number
+) {
+  return Math.max(0, currentScrollTop + targetRect.top - bodyRect.top)
+}
+
 const WORKSPACE_TABS: Array<{
   id: AssistantWorkspaceTab
   label: string
@@ -195,7 +205,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; ledgerTitle?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
 }
 
 export function findArchivedSummaryTextForNote(
@@ -1168,14 +1178,12 @@ type SettingsWorkspaceData = {
     accounts: Array<{ uid: string; nickname?: string; retained: boolean }>
   } | null
   localDataUnavailable: boolean
-  connectionTestRunning: boolean
   petWakeRunning: boolean
   petHoverShortcutFieldStore: ReturnType<typeof createPetHoverShortcutFieldStore>
   preferences: AssistantPreferences
   selectedTranscriptionModelId: TranscriptionModelId
   settingsBodyRef: { readonly current: HTMLDivElement | null }
   settingsDiagnosticReport: StartupDiagnosticReport | null
-  settingsDiagnosticRunning: boolean
   settingsDiagnosticsExpanded: boolean
   settingsJumpValue: SettingsJumpValue
   settingsKeywordSuggestionView: 'pending' | 'processed'
@@ -1211,11 +1219,10 @@ type SettingsWorkspaceActions = {
   restoreDefaultLayoutSize: () => Promise<void>
   restoreKeywordSuggestionToPending: (suggestion: FavoriteKeywordSuggestion) => void
   revalidateTranscriptionModel: (id: TranscriptionModelId) => Promise<void>
-  runSettingsDiagnostics: () => Promise<void>
+  runSettingsDiagnostics: () => Promise<StartupDiagnosticReport | null>
   saveAndTestDeepSeekConnection: () => Promise<void>
   setDeepSeekApiKeyDraft: (value: string) => void
   setDefaultFavoriteSystemEnabled: (enabled: boolean) => Promise<void>
-  setSettingsDiagnosticsExpanded: (value: boolean | ((current: boolean) => boolean)) => void
   setSettingsKeywordSuggestionView: (view: 'pending' | 'processed') => void
   setSettingsResetConfirmation: (confirmation: 'deepseek' | 'all' | null) => void
   setTranscriptionModelForCurrentAccount: (id: TranscriptionModelId) => void
@@ -1240,6 +1247,231 @@ type SettingsWorkspaceContentProps = {
   getActions: () => SettingsWorkspaceActions
 }
 
+const SettingsDiagnosticsControl = memo(function SettingsDiagnosticsControl({
+  initialReport,
+  initialExpanded,
+  getActions
+}: {
+  initialReport: StartupDiagnosticReport | null
+  initialExpanded: boolean
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [running, setRunning] = useState(false)
+  const [report, setReport] = useState(initialReport)
+  const [expanded, setExpanded] = useState(initialExpanded)
+
+  async function runDiagnostics() {
+    if (running) return
+    setRunning(true)
+    try {
+      const nextReport = await getActions().runSettingsDiagnostics()
+      if (nextReport) {
+        setReport(nextReport)
+        setExpanded(true)
+      }
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return <>
+    <div className="assistant-settings__diagnostics-head">
+      <div>
+        <strong>启动与功能诊断</strong>
+        <small>检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</small>
+      </div>
+      <button type="button" onClick={() => void runDiagnostics()} disabled={running}>
+        {running ? '诊断中' : '运行诊断'}
+      </button>
+      {report ? (
+        <button type="button" onClick={() => setExpanded((current) => !current)}>
+          {expanded ? '收起诊断' : '展开诊断'}
+        </button>
+      ) : null}
+    </div>
+    {report && expanded ? (
+      <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
+        {report.items.map((item) => (
+          <li key={item.id} data-status={item.status}>
+            <strong>{item.label}</strong>
+            <span>{item.message}</span>
+            {item.action ? <small>{item.action}</small> : null}
+          </li>
+        ))}
+      </ul>
+    ) : null}
+  </>
+})
+
+const DeepSeekConnectionActions = memo(function DeepSeekConnectionActions({
+  getActions
+}: {
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const localTasks = useSyncExternalStore(
+    subscribeLocalDeepSeekTasks,
+    getLocalDeepSeekTasks,
+    getLocalDeepSeekTasks
+  )
+  const [remoteTasks, setRemoteTasks] = useState<DeepSeekTask[]>([])
+  useEffect(() => subscribeDeepSeekTasks(setRemoteTasks), [])
+  const running = localTasks.some((task) => task.kind === 'connection-test') ||
+    remoteTasks.some((task) => task.kind === 'connection-test')
+
+  return <div className="assistant-settings__actions">
+    <button type="button" disabled={running} onClick={() => void getActions().saveAndTestDeepSeekConnection()}>
+      {running ? '保存测试中' : '保存并测试'}
+    </button>
+    <button type="button" disabled={running} onClick={() => getActions().setSettingsResetConfirmation('deepseek')}>
+      重置 DeepSeek
+    </button>
+  </div>
+})
+
+const DefaultFavoriteSystemControl = memo(function DefaultFavoriteSystemControl({
+  accountMid,
+  initialEnabled,
+  getActions
+}: {
+  accountMid?: string
+  initialEnabled: boolean
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [enabled, setEnabled] = useState(initialEnabled)
+  const available = defaultFavoriteSystemToggleAvailable(accountMid)
+
+  return <label>
+    <SettingsPreferenceCheckbox
+      aria-label="启用默认收藏夹"
+      disabled={!available}
+      title={available ? undefined : '登录 B 站后可为当前账号设置默认收藏夹体系'}
+      checked={enabled}
+      onCommit={(nextEnabled) => {
+        setEnabled(nextEnabled)
+        void getActions().setDefaultFavoriteSystemEnabled(nextEnabled).catch(() => setEnabled(!nextEnabled))
+      }}
+    />
+    <span>启用默认收藏夹</span>
+  </label>
+})
+
+const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeControl({
+  initialMode,
+  getActions
+}: {
+  initialMode: AssistantPreferences['bilibiliConnectionMode']
+  getActions: () => SettingsWorkspaceActions
+}) {
+  const [mode, setMode] = useState(initialMode)
+  const [message, setMessage] = useState('')
+
+  async function chooseMode(nextMode: AssistantPreferences['bilibiliConnectionMode']) {
+    const previous = mode
+    setMode(nextMode)
+    setMessage('正在应用 B 站连接方式…')
+    try {
+      await getActions().chooseBilibiliConnectionMode(nextMode)
+      setMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
+    } catch (error) {
+      setMode(previous)
+      setMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  return <>
+    {([
+      ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
+      ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
+    ] as const).map(([value, label, help]) => (
+      <label key={value}>
+        <input
+          type="radio"
+          name="bilibili-connection-mode"
+          checked={mode === value}
+          onChange={() => void chooseMode(value)}
+        />
+        <span>{label}</span>
+        <small>{help}</small>
+      </label>
+    ))}
+    {message ? <p role="status">{message}</p> : null}
+  </>
+})
+
+const OldFavoriteBatchSizeField = memo(function OldFavoriteBatchSizeField({
+  value,
+  selected,
+  onSelect,
+  onCommit
+}: {
+  value: number
+  selected: boolean
+  onSelect: () => void
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState(String(value))
+  const committedValueRef = useRef(value)
+  const discardOnBlurRef = useRef(false)
+
+  useEffect(() => {
+    committedValueRef.current = value
+    setDraft(String(value))
+  }, [value])
+
+  const commitDraft = useCallback(() => {
+    if (discardOnBlurRef.current) {
+      discardOnBlurRef.current = false
+      return
+    }
+    const parsed = Number(draft.trim())
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(committedValueRef.current))
+      return
+    }
+    const normalized = Math.min(2_000, Math.max(500, Math.trunc(parsed)))
+    setDraft(String(normalized))
+    if (normalized === committedValueRef.current) return
+    committedValueRef.current = normalized
+    onSelect()
+    onCommit(normalized)
+  }, [draft, onCommit, onSelect])
+
+  return (
+    <label className="assistant-settings__batch-size-field">
+      <input
+        type="radio"
+        name="old-favorite-workspace-segment-size"
+        checked={selected}
+        onChange={onSelect}
+      />
+      <span>自定义（500–2000）</span>
+      <input
+        className="assistant-settings__batch-size-input"
+        type="number"
+        aria-label="自定义单批整理上限"
+        min={500}
+        max={2_000}
+        step={1}
+        value={draft}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commitDraft}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commitDraft()
+            event.currentTarget.blur()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            discardOnBlurRef.current = true
+            setDraft(String(committedValueRef.current))
+            event.currentTarget.blur()
+          }
+        }}
+      />
+    </label>
+  )
+})
+
 const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
   data,
   getActions
@@ -1250,14 +1482,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     deepSeekKeyFieldStatus,
     localDataInfo,
     localDataUnavailable,
-    connectionTestRunning,
     petWakeRunning,
     petHoverShortcutFieldStore,
     preferences,
     selectedTranscriptionModelId,
     settingsBodyRef,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -1322,6 +1552,18 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     (remember: boolean) => getActions().toggleRememberCloseChoice(remember),
     [getActions]
   )
+  const persistOldFavoriteBatchSize = useCallback(
+    (size: number) => getActions().persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size }),
+    [getActions]
+  )
+  const [customOldFavoriteBatchSizeSelected, setCustomOldFavoriteBatchSizeSelected] = useState(
+    () => ![500, 1_000, 2_000].includes(data.preferences.oldFavoriteWorkspaceSegmentSize)
+  )
+  useEffect(() => {
+    setCustomOldFavoriteBatchSizeSelected(
+      ![500, 1_000, 2_000].includes(preferences.oldFavoriteWorkspaceSegmentSize)
+    )
+  }, [preferences.oldFavoriteWorkspaceSegmentSize])
   const resolvedSnapshot = { accountMid }
   const {
     pendingKeywordSuggestions,
@@ -1343,6 +1585,99 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     settingsKeywordSuggestionView === 'pending'
       ? pendingKeywordSuggestions
       : processedKeywordSuggestions
+
+  // Keep the large learning surface as one memoized element. Preference patches
+  // for unrelated settings retain these array references and skip rebuilding
+  // hundreds of record/suggestion rows.
+  const organizationStrategySettings = useMemo(() => (
+    <fieldset className="assistant-settings__group assistant-settings__group--learning" data-settings-section="learning">
+      <legend>整理策略</legend>
+      <div className="assistant-settings__inline-options">
+        {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
+          <label key={option.value}>
+            <input type="radio" name="favorite-archive-strategy" checked={preferences.favoriteArchiveStrategy === option.value} onChange={() => actions.current.persistPreferencePatch({ favoriteArchiveStrategy: option.value })} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      <label>
+        <input type="checkbox" checked={preferences.favoriteCorrectionLearningEnabled} onChange={(event) => actions.current.persistPreferencePatch({ favoriteCorrectionLearningEnabled: event.currentTarget.checked })} />
+        <span>记录归档调整</span>
+      </label>
+      <small className="assistant-settings__option-help" title={FAVORITE_CORRECTION_LEARNING_HELP}>{FAVORITE_CORRECTION_LEARNING_HELP}</small>
+      {settingsLearningMessage ? <p className="assistant-settings__status" role="status">{settingsLearningMessage}</p> : null}
+      <div className="assistant-settings__subsection assistant-settings__subsection--records">
+        <div className="assistant-settings__subsection-heading">
+          <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
+          <button type="button" onClick={clearCorrectionRecords} disabled={preferences.favoriteCorrectionRecords.length === 0}>清空调整记录</button>
+        </div>
+        {preferences.favoriteCorrectionRecords.length > 0 ? <div className="assistant-settings__record-track assistant-settings__learning-list" role="list" aria-label="归档调整记录">
+          {preferences.favoriteCorrectionRecords.map((record: FavoriteCorrectionRecord) => {
+            const originalLedger = getLedgerDisplayName(preferences.favoriteLedgers, record.originalLedgerId)
+            const userLedgers = joinSettingValues(record.userLedgerIds.map((ledgerId) => getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)))
+            const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
+            return <article key={record.id} className="assistant-settings__record-card assistant-settings__learning-item" role="listitem">
+              <div className="assistant-settings__learning-head"><span className="assistant-settings__learning-summary"><strong title={record.title}>{record.title}</strong><small title={summaryText}>{summaryText}</small></span><span className="assistant-settings__learning-actions"><button type="button" aria-label={`删除调整 ${record.title}`} onClick={() => actions.current.deleteCorrectionRecord(record.id)}>删除</button></span></div>
+              <div className="assistant-settings__learning-detail">
+                <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
+                <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
+                <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
+                <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
+                <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
+                <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
+                <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
+                <span title={String(record.confidence ?? '未记录')}>分类把握：{record.confidence ?? '未记录'}</span>
+                <span title={String(record.scoreGap ?? '未记录')}>领先第二候选：{record.scoreGap ?? '未记录'}</span>
+              </div>
+            </article>
+          })}
+        </div> : <p className="assistant-settings__empty">暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。</p>}
+      </div>
+      <div className="assistant-settings__subsection">
+        <div className="assistant-settings__subsection-heading">
+          <strong>DeepSeek 建议（{pendingKeywordSuggestions.length}）</strong>
+          <span className="assistant-settings__view-toggle" role="group" aria-label="DeepSeek 建议视图">
+            <button type="button" aria-pressed={settingsKeywordSuggestionView === 'pending'} onClick={() => actions.current.setSettingsKeywordSuggestionView('pending')}>待处理</button>
+            <button type="button" aria-pressed={settingsKeywordSuggestionView === 'processed'} onClick={() => actions.current.setSettingsKeywordSuggestionView('processed')}>已处理</button>
+          </span>
+        </div>
+        {visibleKeywordSuggestions.length > 0 ? <div className="assistant-settings__record-track assistant-settings__keyword-list" role="list" aria-label={settingsKeywordSuggestionView === 'pending' ? '待处理 DeepSeek 建议' : '已处理 DeepSeek 建议'}>
+          {visibleKeywordSuggestions.map((suggestion) => {
+            const targetLabel = getLedgerDisplayName(preferences.favoriteLedgers, suggestion.ledgerId)
+            const keywordLabel = suggestion.keyword?.trim() || suggestion.replacement?.trim() || suggestion.id
+            const isPending = suggestion.status === 'pending'
+            return <article key={suggestion.id} className="assistant-settings__record-card assistant-settings__keyword-item" role="listitem">
+              <div className="assistant-settings__keyword-summary">
+                <div className="assistant-settings__keyword-head"><strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>{KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}</strong>{!isPending ? <button type="button" className="assistant-settings__keyword-restore" aria-label={`撤回建议 ${keywordLabel}`} onClick={() => actions.current.restoreKeywordSuggestionToPending(suggestion)}>撤回</button> : null}</div>
+                <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}</span>
+                <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
+                <span title={suggestion.keyword?.trim() || '未记录'}>关键词：<span>{suggestion.keyword?.trim() || '未记录'}</span></span>
+                <span title={suggestion.replacement?.trim() || '未记录'}>替换词：<span>{suggestion.replacement?.trim() || '未记录'}</span></span>
+                <small title={suggestion.reason}>理由：{suggestion.reason}</small>
+              </div>
+              {isPending ? <div className="assistant-settings__keyword-actions">
+                <button type="button" aria-label={`采纳建议 ${keywordLabel}`} onClick={() => actions.current.acceptKeywordSuggestion(suggestion)}>采纳</button>
+                <button type="button" aria-label={`忽略建议 ${keywordLabel}`} onClick={() => actions.current.updateKeywordSuggestionStatus(suggestion.id, 'ignored')}>忽略</button>
+                <button type="button" aria-label={`删除建议 ${keywordLabel}`} onClick={() => actions.current.updateKeywordSuggestionStatus(suggestion.id, 'deleted')}>删除</button>
+              </div> : null}
+            </article>
+          })}
+        </div> : <p className="assistant-settings__empty">暂无 DeepSeek 建议</p>}
+      </div>
+    </fieldset>
+  ), [
+    clearCorrectionRecords,
+    pendingKeywordSuggestions,
+    preferences.favoriteArchiveStrategy,
+    preferences.favoriteCorrectionLearningEnabled,
+    preferences.favoriteCorrectionRecords,
+    preferences.favoriteKeywordSuggestions,
+    preferences.favoriteLedgers,
+    processedKeywordSuggestions,
+    settingsKeywordSuggestionView,
+    settingsLearningMessage,
+    visibleKeywordSuggestions
+  ])
 
   return <>
             <header>
@@ -1384,40 +1719,11 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="diagnostics"
             >
               <legend>诊断</legend>
-              <div className="assistant-settings__diagnostics-head">
-                <div>
-                  <strong>启动与功能诊断</strong>
-                  <small>检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</small>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void actions.current.runSettingsDiagnostics()}
-                  disabled={settingsDiagnosticRunning}
-                >
-                  {settingsDiagnosticRunning ? '诊断中' : '运行诊断'}
-                </button>
-                {settingsDiagnosticReport ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      actions.current.setSettingsDiagnosticsExpanded((currentExpanded) => !currentExpanded)
-                    }
-                  >
-                    {settingsDiagnosticsExpanded ? '收起诊断' : '展开诊断'}
-                  </button>
-                ) : null}
-              </div>
-              {settingsDiagnosticReport && settingsDiagnosticsExpanded ? (
-                <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
-                  {settingsDiagnosticReport.items.map((item) => (
-                    <li key={item.id} data-status={item.status}>
-                      <strong>{item.label}</strong>
-                      <span>{item.message}</span>
-                      {item.action ? <small>{item.action}</small> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+              <SettingsDiagnosticsControl
+                initialReport={settingsDiagnosticReport}
+                initialExpanded={settingsDiagnosticsExpanded}
+                getActions={getActions}
+              />
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--deepseek"
@@ -1561,22 +1867,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                       }
                     />
                   </label>
-                  <div className="assistant-settings__actions">
-                    <button
-                      type="button"
-                      disabled={connectionTestRunning}
-                      onClick={() => void actions.current.saveAndTestDeepSeekConnection()}
-                    >
-                      {connectionTestRunning ? '保存测试中' : '保存并测试'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={connectionTestRunning}
-                      onClick={() => actions.current.setSettingsResetConfirmation('deepseek')}
-                    >
-                      重置 DeepSeek
-                    </button>
-                  </div>
+                  <DeepSeekConnectionActions getActions={getActions} />
                   <aside className="assistant-settings__deepseek-recommendation">
                     <strong>致谢 云枢智元</strong>
                     <p>大模型 Token 中转，低至官方价 2 折起</p>
@@ -1636,237 +1927,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 </>
               ) : null}
             </fieldset>
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--learning"
-              data-settings-section="learning"
-            >
-              <legend>整理策略</legend>
-              <div className="assistant-settings__inline-options">
-                {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      name="favorite-archive-strategy"
-                      checked={preferences.favoriteArchiveStrategy === option.value}
-                      onChange={() =>
-                        actions.current.persistPreferencePatch({ favoriteArchiveStrategy: option.value })
-                      }
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.favoriteCorrectionLearningEnabled}
-                  onChange={(event) =>
-                    actions.current.persistPreferencePatch({
-                      favoriteCorrectionLearningEnabled: event.currentTarget.checked
-                    })
-                  }
-                />
-                <span>记录归档调整</span>
-              </label>
-              <small
-                className="assistant-settings__option-help"
-                title={FAVORITE_CORRECTION_LEARNING_HELP}
-              >
-                {FAVORITE_CORRECTION_LEARNING_HELP}
-              </small>
-              {settingsLearningMessage ? (
-                <p className="assistant-settings__status" role="status">
-                  {settingsLearningMessage}
-                </p>
-              ) : null}
-              <div className="assistant-settings__subsection assistant-settings__subsection--records">
-                <div className="assistant-settings__subsection-heading">
-                  <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
-                  <button
-                    type="button"
-                    onClick={clearCorrectionRecords}
-                    disabled={preferences.favoriteCorrectionRecords.length === 0}
-                  >
-                    清空调整记录
-                  </button>
-                </div>
-                {preferences.favoriteCorrectionRecords.length > 0 ? (
-                  <div
-                    className="assistant-settings__record-track assistant-settings__learning-list"
-                    role="list"
-                    aria-label="归档调整记录"
-                  >
-                    {preferences.favoriteCorrectionRecords.map(
-                      (record: FavoriteCorrectionRecord) => {
-                        const originalLedger = getLedgerDisplayName(
-                          preferences.favoriteLedgers,
-                          record.originalLedgerId
-                        )
-                        const userLedgers = joinSettingValues(
-                          record.userLedgerIds.map((ledgerId) =>
-                            getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
-                          )
-                        )
-                        const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
-
-                        return (
-                          <article
-                            key={record.id}
-                            className="assistant-settings__record-card assistant-settings__learning-item"
-                            role="listitem"
-                          >
-                            <div className="assistant-settings__learning-head">
-                              <span className="assistant-settings__learning-summary">
-                                <strong title={record.title}>{record.title}</strong>
-                                <small title={summaryText}>{summaryText}</small>
-                              </span>
-                              <span className="assistant-settings__learning-actions">
-                                <button
-                                  type="button"
-                                  aria-label={`删除调整 ${record.title}`}
-                                  onClick={() => actions.current.deleteCorrectionRecord(record.id)}
-                                >
-                                  删除
-                                </button>
-                              </span>
-                            </div>
-                            <div className="assistant-settings__learning-detail">
-                              <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
-                              <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
-                              <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
-                              <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
-                              <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
-                              <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
-                              <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
-                              <span title={String(record.confidence ?? '未记录')}>分类把握：{record.confidence ?? '未记录'}</span>
-                              <span title={String(record.scoreGap ?? '未记录')}>领先第二候选：{record.scoreGap ?? '未记录'}</span>
-                            </div>
-                          </article>
-                        )
-                      }
-                    )}
-                  </div>
-                ) : (
-                  <p className="assistant-settings__empty">
-                    暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。
-                  </p>
-                )}
-              </div>
-              <div className="assistant-settings__subsection">
-                <div className="assistant-settings__subsection-heading">
-                  <strong>DeepSeek 建议（{pendingKeywordSuggestions.length}）</strong>
-                  <span className="assistant-settings__view-toggle" role="group" aria-label="DeepSeek 建议视图">
-                    <button
-                      type="button"
-                      aria-pressed={settingsKeywordSuggestionView === 'pending'}
-                      onClick={() => actions.current.setSettingsKeywordSuggestionView('pending')}
-                    >
-                      待处理
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={settingsKeywordSuggestionView === 'processed'}
-                      onClick={() => actions.current.setSettingsKeywordSuggestionView('processed')}
-                    >
-                      已处理
-                    </button>
-                  </span>
-                </div>
-                {visibleKeywordSuggestions.length > 0 ? (
-                  <div
-                    className="assistant-settings__record-track assistant-settings__keyword-list"
-                    role="list"
-                    aria-label={
-                      settingsKeywordSuggestionView === 'pending'
-                        ? '待处理 DeepSeek 建议'
-                        : '已处理 DeepSeek 建议'
-                    }
-                  >
-                    {visibleKeywordSuggestions.map((suggestion) => {
-                      const targetLabel = getLedgerDisplayName(
-                        preferences.favoriteLedgers,
-                        suggestion.ledgerId
-                      )
-                      const keywordLabel =
-                        suggestion.keyword?.trim() ||
-                        suggestion.replacement?.trim() ||
-                        suggestion.id
-                      const isPending = suggestion.status === 'pending'
-
-                      return (
-                        <article
-                          key={suggestion.id}
-                          className="assistant-settings__record-card assistant-settings__keyword-item"
-                          role="listitem"
-                        >
-                          <div className="assistant-settings__keyword-summary">
-                            <div className="assistant-settings__keyword-head">
-                              <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
-                                {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
-                              </strong>
-                              {!isPending ? (
-                                <button
-                                  type="button"
-                                  className="assistant-settings__keyword-restore"
-                                  aria-label={`撤回建议 ${keywordLabel}`}
-                                  onClick={() => actions.current.restoreKeywordSuggestionToPending(suggestion)}
-                                >
-                                  撤回
-                                </button>
-                              ) : null}
-                            </div>
-                            <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>
-                              状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}
-                            </span>
-                            <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
-                            <span title={suggestion.keyword?.trim() || '未记录'}>
-                              关键词：<span>{suggestion.keyword?.trim() || '未记录'}</span>
-                            </span>
-                            <span title={suggestion.replacement?.trim() || '未记录'}>
-                              替换词：<span>{suggestion.replacement?.trim() || '未记录'}</span>
-                            </span>
-                            <small title={suggestion.reason}>理由：{suggestion.reason}</small>
-                          </div>
-                          {isPending ? (
-                            <div className="assistant-settings__keyword-actions">
-                              <button
-                                type="button"
-                                aria-label={`采纳建议 ${keywordLabel}`}
-                                onClick={() => actions.current.acceptKeywordSuggestion(suggestion)}
-                              >
-                                <span>采纳</span>
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`忽略建议 ${keywordLabel}`}
-                                onClick={() =>
-                                  actions.current.updateKeywordSuggestionStatus(suggestion.id, 'ignored')
-                                }
-                              >
-                                <span>忽略</span>
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`删除建议 ${keywordLabel}`}
-                                onClick={() =>
-                                  actions.current.updateKeywordSuggestionStatus(suggestion.id, 'deleted')
-                                }
-                              >
-                                <span>删除</span>
-                              </button>
-                            </div>
-                          ) : null}
-                        </article>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="assistant-settings__empty">
-                    暂无 DeepSeek 建议
-                  </p>
-                )}
-              </div>
-            </fieldset>
+            {organizationStrategySettings}
             <fieldset
               className="assistant-settings__group assistant-settings__group--pet"
               data-settings-section="pet"
@@ -2052,29 +2113,21 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                   <input
                     type="radio"
                     name="old-favorite-workspace-segment-size"
-                    checked={preferences.oldFavoriteWorkspaceSegmentSize === size}
-                    onChange={() => actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })}
+                    checked={!customOldFavoriteBatchSizeSelected && preferences.oldFavoriteWorkspaceSegmentSize === size}
+                    onChange={() => {
+                      setCustomOldFavoriteBatchSizeSelected(false)
+                      actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })
+                    }}
                   />
-                  <span>{size === 1_000 ? '1000 条（推荐）' : `${size} 条`}</span>
+                  <span>{size === 2_000 ? '2000 条（推荐）' : `${size} 条`}</span>
                 </label>
               ))}
-              <label>
-                <span>自定义（500–2000）</span>
-                <input
-                  type="number"
-                  aria-label="自定义单批整理上限"
-                  min={500}
-                  max={2_000}
-                  step={1}
-                  value={preferences.oldFavoriteWorkspaceSegmentSize}
-                  onChange={(event) => {
-                    const size = Number(event.currentTarget.value)
-                    if (Number.isSafeInteger(size) && size >= 500 && size <= 2_000) {
-                      actions.current.persistPreferencePatch({ oldFavoriteWorkspaceSegmentSize: size })
-                    }
-                  }}
-                />
-              </label>
+              <OldFavoriteBatchSizeField
+                value={preferences.oldFavoriteWorkspaceSegmentSize}
+                selected={customOldFavoriteBatchSizeSelected}
+                onSelect={() => setCustomOldFavoriteBatchSizeSelected(true)}
+                onCommit={persistOldFavoriteBatchSize}
+              />
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--review-actions"
@@ -2134,17 +2187,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="favorites"
             >
               <legend>默认收藏夹体系</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label="启用默认收藏夹"
-                  disabled={!defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid)}
-                  title={defaultFavoriteSystemToggleAvailable(resolvedSnapshot.accountMid) ? undefined : '登录 B 站后可为当前账号设置默认收藏夹体系'}
-                  checked={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
-                  onChange={(event) => void actions.current.setDefaultFavoriteSystemEnabled(event.currentTarget.checked)}
-                />
-                <span>启用默认收藏夹</span>
-              </label>
+              <DefaultFavoriteSystemControl
+                key={resolvedSnapshot.accountMid ?? 'signed-out'}
+                accountMid={resolvedSnapshot.accountMid}
+                initialEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+                getActions={getActions}
+              />
               <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
               <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
               <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
@@ -2156,22 +2204,10 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               <legend>B 站连接方式</legend>
               <p>只影响 bilimi 内的 B 站网页、API、图片和视频会话，不会修改 Windows 或 Clash 的代理设置，也不会影响 DeepSeek、转写下载或其他应用网络。</p>
               <p>自动模式跟随 Windows 当前系统代理；未启用系统代理时通常与直连没有区别。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
-              {([
-                ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
-                ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
-              ] as const).map(([mode, label, help]) => (
-                <label key={mode}>
-                  <input
-                    type="radio"
-                    name="bilibili-connection-mode"
-                    checked={preferences.bilibiliConnectionMode === mode}
-                    onChange={() => void actions.current.chooseBilibiliConnectionMode(mode)}
-                  />
-                  <span>{label}</span>
-                  <small>{help}</small>
-                </label>
-              ))}
-              {settingsLearningMessage.startsWith('B 站连接方式') ? <p role="status">{settingsLearningMessage}</p> : null}
+              <BilibiliConnectionModeControl
+                initialMode={preferences.bilibiliConnectionMode}
+                getActions={getActions}
+              />
             </fieldset>
             {localDataInfo ? <fieldset
               className="assistant-settings__group assistant-settings__group--local-data"
@@ -2328,15 +2364,16 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
+  const deepSeekKeyConfiguredRef = useRef<boolean | undefined>(undefined)
   const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
     useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
-  const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
   const [petWakeRunning, setPetWakeRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
+  const [defaultFavoriteSystemOverrides, setDefaultFavoriteSystemOverrides] = useState<Record<string, boolean>>({})
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsResetConfirmation, setSettingsResetConfirmation] =
@@ -2347,6 +2384,7 @@ export function FloatingAssistantApp({
   const localDataInfoGeneration = useRef(0)
   const localDataInfoLoaded = useRef(false)
   const localDataInfoRefreshInFlight = useRef<Promise<void> | null>(null)
+  const localDataResetInProgress = useRef(false)
   const settingsScrollFrame = useRef<number | null>(null)
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [temporaryGlobalFeedbackMessage, setTemporaryGlobalFeedbackMessage] = useState('')
@@ -2396,6 +2434,7 @@ export function FloatingAssistantApp({
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [settingsWorkspaceOpened, setSettingsWorkspaceOpened] = useState(activeTab === 'settings')
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
+  const [requestedLedgerTitle, setRequestedLedgerTitle] = useState<string>()
   const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)
   const [createLedgerRequested, setCreateLedgerRequested] = useState(false)
   const [createLedgerRequestVersion, setCreateLedgerRequestVersion] = useState(0)
@@ -2463,13 +2502,16 @@ export function FloatingAssistantApp({
     void loadVideoNoteArchives({ silent: true, accountMid })
   }, [loadVideoNoteArchives, snapshot?.accountMid, transcriptionQueue.items, videoNoteArchives])
 
-  const refreshLocalDataInfo = useCallback(async ({ force = false } = {}) => {
+  const refreshLocalDataInfo = useCallback(async ({ force = false, retryTransient = false } = {}) => {
     if (!window.bilimiDesktop?.getLocalDataInfo) return
     if (!force && localDataInfoLoaded.current) return
     if (!force && localDataInfoRefreshInFlight.current) return localDataInfoRefreshInFlight.current
 
     const generation = ++localDataInfoGeneration.current
-    const refresh = window.bilimiDesktop.getLocalDataInfo()
+    const refresh = readLocalDataInfoWithRetry(
+      () => window.bilimiDesktop!.getLocalDataInfo!(),
+      { attempts: retryTransient ? 3 : 1 }
+    )
       .then((info) => {
         if (generation !== localDataInfoGeneration.current) return
         localDataInfoLoaded.current = true
@@ -2495,7 +2537,11 @@ export function FloatingAssistantApp({
     void refreshLocalDataInfo()
   }, [activeView, refreshLocalDataInfo])
 
-  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[snapshot?.accountMid ?? '']?.transcriptionModelId ?? 'whisper-small'
+  const currentAccountMid = snapshot?.accountMid ?? ''
+  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[currentAccountMid]?.transcriptionModelId ?? 'whisper-small'
+  const defaultFavoriteSystemEnabled = currentAccountMid in defaultFavoriteSystemOverrides
+    ? defaultFavoriteSystemOverrides[currentAccountMid]
+    : preferences.favoriteAccountPreferences?.[currentAccountMid]?.defaultFavoriteSystemEnabled ?? true
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(
     () => resolveGlobalTranscriptionStatus(
       transcriptionQueue,
@@ -2589,8 +2635,7 @@ export function FloatingAssistantApp({
     return resolveFavoriteOrganizationLamp({
       snapshot: favoriteOrganizationSnapshot,
       acknowledgedWorkspaceId: acknowledgedFavoriteWorkspaces[accountMid],
-      defaultFavoriteSystemEnabled:
-        preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled ?? true,
+      defaultFavoriteSystemEnabled,
       ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
       favoriteLedgerStatus
     })
@@ -2599,7 +2644,7 @@ export function FloatingAssistantApp({
     favoriteOrganizationSnapshot,
     acknowledgedFavoriteWorkspaces,
     snapshot?.accountMid,
-    preferences.favoriteAccountPreferences,
+    defaultFavoriteSystemEnabled,
     preferences.favoriteLedgers
   ])
 
@@ -2626,9 +2671,11 @@ export function FloatingAssistantApp({
   }
 
   function startDeepSeekTask(task: DeepSeekTask) {
+    const finishLocalTask = startLocalDeepSeekTask(task)
     setLocalDeepSeekTasks((tasks) => [...tasks.filter((current) => current.id !== task.id), task])
     const finishBroadcast = publishDeepSeekTask(task)
     return () => {
+      finishLocalTask()
       setLocalDeepSeekTasks((tasks) => tasks.filter((current) => current.id !== task.id))
       finishBroadcast()
     }
@@ -2727,7 +2774,13 @@ export function FloatingAssistantApp({
         lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
         setGlobalFeedback(nextSnapshot.runtimeFeedback)
       }
-      const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotPreferencesFromRuntime = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotPreferences = deepSeekKeyConfiguredRef.current === undefined
+        ? snapshotPreferencesFromRuntime
+        : createInitialAssistantPreferences({
+            ...snapshotPreferencesFromRuntime,
+            deepseekApiKeyStored: deepSeekKeyConfiguredRef.current
+          })
       const lastLocalPreferenceChangeAt = Math.max(
         lastPreferenceChangeAt.current,
         lastPreferenceSaveAt.current
@@ -2783,8 +2836,22 @@ export function FloatingAssistantApp({
       try {
         const keyStatus = await window.bilimiDesktop.loadDeepSeekApiKeyStatus()
 
-        if (!cancelled && mounted.current) {
+        if (!cancelled) {
+          const keyConfigured = deepSeekKeyStatusConfigured(keyStatus)
+          deepSeekKeyConfiguredRef.current = keyConfigured
           setDeepSeekKeyFieldStatus(deepSeekKeyFieldStatusFromKeyStatus(keyStatus))
+          if (preferencesRef.current.deepseekApiKeyStored !== keyConfigured) {
+            const reconciledPreferences = createInitialAssistantPreferences({
+              ...preferencesRef.current,
+              deepseekApiKeyStored: keyConfigured
+            })
+            preferencesRef.current = reconciledPreferences
+            committedPreferencesRef.current = createInitialAssistantPreferences({
+              ...committedPreferencesRef.current,
+              deepseekApiKeyStored: keyConfigured
+            })
+            startTransition(() => setPreferences(reconciledPreferences))
+          }
         }
       } catch {
         if (!cancelled && mounted.current) {
@@ -2867,6 +2934,7 @@ export function FloatingAssistantApp({
   }, [loadSnapshot])
 
   useEffect(() => window.bilimiDesktop?.onBilibiliAccountChanged?.(() => {
+    if (localDataResetInProgress.current) return
     localDataInfoGeneration.current += 1
     localDataInfoLoaded.current = false
     localDataInfoRefreshInFlight.current = null
@@ -2881,6 +2949,23 @@ export function FloatingAssistantApp({
       if (activeView === 'settings') void refreshLocalDataInfo()
     })
   }), [activeView, loadSnapshot, loadVideoNoteArchives, refreshLocalDataInfo])
+
+  useEffect(() => window.bilimiDesktop?.onLocalDataReset?.(() => {
+    localDataResetInProgress.current = true
+    localDataInfoGeneration.current += 1
+    localDataInfoLoaded.current = false
+    localDataInfoRefreshInFlight.current = null
+    setLocalDataInfo(null)
+    setLocalDataUnavailable(false)
+    videoNoteArchiveLoadGeneration.current += 1
+    setVideoNoteArchiveSelection(EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION)
+    setVideoNoteArchives([])
+    void loadSnapshot({ resetVideoNote: true }).finally(() => {
+      void refreshLocalDataInfo({ force: true, retryTransient: true }).finally(() => {
+        localDataResetInProgress.current = false
+      })
+    })
+  }), [loadSnapshot, refreshLocalDataInfo])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
@@ -3015,12 +3100,17 @@ export function FloatingAssistantApp({
         latestPetHoverShortcutMutationIdRef.current = meta.mutationId
       }
       const nextPreferences = applyImmediatePreferencePatch(preferencesRef.current, patch)
+      if (patch.deepseekApiKeyStored !== undefined) {
+        deepSeekKeyConfiguredRef.current = Boolean(patch.deepseekApiKeyStored)
+      }
       committedPreferencesRef.current = applyImmediatePreferencePatch(committedPreferencesRef.current, patch)
       if (patch.petHoverShortcuts !== undefined) {
         petHoverShortcutFieldStoreRef.current.set(patch.petHoverShortcuts)
       }
       if (Object.keys(patch).every((key) =>
-        key === 'assistantSidebarWidthPx' || key === 'petHoverShortcuts'
+        key === 'assistantSidebarWidthPx' ||
+        key === 'petHoverShortcuts' ||
+        key === 'bilibiliConnectionMode'
       )) {
         preferencesRef.current = nextPreferences
         return
@@ -3090,8 +3180,12 @@ export function FloatingAssistantApp({
     commentIntentOpen ||
     commentIntentBusy
   const hasBilibiliPageOpen = BILIBILI_PAGE_PATTERN.test(resolvedSnapshot.activeTabUrl?.trim() ?? '')
-  const activeFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
+  const configuredFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
     preferences.favoriteLedgers
+  const activeFavoriteLedgers = useMemo(
+    () => projectFavoriteLedgerDraft(configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle),
+    [configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle]
+  )
   const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {
     return favoriteWorkspaceReadinessMessage({
@@ -3396,19 +3490,37 @@ export function FloatingAssistantApp({
     }
   }
 
-  function jumpToSettingsSection(section: SettingsJumpValue) {
+  function jumpToSettingsSection(section: SettingsJumpValue, options: { behavior?: ScrollBehavior } = {}) {
     setSettingsJumpValue(section)
     const selector = `[data-settings-section="${section}"]`
-    const target = settingsBodyRef.current?.querySelector(selector) ?? document.querySelector(selector)
-    if (target && 'scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
-      target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    const body = settingsBodyRef.current
+    const target = body?.querySelector<HTMLElement>(selector) ?? document.querySelector<HTMLElement>(selector)
+    if (!target) return
+
+    if (body && body.contains(target)) {
+      const nextTop = settingsSectionScrollTop(
+        body.getBoundingClientRect(),
+        target.getBoundingClientRect(),
+        body.scrollTop
+      )
+      body.scrollTop = nextTop
+      if (typeof body.scrollTo === 'function') {
+        body.scrollTo({ top: nextTop, behavior: options.behavior ?? 'smooth' })
+      }
+      return
+    }
+
+    if ('scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'start', behavior: options.behavior ?? 'smooth' })
     }
   }
 
   function openSettingsSection(section: SettingsJumpValue) {
     setActiveTab('settings')
     setSettingsJumpValue(section)
-    window.setTimeout(() => jumpToSettingsSection(section), 0)
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => jumpToSettingsSection(section, { behavior: 'auto' }))
+    }, 0)
   }
 
   function syncSettingsJumpFromScroll() {
@@ -3475,8 +3587,22 @@ export function FloatingAssistantApp({
       }
     }
 
+    const settingsPatch: Partial<AssistantPreferences> = {}
+    const committedSettings = committedPreferencesRef.current
+    if (nextPreferences.deepseekApiKeyStored !== committedSettings.deepseekApiKeyStored) {
+      settingsPatch.deepseekApiKeyStored = nextPreferences.deepseekApiKeyStored
+    }
+    if (settingsSnapshot.deepseekModel !== committedSettings.deepseekModel) {
+      settingsPatch.deepseekModel = settingsSnapshot.deepseekModel
+    }
+    if (settingsSnapshot.deepseekBaseUrl !== committedSettings.deepseekBaseUrl) {
+      settingsPatch.deepseekBaseUrl = settingsSnapshot.deepseekBaseUrl
+    }
+
     try {
-      await persistPreferences(nextPreferences)
+      if (Object.keys(settingsPatch).length > 0) {
+        await getPreferencePatchScheduler().scheduleAndWait(settingsPatch)
+      }
     } catch {
       if (keyWasSaved) {
         setGlobalFeedback('DeepSeek 密钥已保存，但其他设置保存失败，请重试。')
@@ -3697,7 +3823,6 @@ export function FloatingAssistantApp({
       return
     }
 
-    setSettingsDiagnosticRunning(true)
     setSettingsDiagnosticMessage('')
     tellPet('progress', '正在运行 bilimi 诊断。')
 
@@ -3717,18 +3842,16 @@ export function FloatingAssistantApp({
         )
       }
 
-      setSettingsDiagnosticReport(nextReport)
-      setSettingsDiagnosticsExpanded(true)
       setSettingsDiagnosticMessage('')
       setGlobalFeedback(nextReport.ok ? '诊断完成。' : '诊断完成，有项目需要处理。')
       tellPet(nextReport.ok ? 'success' : 'error', nextReport.ok ? '诊断完成。' : '诊断发现需要处理的项目。')
+      return nextReport
     } catch (error) {
       const message = error instanceof Error ? error.message : '诊断失败。'
       setSettingsDiagnosticMessage('')
       setGlobalFeedback(message)
       tellPet('error', message)
-    } finally {
-      setSettingsDiagnosticRunning(false)
+      return null
     }
   }
 
@@ -4282,6 +4405,7 @@ export function FloatingAssistantApp({
   useEffect(() => {
     if (!workspaceRequest) return
     setRequestedLedgerId(workspaceRequest.ledgerId)
+    setRequestedLedgerTitle(workspaceRequest.ledgerTitle)
     setRequestedLedgerRequestVersion(workspaceRequest.requestId ?? 0)
     setCreateLedgerRequested(Boolean(workspaceRequest.createLedger))
     if (workspaceRequest.createLedger) setCreateLedgerRequestVersion(workspaceRequest.requestId ?? 0)
@@ -4299,20 +4423,10 @@ export function FloatingAssistantApp({
   }, [loadVideoNoteArchives, workspaceRequest])
 
   async function chooseBilibiliConnectionMode(mode: AssistantPreferences['bilibiliConnectionMode']) {
-    const previous = preferencesRef.current
-    const next = createInitialAssistantPreferences({ ...previous, bilibiliConnectionMode: mode })
-    applyPreferenceSnapshot(next)
-    try {
-      if (!window.bilimiDesktop?.patchPreferences) {
-        throw new Error('当前版本无法应用 B 站连接方式')
-      }
-      const saved = await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
-      applyPreferenceSnapshot(createInitialAssistantPreferences(saved))
-      setSettingsLearningMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
-    } catch (error) {
-      applyPreferenceSnapshot(previous)
-      setSettingsLearningMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+    if (!window.bilimiDesktop?.patchPreferences) {
+      throw new Error('当前版本无法应用 B 站连接方式')
     }
+    await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
   }
 
   async function saveFavoriteLedgerEnabled(ledgerId: string, enabled: boolean) {
@@ -4355,7 +4469,8 @@ export function FloatingAssistantApp({
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid) return
     const current = preferencesRef.current.favoriteAccountPreferences?.[accountMid]
-    await persistPreferencePatch({
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferencesRef.current,
       favoriteAccountPreferences: {
         ...(preferencesRef.current.favoriteAccountPreferences ?? {}),
         [accountMid]: {
@@ -4365,7 +4480,26 @@ export function FloatingAssistantApp({
         }
       }
     })
-    await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(accountMid, { type: 'reclassify-favorite-configuration' })
+    if (window.bilimiDesktop?.writeDefaultFavoriteSystemEnabled) {
+      await window.bilimiDesktop.writeDefaultFavoriteSystemEnabled(accountMid, enabled)
+    } else {
+      await window.bilimiDesktop?.patchPreferences?.({
+        favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences
+      })
+    }
+    preferencesRef.current = nextPreferences
+    committedPreferencesRef.current = nextPreferences
+    setDefaultFavoriteSystemOverrides((currentOverrides) => ({
+      ...currentOverrides,
+      [accountMid]: enabled
+    }))
+    void window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(
+      accountMid,
+      { type: 'reclassify-favorite-configuration' }
+    ).catch(() => {
+      setGlobalFeedback('默认收藏夹设置已保存，但后台重分类失败；下次打开整理旧藏时会重新计算。')
+      tellPet('error', '默认收藏夹设置已保存，但后台重分类这次没有完成。')
+    })
   }
 
   function setTranscriptionModelForCurrentAccount(transcriptionModelId: TranscriptionModelId) {
@@ -4451,7 +4585,6 @@ export function FloatingAssistantApp({
     jumpToSettingsSection,
     syncSettingsJumpFromScroll,
     runSettingsDiagnostics,
-    setSettingsDiagnosticsExpanded,
     toggleDeepSeekEnabled,
     updateDeepSeekPreference,
     setDeepSeekApiKeyDraft,
@@ -4492,15 +4625,8 @@ export function FloatingAssistantApp({
     }
     return settingsActionsRef.current
   })
-  const connectionTestRunning = useMemo(
-    () =>
-      localDeepSeekTasks.some((task) => task.kind === 'connection-test') ||
-      remoteDeepSeekTasks.some((task) => task.kind === 'connection-test'),
-    [localDeepSeekTasks, remoteDeepSeekTasks]
-  )
   const settingsWorkspaceData = useMemo<SettingsWorkspaceData>(() => ({
     accountMid: resolvedSnapshot.accountMid,
-    connectionTestRunning,
     petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
@@ -4511,7 +4637,6 @@ export function FloatingAssistantApp({
     selectedTranscriptionModelId,
     settingsBodyRef,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -4521,7 +4646,6 @@ export function FloatingAssistantApp({
     transcriptionModelProgress,
     transcriptionModels
   }), [
-    connectionTestRunning,
     petWakeRunning,
     deepSeekApiKeyDraft,
     deepSeekKeyFieldStatus,
@@ -4531,7 +4655,6 @@ export function FloatingAssistantApp({
     resolvedSnapshot.accountMid,
     selectedTranscriptionModelId,
     settingsDiagnosticReport,
-    settingsDiagnosticRunning,
     settingsDiagnosticsExpanded,
     settingsJumpValue,
     settingsKeywordSuggestionView,
@@ -4696,7 +4819,7 @@ export function FloatingAssistantApp({
             currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
-            defaultFavoriteSystemEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+            defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
             onSaveLedgers={saveFavoriteLedgerRulesForPanel}
             onSaveLedgerEnabled={saveFavoriteLedgerEnabledForPanel}
@@ -4775,6 +4898,7 @@ export function FloatingAssistantApp({
                   )
                 }
                 videoCategory={videoCategory}
+                favoriteProvisioningHint={hasMissingFavoriteLedgers ? `最佳匹配：${videoCategory}（未备册）` : undefined}
                 currentAccountMid={resolvedSnapshot.accountMid}
                 videoTitle={resolvedVideoTitle}
                 videoAuthor={resolvedVideoAuthor}

@@ -43,6 +43,26 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getSnapshot).not.toHaveBeenCalled()
   })
 
+  it('passes persisted local draft ledger identities into summary projection', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })
+    const getLocalDraftLedgerIds = vi.fn().mockReturnValue(['custom-author-honker233'])
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary } as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      getLocalDraftLedgerIds
+    })
+
+    await ipcMain.invoke('favorite-repository:open-account', 7, '100')
+    await ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')
+
+    expect(getLocalDraftLedgerIds).toHaveBeenNthCalledWith(1, '100')
+    expect(getLibrarySummary).toHaveBeenNthCalledWith(1, '100', { localDraftLedgerIds: ['custom-author-honker233'] })
+    expect(getLibrarySummary).toHaveBeenNthCalledWith(2, '100', { localDraftLedgerIds: ['custom-author-honker233'] })
+  })
+
   it('returns the local summary before deferred account-open recovery completes', async () => {
     const ipcMain = new FakeIpcMain()
     const recovery = deferred<void>()
@@ -105,7 +125,7 @@ describe('registerFavoriteRepositoryIpc', () => {
     const service = { getSnapshot: vi.fn().mockResolvedValue({
       folders: [{ id: 'bilibili:41', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '41', syncState: 'bound' }],
       physicalShards: []
-    }) }
+    }), invalidateLibraryReadCache: vi.fn() }
     registerFavoriteRepositoryIpc({
       ipcMain, service: service as never, isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100'), dismissOrdinaryFolder
@@ -114,6 +134,7 @@ describe('registerFavoriteRepositoryIpc', () => {
     await expect(ipcMain.invoke('favorite-repository:dismiss-ordinary-folder', 7, '100', 'bilibili:41'))
       .resolves.toEqual({ status: 'succeeded', remoteFolderId: '41' })
     expect(dismissOrdinaryFolder).toHaveBeenCalledWith('100', '41')
+    expect(service.invalidateLibraryReadCache).toHaveBeenCalledWith('100')
   })
 
   it('refuses to hide a folder through the ordinary path once its remote id belongs to a Bilimi work folder', async () => {
@@ -151,6 +172,20 @@ describe('registerFavoriteRepositoryIpc', () => {
     await expect(ipcMain.invoke('favorite-library:set-local-placements', 7, '100', [
       { aid: 1, folderIds: ['bilimi:music:001'] }
     ], 4, false)).rejects.toThrow('logical folder')
+  })
+
+  it('forwards permanent recycle clearing to the dedicated local lifecycle command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const clearRecycledFavorite = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [9] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: {} as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      commandService: { clearRecycledFavorite } as never
+    })
+
+    await expect(ipcMain.invoke('favorite-library:clear-recycled', 7, '100', 9, 4))
+      .resolves.toMatchObject({ status: 'succeeded', affectedAids: [9] })
+    expect(clearRecycledFavorite).toHaveBeenCalledWith('100', 9, 4)
   })
 
   it('requires a trusted, account-bound second confirmation before cancelling explicitly previewed Bilibili favorites', async () => {
@@ -639,6 +674,8 @@ describe('registerFavoriteRepositoryIpc', () => {
           { video: { aid: 2 }, pendingStates: ['unsynced', 'continuation'] }
         ]
       })
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'recycle' }, { limit: 10 })
+    expect(service.getLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'recycle' }, { limit: 10 })
   })
 
   it('forwards validated global library page, query, filter, and sort options to the main repository reader', async () => {
@@ -650,11 +687,11 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
 
     await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
-      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
     })
 
     expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
-      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sort: 'title-asc'
+      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
     })
   })
 
@@ -674,6 +711,9 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
     await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
       limit: 50, transcriptionFilters: ['unknown']
+    })).rejects.toThrow('Favorite library page options are invalid.')
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, sourceFilter: 'unknown'
     })).rejects.toThrow('Favorite library page options are invalid.')
   })
 

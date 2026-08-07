@@ -66,6 +66,13 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings[hidden] { display: none;')
   })
 
+  it('does not keep the transparent desktop pet repainting forever while idle or working', () => {
+    expectStyleSnippet('.layered-pet { position: relative; z-index: 1; display: block;')
+    expectStyleSnippet('animation: layered-pet-idle 3.8s ease-in-out 2;')
+    expectStyleSnippet('.layered-pet[data-pet-motion="working"] { animation-name: layered-pet-working; animation-duration: 1s; animation-iteration-count: 3;')
+    expectStyleSnippet('.layered-pet__layer--effect { animation: layered-pet-effect 1.2s ease-in-out 2;')
+  })
+
   it('keeps bordered controls rounded instead of square-cornered', () => {
     expect(normalizedStyles).not.toMatch(/border-(?:top|bottom)-(?:left|right)-radius:\s*0\b/)
 
@@ -483,6 +490,9 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__deepseek-archive-progress-copy { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow: visible;'
     )
     expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details--organization { margin-top: 0; padding-top: 0; border-top: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details--organization {')
+    expectStyleSnippet('max-height: min(42vh, 300px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58);')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:hover:not(:disabled), .favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__deepseek-result-trigger strong')
@@ -891,6 +901,8 @@ describe('renderer porcelain theme styles', () => {
   it('styles the old favorites guide as a step-based review flow', () => {
     expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-title-row { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__scan-metrics strong { min-width: 0; text-align: right; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__source-count { min-width: 0; text-align: right; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: 20px minmax(0, 1fr) 40px 64px;')
     expect(compactStyles).not.toContain('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: minmax(0, 1fr) 52px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
@@ -912,12 +924,18 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] article { grid-template-rows: 60px 28px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] span { min-height: 60px;')
     expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-overview { display: grid; gap: 7px; min-width: 0; overflow: hidden;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets { display: grid; gap: 0; width: calc(100% + 16px); margin-inline: -8px; margin-bottom: -8px; max-height: 280px; overflow-x: hidden; overflow-y: auto;')
+    expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.28);')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__whole-run-targets {\n  border-bottom: 1px solid rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article { display: grid; gap: 5px; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 7px 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article:last-child { padding-bottom: 0; }')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__step-note {\n  margin: 0;\n  color: var(--porcelain-muted);')
     expectStyleSnippet('.favorite-ledger-panel__step-divider { border: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28);')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__scan-candidates')
-    expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__candidates article { min-width: 0; min-height: 42px; padding: 6px 7px;')
     expectStyleSnippet('.favorite-ledger-panel__candidates label, .favorite-ledger-panel__preview label { display: grid; grid-template-columns: auto minmax(0, 1fr);')
@@ -949,8 +967,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0; min-height: 32px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-menu { position: fixed; z-index: 130; top: calc(100% + 4px); right: auto; left: auto;')
-    expectStyleSnippet('border: 2px solid #101820; border-radius: 6px; background: #f7fbff;')
-    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto; display: grid; width: min(220px, calc(100vw - 40px)); max-height: 240px; box-sizing: border-box; overflow: auto; border: 2px solid #101820;')
+    expectStyleSnippet('width: min(360px, calc(100vw - 16px)); max-height: min(52vh, 360px); box-sizing: border-box; display: grid; gap: 2px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); scrollbar-gutter: stable;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar { width: 8px; }')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar-track { background: rgb(226 238 255 / .58); }')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #7ea8d8; background-clip: padding-box; }')
+    expectStyleSnippet('border: 1px solid #c9dcf5; border-radius: 8px; background: #ffffff;')
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto; display: grid; width: min(220px, calc(100vw - 40px)); max-height: 240px; box-sizing: border-box; overflow: auto; border: 1px solid #c9dcf5;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-arrow { font-size: 10px; line-height: 1;')
@@ -1057,6 +1079,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('background: var(--porcelain-surface);')
   })
 
+  it('uses the amber alert treatment for unclassified archive guidance', () => {
+    expectStyleSnippet('.favorite-ledger-panel__confirm-warning { margin: 0; padding: 8px 10px; border: 1px solid rgba(188, 126, 0, 0.42); border-radius: 8px; background: #fff7d6; color: #8a5700;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__confirm-warning { color: var(--porcelain-danger')
+  })
+
   it('contains narrow settings content without a horizontal workspace scrollbar', () => {
     expectStyleSnippet('.assistant-settings__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;')
     expectStyleSnippet('.assistant-settings__group { display: grid; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;')
@@ -1068,6 +1095,12 @@ describe('renderer porcelain theme styles', () => {
   it('keeps archive strategy help text compact', () => {
     expectStyleSnippet('.assistant-settings__group--archive { gap: 6px;')
     expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
+  })
+
+  it('themes the custom old-favorite batch size without crowding its radio control', () => {
+    expectStyleSnippet('.assistant-settings__batch-size-field { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__batch-size-input { box-sizing: border-box; width: 88px; min-height: 32px; border: 1px solid rgba(31, 99, 181, 0.32);')
+    expectStyleSnippet('.assistant-settings__batch-size-input:focus-visible { outline: 2px solid rgba(45, 134, 199, 0.32);')
   })
 
   it('keeps correction learning and keyword suggestion settings compact', () => {
@@ -1115,6 +1148,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('cursor: wait')
     expectStyleSnippet('.video-notes button:disabled { cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__diagnostics-head button:disabled, .assistant-settings > header button:disabled { cursor: not-allowed;')
+  })
+
+  it('shows a progress cursor only on the active backup button', () => {
+    expectStyleSnippet(".favorite-ledger-panel .assistant-action-button[aria-busy='true'] { cursor: progress; opacity: 0.72;")
+    expect(normalizedStyles).not.toContain(".favorite-ledger-panel[aria-busy='true']")
   })
 })
 

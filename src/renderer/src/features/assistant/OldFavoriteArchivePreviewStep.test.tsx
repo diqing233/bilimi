@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('removes a disabled ordinary ledger from the current archive preview', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], segments: [],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['custom'], source: 'system-high' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={[
+      { id: 'custom', displayName: '自建收藏夹', keywords: [], enabled: true, priority: 0, isDefault: false }
+    ]} enabledLedgerIds={new Set()} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+    expect(screen.queryByRole('group', { name: '自建收藏夹 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
+  })
   it('keeps the current card tree mounted while a multi-batch archive switches to its compact whole-run overview', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
@@ -41,6 +58,36 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(within(screen.getByTestId('whole-run-archive-view')).getByText('预计归档 500 条')).toBeInTheDocument()
     expect(screen.getByTestId('current-archive-view')).toHaveAttribute('hidden')
     expect(screen.getByText('Current card stays mounted')).toBeInTheDocument()
+  })
+
+  it('labels bilimi staging as unclassified, shows an archive estimate, and omits scan-wait copy', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 500, readiness: 'ready' as const, completedTagItemCount: 500, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 500, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 500 }
+      ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 0,
+        sourceFolders: [], recommendationCounts: [], processedItemCount: 500, classifiedItemCount: 392,
+        unmatchedItemCount: 108, waitingItemCount: 500,
+        archiveTargets: [{ ledgerId: 'inbox', itemCount: 108, segmentCounts: [{ segmentId: 'segment-1', count: 108 }] }]
+      }
+    }
+
+    render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
+    const target = screen.getByText('bilimi·暂存').closest('article')
+    expect(screen.getByText('（未分类）')).toBeInTheDocument()
+    expect(screen.getByText('预计归档 108 条')).toBeInTheDocument()
+    expect(target).toHaveAttribute('title', expect.stringContaining('保存到本地收藏库时会存入 bilimi·暂存'))
+    expect(screen.queryByText('默认不同步到 B 站')).not.toBeInTheDocument()
+    expect(screen.queryByText('等待扫描 500 条')).not.toBeInTheDocument()
   })
 
   it('groups 2000 preview items once while preserving source order', () => {
@@ -170,6 +217,24 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
     expect(screen.queryByRole('button', { name: '自动分类当前分段' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '新建收藏夹后重新归类' })).not.toBeInTheDocument()
+  })
+
+  it('marks the unavailable DeepSeek helper hint as an attention warning', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByText('请先到设置开启 DeepSeek 后再使用辅助整理。'))
+      .toHaveClass('favorite-ledger-panel__deepseek-archive-disabled--warning')
   })
 
   it('places a full-width dashed divider between DeepSeek organization and change history', () => {
@@ -421,6 +486,52 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByRole('button', { name: '恢复初始改动' })).not.toBeInTheDocument()
   })
 
+  it('shows each DeepSeek video move with its title and before-to-after folders', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1, 2], items: [
+          { aid: 1, title: 'Video Alpha', sourceFolderIds: ['source'] },
+          { aid: 2, title: 'Video Beta', sourceFolderIds: ['source'] }
+        ] },
+        classifications: {
+          '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' },
+          '2': { aid: 2, targetLedgerIds: ['knowledge'], source: 'deepseek' }
+        },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 1, length: 1, entries: [{
+          cursor: 1, source: 'deepseek', changeCount: 2, targetLedgerIds: ['music', 'knowledge'],
+          summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], reason: 'DeepSeek 整理', movedCount: 2,
+            details: [
+              { aid: 1, title: 'Video Alpha', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'] },
+              { aid: 2, title: 'Video Beta', beforeTargetLedgerIds: ['inbox'], afterTargetLedgerIds: ['knowledge'] }
+            ]
+          }
+        }] }
+      }}
+      ledgers={[
+        { id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false },
+        { id: 'knowledge', displayName: 'Knowledge', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }
+      ]}
+      loading={false} deepSeekAvailable deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    const detailSummary = screen.getByText('查看整理明细（2 条）')
+    expect(detailSummary.closest('details')).not.toHaveAttribute('open')
+    expect(screen.queryByText('Video Alpha：未分类 → Music')).not.toBeInTheDocument()
+
+    fireEvent.click(detailSummary)
+
+    expect(detailSummary.closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('Video Alpha：未分类 → Music')).toBeInTheDocument()
+    expect(screen.getByText('Video Beta：暂存 → Knowledge')).toBeInTheDocument()
+  })
+
   it('does not show an original category when the current classification is already at the durable baseline', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
@@ -591,6 +702,147 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByText('1 条等待处理')).toBeInTheDocument()
   })
 
+  it('keeps settled current-run details collapsed without exposing unprocessed videos', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1, 2], items: [
+          { aid: 1, title: 'Processed', sourceFolderIds: ['source'] },
+          { aid: 2, title: 'Not scanned', sourceFolderIds: ['source'] }
+        ] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading deepSeekAvailable
+      deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段…', progress: {
+        totalChunks: 2, completedChunks: 1, totalVideoCount: 2, successfulVideoCount: 1, failedVideoCount: 0,
+        processedItems: [{ aid: 1, title: 'Processed', beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['music'], changed: false }]
+      } }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.queryByText(/本次已处理明细/)).not.toBeInTheDocument()
+    const detailSummary = screen.getByText('查看整理明细（1 条）')
+    const details = detailSummary.closest('details')
+    expect(details).not.toHaveAttribute('open')
+    expect(details).not.toHaveTextContent('Processed：保持原分类（Music）')
+    expect(details).not.toHaveTextContent('Not scanned')
+    fireEvent.click(detailSummary)
+    expect(details).toHaveTextContent('Processed：保持原分类（Music）')
+  })
+
+  it('deduplicates current and historical DeepSeek details by aid with the current result taking precedence', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current title', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 1, length: 1, entries: [{
+          cursor: 1, source: 'deepseek', changeCount: 1, targetLedgerIds: ['music'],
+          summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], reason: 'DeepSeek 整理', movedCount: 1,
+            details: [{ aid: 1, title: 'Historical title', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'] }]
+          }
+        }] }
+      }}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading deepSeekAvailable
+      deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段…', progress: {
+        totalChunks: 2, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0,
+        processedItems: [{ aid: 1, title: 'Current title', beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['music'], changed: false }]
+      } }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.queryByText(/本次已处理明细/)).not.toBeInTheDocument()
+    const detailSummary = screen.getByText('查看整理明细（1 条）')
+    const details = detailSummary.closest('details')
+    expect(details).not.toHaveAttribute('open')
+    expect(details).not.toHaveTextContent('Current title：保持原分类（Music）')
+    fireEvent.click(detailSummary)
+    expect(details).toHaveTextContent('Current title：保持原分类（Music）')
+    expect(details).not.toHaveTextContent('Historical title')
+  })
+
+  it('keeps only the newest historical DeepSeek detail for a repeated aid', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 2, length: 2, entries: [{
+          cursor: 2, source: 'deepseek', changeCount: 1, targetLedgerIds: ['knowledge'],
+          summary: {
+            beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['knowledge'], reason: 'DeepSeek 整理', movedCount: 1,
+            details: [{ aid: 1, title: 'Newest title', beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['knowledge'] }]
+          }
+        }, {
+          cursor: 1, source: 'deepseek', changeCount: 1, targetLedgerIds: ['music'],
+          summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], reason: 'DeepSeek 整理', movedCount: 1,
+            details: [{ aid: 1, title: 'Old title', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'] }]
+          }
+        }] }
+      }}
+      ledgers={[
+        { id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false },
+        { id: 'knowledge', displayName: 'Knowledge', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }
+      ]}
+      loading={false} deepSeekAvailable deepSeekFeedback={{ status: 'completed', message: 'DeepSeek 整理完成' }}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    const detailSummary = screen.getByText('查看整理明细（1 条）')
+    fireEvent.click(detailSummary)
+    expect(screen.getByText('Newest title：Music → Knowledge')).toBeInTheDocument()
+    expect(screen.queryByText(/Old title/)).not.toBeInTheDocument()
+  })
+
+  it('filters DeepSeek detail count to the current batch while keeping all batches in the whole-run view', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current batch', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const props = {
+      snapshot,
+      ledgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false, ruleType: 'keyword' as const }],
+      loading: false,
+      deepSeekAvailable: true,
+      deepSeekFeedback: { status: 'completed' as const, message: 'DeepSeek done', progress: {
+        totalChunks: 2, completedChunks: 2, totalVideoCount: 2, successfulVideoCount: 2, failedVideoCount: 0,
+        processedItems: [
+          { aid: 1, title: 'Current batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true },
+          { aid: 2, title: 'Other batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }
+        ]
+      } },
+      onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onMoveHistoryCursor: vi.fn(),
+      onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn()
+    }
+    render(<OldFavoriteArchivePreviewStep {...props} />)
+    expect(screen.getByText('查看整理明细（1 条）')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
+    expect(screen.getByText('查看整理明细（2 条）')).toBeInTheDocument()
+  })
+
   it('does not present failed videos as fully applied', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
@@ -681,5 +933,34 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByRole('button', { name: '重试失败批次' })).not.toBeInTheDocument()
     completedRender.unmount()
     expect(screen.queryByRole('button', { name: 'DeepSeek 整理中' })).not.toBeInTheDocument()
+  })
+
+  it('keeps existing organization details collapsed while a new DeepSeek run exposes cancellation', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Alpha', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 1, length: 1, entries: [{
+          cursor: 1, source: 'deepseek', changeCount: 1, targetLedgerIds: ['music'],
+          summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], reason: 'DeepSeek 整理', movedCount: 1,
+            details: [{ aid: 1, title: 'Alpha', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'] }]
+          }
+        }] }
+      }}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading={false} deepSeekAvailable
+      deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前批次…' }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onCancelDeepSeek={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '取消整理' })).toBeVisible()
+    expect(screen.getByText('查看整理明细（1 条）').closest('details')).not.toHaveAttribute('open')
   })
 })

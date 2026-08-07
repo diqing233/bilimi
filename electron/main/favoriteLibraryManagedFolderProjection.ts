@@ -1,5 +1,6 @@
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
 import { isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
+import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
 import type { FavoriteLedger } from '../../src/shared/types'
 
 export type FavoriteLibraryManagedFolderProjection = {
@@ -17,6 +18,36 @@ export type FavoriteLibraryManagedFolderProjection = {
 type ProjectionRepository = {
   getSnapshot(accountMid: string): Promise<AccountFavoriteRepositorySnapshot>
   commit(accountMid: string, command: FavoriteRepositoryCommand): Promise<unknown>
+}
+
+function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositorySnapshot, ledgers: FavoriteLedger[]) {
+  const configuredBindings = new Set(ledgers.flatMap((ledger) => {
+    const remoteFolderId = ledger.bilibiliFolderId?.trim()
+    return remoteFolderId ? [`${ledger.id}\u0000${remoteFolderId}`] : []
+  }))
+  const boundLogicalIdByRemoteId = new Map(snapshot.physicalShards
+    .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId &&
+      configuredBindings.has(`${shard.logicalLedgerId}\u0000${shard.remoteFolderId}`))
+    .map((shard) => [shard.remoteFolderId!, shard.logicalLedgerId]))
+  const pendingByLogicalId = new Map<string, typeof snapshot.physicalShards>()
+  for (const shard of snapshot.physicalShards) {
+    if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'pending-reconcile') continue
+    pendingByLogicalId.set(shard.logicalLedgerId, [...(pendingByLogicalId.get(shard.logicalLedgerId) ?? []), shard])
+  }
+  return [...pendingByLogicalId]
+    .filter(([logicalLedgerId, shards]) => {
+      const logicalFolderId = `bilimi-logical:${logicalLedgerId}`
+      if ((snapshot.memberships[`bilimi-logical:${logicalLedgerId}`] ?? []).length) return false
+      if (Object.values(snapshot.positions ?? {}).some((position) => position.localDesiredFolderIds.includes(logicalFolderId))) return false
+      if (shards.some((shard) => (snapshot.memberships[shard.folderId] ?? []).length)) return false
+      if (shards.some((shard) => (shard.knownRemoteFolderIds?.length ?? 0) !== 1)) return false
+      const knownRemoteFolderIds = [...new Set(shards.flatMap((shard) => shard.knownRemoteFolderIds ?? []))]
+      if (knownRemoteFolderIds.length !== 1) return false
+      const boundLogicalLedgerId = boundLogicalIdByRemoteId.get(knownRemoteFolderIds[0])
+      return Boolean(boundLogicalLedgerId && boundLogicalLedgerId !== logicalLedgerId)
+    })
+    .map(([logicalLedgerId]) => logicalLedgerId)
+    .sort()
 }
 
 function stableCustomLedgerId(title: string) {
@@ -44,7 +75,6 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
   const dismissed = new Set(Array.from(input.dismissedRemoteFolderIds, (id) => id.trim()).filter(Boolean))
-  const ledgersByTitle = new Map(input.ledgers.map((ledger) => [ledger.displayName.trim(), ledger]))
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
@@ -52,11 +82,14 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
 
   for (const folder of input.snapshot.folders) {
     if (folder.kind !== 'bilibili' || !folder.remoteFolderId || dismissed.has(folder.remoteFolderId)) continue
+    if (resolveFavoriteFolderCapabilities(folder).identity !== 'ambiguous-bilimi-like') continue
     const title = folder.title.trim()
     if (!isBilimiManagedLedgerName(title)) continue
     const { baseTitle, shardNumber } = splitShardTitle(title)
     const configuredById = configuredLedgersByRemoteId.get(folder.remoteFolderId)
-    const ledger = configuredById ?? ledgersByTitle.get(baseTitle)
+    // A matching display name is not binding evidence. Only the persisted
+    // remote id can make this physical folder an established work folder.
+    const ledger = configuredById
     const logicalTitle = ledger?.displayName.trim() || baseTitle
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     const bound = Boolean(configuredById && configuredById.id === ledger?.id && shardNumber === 1)
@@ -97,7 +130,17 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   isDismissed: (remoteFolderId: string) => boolean
   now?: () => string
 }) {
-  const snapshot = await input.repository.getSnapshot(input.accountMid)
+  let snapshot = await input.repository.getSnapshot(input.accountMid)
+  for (const logicalLedgerId of emptyCustomPendingDuplicateLedgerIds(snapshot, input.ledgers)) {
+    await input.repository.commit(input.accountMid, {
+      id: `favorite-library:remove-duplicate-managed:${logicalLedgerId}:${snapshot.revision}`,
+      accountMid: input.accountMid,
+      issuedAt: input.now?.() ?? new Date().toISOString(),
+      type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: `bilimi-logical:${logicalLedgerId}` }
+    })
+    snapshot = await input.repository.getSnapshot(input.accountMid)
+  }
   const candidates = planFavoriteLibraryManagedFolderProjection({
     snapshot,
     ledgers: input.ledgers,

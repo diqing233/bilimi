@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type DownloadFormat = 'markdown' | 'word'
 
@@ -23,7 +24,7 @@ export function CopySplitButton({
   options,
   onCopy
 }: CopySplitButtonProps): React.JSX.Element {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useExclusiveMenu()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuDisabled = options.every((option) => option.disabled)

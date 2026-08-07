@@ -4,6 +4,7 @@ import {
   completeWorkspaceScan,
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
+  projectOldFavoriteInventoryMetrics,
   recordDiscoveredFavorites,
   redoWorkspaceChange,
   setWorkspaceReorganizationMode,
@@ -11,6 +12,55 @@ import {
 } from './oldFavoriteWorkspace'
 
 describe('old favorite workspace', () => {
+  it('projects Bilibili relationship totals separately from unique organization lifecycle counts', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'complete',
+      sourceFolders: [
+        { id: 'ordinary-a', title: '默认收藏夹', itemCount: 3, isBilimiWorkFolder: false, selected: true },
+        { id: 'ordinary-b', title: '自建收藏夹', itemCount: 2, isBilimiWorkFolder: false, selected: false },
+        { id: 'managed', title: 'bilimi·知识学习', itemCount: 2, isBilimiWorkFolder: true, selected: false }
+      ],
+      items: [
+        { aid: 1, sourceFolderIds: ['ordinary-a', 'ordinary-b'], protected: false, unavailable: false },
+        { aid: 2, sourceFolderIds: ['ordinary-a', 'managed'], protected: true, unavailable: false },
+        { aid: 3, sourceFolderIds: ['ordinary-a'], protected: false, unavailable: true },
+        { aid: 4, sourceFolderIds: ['ordinary-b'], protected: false, unavailable: false },
+        { aid: 5, sourceFolderIds: ['managed'], protected: true, unavailable: false }
+      ]
+    })
+
+    expect(projection).toMatchObject({
+      authority: 'complete',
+      relationshipCount: 7,
+      plannedAidCount: 1,
+      protectedAidCount: 2,
+      unavailableAidCount: 1
+    })
+    expect(projection.sourceFolders).toEqual([
+      { id: 'ordinary-a', title: '默认收藏夹', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, confirmed: true },
+      { id: 'ordinary-b', title: '自建收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, confirmed: true },
+      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, confirmed: true }
+    ])
+  })
+
+  it('keeps incomplete Bilibili folder observations pending instead of projecting zero facts', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'incomplete',
+      sourceFolders: [
+        { id: 'managed', title: 'bilimi·知识学习', itemCount: 332, isBilimiWorkFolder: true, selected: false, observationComplete: false }
+      ],
+      items: []
+    })
+
+    expect(projection.sourceFolders[0]).toMatchObject({
+      relationshipCount: 332,
+      confirmed: false,
+      plannedAidCount: null,
+      protectedAidCount: null,
+      unavailableAidCount: null
+    })
+  })
+
   it('creates an account-scoped workspace in scanning state before a baseline exists', () => {
     const workspace = createOldFavoriteWorkspace({
       accountMid: '00100',
@@ -131,15 +181,38 @@ describe('old favorite workspace', () => {
     })
   })
 
-  it('rejects classification changes for a frozen segment', () => {
+  it('lets the latest classification operation replace any earlier source', () => {
+    const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
+    const manual = applyWorkspaceClassificationBatch(preview, {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const deepSeek = applyWorkspaceClassificationBatch(manual, {
+      source: 'deepseek', assignments: [{ aid: 1, targetLedgerIds: ['deepseek'] }]
+    })
+    const automatic = applyWorkspaceClassificationBatch(deepSeek, {
+      source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['recommended'] }]
+    })
+
+    expect(automatic.classifications['1']).toMatchObject({
+      targetLedgerIds: ['recommended'], source: 'system-high'
+    })
+    expect(automatic.history).toHaveLength(3)
+  })
+
+  it('reopens a frozen segment when its classification is edited', () => {
     const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
     const frozen = freezeWorkspaceSegment(preview, 'segment-1')
 
-    expect(() => applyWorkspaceClassificationBatch(frozen, {
+    const reopened = applyWorkspaceClassificationBatch(frozen, {
       source: 'manual',
       assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
-    })).toThrow('Old favorite workspace is frozen.')
+    })
+
+    expect(reopened.status).toBe('previewing')
+    expect(reopened.segments[0]?.status).toBe('previewing')
+    expect(reopened.classifications['1']).toMatchObject({ targetLedgerIds: ['music'] })
   })
 
   it('rejects undo and redo after a segment has frozen the classification plan', () => {
@@ -162,6 +235,23 @@ describe('old favorite workspace', () => {
 
     expect(preview.segments.map((segment) => segment.aids.length)).toEqual([1_000, 500])
     expect(preview.hasMultipleSegments).toBe(true)
+  })
+
+  it('preserves explicitly sealed streaming segment assignment order when completing a scan', () => {
+    const scanning = createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 500
+    })
+    const completed = completeWorkspaceScan(scanning, {
+      revision: 1,
+      aids: [1, 2, 3, 4],
+      sealedSegments: [
+        { id: 'segment-1', index: 0, aids: [3, 1] },
+        { id: 'segment-2', index: 1, aids: [4, 2] }
+      ]
+    })
+
+    expect(completed.plannedAids).toEqual([1, 2, 3, 4])
+    expect(completed.segments.map((segment) => segment.aids)).toEqual([[3, 1], [4, 2]])
   })
 
   it('rejects physical segment sizes outside the supported 500 to 2000 range', () => {

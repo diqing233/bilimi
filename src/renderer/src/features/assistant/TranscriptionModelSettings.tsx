@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import type { TranscriptionGpuProbe, TranscriptionModelId, TranscriptionModelInstallation, TranscriptionModelInstallProgress } from '@shared/types'
 
 type Props = {
@@ -74,7 +75,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
   const [installationError, setInstallationError] = useState<string | null>(null)
   const [confirmationModel, setConfirmationModel] = useState<TranscriptionModelInstallation | null>(null)
   const [deleteConfirmationModel, setDeleteConfirmationModel] = useState<TranscriptionModelInstallation | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useExclusiveMenu()
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; maxHeight: number }>()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)

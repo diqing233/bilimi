@@ -53,6 +53,14 @@ describe('toDeepSeekFeedbackView', () => {
     })
   })
 
+  it('keeps cancellation available while later all-batch segments wait for enrichment', () => {
+    expect(toDeepSeekFeedbackView({ status: 'waiting', message: 'Waiting for later segments', failures: [] }, false)).toMatchObject({
+      kind: 'running',
+      action: 'cancel',
+      summary: 'Waiting for later segments'
+    })
+  })
+
   it('reports applied videos separately from failed videos', () => {
     const view = toDeepSeekFeedbackView({
       status: 'failed',

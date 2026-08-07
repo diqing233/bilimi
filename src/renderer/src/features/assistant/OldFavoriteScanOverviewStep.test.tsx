@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
@@ -145,11 +145,16 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('正在检查 B 站收藏读取是否已恢复')
   })
 
-  it('defaults a multi-batch scan to the compact whole-run overview and keeps single batches unchanged', () => {
+  it('keeps global compact inventory facts stable while current and whole-run organization scopes remain distinct', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
       segmentSize: 500, hasMultipleSegments: true,
       scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 501, scannedItemCount: 501, taggedItemCount: 500, untaggedItemCount: 1 },
+      inventoryMetrics: {
+        authority: 'complete' as const, relationshipCount: 501, plannedAidCount: 500, protectedAidCount: 0, unavailableAidCount: 1,
+        sourceFolders: [{ id: 'source', title: '默认收藏夹', relationshipCount: 501, plannedAidCount: 500, protectedAidCount: 0, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, confirmed: true }]
+      },
+      currentSegmentMetrics: { plannedAidCount: 500, sourceFolders: [{ id: 'source', plannedAidCount: 1 }] },
       continuationCount: 0,
       sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 501, invalidItemCount: 1, isBilimiWorkFolder: false, selected: true }],
       segments: [
@@ -158,6 +163,13 @@ describe('OldFavoriteScanOverviewStep', () => {
       ],
       currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current', sourceFolderIds: ['source'] }] },
       classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+      tagEnrichment: {
+        status: 'running' as const, totalItemCount: 3, completedItemCount: 0, pendingItemCount: 3, failedItemCount: 0,
+        scopes: {
+          currentSegment: { totalItemCount: 500, completedItemCount: 498, pendingItemCount: 2, failedItemCount: 0, reusedTagItemCount: 498, fetchedTagItemCount: 0, confirmedUntaggedItemCount: 0 },
+          wholeRun: { totalItemCount: 501, completedItemCount: 498, pendingItemCount: 3, failedItemCount: 0, reusedTagItemCount: 498, fetchedTagItemCount: 0, confirmedUntaggedItemCount: 0 }
+        }
+      },
       overview: {
         available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1,
         sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 500, invalidItemCount: 1 }],
@@ -174,14 +186,70 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('group', { name: '扫描概览视图' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹500')
+    expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理500')
+    expect(screen.getByText('标签补取进行中：已处理 498 / 501 条。')).toBeInTheDocument()
+    expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签498')
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹501500')
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹1')
+    expect(screen.queryByText('已汇总 1/2 批')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('本批待整理')).toHaveTextContent('本批待整理500')
+    expect(screen.getByText('标签补取进行中：已处理 498 / 500 条。')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('本批来源关系')
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹5011')
 
     rendered.rerender(<OldFavoriteScanOverviewStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
     expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
+  })
+
+  it('shows unique current-batch video metrics while retaining duplicated source relationships', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 2_767, scannedItemCount: 2_767, taggedItemCount: 94, untaggedItemCount: 2_458 },
+        inventoryMetrics: {
+          authority: 'complete', relationshipCount: 2_866, plannedAidCount: 2_552, protectedAidCount: 0, unavailableAidCount: 215,
+          sourceFolders: [
+            { id: 'default', title: '默认收藏夹', relationshipCount: 1_273, plannedAidCount: 1_262, protectedAidCount: 0, unavailableAidCount: 11, selected: true, isBilimiWorkFolder: false, confirmed: true },
+            { id: 'duplicate', title: '重复来源', relationshipCount: 1_593, plannedAidCount: 1_290, protectedAidCount: 0, unavailableAidCount: 204, selected: true, isBilimiWorkFolder: false, confirmed: true }
+          ]
+        },
+        currentSegmentMetrics: {
+          plannedAidCount: 500,
+          sourceFolders: [
+            { id: 'default', plannedAidCount: 500 },
+            { id: 'duplicate', plannedAidCount: 5 }
+          ]
+        },
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'default', title: '默认收藏夹', itemCount: 1_273, invalidItemCount: 11, isBilimiWorkFolder: false, selected: true },
+          { id: 'duplicate', title: '重复来源', itemCount: 1_593, invalidItemCount: 204, isBilimiWorkFolder: false, selected: true }
+        ],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 500, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 500 }
+        ],
+        currentSegment: { id: 'segment-2', aids: [501], items: [{ aid: 501, title: 'Current', sourceFolderIds: ['default', 'duplicate'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      viewScope="current"
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const metrics = screen.getByLabelText('本批整理统计')
+    expect(metrics).toHaveTextContent('本批视频500')
+    expect(metrics).toHaveTextContent('本批待整理500')
+    expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
+    expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()
+    const table = screen.getByRole('table', { name: '用户收藏夹' })
+    expect(within(table).getByRole('columnheader', { name: '总数（2866）' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: '本批来源关系（505）' })).toBeInTheDocument()
+    expect(within(table).queryByRole('button', { name: '本批来源关系（505）' })).not.toBeInTheDocument()
   })
 
   it('keeps the scan view mounted when a scan reports a rebuild-required recovery state', () => {
@@ -224,6 +292,36 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 3 条已保护视频')
   })
 
+  it('renders the four canonical inventory metrics with their exact counting tooltips', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 999 },
+        inventoryMetrics: {
+          authority: 'complete', relationshipCount: 7, plannedAidCount: 1, protectedAidCount: 2, unavailableAidCount: 1,
+          sourceFolders: []
+        },
+        protectedAidCount: 88, continuationCount: 66, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数7')
+    expect(screen.getByLabelText('扫描总数')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
+    expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理1')
+    expect(screen.getByLabelText('本轮待整理')).toHaveAttribute('title', '已选来源中去重后，扣除失效视频和已保护视频的数量。')
+    expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过2')
+    expect(screen.getByLabelText('已保护跳过')).toHaveAttribute('title', '有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。')
+    expect(screen.getByLabelText('失效视频')).toHaveTextContent('失效视频1')
+    expect(screen.getByLabelText('失效视频')).toHaveAttribute('title', '已确认失效或账号注销视频的去重数量，不参与整理和分类。')
+    expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 2 条已保护视频')
+    expect(screen.queryByText(/待续新增/)).not.toBeInTheDocument()
+  })
+
   it('separates source, pending, protected, and tag-read counts without calling empty cached items confirmed untagged', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
@@ -241,14 +339,14 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('来源总数246')
+    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('扫描总数246')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮待整理25')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('已保护跳过221')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签0')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签25')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮确认无标签0')
     expect(screen.getByText('扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('全选·用户收藏夹（1）总数（246）已选来源⇄（246）默认收藏夹246246')
+    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('全选·用户收藏夹（1）总数（246）本轮待整理⇄（246）默认收藏夹246246')
   })
 
   it('shows tag enrichment once and keeps its actions in one equal-width row', () => {
@@ -351,7 +449,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(selectSourceFolders).toHaveBeenCalledWith([])
   })
 
-  it('toggles the source summary column between selected and unavailable counts', () => {
+  it('keeps legacy source snapshots compatible with the three projected source metrics', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -373,15 +471,96 @@ describe('OldFavoriteScanOverviewStep', () => {
     const rows = screen.getAllByRole('row').slice(-2)
     expect(screen.getByText('全选')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: '总数（5）' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '已选来源（3）' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '已选来源（3）' })).toHaveTextContent('⇄')
+    expect(screen.getByRole('button', { name: '本轮待整理（3）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '本轮待整理（3）' })).toHaveTextContent('⇄')
     expect(rows[0]).toHaveTextContent('收藏夹 A33')
+    expect(rows[1]).toHaveTextContent('收藏夹 B2—')
+
+    fireEvent.click(screen.getByRole('button', { name: '本轮待整理（3）' }))
+
+    expect(screen.getByRole('button', { name: '已保护（0）' })).toBeInTheDocument()
+    expect(rows[0]).toHaveTextContent('收藏夹 A30')
     expect(rows[1]).toHaveTextContent('收藏夹 B20')
 
-    fireEvent.click(screen.getByRole('button', { name: '已选来源（3）' }))
+    fireEvent.click(screen.getByRole('button', { name: '已保护（0）' }))
 
     expect(screen.getByRole('button', { name: '失效视频（3）' })).toBeInTheDocument()
     expect(rows[0]).toHaveTextContent('收藏夹 A31')
     expect(rows[1]).toHaveTextContent('收藏夹 B22')
+  })
+
+  it('uses compact ordinary and managed folder projections for the three source metrics', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 999 },
+        inventoryMetrics: {
+          authority: 'complete', relationshipCount: 7, plannedAidCount: 1, protectedAidCount: 2, unavailableAidCount: 1,
+          sourceFolders: [
+            { id: 'source-a', title: '收藏夹 A', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, confirmed: true },
+            { id: 'source-b', title: '收藏夹 B', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, confirmed: true },
+            { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, confirmed: true }
+          ]
+        },
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'source-a', title: '旧收藏夹 A', itemCount: 900, isBilimiWorkFolder: false, selected: true },
+          { id: 'managed', title: '旧 bilimi', itemCount: 99, isBilimiWorkFolder: true, selected: false }
+        ],
+        segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const ordinaryTable = screen.getByRole('table', { name: '用户收藏夹' })
+    const managedTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
+    expect(within(ordinaryTable).getByRole('columnheader', { name: '总数（5）' })).toBeInTheDocument()
+    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(within(ordinaryTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
+    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习20')
+
+    fireEvent.click(screen.getByRole('button', { name: '本轮待整理（1）' }))
+    expect(screen.getByRole('button', { name: '已保护（1）' })).toBeInTheDocument()
+    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习22')
+
+    fireEvent.click(screen.getByRole('button', { name: '已保护（1）' }))
+    expect(screen.getByRole('button', { name: '失效视频（1）' })).toBeInTheDocument()
+    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习20')
+  })
+
+  it('shows incomplete lifecycle projections as pending confirmation instead of zero', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0, totalItemCount: 332, scannedItemCount: 0 },
+        inventoryMetrics: {
+          authority: 'incomplete', relationshipCount: 332, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0,
+          sourceFolders: [
+            { id: 'source', title: '待扫描收藏夹', relationshipCount: 332, plannedAidCount: null, protectedAidCount: null, unavailableAidCount: null, selected: true, isBilimiWorkFolder: false, confirmed: false }
+          ]
+        },
+        continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: '待扫描收藏夹', itemCount: 332, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数332')
+    expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理待确认')
+    expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过待确认')
+    expect(screen.getByLabelText('失效视频')).toHaveTextContent('失效视频待确认')
+    expect(screen.getByText('待扫描收藏夹').closest('[role="row"]')).toHaveTextContent('待扫描收藏夹332待确认')
+    expect(screen.getByRole('button', { name: '本轮待整理（待确认）' })).toBeInTheDocument()
   })
 })

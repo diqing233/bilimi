@@ -1,6 +1,6 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
-import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus } from './FavoriteLibraryApp'
+import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus, type FavoriteLibraryUiCallbacks } from './FavoriteLibraryApp'
 import { closeDurationFor, panelMotionTuning } from '../assistant/panelMotionTuning'
 
 const DEFAULT_HEIGHT = 360
@@ -20,6 +20,7 @@ type FavoriteLibraryDrawerProps = {
   onClose: () => void
   onCollapsedChange?: (collapsed: boolean) => void
   onResizeActiveChange?: (active: boolean) => void
+  uiCallbacks?: FavoriteLibraryUiCallbacks
 }
 
 export type FavoriteLibraryDrawerHandle = {
@@ -64,7 +65,8 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
   collapsed: controlledCollapsed,
   onClose,
   onCollapsedChange,
-  onResizeActiveChange
+  onResizeActiveChange,
+  uiCallbacks
 }, forwardedRef) {
   const controlled = controlledCollapsed !== undefined
   const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState(false)
@@ -364,7 +366,7 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
         </div>
       </header>
       <div className="favorite-library-drawer__body" data-dragging={dragging ? 'true' : undefined} hidden={collapsed}>
-        <FavoriteLibraryWorkspace embedded active={open && !collapsed} onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} />
+        <FavoriteLibraryWorkspace embedded active={open && !collapsed} onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} uiCallbacks={uiCallbacks} />
       </div>
     </section>
   )

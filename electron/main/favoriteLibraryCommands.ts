@@ -262,11 +262,15 @@ export class FavoriteLibraryCommandService {
     return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'forget-favorite-tombstone')
   }
 
+  async clearRecycledFavorite(accountMid: string, aid: number, expectedRevision: number) {
+    return this.commitLocalLifecycle(accountMid, aid, expectedRevision, 'clear-recycled-favorite')
+  }
+
   private async commitLocalLifecycle(
     accountMid: string,
     aid: number,
     expectedRevision: number,
-    type: 'delete-favorite-from-library' | 'restore-favorite-to-library' | 'forget-favorite-tombstone'
+    type: 'delete-favorite-from-library' | 'restore-favorite-to-library' | 'forget-favorite-tombstone' | 'clear-recycled-favorite'
   ): Promise<FavoriteLibraryCommandResult> {
     const account = normalizeAccountMid(accountMid)
     if (!Number.isSafeInteger(aid) || aid <= 0 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('所选视频无效。')

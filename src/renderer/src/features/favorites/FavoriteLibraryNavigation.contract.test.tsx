@@ -356,7 +356,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     }
   })
 
-  it('keeps non-workspace group counts in their trailing slot without creating an ellipsis trigger', () => {
+  it('keeps non-workspace group counts in their trailing slot with a group-management trigger', () => {
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '默认收藏夹', count: 3 }] }]}
       collapsedGroups={{}}
@@ -368,7 +368,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     const trigger = screen.getByRole('button', { name: '收起其他收藏夹' })
     expect(trigger.parentElement).toHaveTextContent('其他收藏夹')
     expect(trigger).toHaveAttribute('title', '共 1 个收藏夹\n共 3 条收藏归属\n去重后 0 个视频')
-    expect(screen.queryByRole('button', { name: /管理菜单$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '其他收藏夹管理菜单' })).toBeInTheDocument()
   })
 
   it('uses each title tooltip to show folder and deduplicated-video totals', () => {
@@ -406,6 +406,39 @@ describe('FavoriteLibraryNavigation contract', () => {
     />)
 
     expect(screen.queryByRole('button', { name: '远程工作夹 菜单' })).not.toBeInTheDocument()
+  })
+
+  it('offers the same detached menu for an ordinary Bilibili folder without granting managed actions', async () => {
+    render(<FavoriteLibraryNavigation
+      groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '普通收藏夹', count: 3, removable: true }] }]}
+      collapsedGroups={{}}
+      selectedId="folder:remote"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '普通收藏夹' })).toHaveAttribute('title', '普通收藏夹')
+    expect(screen.getByRole('button', { name: '普通收藏夹 菜单' }).closest('.favorite-library__navigation-row')).toHaveClass('favorite-library__navigation-row--menu')
+    fireEvent.click(screen.getByRole('button', { name: '普通收藏夹 菜单' }))
+    expect(await screen.findByRole('menuitem', { name: '编辑信息' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '从收藏库删除' })).toBeInTheDocument()
+  })
+
+  it('offers a group menu that removes all ordinary folders only from the local library', async () => {
+    const onOrdinaryGroupAction = vi.fn()
+    render(<FavoriteLibraryNavigation
+      groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '普通收藏夹', count: 3, removable: true }] }]}
+      collapsedGroups={{}}
+      selectedId="folder:remote"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+      onOrdinaryGroupAction={onOrdinaryGroupAction}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '其他收藏夹管理菜单' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '全部从收藏库删除' }))
+
+    expect(onOrdinaryGroupAction).toHaveBeenCalledWith('delete-all')
   })
 
   it('keeps mounted navigation rows bounded for a 30000-folder group', () => {
@@ -465,9 +498,9 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.getAllByRole('menuitem', { name: edit })).toHaveLength(1)
     expect(screen.getByRole('menuitem', { name: remove })).toBeInTheDocument()
     expect(screen.getByRole('menu', { name: `${label} ${chinese(0x64cd, 0x4f5c)}` })).toHaveClass('favorite-library__folder-floating-menu')
-    expect(favoriteLibraryStyles).toContain('.favorite-library__navigation-trailing-slot { display: grid; flex: 0 0 28px;')
-    expect(favoriteLibraryStyles).toContain(".favorite-library__navigation-row--managed:hover .favorite-library__navigation-count")
-    expect(favoriteLibraryStyles).toContain(".favorite-library__navigation-row--managed:has(.favorite-library__folder-menu:focus-visible) .favorite-library__navigation-count")
+    expect(favoriteLibraryStyles).toContain('.favorite-library__navigation-trailing-slot { display: grid; min-width: 4ch; padding-right: 2px;')
+    expect(favoriteLibraryStyles).toContain(".favorite-library__navigation-row--menu:hover .favorite-library__navigation-count")
+    expect(favoriteLibraryStyles).toContain(".favorite-library__navigation-row--menu:has(.favorite-library__folder-menu:focus-visible) .favorite-library__navigation-count")
     expect(favoriteLibraryStyles).toContain('.favorite-library__folder-floating-menu { position: fixed;')
 
     const actions = screen.getByRole('menu', { name: `${label} ${chinese(0x64cd, 0x4f5c)}` })

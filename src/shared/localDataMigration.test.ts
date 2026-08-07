@@ -19,7 +19,7 @@ const account = (updatedAt = '2026-07-24T00:00:00.000Z') => ({
   }, { generatedAt: updatedAt }),
   archives: [{ id: 'archive-1', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, versions: [{ id: 'version-1', createdAt: updatedAt, plainTranscript: '', summaryText: '', note: { id: 'account:100:aid:1:cid:11', source: { accountMid: '100', title: 'video', url: 'https://www.bilibili.com/video/av1?p=1', tags: [] }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: 'memo', starred: true, createdAt: updatedAt, updatedAt } }], createdAt: updatedAt, updatedAt }],
   auditEvents: [],
-  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], transcriptionModelId: 'faster-whisper-large-v3-turbo', updatedAt },
+  settings: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [] as unknown[], transcriptionModelId: 'faster-whisper-large-v3-turbo', updatedAt },
   workspaces: [{ id: 'work-1', accountMid: '100', status: 'running', updatedAt }],
   transcription: [{ id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, status: 'running', createdAt: updatedAt, updatedAt }],
   remoteOperations: [{ id: 'remote-1', accountMid: '100', status: 'result-unknown', updatedAt }]
@@ -35,6 +35,29 @@ describe('local data migration v1', () => {
     expect(archive.selectedUids).toEqual(['100'])
     expect(archive.manifest).toHaveLength(2)
     expect(parseMigrationArchiveV1(JSON.stringify(archive))).toEqual(archive)
+  })
+
+  it('round-trips checked and provisioned ledger settings without treating the binding as remote authority', () => {
+    const source = account()
+    source.settings.favoriteLedgers = [{
+      id: 'custom-author-up-alpha',
+      displayName: 'bilimi·UP Alpha',
+      keywords: ['UP Alpha'],
+      enabled: true,
+      priority: 1,
+      isDefault: false,
+      ruleType: 'author',
+      bilibiliFolderId: '91000001',
+      syncState: 'bound'
+    }]
+
+    const archive = createMigrationArchiveV1({
+      appVersion: '1.1.0',
+      generatedAt: '2026-07-24T00:00:00.000Z',
+      accounts: { '100': source }
+    })
+
+    expect(parseMigrationArchiveV1(JSON.stringify(archive)).accounts['100'].settings).toEqual(source.settings)
   })
 
   it('uses an explicit persistent-source registry and rejects unregistered sources for every UID', () => {
@@ -263,6 +286,47 @@ describe('local data migration v1', () => {
     repository.checksum = createFavoriteRepositoryArchiveExportChecksum(repository as never)
 
     expect(() => createMigrationArchiveV1({ appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': source } })).not.toThrow()
+  })
+
+  it('prefers complete lifecycle authority when equal-timestamp position records are merged', () => {
+    const at = '2026-07-24T00:00:00.000Z'
+    const local = account(at)
+    const imported = account(at)
+    const localRepository = local.repository as Record<string, unknown>
+    const importedRepository = imported.repository as Record<string, unknown>
+    localRepository.positions = [{ aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], positionState: 'aligned', updatedAt: at }]
+    importedRepository.positions = [{
+      aid: 1,
+      localDesiredFolderIds: ['bilimi-logical:music'],
+      positionState: 'aligned',
+      observedAt: at,
+      lifecycleState: 'active',
+      sourceAuthority: 'complete',
+      observationEpoch: 'scan-epoch-1',
+      updatedAt: at
+    }]
+    localRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(localRepository as never)
+    importedRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(importedRepository as never)
+
+    const repository = mergeMigrationAccounts({ '100': local }, { '100': imported })['100'].repository as Record<string, unknown>
+    expect(repository.positions).toEqual([expect.objectContaining({
+      aid: 1,
+      lifecycleState: 'active',
+      sourceAuthority: 'complete',
+      observationEpoch: 'scan-epoch-1'
+    })])
+
+    const leaky = account(at)
+    const leakyRepository = leaky.repository as Record<string, unknown>
+    leakyRepository.positions = [{
+      aid: 1,
+      localDesiredFolderIds: [],
+      remoteObservedPhysicalFolderIds: ['physical-900'],
+      positionState: 'aligned',
+      updatedAt: at
+    }]
+    leakyRepository.checksum = createFavoriteRepositoryArchiveExportChecksum(leakyRepository as never)
+    expect(() => mergeMigrationAccounts({ '100': local }, { '100': leaky })).toThrow('archive')
   })
 
   it('rejects recovery folders and shards that do not form one canonical logical ledger', () => {

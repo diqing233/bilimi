@@ -6,6 +6,7 @@ import {
   createAccountFavoriteRepositorySnapshot,
   createFavoriteRepositoryPositionKey,
   deriveFavoriteRepositoryPositionState,
+  isFavoriteRepositoryRecycled,
   mergeFavoriteRepositoryVideo,
   validateFavoriteRepositoryArchiveExport,
   type AccountFavoriteRepositorySnapshot,
@@ -74,6 +75,7 @@ type FavoriteRepositoryLibraryIndex = {
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
   folderConflicts: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   allAids: number[]
+  recycledAids: number[]
   folderAidsByFolderId: Map<string, number[]>
   folderIdsByAid: Map<number, string[]>
   pendingStatesByAid: Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>
@@ -117,6 +119,8 @@ type EventJournalEntry = {
 }
 
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
+/** Filters by the observed source folders without exposing the full membership index to the renderer. */
+export type FavoriteRepositoryLibrarySourceFilter = 'with-other' | 'bilimi-only'
 export type FavoriteRepositoryLibraryStateFilters = {
   sync?: FavoriteRepositoryLibraryStates['sync']
   protection?: FavoriteRepositoryLibraryStates['protection']
@@ -139,6 +143,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   page?: number
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
+  sourceFilter?: FavoriteRepositoryLibrarySourceFilter
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
@@ -280,6 +285,7 @@ export type FavoriteRepositoryLibraryPageScope =
   | { kind: 'pending' }
   | { kind: 'protected' }
   | { kind: 'unsynced' }
+  | { kind: 'recycle' }
 
 export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
@@ -329,14 +335,14 @@ export type FavoriteRepositoryLibrarySummary = {
   workspaceVideoCount?: number
   /** Distinct videos across non-workspace, non-inbox favorite folders. */
   otherFavoriteVideoCount?: number
-  scopeCounts: { all: number; pending: number; protected: number; unsynced: number }
+  scopeCounts: { all: number; pending: number; protected: number; unsynced: number; recycle?: number }
   folderConflicts?: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
   pendingAidCount: number
   remoteReconciliations: Array<{
-    kind: 'unfavorite' | 'managed-folder'
+    kind: 'unfavorite' | 'managed-folder' | 'managed-placement'
     operationId: string
   }>
   workspace?: {
@@ -411,7 +417,17 @@ export class FavoriteRepositoryService {
     ).snapshot))
   }
 
-  async getLibrarySummary(accountMid: string): Promise<FavoriteRepositoryLibrarySummary> {
+  /** Invalidates derived library views when durable renderer preferences change outside repository commands. */
+  invalidateLibraryReadCache(accountMid: string) {
+    const cached = this.cache.get(normalizeAccountMid(accountMid))
+    if (!cached) return
+    cached.libraryIndex = undefined
+    cached.libraryQueryCache = undefined
+  }
+
+  async getLibrarySummary(accountMid: string, options?: {
+    localDraftLedgerIds?: readonly string[]
+  }): Promise<FavoriteRepositoryLibrarySummary> {
     const account = normalizeAccountMid(accountMid)
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
@@ -426,14 +442,36 @@ export class FavoriteRepositoryService {
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
+    const localDraftLedgerIds = new Set((options?.localDraftLedgerIds ?? []).map((id) => id.trim()).filter(Boolean))
+    const trustedRemoteFolderIdByLedger = new Map<string, string>()
+    for (const shard of snapshot.physicalShards) {
+      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+      const existing = trustedRemoteFolderIdByLedger.get(shard.logicalLedgerId)
+      if (existing && existing !== shard.remoteFolderId) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, '')
+      else if (existing === undefined) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, shard.remoteFolderId)
+    }
+    const projectedFolders = index.folders.map((folder) => {
+      if (folder.kind === 'bilimi-logical' && folder.logicalLedgerId) {
+        const remoteFolderId = trustedRemoteFolderIdByLedger.get(folder.logicalLedgerId)
+        return remoteFolderId ? { ...folder, remoteFolderId } : folder
+      }
+      if (folder.kind !== 'local' || folder.id === 'local:inbox') return folder
+      const logicalLedgerId = folder.id.startsWith('local:') ? folder.id.slice('local:'.length) : ''
+      const orphanedCustomDraft = logicalLedgerId.startsWith('custom-')
+      return logicalLedgerId && (localDraftLedgerIds.has(logicalLedgerId) || orphanedCustomDraft)
+        ? { ...folder, logicalLedgerId }
+        : folder
+    })
+    const isWorkspaceFolder = (folder: typeof projectedFolders[number]) =>
+      folder.kind === 'bilimi-logical' || (folder.kind === 'local' && Boolean(folder.logicalLedgerId))
     const workspaceVideoCount = new Set(
-      index.folders
-        .filter((folder) => folder.kind === 'bilimi-logical')
+      projectedFolders
+        .filter(isWorkspaceFolder)
         .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
     ).size
     const otherFavoriteVideoCount = new Set(
-      index.folders
-        .filter((folder) => folder.kind !== 'bilimi-logical' && folder.id !== 'local:inbox')
+      projectedFolders
+        .filter((folder) => !isWorkspaceFolder(folder) && folder.id !== 'local:inbox')
         .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
     ).size
     const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
@@ -443,13 +481,16 @@ export class FavoriteRepositoryService {
       accountMid: snapshot.accountMid,
       revision: snapshot.revision,
       updatedAt: snapshot.updatedAt,
-      videoCount: Object.keys(snapshot.videos).length,
+      videoCount: index.allAids.length,
       folderCount: index.folders.length,
-      folders: index.folders.map((folder) => ({ ...folder })),
+      folders: projectedFolders.map((folder) => ({ ...folder })),
       folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
       workspaceVideoCount,
       otherFavoriteVideoCount,
-      scopeCounts: { all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'), unsynced: stateCount('unsynced') },
+      scopeCounts: {
+        all: index.allAids.length, pending: pendingAidCount, protected: stateCount('protected'),
+        unsynced: stateCount('unsynced'), recycle: index.recycledAids.length
+      },
       ...(index.folderConflicts.length ? { folderConflicts: index.folderConflicts.map((conflict) => ({
         title: conflict.title, folderIds: [...conflict.folderIds], reason: conflict.reason,
         candidates: conflict.candidates.map((candidate) => ({ ...candidate }))
@@ -561,6 +602,7 @@ export class FavoriteRepositoryService {
         const localDesiredFolderIds = [...new Set(imported.localDesiredFolderIds.map((id) => id.trim()).filter(Boolean))].sort()
         const remoteObservedPhysicalFolderIds = previous?.remoteObservedPhysicalFolderIds ?? []
         const remoteObservedLogicalFolderIds = previous?.remoteObservedLogicalFolderIds ?? []
+        const importedObservationIsCurrent = !previous || imported.updatedAt >= previous.updatedAt
         positions[key] = {
           accountMid: account,
           aid: imported.aid,
@@ -573,7 +615,10 @@ export class FavoriteRepositoryService {
               localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
               positionState: imported.positionState
             }),
-          ...(previous?.observedAt ? { observedAt: previous.observedAt } : {}),
+          ...(importedObservationIsCurrent && imported.observedAt ? { observedAt: imported.observedAt } : previous?.observedAt ? { observedAt: previous.observedAt } : {}),
+          ...(importedObservationIsCurrent && imported.lifecycleState ? { lifecycleState: imported.lifecycleState } : previous?.lifecycleState ? { lifecycleState: previous.lifecycleState } : {}),
+          ...(importedObservationIsCurrent && imported.sourceAuthority ? { sourceAuthority: imported.sourceAuthority } : previous?.sourceAuthority ? { sourceAuthority: previous.sourceAuthority } : {}),
+          ...(importedObservationIsCurrent && imported.observationEpoch ? { observationEpoch: imported.observationEpoch } : previous?.observationEpoch ? { observationEpoch: previous.observationEpoch } : {}),
           updatedAt: imported.updatedAt,
           ...(previous?.reason ? { reason: previous.reason } : {}),
           revision: repository.snapshot.revision + 1
@@ -1102,6 +1147,13 @@ export class FavoriteRepositoryService {
     })
   }
 
+  /** Drops every in-memory account projection after a coordinated full local-data clear. */
+  resetAfterFullLocalDataClear(): void {
+    this.cache.clear()
+    this.syncCheckpointState.clear()
+    this.portableImportTransactionActive = false
+  }
+
   async getEventPage(accountMid: string, aid: number, options: FolderPageOptions): Promise<FavoriteRepositoryPage<FavoriteRepositoryEvent>> {
     const account = normalizeAccountMid(accountMid)
     if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')
@@ -1280,13 +1332,15 @@ export class FavoriteRepositoryService {
       }))
     const folderConflicts = [...titleConflicts, ...bindingConflicts]
       .sort((left, right) => left.title.localeCompare(right.title) || left.folderIds.join().localeCompare(right.folderIds.join()))
+    const recycledAids = new Set(Object.keys(snapshot.videos).map(Number)
+      .filter((aid) => Number.isSafeInteger(aid) && isFavoriteRepositoryRecycled(snapshot, aid)))
     const folderIdsByAid = new Map<number, Set<string>>()
     const aidsByCanonicalFolderId = new Map<string, Set<number>>()
     for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
       const canonicalFolderId = canonicalIdByRawId.get(folderId) ?? folderId
       const canonicalAids = aidsByCanonicalFolderId.get(canonicalFolderId) ?? new Set<number>()
       const validAids = aids.filter((aid) => Boolean(snapshot.videos[String(aid)]))
-      for (const aid of validAids) canonicalAids.add(aid)
+      for (const aid of validAids) if (!recycledAids.has(aid)) canonicalAids.add(aid)
       aidsByCanonicalFolderId.set(canonicalFolderId, canonicalAids)
       for (const aid of validAids) {
         const folderIds = folderIdsByAid.get(aid) ?? new Set<string>()
@@ -1298,7 +1352,8 @@ export class FavoriteRepositoryService {
       revision: snapshot.revision,
       folders,
       folderConflicts,
-      allAids: Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right),
+      allAids: Object.keys(snapshot.videos).map(Number).filter((aid) => Number.isSafeInteger(aid) && !recycledAids.has(aid)).sort((left, right) => left - right),
+      recycledAids: [...recycledAids].sort((left, right) => left - right),
       folderAidsByFolderId: new Map([...aidsByCanonicalFolderId].map(([id, aids]) => [id, [...aids].sort((left, right) => left - right)])),
       folderIdsByAid: new Map([...folderIdsByAid].map(([aid, ids]) => [aid, [...ids].sort((left, right) => left.localeCompare(right))])),
       pendingStatesByAid: this.pendingStatesByAid(snapshot),
@@ -1375,13 +1430,18 @@ export class FavoriteRepositoryService {
   }
 
   private remoteReconciliations(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibrarySummary['remoteReconciliations'] {
-    return snapshot.syncRecords.flatMap((record) => {
-      if (record.status !== 'reconciliation-required') return []
+    return snapshot.syncRecords.flatMap((record): FavoriteRepositoryLibrarySummary['remoteReconciliations'] => {
+      const isManagedPlacementRecovery = record.operationKey === 'favorite-library-managed-placement-removal' &&
+        (record.status === 'reconciliation-required' || record.status === 'result-unknown')
+      if (record.status !== 'reconciliation-required' && !isManagedPlacementRecovery) return []
       if (record.operationKey === 'favorite-library-unfavorite' && record.id.startsWith('favorite-remote-unfavorite:')) {
         return [{ kind: 'unfavorite' as const, operationId: record.id.slice('favorite-remote-unfavorite:'.length) }]
       }
       if (record.operationKey === 'managed-folder-delete' && record.id.startsWith('managed-folder-delete:')) {
         return [{ kind: 'managed-folder' as const, operationId: record.id.slice('managed-folder-delete:'.length) }]
+      }
+      if (record.operationKey === 'favorite-library-managed-placement-removal' && record.id.startsWith('favorite-managed-placement-removal:')) {
+        return [{ kind: 'managed-placement' as const, operationId: record.id.slice('favorite-managed-placement-removal:'.length) }]
       }
       return []
     })
@@ -1405,6 +1465,7 @@ export class FavoriteRepositoryService {
     scope: FavoriteRepositoryLibraryPageScope,
     index: FavoriteRepositoryLibraryIndex
   ) {
+    if (scope.kind === 'recycle') return index.recycledAids
     if (scope.kind === 'folder') {
       return index.folderAidsByFolderId.get(scope.folderId) ?? []
     }
@@ -1429,17 +1490,27 @@ export class FavoriteRepositoryService {
   ) {
     const query = options.query?.trim().toLocaleLowerCase()
     const filter = options.filter ?? 'all'
+    const sourceFilter = options.sourceFilter
     const sort = options.sort ?? 'updated-desc'
     const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
     const transcriptionStatesByAid = transcriptionFilters.size > 0
       ? this.transcriptionStatesByAid(snapshot)
       : undefined
+    const matchesSource = (aid: number) => {
+      if (!sourceFilter) return true
+      const sourceFolderIds = index.folderIdsByAid.get(aid) ?? []
+      if (sourceFilter === 'with-other') return sourceFolderIds.some((folderId) => folderId.startsWith('bilibili:'))
+      return sourceFolderIds.length > 0 && sourceFolderIds.every((folderId) => folderId.startsWith('bilimi-logical:'))
+    }
     // Callers without a library sort retain the legacy bounded aid-read path.
-    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) return aids
+    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) {
+      return sourceFilter ? aids.filter(matchesSource) : aids
+    }
     return aids.filter((aid) => {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
       const states = index.pendingStatesByAid.get(aid) ?? new Set()
+      if (!matchesSource(aid)) return false
       const matchesQuery = !query || [video.title, video.author ?? '', video.description ?? '', ...video.tags]
         .some((value) => value.toLocaleLowerCase().includes(query))
       if (!matchesQuery) return false
@@ -1494,6 +1565,7 @@ export class FavoriteRepositoryService {
       scope: scope.kind === 'folder' ? [scope.kind, scope.folderId] : [scope.kind],
       query: options.query?.trim().toLocaleLowerCase() ?? '',
       filter: options.filter ?? 'all',
+      sourceFilter: options.sourceFilter ?? '',
       stateFilters: options.stateFilters ?? {},
       sort: options.sort ?? '',
       transcriptionFilters: [...transcriptionFilters].sort(),

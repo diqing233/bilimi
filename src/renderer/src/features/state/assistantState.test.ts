@@ -287,6 +287,28 @@ describe('assistant state', () => {
       .toMatchObject({ ledgerId: 'custom' })
   })
 
+  it('projects default folders as automatic review targets while the default system is enabled', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => ({
+            ...ledger,
+            enabled: false
+          }))
+        }
+      }
+    })
+
+    expect(effectiveFavoriteLedgersForAccount(preferences, '100')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'knowledge', enabled: true }),
+        expect.objectContaining({ id: 'game', enabled: true }),
+        expect.objectContaining({ id: 'inbox', enabled: true })
+      ])
+    )
+  })
+
   it('preserves persisted coin and comment choices', () => {
     expect(
       createInitialAssistantPreferences({
@@ -568,15 +590,15 @@ describe('assistant state', () => {
   })
 
   it('normalizes the next-round old-favorite segment limit to 500 through 2000', () => {
-    expect(createInitialAssistantPreferences()).toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+    expect(createInitialAssistantPreferences()).toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 500 } as never))
       .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 500 })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_000 } as never))
       .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 499 } as never))
-      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_001 } as never))
-      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
   })
 
   it('clears legacy correction records once before the adjustment-record schema is enabled', () => {

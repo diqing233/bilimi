@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type VideoSummaryMenuAction = {
   id: string
@@ -18,7 +19,7 @@ export function VideoSummaryMenu({ actions, download, disabled = false, disabled
   disabled?: boolean
   disabledTitle?: string
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const rootRef = useRef<HTMLSpanElement>(null)
   const close = () => setOpen(false)
   useEffect(() => {

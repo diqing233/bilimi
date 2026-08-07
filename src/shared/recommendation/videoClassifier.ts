@@ -44,6 +44,8 @@ type LedgerScore = {
   explicitScore: number
   matchedKeywords: string[]
   score: number
+  exactAuthorMatch: boolean
+  exactTagMatch: boolean
   strongSignals: string[]
   weakSignals: string[]
   entityAliases: string[]
@@ -291,13 +293,17 @@ function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger): Ledg
   const globalWeakSignals = weakSignalsInText(text)
 
   if (ledgerRuleType(ledger) === 'author') {
+    const normalizedAuthor = normalizeClassificationText(context.author)
+    const exactAuthorMatch = keywords.some((keyword) => normalizedAuthor === normalizeClassificationText(keyword))
     const scored = scoreKeywordFields(keywords, [
-      { text: normalizeClassificationText(context.author), weight: FIELD_WEIGHTS.author + 8 }
+      { text: normalizedAuthor, weight: FIELD_WEIGHTS.author + (exactAuthorMatch ? 8.5 : 8) }
     ])
     return {
       ledger,
       explicitScore: 0,
       ...scored,
+      exactAuthorMatch,
+      exactTagMatch: false,
       strongSignals: scored.matchedKeywords,
       weakSignals: scored.matchedKeywords.filter((match) => globalWeakSignals.includes(match)),
       entityAliases: [],
@@ -318,6 +324,8 @@ function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger): Ledg
       ledger,
       explicitScore: 0,
       ...scored,
+      exactAuthorMatch: false,
+      exactTagMatch: keywords.some((keyword) => (context.tags ?? []).some((tag) => normalizeClassificationText(tag) === normalizeClassificationText(keyword))),
       strongSignals: scored.matchedKeywords,
       weakSignals: scored.matchedKeywords.filter((match) => globalWeakSignals.includes(match)),
       entityAliases: [],
@@ -331,6 +339,8 @@ function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger): Ledg
     ledger,
     explicitScore: scoreExplicitContextKeywords(context, keywords).score,
     ...scoreKeywords(context, keywords),
+    exactAuthorMatch: false,
+    exactTagMatch: false,
     strongSignals: [] as string[],
     weakSignals: globalWeakSignals,
     entityAliases: entitySignalsForLedger(text, ledger),
@@ -383,6 +393,12 @@ function emptyDiagnostic(): FavoriteLedgerClassificationDiagnostic {
 function confidenceForScore(score: LedgerScore, runnerUp?: LedgerScore) {
   const runnerUpScore = runnerUp?.score ?? 0
   const scoreGap = score.score - runnerUpScore
+  if (score.exactAuthorMatch && score.ledger.ruleType === 'author' && score.negativeRules.length === 0) {
+    return 'high'
+  }
+  if (score.exactTagMatch && score.ledger.ruleType === 'tag' && score.negativeRules.length === 0) {
+    return 'high'
+  }
   const onlyWeakSignals =
     score.strongSignals.length === 0 &&
     score.weakSignals.length > 0 &&

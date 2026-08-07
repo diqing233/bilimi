@@ -2,7 +2,7 @@ import type { DeepSeekArchiveMode } from './types'
 
 export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
-export const RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 1_000
+export const RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 500
 export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 
@@ -32,11 +32,102 @@ export type OldFavoriteWorkspaceClassification = {
 export type OldFavoriteWorkspaceRecommendationCandidate = {
   id: string
   displayName: string
+  /** Complete rule terms for projecting a selected recommendation into the editor. */
+  keywords?: string[]
   kind: 'author' | 'series' | 'tag'
   count: number
   /** Number of matches in the currently selected batch; the full AID index stays main-process only. */
   currentSegmentCount?: number
   reason: string
+}
+
+export type OldFavoriteInventoryMetricProjection = {
+  authority: 'complete' | 'incomplete'
+  relationshipCount: number
+  plannedAidCount: number
+  protectedAidCount: number
+  unavailableAidCount: number
+  sourceFolders: Array<{
+    id: string
+    title: string
+    relationshipCount: number
+    plannedAidCount: number | null
+    protectedAidCount: number | null
+    unavailableAidCount: number | null
+    selected: boolean
+    isBilimiWorkFolder: boolean
+    confirmed: boolean
+  }>
+}
+
+export function projectOldFavoriteInventoryMetrics(input: {
+  authority: 'complete' | 'incomplete'
+  sourceFolders: Array<{
+    id: string
+    title: string
+    itemCount: number
+    isBilimiWorkFolder: boolean
+    selected?: boolean
+    observationComplete?: boolean
+  }>
+  items: Array<{
+    aid: number
+    sourceFolderIds: string[]
+    protected: boolean
+    unavailable: boolean
+  }>
+}): OldFavoriteInventoryMetricProjection {
+  const selectedSourceIds = new Set(input.sourceFolders
+    .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+    .map((folder) => folder.id))
+  const uniqueItems = new Map<number, typeof input.items[number]>()
+  for (const item of input.items) {
+    const existing = uniqueItems.get(item.aid)
+    uniqueItems.set(item.aid, existing
+      ? {
+          ...existing,
+          sourceFolderIds: [...new Set([...existing.sourceFolderIds, ...item.sourceFolderIds])],
+          protected: existing.protected || item.protected,
+          unavailable: existing.unavailable || item.unavailable
+        }
+      : { ...item, sourceFolderIds: [...new Set(item.sourceFolderIds)] })
+  }
+  const items = [...uniqueItems.values()]
+  const unavailableAidCount = items.filter((item) => item.unavailable).length
+  const protectedAidCount = items.filter((item) => !item.unavailable && item.protected).length
+  const plannedAidCount = items.filter((item) => !item.unavailable && !item.protected &&
+    item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId))).length
+
+  return {
+    authority: input.authority,
+    relationshipCount: input.sourceFolders.reduce((count, folder) => count + Math.max(0, folder.itemCount), 0),
+    plannedAidCount,
+    protectedAidCount,
+    unavailableAidCount,
+    sourceFolders: input.sourceFolders.map((folder) => {
+      const confirmed = input.authority === 'complete' && folder.observationComplete !== false
+      const folderItems = items.filter((item) => item.sourceFolderIds.includes(folder.id))
+      return {
+        id: folder.id,
+        title: folder.title,
+        relationshipCount: Math.max(0, folder.itemCount),
+        plannedAidCount: confirmed
+          ? folder.selected && !folder.isBilimiWorkFolder
+            ? folderItems.filter((item) => !item.unavailable && !item.protected).length
+            : 0
+          : null,
+        protectedAidCount: confirmed
+          ? folderItems.filter((item) => !item.unavailable && item.protected).length
+          : null,
+        unavailableAidCount: confirmed
+          ? folderItems.filter((item) => item.unavailable).length
+          : null,
+        selected: Boolean(folder.selected),
+        isBilimiWorkFolder: folder.isBilimiWorkFolder,
+        confirmed
+      }
+    })
+  }
 }
 
 export type OldFavoriteWorkspaceHistoryChange = {
@@ -95,6 +186,11 @@ export type OldFavoriteWorkspaceSnapshot = {
     taggedItemCount?: number
     untaggedItemCount?: number
   }
+  inventoryMetrics?: OldFavoriteInventoryMetricProjection
+  currentSegmentMetrics?: {
+    plannedAidCount: number
+    sourceFolders: Array<{ id: string; plannedAidCount: number }>
+  }
   tagEnrichment?: {
     status: 'running' | 'paused' | 'accepted' | 'complete'
     totalItemCount: number
@@ -104,11 +200,15 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+    scopes?: {
+      currentSegment: OldFavoriteTagScopeStatistics
+      wholeRun: OldFavoriteTagScopeStatistics
+    }
   }
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
-    status: 'running' | 'waiting' | 'failed' | 'canceled'
+    status: 'running' | 'waiting' | 'failed' | 'canceled' | 'completed'
     completedSegmentCount: number
     waitingSegmentCount: number
     totalVideoCount?: number
@@ -118,6 +218,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
+    includeInbox?: boolean
     status: 'waiting' | 'running' | 'blocked'
     waitingSegmentCount: number
     waitingForDeepSeek: boolean
@@ -137,7 +238,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     index: number
     status: 'previewing' | 'frozen'
     itemCount: number
-    readiness: 'tagging' | 'ready' | 'saved'
+    readiness: 'waiting' | 'tagging' | 'ready' | 'saved'
     completedTagItemCount: number
     pendingTagItemCount: number
   }>
@@ -166,6 +267,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     processedItemCount: number
     classifiedItemCount: number
     unmatchedItemCount: number
+    deepSeekPendingItemCount?: number
+    waitingTagItemCount?: number
+    unscannedItemCount?: number
+    savedItemCount?: number
     waitingItemCount: number
     recommendationCounts: Array<{ id: string; count: number }>
     archiveTargets: Array<{
@@ -208,6 +313,12 @@ export type OldFavoriteWorkspaceSnapshot = {
         afterTargetLedgerIds: string[]
         reason: string
         movedCount: number
+        details?: Array<{
+          aid: number
+          title?: string
+          beforeTargetLedgerIds: string[]
+          afterTargetLedgerIds: string[]
+        }>
       }
     }>
   }
@@ -219,6 +330,16 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   preserveCompletedLocalResults: true
   accountMid: string
   workspaceId: string
+}
+
+export type OldFavoriteTagScopeStatistics = {
+  totalItemCount: number
+  completedItemCount: number
+  pendingItemCount: number
+  failedItemCount: number
+  reusedTagItemCount: number
+  fetchedTagItemCount: number
+  confirmedUntaggedItemCount: number
 }
 
 /** A compact, manifest/marker-only recovery entry point. It never resumes work. */
@@ -325,10 +446,19 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
 export type OldFavoriteWorkspaceExecutionIntent = {
   workspaceId: string
   mode: 'local' | 'bilibili'
+  includeInbox?: boolean
   status: 'waiting' | 'running' | 'blocked'
 }
 
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
+export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
+  aid: number
+  title?: string
+  beforeTargetLedgerIds: string[]
+  afterTargetLedgerIds: string[]
+  changed: boolean
+}
+
 export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
   /** Cancellation waits for the in-flight request, then applies only completed batches. */
@@ -343,6 +473,8 @@ export type OldFavoriteWorkspaceDeepSeekResult = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    /** Trusted main-process results for request groups that have already settled. */
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }
   failures: OldFavoriteWorkspaceDeepSeekFailure[]
 }
@@ -360,6 +492,8 @@ export type CompleteWorkspaceScanOptions = {
   aids: number[]
   successfullyClassifiedAids?: number[]
   mode?: OldFavoriteWorkspaceMode
+  /** Durable discovery-order assignments sealed while the remote scan was still running. */
+  sealedSegments?: Array<Pick<OldFavoriteWorkspaceSegment, 'id' | 'index' | 'aids'>>
 }
 
 export type WorkspaceClassificationAssignment = {
@@ -449,10 +583,6 @@ function isClassificationEqual(
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function classificationPriority(source: OldFavoriteWorkspaceClassificationSource) {
-  return { 'system-low': 0, 'system-high': 1, deepseek: 2, fallback: 3, manual: 4 }[source]
-}
-
 function segmentForAid(workspace: OldFavoriteWorkspace, aid: number) {
   return workspace.segments.find((segment) => segment.aids.includes(aid))
 }
@@ -534,7 +664,32 @@ export function completeWorkspaceScan(
     historyCursor: 0
   }
   const projected = withSegmentsForMode(scanned, scanned.mode)
-  return { ...scanned, ...projected }
+  if (!options.sealedSegments?.length) return { ...scanned, ...projected }
+  const plannedAidSet = new Set(projected.plannedAids)
+  const assignedAids = new Set<number>()
+  const segments = options.sealedSegments
+    .slice()
+    .sort((left, right) => left.index - right.index)
+    .map((segment, index): OldFavoriteWorkspaceSegment => {
+      if (segment.index !== index || segment.id !== `segment-${index + 1}` || !Array.isArray(segment.aids)) {
+        throw new Error('Old favorite workspace streaming segments are invalid.')
+      }
+      const aids = segment.aids.map((aid) => {
+        if (!plannedAidSet.has(aid) || assignedAids.has(aid)) {
+          throw new Error('Old favorite workspace streaming segments are invalid.')
+        }
+        assignedAids.add(aid)
+        return aid
+      })
+      if (!aids.length || aids.length > workspace.segmentSize) {
+        throw new Error('Old favorite workspace streaming segments are invalid.')
+      }
+      return { id: segment.id, index, aids, status: 'previewing' }
+    })
+  if (assignedAids.size !== plannedAidSet.size) {
+    throw new Error('Old favorite workspace streaming segments are incomplete.')
+  }
+  return { ...scanned, ...projected, segments, hasMultipleSegments: segments.length > 1 }
 }
 
 export function setWorkspaceReorganizationMode(
@@ -588,7 +743,7 @@ export function applyWorkspaceClassificationBatch(
   workspace: OldFavoriteWorkspace,
   options: ApplyWorkspaceClassificationBatchOptions
 ): OldFavoriteWorkspace {
-  if (workspace.status !== 'previewing') {
+  if (workspace.status !== 'previewing' && workspace.status !== 'frozen') {
     throw new Error('Old favorite workspace is frozen.')
   }
   if (!['manual', 'fallback', 'deepseek', 'system-high', 'system-low'].includes(options.source) || !Array.isArray(options.assignments)) {
@@ -602,15 +757,9 @@ export function applyWorkspaceClassificationBatch(
     }
     const segment = segmentForAid(workspace, assignment.aid)
     if (!segment) throw new Error('Old favorite workspace aid is not in the active plan.')
-    if (segment.status === 'frozen') throw new Error('Old favorite workspace segment is frozen.')
     const targetLedgerIds = normalizeLedgerIds(assignment.targetLedgerIds)
     if (options.source === 'system-low' && targetLedgerIds.length > 1) {
       throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
-    }
-    const existing = workspace.classifications[String(assignment.aid)]
-    if (existing && classificationPriority(existing.source) > classificationPriority(options.source) &&
-      !(options.replaceExistingSystem && existing.source.startsWith('system-') && options.source.startsWith('system-'))) {
-      continue
     }
     assignments.set(assignment.aid, {
       aid: assignment.aid,
@@ -636,7 +785,18 @@ export function applyWorkspaceClassificationBatch(
     source: options.source,
     changes: changes.map(cloneHistoryChange)
   }]
-  return { ...workspace, classifications, history, historyCursor: history.length }
+  const changedSegmentIds = new Set(changes.map((change) => segmentForAid(workspace, change.aid)?.id).filter((id): id is string => Boolean(id)))
+  const segments = workspace.segments.map((segment) => changedSegmentIds.has(segment.id)
+    ? { ...segment, status: 'previewing' as const }
+    : segment)
+  return {
+    ...workspace,
+    status: 'previewing',
+    segments,
+    classifications,
+    history,
+    historyCursor: history.length
+  }
 }
 
 export function undoWorkspaceChange(workspace: OldFavoriteWorkspace): OldFavoriteWorkspace {

@@ -464,6 +464,86 @@ describe('AssistantSidebar', () => {
     ).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
   })
 
+  it('keeps a custom old-favorite batch size local until blur commits one value', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+    })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const input = screen.getByRole('spinbutton', { name: '自定义单批整理上限' })
+    api.patchPreferences.mockClear()
+
+    fireEvent.change(input, { target: { value: '1' } })
+    fireEvent.change(input, { target: { value: '15' } })
+    fireEvent.change(input, { target: { value: '1500' } })
+
+    expect(input).toHaveValue(1500)
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+
+    fireEvent.blur(input)
+
+    await waitFor(() => {
+      expect(api.patchPreferences).toHaveBeenCalledTimes(1)
+      expect(api.patchPreferences).toHaveBeenCalledWith({ oldFavoriteWorkspaceSegmentSize: 1_500 })
+    })
+    expect(screen.getByRole('radio', { name: /自定义/ })).toBeChecked()
+  })
+
+  it('discards a custom old-favorite batch draft with Escape without saving it', async () => {
+    const preferences = createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 1_500 })
+    const api = installDesktopApi({
+      preferences,
+      snapshot: { ...assistantSnapshot('100'), preferences }
+    })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const input = screen.getByRole('spinbutton', { name: '自定义单批整理上限' })
+    api.patchPreferences.mockClear()
+
+    fireEvent.change(input, { target: { value: '1750' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(input).toHaveValue(1500)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+  })
+
+  it('lets the custom radio enter custom mode without resaving the active preset', async () => {
+    const preferences = createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 1_000 })
+    const api = installDesktopApi({
+      preferences,
+      snapshot: { ...assistantSnapshot('100'), preferences }
+    })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const input = screen.getByRole('spinbutton', { name: '自定义单批整理上限' })
+    const customRadio = screen.getByRole('radio', { name: /自定义/ })
+    api.patchPreferences.mockClear()
+
+    fireEvent.click(customRadio)
+
+    expect(customRadio).toBeChecked()
+    expect(input).toHaveValue(1000)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+  })
+
+  it('saves the default favorite master switch through the full preference path', async () => {
+    const api = installDesktopApi()
+    Object.assign(window.bilimiDesktop, { writePreferencePatch: vi.fn() })
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用默认收藏夹' }))
+
+    await waitFor(() => expect(api.patchPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        '100': expect.objectContaining({ defaultFavoriteSystemEnabled: false })
+      })
+    })))
+    expect(window.bilimiDesktop.writePreferencePatch).not.toHaveBeenCalled()
+  })
+
   it('shows only automatic system proxy and direct Bilibili connection choices', async () => {
     installDesktopApi({
       preferences: createInitialAssistantPreferences({ bilibiliConnectionMode: 'auto' })

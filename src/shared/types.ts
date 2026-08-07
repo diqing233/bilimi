@@ -418,7 +418,7 @@ export type FavoriteLedgerAuthorInsightSignal = FavoriteLedgerInsightSignal & {
   share: number
 }
 
-export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category' | 'series'
+export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category'
 
 export type FavoriteLedgerCandidateConfidence = 'high' | 'medium'
 

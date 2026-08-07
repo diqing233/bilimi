@@ -156,17 +156,17 @@ describe('FavoriteLibraryCommandService', () => {
     }))
   })
 
-  it('deletes, restores, and forgets local library tombstones without a remote writer', async () => {
+  it('deletes, restores, and permanently clears recycled local records without a remote writer', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     const service = new FavoriteLibraryCommandService({ repository: repository as never, refreshVideo, transcriptionQueue, now })
 
     await service.deleteFromLibrary('100', 1, 4)
     await service.restoreToLibrary('100', 1, 5)
-    await service.forgetTombstone('100', 1, 6)
+    await service.clearRecycledFavorite('100', 1, 6)
 
     expect(repository.commit).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ type: 'delete-favorite-from-library', expectedRevision: 4 }))
     expect(repository.commit).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ type: 'restore-favorite-to-library', expectedRevision: 5 }))
-    expect(repository.commit).toHaveBeenNthCalledWith(3, '100', expect.objectContaining({ type: 'forget-favorite-tombstone', expectedRevision: 6 }))
+    expect(repository.commit).toHaveBeenNthCalledWith(3, '100', expect.objectContaining({ type: 'clear-recycled-favorite', expectedRevision: 6 }))
   })
 
   it('cancels an explicitly selected Bilibili favorite through a separate remote adapter without touching local records', async () => {

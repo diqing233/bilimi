@@ -58,6 +58,29 @@ describe('executeAssistantAction', () => {
     expect(result).toEqual(expect.objectContaining({ ok: true }))
   })
 
+  it('does not call the favorite API when the selected rules are not provisioned', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['like'],
+      missingTargets: [],
+      message: '点赞已完成。'
+    })
+
+    const result = await executeAssistantAction({
+      action: '赏',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      favoriteProvisioned: false
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('"skipFavorite":true')
+    expect(runScript.mock.calls[0][0]).not.toContain('/x/v3/fav/resource/deal')
+    expect(result.message).toContain('备册后可归类到')
+  })
+
   it('runs favorite-only automation for 藏', async () => {
     const runScript = vi.fn().mockResolvedValueOnce({
       ok: true,

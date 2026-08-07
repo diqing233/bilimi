@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { startTransition } from 'react'
 import { useSyncExternalStore } from 'react'
 import { FavoriteLibraryNavigationGroupView } from './FavoriteLibraryNavigationGroupView'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type FavoriteLibraryNavigationItem = {
   id: string
@@ -33,26 +34,30 @@ type FavoriteLibraryNavigationProps = {
   onManagedFolderMenu?: (id: string) => void
   onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
   onOrdinaryFolderRemove?: (id: string) => void
+  onOrdinaryGroupAction?: (action: 'delete-all') => void
   onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all') => void
 }
 
 export function FavoriteLibraryNavigation({
-  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onOrdinaryFolderRemove, onWorkspaceAction
+  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onOrdinaryFolderRemove, onOrdinaryGroupAction, onWorkspaceAction
 }: FavoriteLibraryNavigationProps) {
   const managedFolderMenuRef = useRef(onManagedFolderMenu)
   const managedFolderActionRef = useRef(onManagedFolderAction)
   const workspaceActionRef = useRef(onWorkspaceAction)
   const ordinaryFolderRemoveRef = useRef(onOrdinaryFolderRemove)
+  const ordinaryGroupActionRef = useRef(onOrdinaryGroupAction)
   const onSelectRef = useRef(onSelect)
   managedFolderMenuRef.current = onManagedFolderMenu
   managedFolderActionRef.current = onManagedFolderAction
   workspaceActionRef.current = onWorkspaceAction
   ordinaryFolderRemoveRef.current = onOrdinaryFolderRemove
+  ordinaryGroupActionRef.current = onOrdinaryGroupAction
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
   const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
   const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all') => workspaceActionRef.current?.(action), [])
   const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
+  const handleOrdinaryGroupAction = useCallback((action: 'delete-all') => ordinaryGroupActionRef.current?.(action), [])
   const renderWorkspaceMenu = useCallback((resetKey: string) => <WorkspaceFloatingMenu onAction={handleWorkspaceAction} resetKey={resetKey} />, [handleWorkspaceAction])
   const managedMenuIdStoreRef = useRef<{
     value?: string
@@ -127,6 +132,7 @@ export function FavoriteLibraryNavigation({
       onSelect={select}
       workspaceMenuResetKey={`${uid}:${Boolean(localCollapsedGroups[group.id])}`}
       renderWorkspaceMenu={renderWorkspaceMenu}
+      renderOrdinaryGroupMenu={group.id === 'bilibili' ? <OrdinaryGroupFloatingMenu onAction={handleOrdinaryGroupAction} /> : null}
       renderManagedMenu={renderManagedMenu}
       onOrdinaryFolderRemove={handleOrdinaryFolderRemove}
     />)}
@@ -137,8 +143,31 @@ export function FavoriteLibraryNavigation({
     onAction={handleManagedFolderAction}
   />, document.body) : null}</>
 }
+function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-all') => void }) {
+  const [open, setOpen] = useExclusiveMenu()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<CSSProperties>()
+  const close = useCallback(() => { triggerRef.current?.focus(); setOpen(false) }, [])
+  const reposition = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setPosition({ top: `${rect.bottom + 6}px`, left: `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 180 - 8))}px` })
+  }, [])
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => { if (!triggerRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) close() }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    reposition(); document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); window.addEventListener('resize', reposition); window.addEventListener('scroll', reposition, true)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
+  }, [close, open, reposition])
+  return <span className="favorite-library__folder-menu-wrap">
+    <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__ordinary-group-menu" aria-label="其他收藏夹管理菜单" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>
+    {open && typeof document !== 'undefined' ? createPortal(<div ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
+  </span>
+}
 function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -293,6 +322,6 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
   }
   return <div ref={menuRef} className="favorite-library__folder-floating-menu" role="menu" aria-label={`${item.label} \u64cd\u4f5c`} style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('edit')}>{'\u7f16\u8f91\u4fe1\u606f'}</button>
-    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{'\u5220\u9664'}</button>
+    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{item.removable ? '\u4ece\u6536\u85cf\u5e93\u5220\u9664' : '\u5220\u9664'}</button>
   </div>
 }

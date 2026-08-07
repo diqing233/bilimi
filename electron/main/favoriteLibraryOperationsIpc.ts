@@ -47,12 +47,16 @@ type RendererScopeSelection = {
 }
 type RendererSelection = { kind: 'aids'; aids: number[] } | RendererScopeSelection
 
-function rendererSource(value: unknown): RendererSource {
+function rendererSource(value: unknown, allowEmptyVirtual = false): RendererSource {
   if (!value || typeof value !== 'object') throw new Error('Favorite operation source is invalid.')
   const source = value as Record<string, unknown>
   if (source.kind === 'folder' && typeof source.folderId === 'string' && source.folderId.trim()) return { kind: 'folder', folderId: source.folderId.trim() }
   if (source.kind === 'virtual' && Array.isArray(source.eligibleAids) && Array.isArray(source.skippedAids)) {
-    return { kind: 'virtual', eligibleAids: aids(source.eligibleAids), skippedAids: source.skippedAids.length ? aids(source.skippedAids) : [] }
+    return {
+      kind: 'virtual',
+      eligibleAids: allowEmptyVirtual && !source.eligibleAids.length ? [] : aids(source.eligibleAids),
+      skippedAids: source.skippedAids.length ? aids(source.skippedAids) : []
+    }
   }
   throw new Error('Favorite operation source is invalid.')
 }
@@ -91,7 +95,10 @@ function rendererSelection(value: unknown): RendererSelection {
 /** Registers only account-bound preview, confirmation, execution and reconciliation actions. */
 export function registerFavoriteLibraryOperationsIpc(options: {
   ipcMain: IpcMain
-  batch: Pick<FavoriteRepositoryBatchOperationService, 'copy' | 'move' | 'deleteLocal' | 'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite'>
+  batch: Pick<FavoriteRepositoryBatchOperationService,
+    'copy' | 'move' | 'deleteLocal' |
+    'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite' |
+    'previewManagedPlacementRemoval' | 'confirmManagedPlacementRemoval' | 'executeManagedPlacementRemoval' | 'reconcileManagedPlacementRemoval'>
   managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'previewAll' | 'deleteLocal' | 'confirm' | 'executeRemote' | 'reconcile'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
@@ -108,7 +115,7 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     if (normalized !== account(await options.getCurrentAccountMid())) throw new Error('Favorite operation account changed.')
     return normalized
   }
-  const sourceScope = async (requestedAccount: unknown, requestedSelection: unknown, requestedSource: unknown, action: 'copy' | 'move' | 'delete' | 'unfavorite') => {
+  const sourceScope = async (requestedAccount: unknown, requestedSelection: unknown, requestedSource: unknown, action: 'copy' | 'move' | 'delete' | 'unfavorite' | 'managed-removal') => {
     const normalized = await current(requestedAccount)
     const selection = rendererSelection(requestedSelection)
     const selected = selection.kind === 'aids'
@@ -116,9 +123,13 @@ export function registerFavoriteLibraryOperationsIpc(options: {
       : await options.resolveSelection?.(normalized, selection) ?? (() => { throw new Error('Favorite scope selection is unavailable.') })()
     await current(normalized)
     if (!Array.isArray(selected) || !selected.length || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Favorite operation selection is invalid.')
-    const scope = await options.resolveSourceScope(normalized, rendererSource(requestedSource), selected)
+    const parsedSource = rendererSource(requestedSource, action === 'delete' || action === 'managed-removal')
+    const authoritativeSource = (action === 'delete' || action === 'managed-removal') && parsedSource.kind === 'virtual'
+      ? { kind: 'virtual' as const, eligibleAids: [...selected], skippedAids: [] }
+      : parsedSource
+    const scope = await options.resolveSourceScope(normalized, authoritativeSource, selected)
     await current(normalized)
-    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy') {
+    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'delete' && action !== 'managed-removal') {
       throw new Error('This action is not permitted from a Bilibili source folder.')
     }
     return { normalized, selected, scope }
@@ -143,6 +154,26 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   })
   options.ipcMain.handle('favorite-library-operations:reconcile-unfavorite', async (event, requestedAccount, operationId) => {
     trusted(event); return options.batch.reconcileRemoteUnfavorite(await current(requestedAccount), token(operationId))
+  })
+  options.ipcMain.handle('favorite-library-operations:preview-managed-placement-removal', async (event, requestedAccount, requestedAids, requestedTargets, expectedRevision, requestedSource) => {
+    trusted(event)
+    const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'managed-removal')
+    return options.batch.previewManagedPlacementRemoval(
+      operation.normalized, operation.selected, targets(requestedTargets), revision(expectedRevision), operation.scope
+    )
+  })
+  options.ipcMain.handle('favorite-library-operations:confirm-managed-placement-removal', async (event, requestedAccount, executionToken) => {
+    trusted(event)
+    const normalized = await current(requestedAccount)
+    return { confirmationToken: options.batch.confirmManagedPlacementRemoval(normalized, token(executionToken)) }
+  })
+  options.ipcMain.handle('favorite-library-operations:execute-managed-placement-removal', async (event, requestedAccount, executionToken, confirmationToken) => {
+    trusted(event)
+    return options.batch.executeManagedPlacementRemoval(await current(requestedAccount), token(executionToken), token(confirmationToken))
+  })
+  options.ipcMain.handle('favorite-library-operations:reconcile-managed-placement-removal', async (event, requestedAccount, operationId) => {
+    trusted(event)
+    return options.batch.reconcileManagedPlacementRemoval(await current(requestedAccount), token(operationId))
   })
   options.ipcMain.handle('favorite-library-operations:preview-managed-folder-delete', async (event, requestedAccount, folderId) => {
     trusted(event); if (typeof folderId !== 'string') throw new Error('Managed folder is invalid.'); return options.managed.preview(await current(requestedAccount), folderId)

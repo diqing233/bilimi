@@ -94,6 +94,102 @@ describe('local data persistence adapter', () => {
     }), {})
   })
 
+  it('round-trips provisioned settings, lifecycle recovery, streaming progress, and note-owned data as one account batch', async () => {
+    const updatedAt = '2026-08-05T00:00:00.000Z'
+    const repository = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: updatedAt }),
+      videos: { '1': { aid: 1, cid: 11, title: 'Protected video', tags: ['saved'], updatedAt } },
+      folders: [{ id: 'bilimi-logical:knowledge', title: 'bilimi·知识学习', kind: 'bilimi-logical' as const, logicalLedgerId: 'knowledge', syncState: 'bound' as const }],
+      memberships: { 'bilimi-logical:knowledge': [1] },
+      physicalShards: [{ logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteFolderId: '91000001', remoteTitle: 'bilimi·知识学习', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: ['91000001'], remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+          positionState: 'aligned' as const, lifecycleState: 'active' as const, sourceAuthority: 'complete' as const,
+          observationEpoch: 'scan-1', observedAt: updatedAt, updatedAt, revision: 1
+        }
+      },
+      tombstones: {
+        '100:2': { accountMid: '100', aid: 2, deletedAt: updatedAt, allowRediscovery: true, kind: 'recycled' as const }
+      },
+      workspace: {
+        id: 'workspace-streaming', accountMid: '100', status: 'scanning' as const, baselineRevision: 1, continuationAids: [],
+        workspaceRef: {
+          workspaceId: 'workspace-streaming', accountMid: '100', status: 'scanning' as const, baselineRevision: 1,
+          currentSegmentId: 'segment-2', overlayRevision: 3, journalCursor: 9, checksum: 'a'.repeat(64),
+          currentStep: 'scanning' as const, plannedCount: 4000, classifiedCount: 2000, unclassifiedCount: 2000,
+          updatedAt, lastCommittedId: 'segment-1'
+        }
+      },
+      syncRecords: [{
+        id: 'sync-unknown', commandId: 'sync-command', status: 'result-unknown' as const,
+        affectedAids: [1], targetFolderIds: ['bilimi-logical:knowledge'], updatedAt
+      }]
+    }
+    const settings = {
+      defaultFavoriteSystemEnabled: true,
+      favoriteLedgers: [{
+        id: 'knowledge', displayName: '我的知识册', keywords: ['教程'], enabled: true, priority: 10,
+        isDefault: true, bilibiliFolderId: '91000001', syncState: 'bound'
+      }],
+      updatedAt
+    }
+    const noteArchive = {
+      id: 'archive-1',
+      source: { accountMid: '100', aid: 1, cid: 11, title: 'Protected video', url: 'https://www.bilibili.com/video/av1?p=1', tags: ['saved'] },
+      versions: [{
+        id: 'version-1', createdAt: updatedAt, plainTranscript: 'persisted transcript', summaryText: 'persisted summary',
+        note: {
+          id: 'account:100:aid:1:cid:11',
+          source: { accountMid: '100', aid: 1, cid: 11, title: 'Protected video', url: 'https://www.bilibili.com/video/av1?p=1', tags: ['saved'] },
+          transcriptSource: 'audio' as const, transcript: [{ start: 0, end: 1, text: 'persisted transcript' }], chapters: [],
+          overview: { shortSummary: ['persisted summary'], keywords: ['saved'], timeline: [], highlights: [] },
+          annotations: [], userMemo: 'keep this memo', starred: true, createdAt: updatedAt, updatedAt
+        }
+      }],
+      createdAt: updatedAt,
+      updatedAt
+    }
+    const transcription = { id: 'job-1', accountMid: '100', aid: 1, cid: 11, url: 'https://x', title: 'Protected video', status: 'completed' as const, createdAt: updatedAt, updatedAt }
+    const applyPortableState = vi.fn()
+    const adapter = createLocalDataPersistenceAdapter({
+      listAccountUids: () => ['100'], getRepository: vi.fn().mockResolvedValue(repository), getAccountSettings: () => settings,
+      getArchives: () => [noteArchive], getTranscriptionItems: () => [transcription],
+      applyPortableBatch: vi.fn(), applyPortableState, readSharedSettings: () => ({}), writeSharedSettings: vi.fn()
+    })
+
+    const portable = await adapter.readAccount('100')
+    expect(portable).toMatchObject({
+      settings,
+      repository: {
+        positions: [expect.objectContaining({ aid: 1, sourceAuthority: 'complete', observationEpoch: 'scan-1' })],
+        recovery: {
+          tombstones: [expect.objectContaining({ aid: 2, kind: 'recycled' })],
+          workspace: expect.objectContaining({ workspaceRef: expect.objectContaining({ currentSegmentId: 'segment-2', plannedCount: 4000, classifiedCount: 2000 }) }),
+          syncRecords: [expect.objectContaining({ id: 'sync-unknown', status: 'result-unknown' })]
+        }
+      },
+      archives: [expect.objectContaining({ versions: [expect.objectContaining({ note: expect.objectContaining({ userMemo: 'keep this memo', starred: true, transcript: [{ start: 0, end: 1, text: 'persisted transcript' }] }) })] })],
+      transcription: [transcription]
+    })
+
+    await adapter.writePortableState?.({ accounts: { '100': portable }, sharedSettings: {} }, { mode: 'overwrite', selectedUids: ['100'] })
+    expect(applyPortableState).toHaveBeenCalledWith(expect.objectContaining({
+      settingsByUid: { '100': settings },
+      archivesByUid: { '100': [noteArchive] },
+      transcriptionByUid: { '100': [transcription] },
+      workspacesByUid: { '100': [expect.objectContaining({ id: 'workspace-streaming' })] },
+      remoteOperationsByUid: { '100': [expect.objectContaining({ id: 'sync-unknown' })] },
+      repositoryArchives: {
+        '100': expect.objectContaining({
+          positions: [expect.objectContaining({ sourceAuthority: 'complete', observationEpoch: 'scan-1' })],
+          recovery: expect.objectContaining({ tombstones: [expect.objectContaining({ aid: 2, kind: 'recycled' })] })
+        })
+      }
+    }), {}, { mode: 'overwrite', selectedUids: ['100'] })
+  })
+
   it('projects validated top-level recovery records into the repository archive consumed by the main importer', async () => {
     const applyPortableState = vi.fn()
     const adapter = createLocalDataPersistenceAdapter({

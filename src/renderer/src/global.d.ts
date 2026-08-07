@@ -59,7 +59,7 @@ import type {
 } from '@shared/videoNoteBatchExport'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
@@ -93,6 +93,7 @@ type BilimiDesktopApi = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }) => void) => () => void
   onOldFavoriteWorkspacePreviewPreparationProgress?: (callback: (progress: {
     accountMid: string
@@ -108,6 +109,7 @@ type BilimiDesktopApi = {
     totalItemCount: number
   }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
+  ensureFavoriteLedger?: (logicalFolderId: string) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
@@ -153,7 +155,7 @@ type BilimiDesktopApi = {
   ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
   getFavoriteRepositoryLibraryPage?: (
     accountMid: string,
-    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' },
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' } | { kind: 'recycle' },
     options: import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPageOptions
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
   getFavoriteRepositoryLibraryVideoDetail?: (
@@ -177,6 +179,7 @@ type BilimiDesktopApi = {
   applyLocalDataImport?: (previewToken: string, mode: 'merge' | 'overwrite') => Promise<void>
   previewLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>
   applyLocalDataCleanup?: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) => Promise<void>
+  onLocalDataReset?: (callback: () => void) => () => void
   onFavoriteRepositoryAccountDataCleared?: (callback: (accountMid: string) => void) => () => void
   copyFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
   moveFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibraryOperationSelection, sourceFolderId: string, targetFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<FavoriteLibraryCommandResult>
@@ -185,6 +188,10 @@ type BilimiDesktopApi = {
   confirmFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryRemoteUnfavoriteOperation?: (accountMid: string, operationId: string) => Promise<unknown>
+  previewFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) => Promise<unknown>
+  confirmFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
+  executeFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
+  reconcileFavoriteLibraryManagedPlacementRemoval?: (accountMid: string, operationId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderDelete?: (accountMid: string, folderId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderGroupDelete?: (accountMid: string) => Promise<unknown>
   deleteFavoriteLibraryManagedFolderLocal?: (accountMid: string, executionToken: string) => Promise<unknown>
@@ -199,6 +206,7 @@ type BilimiDesktopApi = {
   deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   restoreFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   forgetFavoriteLibraryTombstone?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
+  clearRecycledFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   previewFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[]) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoritePreview>
   confirmFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteLibraryUnfavoriteConfirmation>
   executeFavoriteLibraryBilibiliUnfavorite?: (accountMid: string, aids: number[], executionToken: string, confirmationToken: string) => Promise<FavoriteLibraryCommandResult>
@@ -290,6 +298,7 @@ type BilimiDesktopApi = {
   saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
   writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
   writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => Promise<FavoriteLedgerEnabledPatch>
+  writeDefaultFavoriteSystemEnabled?: (accountMid: string, enabled: boolean) => Promise<boolean>
   previewPreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void
   restoreDefaultLayoutSize?: () => Promise<void>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>

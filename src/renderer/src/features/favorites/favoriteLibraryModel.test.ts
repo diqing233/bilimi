@@ -9,7 +9,7 @@ import {
   createFavoriteLibraryPageCursor,
   createFavoriteLibraryViewCache
   , formatFavoriteLibraryMirrorStatus, formatFavoriteLibraryOrganizationStatus
-  , formatFavoriteLibraryMetadataStatus, formatFavoriteLibraryPositionStatus, formatFavoriteLibraryPositionSyncStatus
+  , formatFavoriteLibraryMetadataStatus, formatFavoriteLibraryPositionStatus, formatFavoriteLibraryPositionSyncStatus, favoriteLibraryLedgerBindingStatus
 } from './favoriteLibraryModel'
 
 const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => ({
@@ -54,12 +54,12 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryOrganizationStatus('unorganized')).toBe('未整理')
   })
 
-  it('labels the legacy local inbox as unmatched classifications without changing its id', () => {
+  it('labels the legacy local inbox as staging without changing its id', () => {
     const navigation = buildFavoriteLibraryNavigation([
       { id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }
     ], 0)
 
-    expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: '未匹配分类' }))
+    expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: 'bilimi·暂存' }))
   })
 
   it('keeps metadata refresh and collection position labels separate', () => {
@@ -130,6 +130,7 @@ describe('favoriteLibraryModel', () => {
     expect(buildFavoriteLibraryNavigation(folders, 3)).toEqual([
       { id: 'all', kind: 'all', title: '全部收藏' },
       { id: 'pending', kind: 'pending', title: '待处理', count: 3 },
+      { id: 'recycle', kind: 'recycle', title: '回收站', count: 0 },
       { id: 'folder:remote', kind: 'folder', folderId: 'remote', title: 'Bili', source: 'bilibili' },
       { id: 'folder:logical', kind: 'folder', folderId: 'logical', title: 'Bilimi logical', source: 'bilimi-logical' },
       { id: 'folder:local', kind: 'folder', folderId: 'local', title: 'Local', source: 'local' }
@@ -146,6 +147,35 @@ describe('favoriteLibraryModel', () => {
       expect.objectContaining({ folderId: 'local:knowledge', title: 'bilimi·知识学习' }),
       expect.objectContaining({ folderId: 'local:movie-tv', title: 'bilimi·影视动漫' })
     ]))
+  })
+
+  it('derives backed, missing, and generated-draft ledger binding states without marking ordinary folders', () => {
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilimi-logical:music', title: 'bilimi·音乐舞台', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound'
+    })).toEqual({ kind: 'backed', label: '已备册' })
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'pending-reconcile'
+    })).toEqual({ kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilimi-logical:custom-abc', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-abc', syncState: 'pending-reconcile'
+    })).toEqual({ kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'local:custom-author-honker233', title: 'bilimi·honker233', kind: 'local', logicalLedgerId: 'custom-author-honker233', syncState: 'local-only'
+    })).toEqual({ kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only'
+    })).toBeUndefined()
+    expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilibili:1', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '1', syncState: 'bound'
+    })).toBeUndefined()
+  })
+
+  it('keeps the recycle bin in navigation even when it is empty', () => {
+    expect(buildFavoriteLibraryNavigation([], 0, 7)).toEqual([
+      { id: 'all', kind: 'all', title: '全部收藏' },
+      { id: 'pending', kind: 'pending', title: '待处理', count: 0 },
+      { id: 'recycle', kind: 'recycle', title: '回收站', count: 7 }
+    ])
   })
 
   it('creates a detail model and carries pagination cursors forward unchanged', () => {

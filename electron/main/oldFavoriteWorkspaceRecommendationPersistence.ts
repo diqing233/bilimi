@@ -26,23 +26,50 @@ function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: 
     ledger.isDefault === recommendation.isDefault
 }
 
+function normalizedRuleKeywords(ledger: FavoriteLedger) {
+  return ledger.keywords.map((keyword) => keyword.trim().toLocaleLowerCase()).filter(Boolean).sort()
+}
+
+function sameLogicalRecommendation(left: FavoriteLedger, right: FavoriteLedger) {
+  if ((left.ruleType ?? 'keyword') !== (right.ruleType ?? 'keyword')) return false
+  return JSON.stringify(normalizedRuleKeywords(left)) === JSON.stringify(normalizedRuleKeywords(right))
+}
+
 export function reconcileRecommendedLedgers(
   current: FavoriteLedger[],
   recommendations: FavoriteLedger[],
   adoptedRecommendationIds: string[]
 ) {
-  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
+  const matchedCurrentIds = new Set<string>()
   const adoptedIds = new Set(adoptedRecommendationIds)
+  const resolvedRecommendations = recommendations.filter((recommendation) => adoptedIds.has(recommendation.id)).map((recommendation) => {
+    const exactId = current.find((ledger) => !matchedCurrentIds.has(ledger.id) && ledger.id === recommendation.id)
+    if (exactId) {
+      matchedCurrentIds.add(exactId.id)
+      return exactId
+    }
+    const existing = current.find((ledger) =>
+      !matchedCurrentIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommendation))
+    if (!existing) return recommendation
+    matchedCurrentIds.add(existing.id)
+    return !existing.bilibiliFolderId
+      ? { ...existing, enabled: true }
+      : existing
+  })
+  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
   const retained = current.filter((ledger) => {
+    if (matchedCurrentIds.has(ledger.id)) return false
     const recommendation = recommendedById.get(ledger.id)
     return !recommendation || adoptedIds.has(ledger.id) || !matchesGeneratedRecommendation(ledger, recommendation)
   })
   const retainedIds = new Set(retained.map((ledger) => ledger.id))
   return [
     ...retained,
-    ...recommendations
-      .filter((ledger) => adoptedIds.has(ledger.id) && !retainedIds.has(ledger.id))
-      .map((ledger) => ({ ...ledger, syncState: 'local-draft' as const }))
+    ...resolvedRecommendations
+      .filter((ledger) => !retainedIds.has(ledger.id))
+      .map((ledger) => ledger.bilibiliFolderId
+        ? ledger
+        : { ...ledger, syncState: 'local-draft' as const })
   ]
 }
 

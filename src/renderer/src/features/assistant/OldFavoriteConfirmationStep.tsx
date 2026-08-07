@@ -11,13 +11,18 @@ type OldFavoriteConfirmationStepProps = {
   preparationStatus?: string | null
   executionError?: string | null
   onSaveLocally: () => void
+  onSaveCurrentSegment?: () => void
+  onSaveWholeRun?: () => void
   onCancelExecutionIntent?: () => void
+  onFinishCurrentSegment?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
-  onConfirmAndSync: () => void
+  onConfirmAndSync: (includeInbox?: boolean) => void
   onUseOriginalClassifications?: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
+  recommendedCandidateIds?: string[]
+  enabledLedgerIds?: ReadonlySet<string>
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
 }
@@ -37,6 +42,8 @@ function retryWaitLabel(remainingMs: number) {
   return seconds < 60 ? `${seconds} 秒` : `${Math.ceil(seconds / 60)} 分钟`
 }
 
+const FAVORITE_LIBRARY_HELP = '收藏库用于保存和管理本地整理结果，可继续查看、调整和重新归类；只有点击“同步到 B 站”后才会上传。'
+
 export function OldFavoriteConfirmationStep({
   snapshot,
   ledgers = [],
@@ -45,6 +52,8 @@ export function OldFavoriteConfirmationStep({
   preparationStatus,
   executionError,
   onSaveLocally,
+  onSaveCurrentSegment = onSaveLocally,
+  onSaveWholeRun = onSaveLocally,
   onCancelExecutionIntent = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
@@ -52,6 +61,8 @@ export function OldFavoriteConfirmationStep({
   onUseOriginalClassifications = () => undefined,
   onExecuteFrozenPlan,
   onReconcile,
+  recommendedCandidateIds,
+  enabledLedgerIds,
   viewScope: controlledViewScope,
   onViewScopeChange
 }: OldFavoriteConfirmationStepProps) {
@@ -72,12 +83,14 @@ export function OldFavoriteConfirmationStep({
       : `上次同步已安全停止：${failureReason}`
     : null
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false)
+  const [includeInbox, setIncludeInbox] = useState(false)
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const failedDeepSeekCount = snapshot.deepSeekRun?.failedVideoCount ?? 0
-  const deepSeekBlocksExecution = Boolean(snapshot.deepSeekRun)
+  const deepSeekBlocksExecution = Boolean(snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'completed')
   const isMultiSegment = snapshot.hasMultipleSegments
   const currentSegmentSummary = snapshot.currentSegment
     ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
@@ -85,13 +98,15 @@ export function OldFavoriteConfirmationStep({
   const currentSegmentSaved = Boolean(currentSegmentSummary && (
     currentSegmentSummary.status === 'frozen' || currentSegmentSummary.readiness === 'saved'
   ))
-  const localSaveLabel = isMultiSegment
-    ? '保存本轮到收藏库'
-    : '仅保存本轮到收藏库'
+  const currentSegmentReady = Boolean(currentSegmentSummary && ['ready', 'saved'].includes(currentSegmentSummary.readiness))
+  const readySegmentCount = snapshot.segments.filter((segment) => ['ready', 'saved'].includes(segment.readiness)).length
+  const allSegmentsSaved = snapshot.segments.length > 0 && snapshot.segments.every((segment) => segment.readiness === 'saved')
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
     : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
-  const ledgerNames = new Map<string, string>([['inbox', 'bilimi·暂存'], ...ledgers.map((ledger) => [ledger.id, ledger.displayName] as const)])
+  const ledgerNames = new Map<string, string>([['inbox', 'bilimi·暂存'], ...ledgers
+    .filter((ledger) => enabledLedgerIds?.has(ledger.id) ?? ledger.enabled)
+    .map((ledger) => [ledger.id, ledger.displayName] as const)])
 
   if (snapshot.status === 'completed') {
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
@@ -127,7 +142,7 @@ export function OldFavoriteConfirmationStep({
         <h4>确认执行</h4>
         {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
       </div>
-      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets /> : null}
+      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
       {isMultiSegment && viewScope === 'current' && currentSegmentSummary
         ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
         : null}
@@ -179,12 +194,17 @@ export function OldFavoriteConfirmationStep({
     </section>
   }
 
-  const readinessText = readiness && isMultiSegment
+  const readinessText = readiness && isMultiSegment && viewScope === 'all'
     ? `整体准备度：${readiness.classifiedAidCount} / ${readiness.selectedAidCount} 条已分类`
     : null
-  const unmatchedCount = isMultiSegment ? snapshot.overview?.unmatchedItemCount ?? 0 : unclassifiedCount
+  const currentSegmentUnmatchedCount = currentSegmentSummary
+    ? snapshot.overview?.archiveTargets.find((target) => target.ledgerId === 'inbox')?.segmentCounts
+      .find((segment) => segment.segmentId === currentSegmentSummary.id)?.count ?? 0
+    : unclassifiedCount
+  const wholeRunUnmatchedCount = isMultiSegment ? snapshot.overview?.unmatchedItemCount ?? 0 : unclassifiedCount
+  const unmatchedCount = isMultiSegment && viewScope === 'current' ? currentSegmentUnmatchedCount : wholeRunUnmatchedCount
   const blockedMessage = unmatchedCount
-    ? `bilimi·暂存 ${unmatchedCount} 条：保存到本地收藏库；点击同步时默认不上传 B 站。`
+    ? `${isMultiSegment && viewScope === 'current' ? '本批' : '本轮'}未匹配到合适分类 ${unmatchedCount} 条，将保存到 bilimi·暂存；同步时默认不上传 B 站。`
     : !canSaveLocally
       ? '正在等待主进程确认本轮分类准备度。'
       : null
@@ -194,15 +214,17 @@ export function OldFavoriteConfirmationStep({
       <h4>确认执行</h4>
       {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
     </div>
-    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets /> : null}
+    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
     {isMultiSegment && viewScope === 'current' && currentSegmentSummary
       ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
       : null}
-    <p>确认本轮分类结果，并选择保存到收藏库或同步到 B 站。</p>
+    <p>{isMultiSegment && viewScope === 'current'
+      ? '确认当前批次的分类结果并保存到收藏库。'
+      : '确认本轮分类结果，并选择保存到收藏库、同步到 B 站或结束本轮整理。'}</p>
     <p className="favorite-ledger-panel__action-explanation">{syncExplanation}</p>
     {readinessText ? <p>{readinessText}</p> : null}
     {preparationStatus ? <p role="status">{preparationStatus}</p> : null}
-    {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
+    {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{blockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
     {failedDeepSeekCount ? <div className="favorite-ledger-panel__confirm-warning" role="alert">
       <p>{failedDeepSeekCount} 条视频的 DeepSeek 整理失败，重试或明确沿用原自动分类后才能保存或同步。</p>
@@ -212,10 +234,35 @@ export function OldFavoriteConfirmationStep({
         }
       }}>沿用 {failedDeepSeekCount} 条视频的原自动分类</button>
     </div> : null}
-    <div className="favorite-ledger-panel__confirm-actions">
-      <button type="button" disabled={!canSaveLocally || deepSeekBlocksExecution || loading || (!isMultiSegment && currentSegmentSaved)} onClick={onSaveLocally}>{localSaveLabel}</button>
-      <button type="button" disabled={!canSyncToBilibili || deepSeekBlocksExecution || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
-      <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>放弃本轮整理</button>
+    <div className="favorite-ledger-panel__confirm-action-groups">
+      {isMultiSegment && viewScope === 'current' ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本批操作">
+        <strong>本批操作</strong>
+        <div className="favorite-ledger-panel__confirm-actions">
+          <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !currentSegmentReady || deepSeekBlocksExecution || loading} onClick={onSaveCurrentSegment}>{currentSegmentSaved ? '重新保存本批到收藏库' : '保存本批到收藏库'}</button>
+        </div>
+      </section> : null}
+      {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
+        <strong>本轮操作</strong>
+        <div className="favorite-ledger-panel__confirm-actions">
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          <button type="button" disabled={!canSyncToBilibili || deepSeekBlocksExecution || loading} onClick={() => {
+            if (unmatchedCount > 0) setSyncDialogOpen(true)
+            else onConfirmAndSync(false)
+          }}>确认并同步到 B 站</button>
+          <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>暂不同步，结束本轮整理</button>
+        </div>
+      </section> : null}
     </div>
+    {syncDialogOpen ? <div className="favorite-ledger-panel__sync-dialog" role="dialog" aria-modal="true" aria-label="同步选项">
+      <h5>同步选项</h5>
+      <label>
+        <input type="checkbox" checked={includeInbox} onChange={(event) => setIncludeInbox(event.currentTarget.checked)} />
+        同步 bilimi·暂存（{unmatchedCount} 条）
+      </label>
+      <div className="favorite-ledger-panel__confirm-actions">
+        <button type="button" onClick={() => setSyncDialogOpen(false)}>取消</button>
+        <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
+      </div>
+    </div> : null}
   </section>
 }

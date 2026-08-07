@@ -16,6 +16,7 @@ import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitB
 import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { LocalMemoEditor } from './LocalMemoEditor'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import { NoteSelectionCheckbox, NoteSelectionStore, NoteSelectionSubscriber } from './noteSelectionStore'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import './VideoNoteArchivePanel.css'
@@ -151,8 +152,8 @@ export function VideoNoteArchivePanel({
   const [memoOpen, setMemoOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
-  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [versionMenuOpen, setVersionMenuOpen] = useExclusiveMenu()
+  const [moreMenuOpen, setMoreMenuOpen] = useExclusiveMenu()
   const [summaryGenerating, setSummaryGenerating] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [archiveSelection] = useState(() => new NoteSelectionStore())

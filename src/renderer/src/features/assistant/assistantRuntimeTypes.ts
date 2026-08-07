@@ -57,6 +57,8 @@ export type FloatingAssistantWorkspaceRequest = {
   selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection
   /** Stable local ledger identity requested by the Favorite Library. */
   ledgerId?: string
+  /** Display title used when the requested local draft is no longer in preferences. */
+  ledgerTitle?: string
   /** Opens a new local ledger editor. */
   createLedger?: boolean
 }
@@ -76,6 +78,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }
   | { id: string; type: 'ensure-ledgers' }
+  | { id: string; type: 'ensure-ledger'; logicalFolderId: string }
   | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[]; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'open-bilibili-favorites' }
   | {

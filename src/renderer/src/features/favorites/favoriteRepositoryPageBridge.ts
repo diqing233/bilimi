@@ -129,7 +129,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
         if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim() || !String(input.folderId || '').trim()) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
         const csrf = readCookie('bili_jct'); if (!csrf) return { status: 'rejected', observedAccountMid, reason: 'csrf-missing' };
-        const body = new URLSearchParams(); body.set('csrf', csrf); body.set('media_id', String(input.folderId).trim());
+        const body = new URLSearchParams(); body.set('csrf', csrf); body.set('media_ids', String(input.folderId).trim());
         let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
         const httpStatus = Number(response?.status || 0);
         const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);

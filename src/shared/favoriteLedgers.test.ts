@@ -3,8 +3,11 @@ import {
   BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
+  createRecommendedFavoriteLedgerId,
   createRecommendedFavoriteLedgerName,
+  createRecommendedFavoriteLedgerNameForKind,
   createRecommendedFavoriteLedgerNames,
+  disambiguateRecommendedFavoriteLedgerNames,
   favoriteLedgerNameLength,
   favoriteLedgerNameValidation,
   favoriteLedgerNamesById,
@@ -13,6 +16,29 @@ import {
   normalizeFavoriteLedgers,
   suggestFavoriteLedgerNames
 } from './favoriteLedgers'
+
+describe('recommended favorite ledger naming', () => {
+  it('uses readable source labels instead of exposing a hash when author and tag names collide', () => {
+    const author = createRecommendedFavoriteLedgerNameForKind('author', '明日方舟', [])
+    const tag = createRecommendedFavoriteLedgerNameForKind('tag', '明日方舟', [author])
+    expect(author).toBe('bilimi·明日方舟')
+    expect(tag).toBe('bilimi·明日方舟（标签）')
+  })
+
+  it('keeps both readable source labels within the Bilibili name limit', () => {
+    const displayName = 'bilimi·这是一个非常非常长的名称'
+    const candidates = disambiguateRecommendedFavoriteLedgerNames([
+      { kind: 'author' as const, sourceName: '这是一个非常非常长的名称', displayName },
+      { kind: 'tag' as const, sourceName: '这是一个非常非常长的名称', displayName }
+    ])
+
+    expect(candidates.map((candidate) => candidate.displayName)).toEqual([
+      'bilimi·这是一个非常非常长（UP）',
+      'bilimi·这是一个非常非常长（标签）'
+    ])
+    expect(candidates.every((candidate) => favoriteLedgerNameValidation(candidate.displayName).valid)).toBe(true)
+  })
+})
 
 describe('favorite ledger model', () => {
   it('counts Unicode code points and validates the complete Bilibili ledger name', () => {
@@ -31,6 +57,38 @@ describe('favorite ledger model', () => {
     expect(createRecommendedFavoriteLedgerName('abcdefghijklmnop-超长账号', [])).toBe(
       'bilimi·abcdefghijklm'
     )
+  })
+
+  it('keeps the complete Unicode source in recommendation ids', () => {
+    expect(createRecommendedFavoriteLedgerId('author', 'honker233-小王爱马枪')).toContain(
+      'custom-author-honker233-小王爱马枪'
+    )
+    expect(createRecommendedFavoriteLedgerId('author', 'honker233-另一位主播')).toContain(
+      'custom-author-honker233-另一位主播'
+    )
+    expect(createRecommendedFavoriteLedgerId('author', '中文UP一')).not.toBe(
+      createRecommendedFavoriteLedgerId('author', '中文UP二')
+    )
+  })
+
+  it('keeps recommendation ids distinct when different sources share a normalized slug', () => {
+    expect(createRecommendedFavoriteLedgerId('author', 'UP Alpha')).not.toBe(
+      createRecommendedFavoriteLedgerId('author', 'up-alpha')
+    )
+    expect(createRecommendedFavoriteLedgerId('tag', 'A B')).not.toBe(
+      createRecommendedFavoriteLedgerId('tag', 'a-b')
+    )
+  })
+
+  it('normalizes long tag recommendations without applying the author account-prefix rule', () => {
+    const displayName = createRecommendedFavoriteLedgerNameForKind(
+      'tag',
+      '这是一个非常非常长的高频标签名称',
+      []
+    )
+
+    expect(displayName).toBe('bilimi·这是一个非常非常长的高频标')
+    expect(favoriteLedgerNameValidation(displayName).valid).toBe(true)
   })
 
   it('adds a stable short suffix when a recommended name conflicts', () => {
