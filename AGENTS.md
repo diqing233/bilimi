@@ -48,10 +48,10 @@
 
 ## 打包与发布
 
-每次准备打包或发布 Windows 安装包前，必须按照 `docs/release-checklist.md` 完成 dev、preview、安装包三种形态的关键路径验收。
+仅在用户明确要求打包或发布，且当前工作树已处于预期发布提交、没有未提交改动时执行。
 
-只有用户明确要求打包或发布，且工作树没有未提交改动时，才可执行 Windows 安装包命令 `npm run dist:win`。该命令会重新安装锁定依赖、构建应用、准备 Electron 与媒体工具，并生成 NSIS 安装器；`npm run build` 或 `npm run dist` 都不能替代它。若工作树有未提交功能改动，先提交为预期发布提交或在独立的干净工作树打包，不得把半成品打进安装包。
+Windows 安装包统一使用 `npm run dist:win`。`npm run build` 只构建，不能替代安装包；`npm run dist` 会遗漏 Electron/媒体工具准备，不作为发布入口。
 
-`npm run dist:win` 完成后必须安装 `dist/` 中生成的安装包，并按发布清单在开发版、`npm run preview` 生产预览版和真实安装版分别完成同一组关键路径验收；记录差异后才能判断安装包可发布。
+发布前先完成 `npm test`、开发版和 `npm run preview` 的关键路径检查；再执行 `npm run dist:win`。
 
-不得只凭开发版能够运行，就判断预览版或用户安装版正常。
+安装 `dist/` 中生成的 NSIS 安装包，按 `docs/release-checklist.md` 在开发版、预览版、安装版重复同一组关键路径并记录差异。三种形态均通过后，才能判断可发布。
