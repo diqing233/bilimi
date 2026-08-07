@@ -72,6 +72,7 @@ export function PalaceMaidPetApp() {
   const hoverShortcutsHideTimeout = useRef<number | null>(null)
   const closeHoverCryingTimeout = useRef<number | null>(null)
   const petLongHoverTimeout = useRef<number | null>(null)
+  const repeatedClickCryingTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
   const clickTimestamps = useRef<number[]>([])
   const lastOwnerInteractionAt = useRef(Date.now())
@@ -125,6 +126,26 @@ export function PalaceMaidPetApp() {
       window.clearTimeout(petLongHoverTimeout.current)
       petLongHoverTimeout.current = null
     }
+  }
+
+  function clearRepeatedClickCryingTimeout() {
+    if (repeatedClickCryingTimeout.current !== null) {
+      window.clearTimeout(repeatedClickCryingTimeout.current)
+      repeatedClickCryingTimeout.current = null
+    }
+  }
+
+  function scheduleRepeatedClickCryingRecovery() {
+    clearRepeatedClickCryingTimeout()
+    repeatedClickCryingTimeout.current = window.setTimeout(() => {
+      clickTimestamps.current = []
+      setPetHint((currentHint) =>
+        currentHint?.tone === 'crying' && currentHint.message === REPEATED_CLICK_CRYING_MESSAGE
+          ? null
+          : currentHint
+      )
+      repeatedClickCryingTimeout.current = null
+    }, REPEATED_CLICK_WINDOW_MS)
   }
 
   function previewPetHover() {
@@ -316,6 +337,7 @@ export function PalaceMaidPetApp() {
         window.clearTimeout(closeHoverCryingTimeout.current)
       }
       clearPetLongHoverTimeout()
+      clearRepeatedClickCryingTimeout()
       window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       window.removeEventListener('blur', hideClosePrompt)
     }
@@ -537,6 +559,7 @@ export function PalaceMaidPetApp() {
       return false
     }
     showLocalPetHint('crying', REPEATED_CLICK_CRYING_MESSAGE)
+    scheduleRepeatedClickCryingRecovery()
     return true
   }
 
