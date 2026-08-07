@@ -17,20 +17,17 @@ import {
 } from './petState'
 import { applyImmediatePreferencePatch, createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
-import {
-  PET_IDLE_GREETINGS,
-  PET_TEASE_CLICK_LINES,
-  PET_WELCOME_HOME_LINES,
-  pickPetLine
-} from './petInteractionLines'
+import { PET_IDLE_GREETINGS, PET_WELCOME_HOME_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
 import type { FloatingAssistantWorkspaceRequest } from './assistantRuntimeTypes'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
 const IDLE_GREETING_DELAY_MS = 45_000
-const PET_TEASE_CLICK_WINDOW_MS = 1_500
-const PET_TEASE_CLICK_THRESHOLD = 3
+const LONG_IDLE_CRYING_DELAY_MS = 180_000
+const CLOSE_HOVER_CRYING_DELAY_MS = 1_000
+const REPEATED_CLICK_WINDOW_MS = 2_000
+const REPEATED_CLICK_THRESHOLD = 3
 const PET_SIZE_STEP_PX = 16
 const PET_SIZE_MIN_PX = 100
 const PET_SIZE_MAX_PX = 164
@@ -42,14 +39,11 @@ const DEEPSEEK_CHAT_DISABLED_MESSAGE =
 const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek宠物对话功能吧'
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
-
-const PET_SHORTCUT_NO_VIDEO_HINTS: Partial<Record<PetHoverShortcut['id'], string>> = {
-  like: '主人，当前还没打开视频，小咪不能帮这条点喜欢。',
-  favorite: '主人，当前还没打开视频，小咪不能把这条归入 bilimi。',
-  coin: '主人，当前还没打开视频，小咪不能给这条投币。',
-  comment: '主人，当前还没打开视频，小咪不能帮这条拟短评。',
-  transcribe: '主人，当前还没打开视频，小咪不能帮这条转写音频。'
-}
+const CLOSE_HOVER_CRYING_MESSAGE = '主人要把小咪收起来了吗……'
+const REPEATED_CLICK_CRYING_MESSAGE = '主人你坏……小咪会被点晕的。'
+const LONG_IDLE_CRYING_MESSAGE = '主人是不是忘记小咪了……'
+const NO_CURRENT_VIDEO_CRYING_MESSAGE = '这里没有视频，小咪帮不上忙，呜……'
+const PET_CHAT_DISABLED_CRYING_MESSAGE = '小咪想说话，可是主人还没开开关……'
 
 const PET_SHORTCUT_WORKING_HINTS: Partial<Record<PetHoverShortcut['id'], string>> = {
   like: '好哒主人，小咪去点赞，再收进合适的册目里～',
@@ -76,9 +70,11 @@ export function PalaceMaidPetApp() {
   const idleGreetingTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const hoverShortcutsHideTimeout = useRef<number | null>(null)
+  const closeHoverCryingTimeout = useRef<number | null>(null)
   const petLongHoverTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
-  const petClickStreak = useRef({ count: 0, lastAt: 0 })
+  const clickTimestamps = useRef<number[]>([])
+  const lastOwnerInteractionAt = useRef(Date.now())
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const chatOpenRef = useRef(false)
@@ -91,6 +87,7 @@ export function PalaceMaidPetApp() {
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false)
   const [clickReactionSignal, setClickReactionSignal] = useState(0)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
@@ -162,11 +159,20 @@ export function PalaceMaidPetApp() {
 
       const mainWindowState = await window.bilimiDesktop?.getMainWindowPresentationState?.()
       if (!mainWindowState?.visible || mainWindowState.minimized) {
-        showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
+        if (Date.now() - lastOwnerInteractionAt.current >= LONG_IDLE_CRYING_DELAY_MS) {
+          showLocalPetHint('crying', LONG_IDLE_CRYING_MESSAGE)
+        } else {
+          showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
+        }
       }
       idleGreetingTimeout.current = null
       scheduleIdleGreeting()
     }, IDLE_GREETING_DELAY_MS)
+  }
+
+  function markOwnerInteraction() {
+    lastOwnerInteractionAt.current = Date.now()
+    scheduleIdleGreeting()
   }
 
   useEffect(() => {
@@ -197,6 +203,7 @@ export function PalaceMaidPetApp() {
 
       if (!disposed) {
         setPreferences(createInitialAssistantPreferences(preferences))
+        setPreferencesLoaded(true)
       }
     }
 
@@ -279,6 +286,7 @@ export function PalaceMaidPetApp() {
     window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
 
     function hideClosePrompt() {
+      stopCloseHoverCrying()
       setClosePromptVisible(false)
       setChatOpen(false)
       clearPetHoverPreview()
@@ -299,6 +307,9 @@ export function PalaceMaidPetApp() {
       if (hoverShortcutsHideTimeout.current !== null) {
         window.clearTimeout(hoverShortcutsHideTimeout.current)
       }
+      if (closeHoverCryingTimeout.current !== null) {
+        window.clearTimeout(closeHoverCryingTimeout.current)
+      }
       clearPetLongHoverTimeout()
       window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       window.removeEventListener('blur', hideClosePrompt)
@@ -317,9 +328,20 @@ export function PalaceMaidPetApp() {
     }
   }, [chatOpen])
 
+  useEffect(() => {
+    if (!chatOpen || !preferencesLoaded) return
+    if (!deepSeekChatEnabled) {
+      if (petHint?.tone !== 'crying' || petHint.message !== PET_CHAT_DISABLED_CRYING_MESSAGE) {
+        showLocalPetHint('crying', PET_CHAT_DISABLED_CRYING_MESSAGE)
+      }
+    } else if (petHint?.tone === 'crying' && petHint.message === PET_CHAT_DISABLED_CRYING_MESSAGE) {
+      setPetHint(null)
+    }
+  }, [chatOpen, deepSeekChatEnabled, petHint, preferencesLoaded])
+
   function enterInteractiveRegion() {
     interactiveHoverCount.current += 1
-    scheduleIdleGreeting()
+    markOwnerInteraction()
     window.bilimiDesktop?.setFloatingSealMouseTransparent?.(false)
   }
 
@@ -377,6 +399,24 @@ export function PalaceMaidPetApp() {
       setHoverShortcutsVisible(false)
       hoverShortcutsHideTimeout.current = null
     }, 350)
+  }
+
+  function startCloseHoverCrying() {
+    if (closeHoverCryingTimeout.current !== null) {
+      window.clearTimeout(closeHoverCryingTimeout.current)
+    }
+    closeHoverCryingTimeout.current = window.setTimeout(() => {
+      previewHoverHint('crying', CLOSE_HOVER_CRYING_MESSAGE)
+      closeHoverCryingTimeout.current = null
+    }, CLOSE_HOVER_CRYING_DELAY_MS)
+  }
+
+  function stopCloseHoverCrying() {
+    if (closeHoverCryingTimeout.current !== null) {
+      window.clearTimeout(closeHoverCryingTimeout.current)
+      closeHoverCryingTimeout.current = null
+    }
+    clearHoverPreview()
   }
 
   function startDragCandidate(clientX: number, clientY: number, screenX: number, screenY: number) {
@@ -483,26 +523,27 @@ export function PalaceMaidPetApp() {
     )
   }
 
-  function getRestorePetHint(): AssistantPetHint {
+  function recordPetClickForCrying() {
     const now = Date.now()
-    const withinTeaseWindow = now - petClickStreak.current.lastAt <= PET_TEASE_CLICK_WINDOW_MS
-    const nextCount = withinTeaseWindow ? petClickStreak.current.count + 1 : 1
-
-    petClickStreak.current = { count: nextCount, lastAt: now }
-
-    if (nextCount >= PET_TEASE_CLICK_THRESHOLD) {
-      return { tone: 'surprised', message: pickPetLine(PET_TEASE_CLICK_LINES) }
+    clickTimestamps.current = [...clickTimestamps.current, now].filter(
+      (timestamp) => now - timestamp <= REPEATED_CLICK_WINDOW_MS
+    )
+    if (clickTimestamps.current.length < REPEATED_CLICK_THRESHOLD) {
+      return false
     }
-
-    return { tone: 'shy', message: pickPetLine(PET_WELCOME_HOME_LINES) }
+    clickTimestamps.current = []
+    showLocalPetHint('crying', REPEATED_CLICK_CRYING_MESSAGE)
+    return true
   }
 
   function restoreMainWindow() {
     setClosePromptVisible(false)
     clearPetHoverPreview()
     setClickReactionSignal((signal) => signal + 1)
-    const hint = getRestorePetHint()
-    showLocalPetHint(hint.tone, hint.message)
+    markOwnerInteraction()
+    if (!recordPetClickForCrying()) {
+      showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
+    }
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 
@@ -517,10 +558,6 @@ export function PalaceMaidPetApp() {
 
   function requiresCurrentVideo(shortcut: PetHoverShortcut) {
     return shortcut.intent === 'video-action' || shortcut.id === 'transcribe'
-  }
-
-  function getNoVideoHint(shortcut: PetHoverShortcut) {
-    return PET_SHORTCUT_NO_VIDEO_HINTS[shortcut.id] ?? '主人，当前还没打开视频，小咪不能帮这个忙。'
   }
 
   function explainHoverShortcut(shortcut: PetHoverShortcut) {
@@ -651,7 +688,7 @@ export function PalaceMaidPetApp() {
     const anchor = createWorkspaceAnchor(event)
 
     if (requiresCurrentVideo(shortcut) && !(await hasCurrentVideo())) {
-      showLocalPetHint('error', getNoVideoHint(shortcut))
+      showLocalPetHint('crying', NO_CURRENT_VIDEO_CRYING_MESSAGE)
       return
     }
 
@@ -737,11 +774,13 @@ export function PalaceMaidPetApp() {
   function openPetChat() {
     setClosePromptVisible(false)
     clearHoverPreview()
+    markOwnerInteraction()
     chatOpenRef.current = true
     setChatOpen(true)
   }
 
   function closePetFromPrompt() {
+    stopCloseHoverCrying()
     setClosePromptVisible(false)
     window.bilimiDesktop?.closeAssistantPet?.()
   }
@@ -944,8 +983,11 @@ export function PalaceMaidPetApp() {
             className="palace-maid-pet__quick-action"
             type="button"
             onClick={closePetFromPrompt}
-            onPointerEnter={() => previewHoverHint('error', '关闭宠物：主人要关闭小咪吗？')}
-            onPointerLeave={clearHoverPreview}
+            onPointerEnter={() => {
+              previewHoverHint('error', '关闭宠物：主人要关闭小咪吗？')
+              startCloseHoverCrying()
+            }}
+            onPointerLeave={stopCloseHoverCrying}
           >
             关闭宠物
           </button>

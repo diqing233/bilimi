@@ -24,6 +24,10 @@ type OldFavoriteGuideProps = {
   step: OldFavoriteGuideStep
   onStepChange: (step: OldFavoriteGuideStep) => void
   onRetryScan: () => void
+  scanPaused?: boolean
+  onPauseScan?: () => void
+  onResumeScan?: () => void
+  onFinishScan?: () => void
   onRestartScan?: () => void
   onRetryScanDirect: () => void
   onRebuildWorkspace: () => void
@@ -96,6 +100,10 @@ export function OldFavoriteGuide({
   step,
   onStepChange,
   onRetryScan,
+  scanPaused = false,
+  onPauseScan = () => undefined,
+  onResumeScan = () => undefined,
+  onFinishScan = () => undefined,
   onRestartScan,
   onRetryScanDirect,
   onRebuildWorkspace,
@@ -230,6 +238,10 @@ export function OldFavoriteGuide({
       loading={loading || readOnlyBrowsing}
       tagControlsLoading={tagEnrichmentUpdating}
       scanStarting={scanStarting}
+      scanPaused={scanPaused}
+      onPauseScan={onPauseScan}
+      onResumeScan={onResumeScan}
+      onFinishScan={onFinishScan}
       scanStartFailure={scanStartFailure}
       onRetry={onRetryScan}
       onRestart={onRestartScan}

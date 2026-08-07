@@ -322,6 +322,17 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
+  const pauseScan = async () => {
+    if (scanStarting) return
+    await workspace.pauseScan()
+  }
+
+  const finishScan = async () => {
+    if (scanStarting) return
+    const paused = await workspace.pauseScan()
+    if (paused) setGuideOpen(false)
+  }
+
   const requestOldFavoriteOrganization = async () => {
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++organizationRequestVersion.current
@@ -658,6 +669,10 @@ export function ControlledFavoriteLedgerPanel({
         onRetryScan={() => void (activeSnapshot?.status === 'scanning' && activeSnapshot.scan.phase === 'failed'
           ? continueScan()
           : startScan('incremental'))}
+        scanPaused={Boolean(activeSnapshot?.scan.paused)}
+        onPauseScan={() => void pauseScan()}
+        onResumeScan={() => void continueScan()}
+        onFinishScan={() => void finishScan()}
         onRestartScan={() => void startScan('incremental')}
         onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}

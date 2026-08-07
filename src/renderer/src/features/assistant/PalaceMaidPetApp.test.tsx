@@ -184,7 +184,7 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
-  it('gets bashful when the owner clicks 小咪 repeatedly', async () => {
+  it('gets teary when the owner clicks 小咪 repeatedly', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-10T10:00:00+08:00'))
     const api = installDesktopApi()
@@ -197,16 +197,47 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(pet)
     vi.setSystemTime(new Date('2026-07-10T10:00:00.800+08:00'))
     fireEvent.click(pet)
-    vi.setSystemTime(new Date('2026-07-10T10:00:01.200+08:00'))
-    fireEvent.click(pet)
-
-    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(4)
-    expect(screen.getByText(/捉弄小咪|小咪会害羞/)).toBeInTheDocument()
-    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'surprised')
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(3)
+    expect(screen.getByText('主人你坏……小咪会被点晕的。')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
       'data-click-reaction-signal',
-      '4'
+      '3'
     )
+  })
+
+  it('shows a crying expression after hovering the close action for one second', () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi()
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.contextMenu(pet)
+    const closeButton = screen.getByRole('button', { name: '关闭宠物' })
+    fireEvent.pointerEnter(closeButton)
+    act(() => vi.advanceTimersByTime(999))
+    expect(screen.getByTestId('mock-layered-pet')).not.toHaveAttribute('data-pet-state', 'crying')
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
+    expect(screen.getByText('主人要把小咪收起来了吗……')).toBeInTheDocument()
+    fireEvent.pointerLeave(closeButton)
+    expect(screen.getByTestId('mock-layered-pet')).not.toHaveAttribute('data-pet-state', 'crying')
+    expect(api.closeAssistantPet).not.toHaveBeenCalled()
+  })
+
+  it('gets lonely after 180 seconds without owner interaction', async () => {
+    vi.useFakeTimers()
+    installDesktopApi()
+    render(<PalaceMaidPetApp />)
+    await act(async () => {
+      await Promise.resolve()
+      for (let index = 0; index < 4; index += 1) {
+        vi.advanceTimersByTime(45_000)
+        await Promise.resolve()
+      }
+    })
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
+    expect(screen.getByText('主人是不是忘记小咪了……')).toBeInTheDocument()
   })
 
   it('shows a close prompt on right click and closes after the prompt is clicked', () => {
@@ -1179,9 +1210,8 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '表' }))
 
-    expect(
-      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条拟短评。')
-    ).toBeInTheDocument()
+    expect(await screen.findByText('这里没有视频，小咪帮不上忙，呜……')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
     expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
     expect(
@@ -1507,10 +1537,8 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
-    expect(
-      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条点喜欢。')
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'error')
+    expect(await screen.findByText('这里没有视频，小咪帮不上忙，呜……')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
@@ -1532,10 +1560,8 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(screen.getByRole('button', { name: '转' }))
 
-    expect(
-      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条转写音频。')
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'error')
+    expect(await screen.findByText('这里没有视频，小咪帮不上忙，呜……')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })

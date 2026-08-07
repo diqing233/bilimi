@@ -30,7 +30,12 @@ type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
   tagControlsLoading?: boolean
+  currentScopeLocked?: boolean
   scanStarting: boolean
+  scanPaused?: boolean
+  onPauseScan?: () => void
+  onResumeScan?: () => void
+  onFinishScan?: () => void
   scanStartFailure: string | null
   onRetry: () => void
   onRestart?: () => void
@@ -63,7 +68,12 @@ export function OldFavoriteScanOverviewStep({
   snapshot,
   loading,
   tagControlsLoading = false,
+  currentScopeLocked = false,
   scanStarting,
+  scanPaused: controlledScanPaused = false,
+  onPauseScan = () => undefined,
+  onResumeScan = () => undefined,
+  onFinishScan = () => undefined,
   scanStartFailure,
   onRetry,
   onRestart,
@@ -129,6 +139,7 @@ export function OldFavoriteScanOverviewStep({
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const resumableFailedScan = snapshot?.status === 'scanning' && snapshot.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning'
+  const scanPaused = controlledScanPaused || Boolean(activeSnapshot?.scan.paused)
   const unstarted = !snapshot && !scanStarting
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
   const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
@@ -173,9 +184,11 @@ export function OldFavoriteScanOverviewStep({
       ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
       : unstarted
         ? '尚未开始扫描，请点击“整理收藏”后扫描。'
-        : scanning
-        ? '扫描概览：扫描中'
-        : '扫描概览已完成，请从左向右依次完成本轮整理。'
+        : scanPaused
+          ? '扫描已暂停，已保存的进度不会丢失。'
+          : scanning
+            ? '扫描概览：扫描中'
+          : '扫描概览已完成，请从左向右依次完成本轮整理。'
 
   const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview
 
@@ -207,6 +220,11 @@ export function OldFavoriteScanOverviewStep({
         <strong>{currentSegmentSummary.readiness === 'waiting' ? '等待扫描' : currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
       </div> : null}
     </div>
+    {scanning && !scanFailed && !scanPaused ? <>
+      <button type="button" disabled={loading || scanStarting} onClick={onPauseScan}>暂停扫描</button>
+      <button type="button" disabled={loading || scanStarting} onClick={onFinishScan}>结束整理</button>
+    </> : null}
+    {scanPaused ? <button type="button" disabled={loading || scanStarting} onClick={onResumeScan}>继续扫描</button> : null}
     {snapshot ? <>
       <div className="favorite-ledger-panel__scan-metrics" aria-label={viewScope === 'current' ? '本批整理统计' : '本轮整理统计'}>
         <article aria-label={viewScope === 'current' ? '本批视频' : '扫描总数'} title={viewScope === 'current'
@@ -237,12 +255,12 @@ export function OldFavoriteScanOverviewStep({
       </div>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'running'
-          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-          : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+          ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
-        ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
+        ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
       {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
