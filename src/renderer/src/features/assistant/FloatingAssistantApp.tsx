@@ -806,15 +806,16 @@ const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, 
 export const SETTINGS_JUMP_OPTIONS = [
   { value: 'diagnostics', label: '诊断' },
   { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'learning', label: '整理策略' },
-  { value: 'pet', label: '宠物设置' },
   { value: 'transcription', label: '视频转写模型与 CPU 占用' },
+  { value: 'pet', label: '宠物设置' },
   { value: 'archive', label: '收藏整理' },
-  { value: 'review-actions', label: '批阅动作' },
+  { value: 'learning', label: '整理策略' },
+  { value: 'old-favorite-batches', label: '整理旧藏批次' },
   { value: 'favorites', label: '收藏夹体系' },
+  { value: 'motion-tuning', label: '面板动效' },
+  { value: 'review-actions', label: '批阅动作' },
   { value: 'bilibili-connection', label: 'B 站连接方式' },
   { value: 'local-data', label: '本地数据与迁移' },
-  { value: 'motion-tuning', label: '面板动效' },
   { value: 'close', label: '关闭设置' }
 ] as const
 const SETTINGS_SCROLL_SYNC_OFFSET = 32
@@ -1944,72 +1945,6 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 </>
               ) : null}
             </fieldset>
-            {organizationStrategySettings}
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--pet"
-              data-settings-section="pet"
-            >
-              <legend>宠物设置</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="pet-style"
-                  checked={preferences.petStyle === 'big-head'}
-                  onChange={() => actions.current.choosePetStyle('big-head')}
-                />
-                <span>萌版大头</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="pet-style"
-                  checked={preferences.petStyle === 'classic'}
-                  onChange={() => actions.current.choosePetStyle('classic')}
-                />
-                <span>Q版小人</span>
-              </label>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <label>
-                  <SettingsPreferenceCheckbox
-                    checked={preferences.hidePetDuringVideoFullscreen}
-                    onCommit={toggleVideoFullscreenPetVisibility}
-                />
-                <span>全屏视频时自动收起小咪</span>
-              </label>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <div
-                className="assistant-settings__hover-shortcuts"
-                role="group"
-                aria-label="宠物快捷操作"
-              >
-                <div className="assistant-settings__hover-shortcuts-copy">
-                  <strong>宠物快捷操作</strong>
-                  <small>
-                    选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
-                  </small>
-                </div>
-                <label className="assistant-settings__hover-shortcut-toggle">
-                  <SettingsPreferenceCheckbox
-                    checked={preferences.showPetAssistantShortcut}
-                    onCommit={(checked) => actions.current.persistPreferencePatch({ showPetAssistantShortcut: checked })}
-                  />
-                  <span>显示打开小咪按钮</span>
-                </label>
-                <PetHoverShortcutSettings
-                  fieldStore={petHoverShortcutFieldStore}
-                  onCommit={persistPetHoverShortcuts}
-                />
-              </div>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <div className="assistant-settings__pet-actions">
-                <button type="button" disabled={petWakeRunning} aria-busy={petWakeRunning} onClick={wakeAssistantPet}>
-                  {petWakeRunning ? '正在唤醒…' : '唤醒宠物'}
-                </button>
-                <button type="button" onClick={closeAssistantPet}>
-                  关闭宠物
-                </button>
-              </div>
-            </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--transcription"
               data-settings-section="transcription"
@@ -2078,6 +2013,71 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               </label>
             </fieldset>
             <fieldset
+              className="assistant-settings__group assistant-settings__group--pet"
+              data-settings-section="pet"
+            >
+              <legend>宠物设置</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'big-head'}
+                  onChange={() => actions.current.choosePetStyle('big-head')}
+                />
+                <span>萌版大头</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'classic'}
+                  onChange={() => actions.current.choosePetStyle('classic')}
+                />
+                <span>Q版小人</span>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <label>
+                  <SettingsPreferenceCheckbox
+                    checked={preferences.hidePetDuringVideoFullscreen}
+                    onCommit={toggleVideoFullscreenPetVisibility}
+                />
+                <span>全屏视频时自动收起小咪</span>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <div
+                className="assistant-settings__hover-shortcuts"
+                role="group"
+                aria-label="宠物快捷操作"
+              >
+                <div className="assistant-settings__hover-shortcuts-copy">
+                  <strong>宠物快捷操作</strong>
+                  <small>
+                    选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
+                  </small>
+                </div>
+                <label className="assistant-settings__hover-shortcut-toggle">
+                  <SettingsPreferenceCheckbox
+                    checked={preferences.showPetAssistantShortcut}
+                    onCommit={(checked) => actions.current.persistPreferencePatch({ showPetAssistantShortcut: checked })}
+                  />
+                  <span>显示打开小咪按钮</span>
+                </label>
+                <PetHoverShortcutSettings
+                  fieldStore={petHoverShortcutFieldStore}
+                  onCommit={persistPetHoverShortcuts}
+                />
+              </div>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <div className="assistant-settings__pet-actions">
+                <button type="button" disabled={petWakeRunning} aria-busy={petWakeRunning} onClick={wakeAssistantPet}>
+                  {petWakeRunning ? '正在唤醒…' : '唤醒宠物'}
+                </button>
+                <button type="button" onClick={closeAssistantPet}>
+                  关闭宠物
+                </button>
+              </div>
+            </fieldset>
+            <fieldset
               className="assistant-settings__group assistant-settings__group--archive"
               data-settings-section="archive"
             >
@@ -2119,6 +2119,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 <span>最多同时保存到 3 个 bilimi 收藏夹</span>
               </label>
             </fieldset>
+            {organizationStrategySettings}
             <fieldset
               className="assistant-settings__group assistant-settings__group--old-favorite-batches"
               data-settings-section="old-favorite-batches"
@@ -2157,6 +2158,22 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 onCommit={persistOldFavoriteBatchSize}
               />
             </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--favorites"
+              data-settings-section="favorites"
+            >
+              <legend>默认收藏夹体系</legend>
+              <DefaultFavoriteSystemControl
+                key={resolvedSnapshot.accountMid ?? 'signed-out'}
+                accountMid={resolvedSnapshot.accountMid}
+                initialEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
+                getActions={getActions}
+              />
+              <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
+              <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
+              <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
+            </fieldset>
+            <PanelMotionTuningSettings />
             <fieldset
               className="assistant-settings__group assistant-settings__group--review-actions"
               data-settings-section="review-actions"
@@ -2211,21 +2228,6 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               </label>
             </fieldset>
             <fieldset
-              className="assistant-settings__group assistant-settings__group--favorites"
-              data-settings-section="favorites"
-            >
-              <legend>默认收藏夹体系</legend>
-              <DefaultFavoriteSystemControl
-                key={resolvedSnapshot.accountMid ?? 'signed-out'}
-                accountMid={resolvedSnapshot.accountMid}
-                initialEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
-                getActions={getActions}
-              />
-              <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
-              <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
-              <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
-            </fieldset>
-            <fieldset
               className="assistant-settings__group assistant-settings__group--bilibili-connection"
               data-settings-section="bilibili-connection"
             >
@@ -2273,7 +2275,6 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               <legend>本地数据与迁移</legend>
               <p role="status">{localDataUnavailable ? '本地数据服务暂不可用，请稍后重试。' : '正在读取本地数据服务…'}</p>
             </fieldset>}
-            <PanelMotionTuningSettings />
             <fieldset
               className="assistant-settings__group assistant-settings__group--close"
               data-settings-section="close"

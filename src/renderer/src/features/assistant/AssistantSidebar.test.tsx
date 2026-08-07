@@ -455,13 +455,28 @@ describe('AssistantSidebar', () => {
     expect(screen.getByText(/未备册也可先按默认逻辑目标等待标签完成后分类预览/)).toBeInTheDocument()
     expect(defaultSystem).toBeChecked()
 
+    const expectedSettingsOrder = [
+      'diagnostics',
+      'deepseek',
+      'transcription',
+      'pet',
+      'archive',
+      'learning',
+      'old-favorite-batches',
+      'favorites',
+      'motion-tuning',
+      'review-actions',
+      'bilibili-connection',
+      'local-data',
+      'close'
+    ]
     const settingsSections = Array.from(
       document.querySelectorAll<HTMLElement>('[data-settings-section]')
     ).map((section) => section.dataset.settingsSection)
-    expect(settingsSections.slice(-4)).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
+    expect(settingsSections).toEqual(expectedSettingsOrder)
     expect(
-      Array.from(screen.getByRole('combobox', { name: '设置项' }).querySelectorAll('option')).slice(-4).map((option) => option.value)
-    ).toEqual(['bilibili-connection', 'local-data', 'motion-tuning', 'close'])
+      Array.from(screen.getByRole('combobox', { name: '设置项' }).querySelectorAll('option')).map((option) => option.value)
+    ).toEqual(expectedSettingsOrder)
   })
 
   it('keeps a custom old-favorite batch size local until blur commits one value', async () => {
