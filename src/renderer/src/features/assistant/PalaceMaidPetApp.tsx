@@ -172,6 +172,11 @@ export function PalaceMaidPetApp() {
 
   function markOwnerInteraction() {
     lastOwnerInteractionAt.current = Date.now()
+    setPetHint((currentHint) =>
+      currentHint?.tone === 'crying' && currentHint.message === LONG_IDLE_CRYING_MESSAGE
+        ? null
+        : currentHint
+    )
     scheduleIdleGreeting()
   }
 

@@ -240,6 +240,34 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getByText('主人是不是忘记小咪了……')).toBeInTheDocument()
   })
 
+  it('comforts long-idle crying on pet hover, then waits for another idle period before crying again', async () => {
+    vi.useFakeTimers()
+    installDesktopApi()
+    render(<PalaceMaidPetApp />)
+
+    await act(async () => {
+      for (let index = 0; index < 4; index += 1) {
+        vi.advanceTimersByTime(45_000)
+        await Promise.resolve()
+      }
+    })
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.pointerEnter(pet)
+    fireEvent.pointerLeave(pet)
+
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'idle')
+
+    await act(async () => {
+      for (let index = 0; index < 4; index += 1) {
+        vi.advanceTimersByTime(45_000)
+        await Promise.resolve()
+      }
+    })
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
+  })
+
   it('shows a close prompt on right click and closes after the prompt is clicked', () => {
     const api = installDesktopApi()
 
