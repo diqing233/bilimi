@@ -152,8 +152,8 @@ export function VideoNoteArchivePanel({
   const [memoOpen, setMemoOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
-  const [versionMenuOpen, setVersionMenuOpen] = useExclusiveMenu()
-  const [moreMenuOpen, setMoreMenuOpen] = useExclusiveMenu()
+  const [versionMenuOpen, setVersionMenuOpen, versionMenuScope] = useExclusiveMenu()
+  const [moreMenuOpen, setMoreMenuOpen, moreMenuScope] = useExclusiveMenu()
   const [summaryGenerating, setSummaryGenerating] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [archiveSelection] = useState(() => new NoteSelectionStore())
@@ -759,7 +759,7 @@ export function VideoNoteArchivePanel({
                     {selectedArchive.source.title}
                   </a>
                 </h3>
-                <div ref={moreMenuRef} className="video-note-archive__more">
+                <div {...moreMenuScope} ref={moreMenuRef} className="video-note-archive__more">
                   <button
                     ref={moreMenuTriggerRef}
                     type="button"
@@ -812,7 +812,7 @@ export function VideoNoteArchivePanel({
                 {selectedArchive.versions.length} 次转写
               </p>
               <div className="video-note-archive__version-controls">
-              <div className="video-note-archive__version-picker">
+              <div {...versionMenuScope} className="video-note-archive__version-picker">
                 <span id="video-note-archive-version-label">历史版本</span>
                 <button
                   type="button"

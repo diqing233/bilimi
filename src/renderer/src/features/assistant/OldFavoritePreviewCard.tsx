@@ -33,7 +33,7 @@ export function OldFavoritePreviewCard({
   onToggleBatchSelection = () => undefined,
   onApplyManualClassification
 }: OldFavoritePreviewCardProps) {
-  const [menuOpen, setMenuOpen] = useExclusiveMenu()
+  const [menuOpen, setMenuOpen, menuScope] = useExclusiveMenu()
   const [multiSelectOpen, setMultiSelectOpen] = useState(false)
   const [draftTargetLedgerIds, setDraftTargetLedgerIds] = useState<string[]>([])
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -197,7 +197,7 @@ export function OldFavoritePreviewCard({
       <p>分类把握：{classification?.source === 'system-low' ? '不太稳' : '比较稳'}</p>
     </div>
     <div className="favorite-ledger-panel__preview-controls">
-      <button ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={hasTargets}
+      <button {...menuScope} ref={triggerRef} type="button" className="favorite-ledger-panel__target-toggle" data-selected={hasTargets}
         aria-label={`转移 ${title}`} aria-expanded={menuOpen} disabled={loading}
         onClick={() => {
           if (menuOpen) closeMenu()
@@ -209,7 +209,7 @@ export function OldFavoritePreviewCard({
         aria-describedby={tooltip?.key === 'original' ? tooltipId : undefined}
         onMouseEnter={(event) => showTooltip('original', originalLedgerText, event.currentTarget)} onMouseLeave={() => setTooltip(null)}
         onFocus={(event) => showTooltip('original', originalLedgerText, event.currentTarget)} onBlur={() => setTooltip(null)}>{originalLedgerText}</span> : null}
-      {menuOpen ? createPortal(<div ref={menuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating"
+      {menuOpen ? createPortal(<div {...menuScope} ref={menuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating"
         style={{ top: menuPosition.top, left: menuPosition.left }} role="menu" aria-label={`转移 ${title}`}>
         {multiSelectOpen ? <div className="favorite-ledger-panel__target-multi" role="group" aria-label={`附加目标 ${title}`}>
           {ledgers.map((ledger) => {

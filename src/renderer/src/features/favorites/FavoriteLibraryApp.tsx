@@ -321,7 +321,7 @@ export function FavoriteLibraryApp({
   const [detailDangerOpen, setDetailDangerOpen] = useState(false)
   const [events, setEvents] = useState<FavoriteRepositoryEventPage>()
   const [eventsOpen, setEventsOpen] = useState(false)
-  const [placementPickerOpen, setPlacementPickerOpen] = useExclusiveMenu()
+  const [placementPickerOpen, setPlacementPickerOpen, placementPickerScope] = useExclusiveMenu()
   const [placementConflictChoiceOpen, setPlacementConflictChoiceOpen] = useState(false)
   const [placementPickerBatch, setPlacementPickerBatch] = useState(false)
   const [placementPickerMode, setPlacementPickerMode] = useState<'replace' | 'copy' | 'move'>('replace')
@@ -1415,7 +1415,7 @@ export function FavoriteLibraryApp({
     const added = placementDraftFolderIds.filter((folderId) => !previous.includes(folderId))
     const removed = previous.filter((folderId) => !placementDraftFolderIds.includes(folderId))
     const retained = previous.filter((folderId) => placementDraftFolderIds.includes(folderId))
-    const picker = <div ref={placementPickerRef} className="favorite-library__placement-picker favorite-library__placement-floating-menu" role="menu" aria-label={placementPickerBatch ? '调整所选收藏库归属' : '调整收藏库归属'} aria-busy={placementSaving} style={placementPickerPosition}>
+    const picker = <div {...placementPickerScope} ref={placementPickerRef} className="favorite-library__placement-picker favorite-library__placement-floating-menu" role="menu" aria-label={placementPickerBatch ? '调整所选收藏库归属' : '调整收藏库归属'} aria-busy={placementSaving} style={placementPickerPosition}>
       <p>{placementPickerBatch
         ? placementPickerMode === 'copy'
           ? `将复制 ${selectedCount} 个所选视频到选中的收藏库归属；原有归属会保留。`

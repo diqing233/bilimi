@@ -816,10 +816,28 @@ describe('OldFavoriteArchivePreviewStep', () => {
       sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
       segments: [
         { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
-        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-3', index: 2, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-4', index: 3, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-5', index: 4, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-6', index: 5, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
       ],
       currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current batch', sourceFolderIds: ['source'] }] },
       classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' as const } },
+      deepSeekOrganization: { segments: [
+        {
+          id: 'segment-1', index: 0, status: 'organized' as const,
+          details: [{ aid: 1, title: 'Current batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }]
+        },
+        {
+          id: 'segment-2', index: 1, status: 'organized' as const,
+          details: [{ aid: 2, title: 'Other batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }]
+        },
+        { id: 'segment-3', index: 2, status: 'organized' as const, details: [] },
+        { id: 'segment-4', index: 3, status: 'partial' as const, details: [] },
+        { id: 'segment-5', index: 4, status: 'unorganized' as const, details: [] },
+        { id: 'segment-6', index: 5, status: 'unorganized' as const, details: [] }
+      ] },
       recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
     }
     const props = {
@@ -827,13 +845,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       ledgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true, priority: 0, isDefault: false, ruleType: 'keyword' as const }],
       loading: false,
       deepSeekAvailable: true,
-      deepSeekFeedback: { status: 'completed' as const, message: 'DeepSeek done', progress: {
-        totalChunks: 2, completedChunks: 2, totalVideoCount: 2, successfulVideoCount: 2, failedVideoCount: 0,
-        processedItems: [
-          { aid: 1, title: 'Current batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true },
-          { aid: 2, title: 'Other batch', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['music'], changed: true }
-        ]
-      } },
+      deepSeekFeedback: null,
       onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onMoveHistoryCursor: vi.fn(),
       onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn()
     }
@@ -841,6 +853,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByText('查看整理明细（1 条）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
     expect(screen.getByText('查看整理明细（2 条）')).toBeInTheDocument()
+    expect(screen.getByText('其他批次：第 2、3 批已整理；第 4 批部分整理；第 5、6 批未整理')).toBeInTheDocument()
   })
 
   it('does not present failed videos as fully applied', () => {

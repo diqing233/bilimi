@@ -24,7 +24,7 @@ export function CopySplitButton({
   options,
   onCopy
 }: CopySplitButtonProps): React.JSX.Element {
-  const [menuOpen, setMenuOpen] = useExclusiveMenu()
+  const [menuOpen, setMenuOpen, menuScope] = useExclusiveMenu()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuDisabled = options.every((option) => option.disabled)
@@ -54,7 +54,7 @@ export function CopySplitButton({
   }
 
   return (
-    <div ref={rootRef} className="video-notes__copy-split" role="group" aria-label={groupLabel}>
+    <div {...menuScope} ref={rootRef} className="video-notes__copy-split" role="group" aria-label={groupLabel}>
       <button
         ref={triggerRef}
         type="button"
