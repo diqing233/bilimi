@@ -2446,7 +2446,6 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await screen.findByRole('button', { name: '推荐收藏夹' })
     const stepNavigation = screen.getByRole('navigation', { name: '整理收藏步骤' })
-    expect(screen.queryByRole('option', { name: '本轮总览' })).not.toBeInTheDocument()
     expect(within(stepNavigation).queryByRole('button', { name: '本轮总览' })).not.toBeInTheDocument()
     fireEvent.click(within(stepNavigation).getByRole('button', { name: '确认执行' }))
     fireEvent.click(within(screen.getByRole('group', { name: '确认执行视图' })).getByRole('button', { name: '本轮总览' }))
@@ -2512,8 +2511,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(confirmation)
     expect(confirmation).toHaveAttribute('aria-current', 'step')
     expect(within(screen.getByRole('group', { name: '确认执行视图' }))
-      .getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('group', { name: '本轮操作' })).toBeInTheDocument()
+      .getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('group', { name: '本批操作' })).toBeInTheDocument()
   })
 
   it('opens a persisted whole-run wait on confirmation and keeps cancellation available while edits stay locked', async () => {

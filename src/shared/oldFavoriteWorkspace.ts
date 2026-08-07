@@ -4,7 +4,9 @@ export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 500
-export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
+export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 5_000
+/** Experimental setting: keep the entire next round in one workspace segment. */
+export const UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = Number.MAX_SAFE_INTEGER
 
 export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
@@ -190,6 +192,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   scan: {
     phase: 'inventory' | 'failed' | 'complete'
     failureCount: number
+    paused?: boolean
     reason?: string
     retryAvailableAt?: string
     totalItemCount?: number
@@ -536,30 +539,35 @@ function normalizeAids(aids: number[]) {
     .sort((left, right) => left - right)
 }
 
+export function isValidOldFavoriteWorkspaceSegmentSize(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) &&
+    value >= MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE &&
+    (value <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE ||
+      value === UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE)
+}
+
 function normalizeSegmentSize(value: number | undefined) {
   if (value === undefined) return DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
-  if (!Number.isSafeInteger(value) || value < MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE || value > MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE) {
+  if (!isValidOldFavoriteWorkspaceSegmentSize(value)) {
     throw new Error('Old favorite workspace segment size is invalid.')
   }
   return value
 }
 
 export function normalizeOldFavoriteWorkspaceSegmentSize(value: unknown) {
-  return typeof value === 'number' && Number.isSafeInteger(value) &&
-    value >= MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE && value <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
+  return isValidOldFavoriteWorkspaceSegmentSize(value)
     ? value
     : RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
 }
 
 function createSegments(aids: number[], segmentSize: number): OldFavoriteWorkspaceSegment[] {
-  const effectiveSegmentSize = Math.min(segmentSize, MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE)
   const segments: OldFavoriteWorkspaceSegment[] = []
-  for (let offset = 0; offset < aids.length; offset += effectiveSegmentSize) {
+  for (let offset = 0; offset < aids.length; offset += segmentSize) {
     const index = segments.length
     segments.push({
       id: `segment-${index + 1}`,
       index,
-      aids: aids.slice(offset, offset + effectiveSegmentSize),
+      aids: aids.slice(offset, offset + segmentSize),
       status: 'previewing'
     })
   }

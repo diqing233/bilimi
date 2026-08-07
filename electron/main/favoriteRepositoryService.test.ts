@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1289,6 +1290,38 @@ describe('FavoriteRepositoryService', () => {
     const first = await service.commit('100', command)
 
     await expect(service.commit('100', { ...command, issuedAt: '2026-07-19T00:01:00.000Z' })).resolves.toEqual(first)
+  })
+
+  it('treats an updated optimistic revision as non-semantic retry metadata', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'source-pending', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', expectedRevision: 0,
+      type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, expectedRevision: 1 })).resolves.toEqual(first)
+  })
+
+  it('accepts a pre-upgrade receipt when a paused scan retries with a newer revision', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'source-pending', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', expectedRevision: 0,
+      type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+    const cached = (service as unknown as {
+      cache: Map<string, { repository: { commandResults: Record<string, { commandFingerprint?: string }> } }>
+    }).cache.get('100')!
+    cached.repository.commandResults[command.id].commandFingerprint = createHash('sha256').update(
+      '{"accountMid":"100","expectedRevision":0,"id":"source-pending","payload":{"aid":1,"tags":[],"title":"Original","updatedAt":"2026-07-19T00:00:00.000Z"},"type":"upsert-video"}'
+    ).digest('hex')
+
+    await expect(service.commit('100', { ...command, expectedRevision: 1 })).resolves.toEqual(first)
   })
 
   it('treats reordered semantic command payload keys as the same retry', async () => {

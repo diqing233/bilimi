@@ -6,11 +6,12 @@ type OldFavoriteViewScopeSwitchProps = {
   label: string
   value: OldFavoriteViewScope
   onChange: (scope: OldFavoriteViewScope) => void
+  disableCurrent?: boolean
 }
 
-export function OldFavoriteViewScopeSwitch({ label, value, onChange }: OldFavoriteViewScopeSwitchProps) {
+export function OldFavoriteViewScopeSwitch({ label, value, onChange, disableCurrent = false }: OldFavoriteViewScopeSwitchProps) {
   return <div className="favorite-ledger-panel__view-scope" role="group" aria-label={label}>
-    <button type="button" aria-pressed={value === 'current'} onClick={() => onChange('current')}>当前批次</button>
+    <button type="button" aria-pressed={value === 'current'} disabled={disableCurrent} onClick={() => onChange('current')}>当前批次</button>
     <button type="button" aria-pressed={value === 'all'} onClick={() => onChange('all')}>本轮总览</button>
   </div>
 }

@@ -62,4 +62,15 @@ describe('favoriteOrganizationStatus', () => {
       scan: { phase: 'failed', failureCount: 1, reason: 'network unavailable' }
     }))).toMatchObject({ label: '整理异常', tone: 'error', detail: expect.stringContaining('network unavailable') })
   })
+
+  it('keeps tag enrichment visible as a running scan after source scanning completes', () => {
+    expect(favoriteOrganizationStatus(workspace({
+      tagEnrichment: {
+        status: 'running', totalItemCount: 2_553, completedItemCount: 1_914,
+        pendingItemCount: 639, failedItemCount: 0
+      }
+    }))).toMatchObject({
+      label: '整理扫描中', tone: 'running', detail: expect.stringContaining('补取视频标签')
+    })
+  })
 })

@@ -158,8 +158,22 @@ function checksum(content: string) {
 }
 
 function commandFingerprint(command: FavoriteRepositoryCommand) {
-  const { issuedAt: _issuedAt, ...stableCommand } = command
+  // Timestamps and optimistic revisions vary across retries but do not change
+  // the business command represented by a durable command ID.
+  const { issuedAt: _issuedAt, expectedRevision: _expectedRevision, ...stableCommand } = command
   return checksum(stableJson(stableCommand))
+}
+
+function legacyCommandFingerprint(command: FavoriteRepositoryCommand, expectedRevision: number) {
+  const { issuedAt: _issuedAt, ...stableCommand } = { ...command, expectedRevision }
+  return checksum(stableJson(stableCommand))
+}
+
+function matchesCommandReceiptFingerprint(receipt: FavoriteRepositoryCommandReceipt, command: FavoriteRepositoryCommand) {
+  if (!receipt.commandFingerprint) return true
+  if (receipt.commandFingerprint === commandFingerprint(command)) return true
+  // Reconcile receipts written before expectedRevision became retry metadata.
+  return receipt.commandFingerprint === legacyCommandFingerprint(command, receipt.acceptedRevision - 1)
 }
 
 function stableJson(value: unknown): string {
@@ -843,7 +857,7 @@ export class FavoriteRepositoryService {
           ? hasAppliedWorkspace(repository.snapshot, command)
           : true
       if (existing && retainedResultStillApplies) {
-        if (existing.commandFingerprint && existing.commandFingerprint !== commandFingerprint(command)) {
+        if (!matchesCommandReceiptFingerprint(existing, command)) {
           throw new Error('Favorite repository command id conflict.')
         }
         return this.resultFromReceipt(repository.snapshot, existing)

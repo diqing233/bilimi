@@ -638,9 +638,13 @@ function dailyReviewFeedback(input: {
   const constraintDetail = constraintNames.length
     ? `DeepSeek 约束生效：「${constraintNames.join('、')}」`
     : '本次未命中收藏夹约束'
-  return reviewAgreed
-    ? `DeepSeek 二判完成：${constraintDetail}；与本地判断一致，保留在「${localNames}」。`
-    : `DeepSeek 二判未完成：${constraintDetail}；本次沿用本地判断「${localNames}」。`
+  const conclusion = reviewAgreed
+    ? `与本地判断一致，保留在「${localNames}」`
+    : `本次沿用本地判断「${localNames}」`
+  const prefix = reviewAgreed ? 'DeepSeek 二判完成' : 'DeepSeek 二判未完成'
+  return constraintNames.length
+    ? `${prefix}：${constraintDetail}；${conclusion}。`
+    : `${prefix}：${conclusion}；${constraintDetail}。`
 }
 
 function dailyCorrectionFromReview(args: {

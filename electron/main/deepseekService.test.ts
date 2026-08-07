@@ -831,7 +831,10 @@ describe('DeepSeek main service', () => {
         { content: JSON.stringify({ sourceStartSegmentId: 'segment-1', sourceEndSegmentId: 'segment-1', changes: [], reviewItems: [] }) },
         { content: JSON.stringify({ title: '测试条件复盘', subtitle: '讲者比较测试结果。', keyPoints: ['讲者称 X200 在测试中更稳定。'], keywords: ['测试'] }) }
       ])
-    })).rejects.toMatchObject({ code: 'invalid-output' })
+    })).resolves.toMatchObject({
+      kind: 'note-poster',
+      poster: { detailedOutline: ['讲者称 X200 在测试中更稳定。'] }
+    })
   })
 
   it('does not truncate adaptive summary and detailed outline item counts', async () => {
@@ -982,7 +985,7 @@ describe('DeepSeek main service', () => {
           { content: JSON.stringify({
             title: '世界树很大',
             subtitle: '注意看前面这棵很高大的树',
-            keyPoints: ['注意看前面这棵树', '我现在的位置在城堡', '注意看前面这棵树'],
+            keyPoints: [],
             keywords: ['好了', '世界树'],
             prompt: ''
           }) },
@@ -1003,10 +1006,7 @@ describe('DeepSeek main service', () => {
           { content: JSON.stringify({
             title: '世界树很大',
             subtitle: '注意看前面这棵很高大的树',
-            keyPoints: [
-              '这一条稍微长一点但仍然没有提供足够的信息密度',
-              '另一条也只是重复画面描述，没有整理出有效内容'
-            ],
+            keyPoints: [],
             keywords: ['世界树'],
             prompt: ''
           }) },
@@ -1145,6 +1145,50 @@ describe('DeepSeek main service', () => {
     }
     expect(repairBody.messages.at(-1)?.content).toContain('detailedOutline')
     expect(repairBody.messages.at(-1)?.content).not.toContain('proofreading')
+  })
+
+  it('uses note chapters when the provider omits the detailed outline', async () => {
+    const note: VideoNote = {
+      ...createNote(),
+      chapters: [{
+        start: 0,
+        title: '问题背景',
+        summary: '先说明训练数据质量会影响模型结果。',
+        segmentIndexes: [0]
+      }]
+    }
+
+    await expect(generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'note-poster', note },
+      fetchImpl: createSequentialJsonFetch([
+        { content: JSON.stringify({ sourceStartSegmentId: 'segment-1', sourceEndSegmentId: 'segment-1', changes: [], reviewItems: [] }) },
+        { content: JSON.stringify({ title: '数据质量', subtitle: '说明数据质量的重要性。', keyPoints: ['训练数据质量会影响模型结果。'] }) },
+        { content: JSON.stringify({}) }
+      ])
+    })).resolves.toMatchObject({
+      kind: 'note-poster',
+      poster: { detailedOutline: ['问题背景：先说明训练数据质量会影响模型结果。'] }
+    })
+  })
+
+  it('accepts Chinese detailed-outline aliases and newline-delimited strings', async () => {
+    await expect(generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'note-poster', note: createNote() },
+      fetchImpl: createSequentialJsonFetch([
+        { content: JSON.stringify({ sourceStartSegmentId: 'segment-1', sourceEndSegmentId: 'segment-1', changes: [], reviewItems: [] }) },
+        { content: JSON.stringify({ 标题: '数据质量', 主旨: '说明数据质量的重要性。', 核心内容: ['训练数据质量会影响模型结果。'], 详细内容提要: '1. 先说明数据质量。\n2. 再说明它如何影响模型。' }) }
+      ])
+    })).resolves.toMatchObject({
+      kind: 'note-poster',
+      poster: {
+        title: '数据质量',
+        subtitle: '说明数据质量的重要性。',
+        keyPoints: ['训练数据质量会影响模型结果。'],
+        detailedOutline: ['先说明数据质量。', '再说明它如何影响模型。']
+      }
+    })
   })
 
   it('reports the archive response finish reason for truncated-output diagnosis', async () => {

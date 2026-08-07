@@ -8,6 +8,46 @@ describe('OldFavoriteScanOverviewStep', () => {
     vi.restoreAllMocks()
   })
 
+  it('offers pause and end actions while inventory scanning, then offers manual resume after pause', () => {
+    const pause = vi.fn()
+    const finish = vi.fn()
+    const { rerender } = render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0, totalItemCount: 40, scannedItemCount: 21 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onPauseScan={pause} onResumeScan={vi.fn()} onFinishScan={finish}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '暂停扫描' }))
+    fireEvent.click(screen.getByRole('button', { name: '结束整理' }))
+    expect(pause).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledOnce()
+
+    rerender(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0, paused: true, totalItemCount: 40, scannedItemCount: 21 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      onPauseScan={vi.fn()} onResumeScan={pause} onFinishScan={finish}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '继续扫描' }))
+    expect(pause).toHaveBeenCalledTimes(2)
+  })
+
   it('disables a Bilibili 412 rescan until the persisted ten-minute cooldown expires', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-19T00:00:00.000Z'))
     const retry = vi.fn()
@@ -368,6 +408,26 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签183')
     expect(screen.getByText('标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。')).toBeInTheDocument()
     expect(screen.getByTestId('tag-enrichment-actions')).toHaveClass('favorite-ledger-panel__scan-enrichment-actions')
+  })
+
+  it('disables tag controls while the first batch keeps the current scope locked', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: true,
+        scan: { phase: 'inventory', failureCount: 0, totalItemCount: 500, scannedItemCount: 500, taggedItemCount: 1, untaggedItemCount: 499 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: { status: 'running', totalItemCount: 500, completedItemCount: 1, pendingItemCount: 499, failedItemCount: 0 }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+      currentScopeLocked
+    />)
+
+    expect(screen.getByRole('button', { name: '暂停补取标签' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
   })
 
   it('lets adopted current tags resume later and retries only failed tag reads', () => {

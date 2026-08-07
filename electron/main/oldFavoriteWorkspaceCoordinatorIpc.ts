@@ -1,8 +1,8 @@
-import type {
-  ApplyWorkspaceClassificationBatchOptions,
-  OldFavoriteWorkspaceDeepSeekProcessedItem,
-  OldFavoriteWorkspaceRecoveryRequired,
-  OldFavoriteWorkspaceRecoverySummary
+import {
+  MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE,
+  type ApplyWorkspaceClassificationBatchOptions,
+  type OldFavoriteWorkspaceRecoveryRequired,
+  type OldFavoriteWorkspaceRecoverySummary
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '../../src/shared/types'
 import {
@@ -23,7 +23,6 @@ type IpcEvent = {
       totalVideoCount?: number
       successfulVideoCount?: number
       failedVideoCount?: number
-      processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
       completedItemCount?: number
       totalItemCount?: number
     }) => void
@@ -38,6 +37,7 @@ type WorkspaceCommand =
   | { type: 'start-selected-reorganization'; aids: number[] }
   | { type: 'start-selected-reorganization'; selection: FavoriteLibraryScopeSelection }
   | { type: 'resume-scan' }
+  | { type: 'pause-scan' }
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
@@ -93,7 +93,7 @@ function normalizeAccountMid(value: unknown) {
 }
 
 function validAssignments(value: unknown): value is ApplyWorkspaceClassificationBatchOptions['assignments'] {
-  return Array.isArray(value) && value.length <= 2_000 && value.every((assignment) => {
+  return Array.isArray(value) && value.length <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE && value.every((assignment) => {
     if (!assignment || typeof assignment !== 'object') return false
     const candidate = assignment as { aid?: unknown; targetLedgerIds?: unknown }
     return Number.isSafeInteger(candidate.aid) && Number(candidate.aid) > 0 &&
@@ -179,6 +179,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'resume-scan' && Object.keys(candidate).length === 1) {
     return { type: 'resume-scan' }
+  }
+  if (candidate.type === 'pause-scan' && Object.keys(candidate).length === 1) {
+    return { type: 'pause-scan' }
   }
   if (candidate.type === 'cancel-deepseek-current-segment' && Object.keys(candidate).length === 1) {
     return { type: 'cancel-deepseek-current-segment' }
@@ -295,6 +298,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   resumeScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  pauseScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   resumeTagEnrichment?: (accountMid: string) => Promise<void>
   retryFailedTagEnrichment?: (accountMid: string) => Promise<void>
   resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
@@ -395,6 +399,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'resume-scan') return options.resumeScan
       ? options.resumeScan(accountMid)
       : snapshot(await options.coordinator.resumeScan(accountMid))
+    if (requested.type === 'pause-scan') return options.pauseScan
+      ? options.pauseScan(accountMid)
+      : snapshot(await options.coordinator.pauseScan(accountMid))
     if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
       ? options.rebuildAndStartScan(accountMid)
       : options.coordinator.rebuildAfterRecovery(accountMid)

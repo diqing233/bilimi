@@ -14,6 +14,7 @@ import {
   type OldFavoriteInventoryMetricProjection,
   type OldFavoriteWorkspaceClassificationSource,
   type OldFavoriteWorkspaceDeepSeekProcessedItem,
+  type OldFavoriteWorkspaceDeepSeekProcessedItem,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
   type OldFavoriteWorkspaceHistoryEntry,
@@ -24,6 +25,7 @@ import {
   type OldFavoriteWorkspaceRecoveryRequired,
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
+import { MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE } from '../../src/shared/oldFavoriteWorkspace'
 import {
   isFavoriteRepositoryMetadataStale,
   isFavoriteRepositoryScanVisible,
@@ -80,7 +82,7 @@ type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | Cur
   HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount?: number; isBilimiWorkFolder: boolean; selected?: boolean }>
-  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; paused?: boolean; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
 }
 
 const bilibiliRiskControlCooldownMs = 10 * 60 * 1_000
@@ -1383,10 +1385,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const updated = { ...workspace, mode }
       const scanRunId = randomUUID()
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders.map(clone) ?? []
-      this.scanOverviews.set(workspace.accountMid, { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } })
+      this.scanOverviews.set(workspace.accountMid, { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode, paused: false } })
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
-        scanMetadata: { sourceFolders, phase: 'inventory', failureCount: 0, mode }
+        scanMetadata: { sourceFolders, phase: 'inventory', failureCount: 0, mode, paused: false }
       })
       await this.options.workspaceStore.startScanRun(workspace.accountMid, workspace.id, scanRunId)
       this.scanRuns.set(workspace.accountMid, scanRunId)
@@ -1438,7 +1440,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const overview: ScanOverview = {
         sourceFolders,
         scan: {
-          phase: 'inventory', failureCount: 0, mode,
+          phase: 'inventory', failureCount: 0, mode, paused: priorScan?.paused ?? false,
           totalItemCount: sourceFolders.reduce((count, folder) => count + folder.itemCount, 0),
           scannedItemCount: priorScan?.scannedItemCount ?? 0,
           taggedItemCount: priorScan?.taggedItemCount ?? 0,
@@ -2802,7 +2804,7 @@ export class OldFavoriteWorkspaceCoordinator {
       classifications: Record<string, { targetLedgerIds: string[]; source: string }>
     }
   ): Promise<OldFavoriteWorkspace> {
-    if (assignments.length > 2_000 || assignments.some((assignment) =>
+    if (assignments.length > MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE || assignments.some((assignment) =>
       assignment.targetLedgerIds.length > 3 || assignment.targetLedgerIds.some((id) => id.trim().length > 128))) {
       throw new Error('Old favorite workspace DeepSeek classification is invalid.')
     }
@@ -2882,6 +2884,25 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  async pauseScan(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const runId = this.scanRuns.get(workspace.accountMid)
+      if (!runId) throw new Error('Old favorite workspace scan needs an explicit rescan.')
+      const prior = this.scanOverviews.get(workspace.accountMid) ?? {
+        sourceFolders: [], scan: { phase: 'inventory' as const, failureCount: 0, mode: workspace.mode }
+      }
+      const scan = { ...prior.scan, phase: 'inventory' as const, paused: true }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: '', classifications: [], history: [],
+        scanMetadata: { sourceFolders: prior.sourceFolders, ...scan }
+      })
+      this.scanOverviews.set(workspace.accountMid, { ...prior, scan })
+      return this.createSnapshot(workspace)
+    })
+  }
+
   /** Explicitly reclaims a durable scanning lease after restart; it never starts a fresh scan. */
   async resumeScan(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
@@ -2889,12 +2910,20 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not resumable.')
       if (!this.scanRuns.get(workspace.accountMid)) throw new Error('Old favorite workspace scan needs an explicit rescan.')
       const prior = this.scanOverviews.get(workspace.accountMid)
+      if (prior?.scan.paused) {
+        const scan = { ...prior.scan, paused: false }
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: '', classifications: [], history: [],
+          scanMetadata: { sourceFolders: prior.sourceFolders, ...scan }
+        })
+        this.scanOverviews.set(workspace.accountMid, { ...prior, scan })
+      }
       if (prior?.scan.phase === 'failed') {
         if (prior.scan.retryAvailableAt && Date.parse(this.now()) < Date.parse(prior.scan.retryAvailableAt)) {
           throw new Error(`retry-cooldown; ${prior.scan.reason ?? 'bilibili-risk-control'}; retry-at=${prior.scan.retryAvailableAt}`)
         }
         const { reason: _reason, retryAvailableAt: _retryAvailableAt, ...retained } = prior.scan
-        const scan = { ...retained, phase: 'inventory' as const }
+        const scan = { ...retained, phase: 'inventory' as const, paused: false }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: '', classifications: [], history: [],
           scanMetadata: { sourceFolders: prior.sourceFolders, ...scan }

@@ -3275,6 +3275,51 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('places an unmatched favorite constraint after the agreeing DeepSeek daily review conclusion', async () => {
+    const generateDeepSeek = vi.fn(async (): Promise<DeepSeekGenerateResult> => ({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['life-interest'],
+      appliedConstraintLedgerIds: [],
+      corrected: false,
+      reason: '本地判断正确。',
+      confidence: 0.9,
+      keywordSuggestions: []
+    }))
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'life-interest'
+          ? { ...ledger, keywords: ['大陸生活'], bilibiliFolderId: '9005' }
+          : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({ generateDeepSeek })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)
+          ? { aid: 710, title: '大陸生活記錄', pageText: '大陸生活記錄', tags: ['大陸生活'] }
+          : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
+      )
+    })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1dailyunmatched' }
+      }))
+    })
+
+    const result = await requestRuntime({ id: 'run-daily-unmatched', type: 'run-action', action: '藏' })
+
+    expect(result).toEqual(expect.objectContaining({
+      message: expect.stringContaining('DeepSeek 二判完成：与本地判断一致，保留在「bilimi·生活日常」；本次未命中收藏夹约束。')
+    }))
+  })
+
   it('keeps local favorite state and skips confirmed learning when delayed DeepSeek adjustment fails', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const generateDeepSeek = vi.fn<

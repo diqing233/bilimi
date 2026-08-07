@@ -954,6 +954,33 @@ describe('useOldFavoriteWorkspace', () => {
     }))
   })
 
+  it('replaces stale canceled feedback when the same DeepSeek workspace resumes running', async () => {
+    const running = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'running' as const, completedSegmentCount: 0, waitingSegmentCount: 1 }
+    }
+    const canceled = {
+      ...running,
+      deepSeekRun: { ...running.deepSeekRun, status: 'canceled' as const }
+    }
+    const open = vi.fn()
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(canceled)
+      .mockResolvedValueOnce(running)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh() })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('canceled'))
+    await act(async () => { await result.current.refresh() })
+
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', message: 'DeepSeek 正在依次整理本轮所有批次…'
+    }))
+  })
+
   it('clears DeepSeek feedback for a full reorganization and ignores progress from the replaced workspace', async () => {
     const oldWorkspace = { ...workspace('100'), workspaceId: 'workspace-old', status: 'previewing' as const }
     const newWorkspace = { ...workspace('100'), workspaceId: 'workspace-new', status: 'scanning' as const }

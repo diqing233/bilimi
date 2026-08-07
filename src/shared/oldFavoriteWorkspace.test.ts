@@ -254,12 +254,28 @@ describe('old favorite workspace', () => {
     expect(completed.segments.map((segment) => segment.aids)).toEqual([[3, 1], [4, 2]])
   })
 
-  it('rejects physical segment sizes outside the supported 500 to 2000 range', () => {
+  it('accepts the experimental unlimited segment size while retaining the 5000 custom limit', () => {
+    expect(createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_000
+    }).segmentSize).toBe(5_000)
+    expect(createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: Number.MAX_SAFE_INTEGER
+    }).segmentSize).toBe(Number.MAX_SAFE_INTEGER)
     expect(() => createOldFavoriteWorkspace({
       accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 499
     })).toThrow('segment size is invalid')
     expect(() => createOldFavoriteWorkspace({
-      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 2_001
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_001
     })).toThrow('segment size is invalid')
+  })
+
+  it('keeps every scanned item in one segment when the experimental unlimited size is selected', () => {
+    const scanning = createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: Number.MAX_SAFE_INTEGER
+    })
+    const preview = completeWorkspaceScan(scanning, {
+      revision: 1, aids: Array.from({ length: 5_001 }, (_, index) => index + 1)
+    })
+    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([5_001])
   })
 })

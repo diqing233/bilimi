@@ -258,6 +258,38 @@ describe('OldFavoriteWorkspaceScanService', () => {
     }), 'persisted-run-7')
   })
 
+  it('records the managed-member persistence stage when it throws during scanning', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(),
+      recordManagedMembers: vi.fn().mockRejectedValue(new Error('managed member storage interrupted')),
+      recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn((request: { type: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          folders: [{ id: 'managed-1', title: 'Bilimi Inbox', mediaCount: 1 }]
+        })
+      }
+      return Promise.resolve({
+        status: 'ok' as const, observedAccountMid: '100', members: { 'managed-1': [1] }
+      })
+    })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith(
+      '100', 'inventory-runtime-failed:record-managed-members', 'scan-run-1'
+    ))
+  })
+
   it('does not resume a durable scan lease merely by constructing the service', () => {
     const coordinator = {
       resumeScan: vi.fn(), getActiveScanRunId: vi.fn(), getScanResumeState: vi.fn()
@@ -495,6 +527,42 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).toHaveBeenCalledTimes(2)
     resolveInventory({ status: 'ok', observedAccountMid: '100', folders: [] })
     await vi.waitFor(() => expect(coordinator.recordScanInventory).toHaveBeenCalledOnce())
+  })
+
+  it('does not persist an in-flight source page after pausing the scan', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    let resolvePage!: (value: unknown) => void
+    const sourcePage = new Promise((resolve) => { resolvePage = resolve })
+    const pausedSnapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' as const,
+      scan: { phase: 'inventory' as const, paused: true }
+    }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ ...pausedSnapshot, scan: { phase: 'inventory' as const } }),
+      pauseScan: vi.fn().mockResolvedValue(pausedSnapshot),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockReturnValueOnce(sourcePage)
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page'
+    })))
+    await expect(service.pause('100')).resolves.toEqual(pausedSnapshot)
+    resolvePage({
+      status: 'ok', observedAccountMid: '100', hasMore: false,
+      items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }]
+    })
+    await vi.waitFor(() => expect(coordinator.pauseScan).toHaveBeenCalledWith('100'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(coordinator.recordScanPage).not.toHaveBeenCalled()
+    expect(coordinator.finishScan).not.toHaveBeenCalled()
   })
 
   it('does not let an incremental scan swallow an explicit full reorganization request', async () => {

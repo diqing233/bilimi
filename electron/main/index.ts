@@ -2202,6 +2202,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ),
     startScan: (accountMid, mode, options) => oldFavoriteWorkspaceScanService!.start(accountMid, mode, options),
     resumeScan: (accountMid) => oldFavoriteWorkspaceScanService!.resume(accountMid),
+    pauseScan: (accountMid) => oldFavoriteWorkspaceScanService!.pause(accountMid),
     resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),
     retryFailedTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.retryFailedTagEnrichment(accountMid),
     rebuildAndStartScan: async (accountMid) => {

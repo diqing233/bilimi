@@ -192,6 +192,27 @@ describe('OldFavoriteWorkspaceStore', () => {
     ])
   })
 
+  it('accepts the experimental unlimited batch size when checkpointing a paused scan', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+
+    await store.checkpointStreamingScan('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      segmentSize: Number.MAX_SAFE_INTEGER,
+      sealedSegments: [],
+      openAids: [1]
+    })
+
+    await expect(store.recover('100', 'workspace-1')).resolves.toMatchObject({
+      streamingScan: { segmentSize: Number.MAX_SAFE_INTEGER, openAids: [1] }
+    })
+  })
+
   it('publishes the staged page cursor and streaming checkpoint through one manifest boundary', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -225,6 +246,30 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(store.recover('100', 'workspace-1')).resolves.toMatchObject({
       streamingScan: { openAids: [1], observedAids: [1] }
     })
+  })
+
+  it('reuses an unchanged managed-member chunk after a scan restart', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0,
+      currentSegmentId: '', segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.appendManagedMembers('100', 'workspace-1', {
+      runId: 'scan-run-1', members: { 'managed-1': [1, 2] }
+    })
+    const writableStore = store as unknown as {
+      atomicWrite(path: string, content: string): Promise<void>
+    }
+    const atomicWrite = vi.spyOn(writableStore, 'atomicWrite')
+
+    await store.appendManagedMembers('100', 'workspace-1', {
+      runId: 'scan-run-1', members: { 'managed-1': [1, 2] }
+    })
+
+    expect(atomicWrite).not.toHaveBeenCalled()
+    await expect(store.readManagedMembers('100', 'workspace-1')).resolves.toEqual({ 'managed-1': [1, 2] })
   })
 
   it('keeps the prior sealed segment recoverable when a changed-segment manifest switch fails', async () => {

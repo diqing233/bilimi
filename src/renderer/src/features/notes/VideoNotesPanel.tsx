@@ -663,7 +663,7 @@ export function VideoNotesPanel({
         : item.archiveRegistrationStatus === 'failed'
         ? item.summaryStatus === 'generated' ? '总结已生成，档案保存失败' : '文稿已生成，档案保存失败'
         : item.summaryStatus === 'failed'
-          ? '总结生成失败'
+          ? item.errorMessage?.trim() || '总结生成失败'
           : item.summarizeWithDeepSeek
         ? item.summaryStatus === 'saved' ? 'DeepSeek 总结已完成' : '文稿已生成，总结未完成'
         : '文稿已生成'

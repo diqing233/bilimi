@@ -75,7 +75,13 @@ import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot, FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
-import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import {
+  MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE,
+  MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE,
+  RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE,
+  UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE,
+  type OldFavoriteWorkspaceSnapshot
+} from '@shared/oldFavoriteWorkspace'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcriptionModelLabel, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
@@ -406,6 +412,14 @@ export function favoriteOrganizationStatus(
       label: '整理异常',
       detail: favoriteOrganizationDetail(snapshot.scan.reason?.trim() || '扫描未完成，请打开收藏整理后重试。'),
       tone: 'error'
+    }
+  }
+
+  if (snapshot.tagEnrichment?.status === 'running') {
+    return {
+      label: '整理扫描中',
+      detail: favoriteOrganizationDetail('正在补取视频标签，请勿重复启动。'),
+      tone: 'running'
     }
   }
 
@@ -1428,7 +1442,7 @@ const OldFavoriteBatchSizeField = memo(function OldFavoriteBatchSizeField({
       setDraft(String(committedValueRef.current))
       return
     }
-    const normalized = Math.min(2_000, Math.max(500, Math.trunc(parsed)))
+    const normalized = Math.min(MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE, Math.max(MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE, Math.trunc(parsed)))
     setDraft(String(normalized))
     if (normalized === committedValueRef.current) return
     committedValueRef.current = normalized
@@ -1444,13 +1458,13 @@ const OldFavoriteBatchSizeField = memo(function OldFavoriteBatchSizeField({
         checked={selected}
         onChange={onSelect}
       />
-      <span>自定义（500–2000）</span>
+      <span>自定义（500–5000）</span>
       <input
         className="assistant-settings__batch-size-input"
         type="number"
         aria-label="自定义单批整理上限"
-        min={500}
-        max={2_000}
+        min={MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE}
+        max={MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE}
         step={1}
         value={draft}
         onChange={(event) => setDraft(event.currentTarget.value)}
@@ -1557,11 +1571,14 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
     [getActions]
   )
   const [customOldFavoriteBatchSizeSelected, setCustomOldFavoriteBatchSizeSelected] = useState(
-    () => ![500, 1_000, 2_000].includes(data.preferences.oldFavoriteWorkspaceSegmentSize)
+    () => ![500, 1_000, 2_000, UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE]
+      .includes(data.preferences.oldFavoriteWorkspaceSegmentSize)
   )
+  const [unlimitedOldFavoriteBatchConfirmationOpen, setUnlimitedOldFavoriteBatchConfirmationOpen] = useState(false)
   useEffect(() => {
     setCustomOldFavoriteBatchSizeSelected(
-      ![500, 1_000, 2_000].includes(preferences.oldFavoriteWorkspaceSegmentSize)
+      ![500, 1_000, 2_000, UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE]
+        .includes(preferences.oldFavoriteWorkspaceSegmentSize)
     )
   }, [preferences.oldFavoriteWorkspaceSegmentSize])
   const resolvedSnapshot = { accountMid }
@@ -2122,8 +2139,19 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                   <span>{size === 2_000 ? '2000 条（推荐）' : `${size} 条`}</span>
                 </label>
               ))}
+              <label>
+                <input
+                  type="radio"
+                  name="old-favorite-workspace-segment-size"
+                  checked={preferences.oldFavoriteWorkspaceSegmentSize === UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE}
+                  onChange={() => setUnlimitedOldFavoriteBatchConfirmationOpen(true)}
+                />
+                <span>无限制（实验）</span>
+              </label>
               <OldFavoriteBatchSizeField
-                value={preferences.oldFavoriteWorkspaceSegmentSize}
+                value={preferences.oldFavoriteWorkspaceSegmentSize === UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
+                  ? RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
+                  : preferences.oldFavoriteWorkspaceSegmentSize}
                 selected={customOldFavoriteBatchSizeSelected}
                 onSelect={() => setCustomOldFavoriteBatchSizeSelected(true)}
                 onCommit={persistOldFavoriteBatchSize}
@@ -2295,6 +2323,17 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
             </>}>
               <p>将恢复默认设置，并清除已保存的 DeepSeek API 密钥。</p>
               <p>视频札记、档案、收藏夹册目和已整理记录不会删除。</p>
+            </BilimiModal> : null}
+            {unlimitedOldFavoriteBatchConfirmationOpen ? <BilimiModal title="启用无限制批次？" onClose={() => setUnlimitedOldFavoriteBatchConfirmationOpen(false)} actions={<>
+              <button type="button" onClick={() => setUnlimitedOldFavoriteBatchConfirmationOpen(false)}>取消</button>
+              <button type="button" onClick={() => {
+                setUnlimitedOldFavoriteBatchConfirmationOpen(false)
+                setCustomOldFavoriteBatchSizeSelected(false)
+                void persistOldFavoriteBatchSize(UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE)
+              }}>确认启用</button>
+            </>}>
+              <p>实验功能，出现未知异常时可能需要手动清除本地用户数据。</p>
+              <p>这只是风险提醒，bilimi 不会自动清除数据；2000 条仍是推荐档位。</p>
             </BilimiModal> : null}
   </>
 })
