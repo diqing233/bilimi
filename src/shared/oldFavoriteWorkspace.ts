@@ -4,7 +4,9 @@ export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
 export const MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 500
-export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
+export const MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 5_000
+/** Experimental setting: keep the entire next round in one workspace segment. */
+export const UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = Number.MAX_SAFE_INTEGER
 
 export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
@@ -179,6 +181,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   scan: {
     phase: 'inventory' | 'failed' | 'complete'
     failureCount: number
+    paused?: boolean
     reason?: string
     retryAvailableAt?: string
     totalItemCount?: number
@@ -187,6 +190,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     untaggedItemCount?: number
   }
   inventoryMetrics?: OldFavoriteInventoryMetricProjection
+  currentSegmentMetrics?: {
+    plannedAidCount: number
+    sourceFolders: Array<{ id: string; plannedAidCount: number }>
+  }
   tagEnrichment?: {
     status: 'running' | 'paused' | 'accepted' | 'complete'
     totalItemCount: number
@@ -196,6 +203,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+    scopes?: {
+      currentSegment: OldFavoriteTagScopeStatistics
+      wholeRun: OldFavoriteTagScopeStatistics
+    }
   }
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
@@ -210,6 +221,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
+    includeInbox?: boolean
     status: 'waiting' | 'running' | 'blocked'
     waitingSegmentCount: number
     waitingForDeepSeek: boolean
@@ -229,7 +241,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     index: number
     status: 'previewing' | 'frozen'
     itemCount: number
-    readiness: 'tagging' | 'ready' | 'saved'
+    readiness: 'waiting' | 'tagging' | 'ready' | 'saved'
     completedTagItemCount: number
     pendingTagItemCount: number
   }>
@@ -258,6 +270,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     processedItemCount: number
     classifiedItemCount: number
     unmatchedItemCount: number
+    deepSeekPendingItemCount?: number
+    waitingTagItemCount?: number
+    unscannedItemCount?: number
+    savedItemCount?: number
     waitingItemCount: number
     recommendationCounts: Array<{ id: string; count: number }>
     archiveTargets: Array<{
@@ -300,6 +316,12 @@ export type OldFavoriteWorkspaceSnapshot = {
         afterTargetLedgerIds: string[]
         reason: string
         movedCount: number
+        details?: Array<{
+          aid: number
+          title?: string
+          beforeTargetLedgerIds: string[]
+          afterTargetLedgerIds: string[]
+        }>
       }
     }>
   }
@@ -311,6 +333,16 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   preserveCompletedLocalResults: true
   accountMid: string
   workspaceId: string
+}
+
+export type OldFavoriteTagScopeStatistics = {
+  totalItemCount: number
+  completedItemCount: number
+  pendingItemCount: number
+  failedItemCount: number
+  reusedTagItemCount: number
+  fetchedTagItemCount: number
+  confirmedUntaggedItemCount: number
 }
 
 /** A compact, manifest/marker-only recovery entry point. It never resumes work. */
@@ -417,6 +449,7 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
 export type OldFavoriteWorkspaceExecutionIntent = {
   workspaceId: string
   mode: 'local' | 'bilibili'
+  includeInbox?: boolean
   status: 'waiting' | 'running' | 'blocked'
 }
 
@@ -486,30 +519,35 @@ function normalizeAids(aids: number[]) {
     .sort((left, right) => left - right)
 }
 
+export function isValidOldFavoriteWorkspaceSegmentSize(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) &&
+    value >= MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE &&
+    (value <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE ||
+      value === UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE)
+}
+
 function normalizeSegmentSize(value: number | undefined) {
   if (value === undefined) return DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
-  if (!Number.isSafeInteger(value) || value < MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE || value > MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE) {
+  if (!isValidOldFavoriteWorkspaceSegmentSize(value)) {
     throw new Error('Old favorite workspace segment size is invalid.')
   }
   return value
 }
 
 export function normalizeOldFavoriteWorkspaceSegmentSize(value: unknown) {
-  return typeof value === 'number' && Number.isSafeInteger(value) &&
-    value >= MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE && value <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
+  return isValidOldFavoriteWorkspaceSegmentSize(value)
     ? value
     : RECOMMENDED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE
 }
 
 function createSegments(aids: number[], segmentSize: number): OldFavoriteWorkspaceSegment[] {
-  const effectiveSegmentSize = Math.min(segmentSize, MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE)
   const segments: OldFavoriteWorkspaceSegment[] = []
-  for (let offset = 0; offset < aids.length; offset += effectiveSegmentSize) {
+  for (let offset = 0; offset < aids.length; offset += segmentSize) {
     const index = segments.length
     segments.push({
       id: `segment-${index + 1}`,
       index,
-      aids: aids.slice(offset, offset + effectiveSegmentSize),
+      aids: aids.slice(offset, offset + segmentSize),
       status: 'previewing'
     })
   }
@@ -707,7 +745,7 @@ export function applyWorkspaceClassificationBatch(
   workspace: OldFavoriteWorkspace,
   options: ApplyWorkspaceClassificationBatchOptions
 ): OldFavoriteWorkspace {
-  if (workspace.status !== 'previewing') {
+  if (workspace.status !== 'previewing' && workspace.status !== 'frozen') {
     throw new Error('Old favorite workspace is frozen.')
   }
   if (!['manual', 'fallback', 'deepseek', 'system-high', 'system-low'].includes(options.source) || !Array.isArray(options.assignments)) {
@@ -721,7 +759,6 @@ export function applyWorkspaceClassificationBatch(
     }
     const segment = segmentForAid(workspace, assignment.aid)
     if (!segment) throw new Error('Old favorite workspace aid is not in the active plan.')
-    if (segment.status === 'frozen') throw new Error('Old favorite workspace segment is frozen.')
     const targetLedgerIds = normalizeLedgerIds(assignment.targetLedgerIds)
     if (options.source === 'system-low' && targetLedgerIds.length > 1) {
       throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
@@ -755,7 +792,18 @@ export function applyWorkspaceClassificationBatch(
     source: options.source,
     changes: changes.map(cloneHistoryChange)
   }]
-  return { ...workspace, classifications, history, historyCursor: history.length }
+  const changedSegmentIds = new Set(changes.map((change) => segmentForAid(workspace, change.aid)?.id).filter((id): id is string => Boolean(id)))
+  const segments = workspace.segments.map((segment) => changedSegmentIds.has(segment.id)
+    ? { ...segment, status: 'previewing' as const }
+    : segment)
+  return {
+    ...workspace,
+    status: 'previewing',
+    segments,
+    classifications,
+    history,
+    historyCursor: history.length
+  }
 }
 
 export function undoWorkspaceChange(workspace: OldFavoriteWorkspace): OldFavoriteWorkspace {

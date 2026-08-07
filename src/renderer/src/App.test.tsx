@@ -1345,6 +1345,128 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('uses trusted repository bindings when the page ledger check temporarily misses an already scanned folder', async () => {
+    const accountMid = '100'
+    const ledger = createDefaultFavoriteLedgers()[0]
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [ledger]
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1,
+        accountMid,
+        revision: 4,
+        updatedAt: '2026-08-05T00:00:00.000Z',
+        videoCount: 0,
+        folderCount: 1,
+        folders: [{
+          id: `bilimi-logical:${ledger.id}`,
+          title: ledger.displayName,
+          kind: 'bilimi-logical',
+          logicalLedgerId: ledger.id,
+          remoteFolderId: '9001',
+          syncState: 'bound'
+        }],
+        folderCounts: { [`bilimi-logical:${ledger.id}`]: 0 },
+        scopeCounts: { all: 0, pending: 0, protected: 0, unsynced: 0, recycle: 0 },
+        physicalShardCount: 1,
+        syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 },
+        pendingAidCount: 0,
+        remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          expect(script).toContain('"bilibiliFolderId":"9001"')
+          return {
+            ok: true,
+            ledgers: [{ ...ledger, bilibiliFolderId: '9001' }],
+            missingLedgerIds: [],
+            backupConflictLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-with-repository-bindings', type: 'snapshot' })
+
+    expect(snapshot).toMatchObject({
+      favoriteLedgerStatus: { ok: true, missingLedgerIds: [] },
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: ledger.id, bilibiliFolderId: '9001' })])
+          }
+        }
+      }
+    })
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: ledger.id, bilibiliFolderId: '9001' })])
+        })
+      })
+    }))
+  })
+
+  it('clears a stale repository binding when the current Bilibili folder list no longer contains it', async () => {
+    const accountMid = '100'
+    const ledger = { ...createDefaultFavoriteLedgers()[0], bilibiliFolderId: '9001' }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [ledger]
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 4, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: `bilimi-logical:${ledger.id}`, title: ledger.displayName, kind: 'bilimi-logical', logicalLedgerId: ledger.id, remoteFolderId: '9001', syncState: 'bound' }],
+        folderCounts: { [`bilimi-logical:${ledger.id}`]: 0 }, scopeCounts: { all: 0, pending: 0, protected: 0, unsynced: 0, recycle: 0 },
+        physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & { executeJavaScript?: (script: string) => Promise<unknown> }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          expect(script).toContain('"bilibiliFolderId":"9001"')
+          const { bilibiliFolderId: _removed, ...unboundLedger } = ledger
+          return { ok: false, ledgers: [unboundLedger], missingLedgerIds: [ledger.id], backupConflictLedgerIds: [], message: '册目查验已毕。' }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-with-stale-repository-binding', type: 'snapshot' })
+
+    expect(snapshot).toMatchObject({ favoriteLedgerStatus: { ok: false, missingLedgerIds: [ledger.id] } })
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers.find((item) => item.id === ledger.id)).not.toHaveProperty('bilibiliFolderId')
+  })
+
   it('reuses a recent read-only ledger status instead of rerunning the page script for repeated snapshots', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
@@ -3151,6 +3273,51 @@ describe('App runtime integration', () => {
       tone: 'happy',
       message: '主人，DeepSeek复核过啦～与原建议一致，存入「bilimi·生活日常」。'
     })
+  })
+
+  it('places an unmatched favorite constraint after the agreeing DeepSeek daily review conclusion', async () => {
+    const generateDeepSeek = vi.fn(async (): Promise<DeepSeekGenerateResult> => ({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['life-interest'],
+      appliedConstraintLedgerIds: [],
+      corrected: false,
+      reason: '本地判断正确。',
+      confidence: 0.9,
+      keywordSuggestions: []
+    }))
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'life-interest'
+          ? { ...ledger, keywords: ['大陸生活'], bilibiliFolderId: '9005' }
+          : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({ generateDeepSeek })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)
+          ? { aid: 710, title: '大陸生活記錄', pageText: '大陸生活記錄', tags: ['大陸生活'] }
+          : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
+      )
+    })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1dailyunmatched' }
+      }))
+    })
+
+    const result = await requestRuntime({ id: 'run-daily-unmatched', type: 'run-action', action: '藏' })
+
+    expect(result).toEqual(expect.objectContaining({
+      message: expect.stringContaining('DeepSeek 二判完成：与本地判断一致，保留在「bilimi·生活日常」；本次未命中收藏夹约束。')
+    }))
   })
 
   it('keeps local favorite state and skips confirmed learning when delayed DeepSeek adjustment fails', async () => {

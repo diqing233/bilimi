@@ -11,6 +11,11 @@ import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { OldFavoriteModal } from './OldFavoriteModal'
+import {
+  applyManagedFavoriteFolderDeletionToLedgers,
+  managedFavoriteFolderDeletionFailureMessage,
+  managedFavoriteFolderDeletionSucceeded
+} from './managedFavoriteFolderDeletionFeedback'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
@@ -158,6 +163,8 @@ export function ControlledFavoriteLedgerPanel({
   const [managedDeletionCandidates, setManagedDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
   const [managedDeletionReviewOpen, setManagedDeletionReviewOpen] = useState(false)
   const [managedDeletionConfirmed, setManagedDeletionConfirmed] = useState(false)
+  const [managedDeletionExecuting, setManagedDeletionExecuting] = useState(false)
+  const [includeInboxForConfirmation, setIncludeInboxForConfirmation] = useState(false)
   const scanPresentationRequestVersion = useRef(0)
   const organizationRequestVersion = useRef(0)
   const recoveryDecisionRequestVersion = useRef(0)
@@ -294,6 +301,10 @@ export function ControlledFavoriteLedgerPanel({
       }
     }
   }
+  const finishScan = async () => {
+    const paused = await workspace.pauseScan()
+    if (paused) closeGuide()
+  }
 
   const requestOldFavoriteOrganization = async () => {
     const requestedAccountMid = currentAccountMid
@@ -320,7 +331,6 @@ export function ControlledFavoriteLedgerPanel({
     }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status === 'scanning') {
-      void continueScan()
       return
     }
     void startScan('incremental')
@@ -356,7 +366,6 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(false)
       setGuideOpen(true)
       setStep('scan')
-      if (restored.status === 'scanning' && restored.scan.phase !== 'failed') void workspace.resumeScan()
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
@@ -389,7 +398,7 @@ export function ControlledFavoriteLedgerPanel({
     if (activeSnapshot?.status === 'scanning' && activeSnapshot.scan.phase === 'failed') await continueScan()
     else await startScan('incremental')
   }
-  const continueConfirmAndSync = async () => {
+  const continueConfirmAndSync = async (includeInbox = false) => {
     if (!activeSnapshot) return
     try {
       if (confirmationNeedsBackup(activeSnapshot, displayedLedgers, missingLedgerIds)) {
@@ -400,8 +409,8 @@ export function ControlledFavoriteLedgerPanel({
           return
         }
       }
-      if (activeSnapshot.hasMultipleSegments) await workspace.setWholeRunExecutionIntent('bilibili')
-      else await workspace.confirmAndExecuteBilibiliPlan()
+      if (activeSnapshot.hasMultipleSegments) await workspace.setWholeRunExecutionIntent('bilibili', includeInbox)
+      else await workspace.confirmAndExecuteBilibiliPlan(includeInbox)
     } catch (error) {
       setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
     } finally {
@@ -409,8 +418,9 @@ export function ControlledFavoriteLedgerPanel({
       setConfirmationPreparationStatus(null)
     }
   }
-  const confirmAndSync = async () => {
+  const confirmAndSync = async (includeInbox = false) => {
     if (!snapshot || recovery || confirmationPreparing) return
+    setIncludeInboxForConfirmation(includeInbox)
     setConfirmationPreparationError(null)
     setConfirmationPreparing(true)
     const disabledLedgerIds = displayedLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
@@ -423,7 +433,7 @@ export function ControlledFavoriteLedgerPanel({
         setConfirmationPreparing(false)
         return
       }
-      await continueConfirmAndSync()
+      await continueConfirmAndSync(includeInbox)
     } catch (error) {
       setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
       setConfirmationPreparing(false)
@@ -432,15 +442,23 @@ export function ControlledFavoriteLedgerPanel({
   const confirmManagedDeletionAndSync = async () => {
     if (!currentAccountMid || !managedDeletionCandidates || !managedDeletionConfirmed) return
     setConfirmationPreparing(true)
+    setManagedDeletionExecuting(true)
     try {
-      await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(currentAccountMid, managedDeletionCandidates.map((candidate) => candidate.logicalLedgerId))
+      const deletedLedgerIds = managedDeletionCandidates.map((candidate) => candidate.logicalLedgerId)
+      const result = await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(currentAccountMid, deletedLedgerIds)
+      if (!managedFavoriteFolderDeletionSucceeded(result)) {
+        setConfirmationPreparationError('删除结果尚未确认，已停止保存备册规则；请重新打开删除确认后再试。')
+        return
+      }
+      await onSaveLedgers(applyManagedFavoriteFolderDeletionToLedgers(ledgers, deletedLedgerIds), { deleteDisabled: false })
       setManagedDeletionCandidates(null)
       setManagedDeletionReviewOpen(false)
       setManagedDeletionConfirmed(false)
-      await continueConfirmAndSync()
+      await continueConfirmAndSync(includeInboxForConfirmation)
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹删除失败，请重试。')
+      setConfirmationPreparationError(managedFavoriteFolderDeletionFailureMessage(error))
     } finally {
+      setManagedDeletionExecuting(false)
       setConfirmationPreparing(false)
     }
   }
@@ -469,6 +487,19 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(false)
       closeGuide()
     }
+  }
+  const finishCurrentSegment = async () => {
+    const current = activeSnapshot && !('recovery' in activeSnapshot) ? activeSnapshot.currentSegment?.id : undefined
+    const segments = activeSnapshot && !('recovery' in activeSnapshot) ? activeSnapshot.segments : []
+    const currentIndex = current ? segments.find((candidate) => candidate.id === current)?.index ?? -1 : -1
+    const unfinished = segments.filter((segment) => segment.readiness !== 'saved')
+    const next = unfinished.find((segment) => segment.index > currentIndex) ?? unfinished[0]
+    if (next) {
+      await workspace.selectSegment(next.id)
+      setStep(next.readiness === 'tagging' || next.readiness === 'waiting' ? 'scan' : 'preview')
+      return
+    }
+    await abandonCurrentWorkspace()
   }
   const canRestartFromResume = activeSnapshot !== null && activeSnapshot.status !== 'completed'
   const displayedLedgers = projectRecommendedLedgerDrafts(ledgers, workspace.snapshot, workspace.recommendedCandidateIds)
@@ -538,10 +569,11 @@ export function ControlledFavoriteLedgerPanel({
         <p>本次同步有 {managedDeletionCandidates.length} 个 bilimi 管理的收藏夹需要删除。</p>
         <p>请先确认变更内容；继续后需要进行危险操作确认。</p>
       </OldFavoriteModal> : null}
-      {managedDeletionCandidates && managedDeletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel="删除并同步" confirmDisabled={!managedDeletionConfirmed || confirmationPreparing} onCancel={() => { setManagedDeletionCandidates(null); setManagedDeletionReviewOpen(false); setManagedDeletionConfirmed(false) }} onConfirm={() => void confirmManagedDeletionAndSync()}>
+      {managedDeletionCandidates && managedDeletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={managedDeletionExecuting ? '删除中…' : '删除并同步'} confirmDisabled={!managedDeletionConfirmed || confirmationPreparing || managedDeletionExecuting} onCancel={() => { if (managedDeletionExecuting) return; setManagedDeletionCandidates(null); setManagedDeletionReviewOpen(false); setManagedDeletionConfirmed(false) }} onConfirm={() => void confirmManagedDeletionAndSync()}>
         <ul>{managedDeletionCandidates.map((candidate) => <li key={candidate.remoteFolderId}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
         <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
         <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
+        {confirmationPreparationError ? <p role="alert" className="favorite-ledger-panel__notice">{confirmationPreparationError}</p> : null}
       </OldFavoriteModal> : null}
       {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { if (recoveryDecisionPending) return; setRecoverySummary(null); setResumeDialogOpen(false); closeGuide() }}
@@ -553,7 +585,7 @@ export function ControlledFavoriteLedgerPanel({
           {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void openReconciliationDraft()}>查看并检查同步结果</button> : null}
         </>}>
         <p>检测到未完成的整理草稿</p>
-        <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}，未匹配 {recoverySummary.unclassifiedCount ?? 0}。</p>
+        <p>本轮计划 {recoverySummary.plannedCount ?? 0}，已分类 {recoverySummary.classifiedCount ?? 0}；其余 {recoverySummary.unclassifiedCount ?? 0} 条包含未匹配和等待扫描，恢复后按批次继续。</p>
         {recoverySummary.baselineChangeEvidence.changed ? <p>检测到草稿后的资料、B站位置或收藏夹绑定变化；人工分类会保留。</p> : null}
         {recoveryDecisionPending ? <p role="status">正在恢复整理草稿…</p> : null}
         {recoveryDecisionError ? <p role="alert">{recoveryDecisionError}</p> : null}
@@ -602,6 +634,9 @@ export function ControlledFavoriteLedgerPanel({
         onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
+        onPauseScan={() => void workspace.pauseScan()}
+        onResumeScan={() => void continueScan()}
+        onFinishScan={() => void finishScan()}
         onPauseTagEnrichment={() => void workspace.pauseTagEnrichment()}
         onResumeTagEnrichment={() => void workspace.resumeTagEnrichment()}
         onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
@@ -637,14 +672,15 @@ export function ControlledFavoriteLedgerPanel({
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
         onApplyManualClassification={applyManualClassification}
         onApplyManualClassifications={applyManualClassifications}
-        onSaveLocally={() => void (activeSnapshot?.hasMultipleSegments
-          ? workspace.setWholeRunExecutionIntent('local')
-          : workspace.saveCurrentSegmentLocally())}
+        onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
+        onSaveCurrentSegment={() => void workspace.saveCurrentSegmentLocally()}
+        onSaveWholeRun={() => void workspace.setWholeRunExecutionIntent('local')}
+        onFinishCurrentSegment={() => void finishCurrentSegment()}
         onUseOriginalClassifications={() => void workspace.useOriginalClassificationsForFailedDeepSeek()}
         onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}
-        onConfirmAndSync={() => void confirmAndSync()}
+        onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onReconcile={() => void reconcile()}
       /> : null}

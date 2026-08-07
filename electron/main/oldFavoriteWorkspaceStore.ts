@@ -1,7 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, rename, truncate, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { OldFavoriteInventoryMetricProjection, OldFavoriteWorkspaceDeepSeekRunCheckpoint, OldFavoriteWorkspaceExecutionIntent } from '../../src/shared/oldFavoriteWorkspace'
+import {
+  isValidOldFavoriteWorkspaceSegmentSize,
+  type OldFavoriteInventoryMetricProjection,
+  type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
+  type OldFavoriteWorkspaceExecutionIntent
+} from '../../src/shared/oldFavoriteWorkspace'
 
 type ScanItem = {
   aid: number
@@ -66,6 +71,7 @@ type RuleAnalysisCheckpoint = {
 }
 type OverviewSegmentSummary = {
   id: string
+  aids?: number[]
   firstAid?: number
   lastAid?: number
   sourceFolderCounts: Record<string, number>
@@ -92,6 +98,7 @@ type Overlay = {
     sourceFolders?: SourceFolder[]
     phase?: 'inventory' | 'failed' | 'complete'
     failureCount?: number
+    paused?: boolean
     mode?: 'incremental' | 'full'
     reason?: string
     retryAvailableAt?: string
@@ -109,6 +116,7 @@ type Overlay = {
     failedAids?: number[]
     reusedTagItemCount?: number
     taggedAids?: number[]
+    confirmedUntaggedAids?: number[]
     acceptedSegmentIds?: string[]
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
@@ -132,7 +140,7 @@ type Manifest = {
   managedMemberChunks?: Array<{ file: string; checksum: string }>
   streamingScan?: StreamingScanState
   sourceFolders?: SourceFolder[]
-  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; paused?: boolean; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -323,7 +331,7 @@ export class OldFavoriteWorkspaceStore {
         throw new Error('Old favorite workspace scan page is invalid.')
       }
       const segmentSize = input.segmentSize ?? manifest.streamingScan?.segmentSize ?? 500
-      if (!Number.isSafeInteger(segmentSize) || segmentSize < 500 || segmentSize > 2_000) {
+      if (!isValidOldFavoriteWorkspaceSegmentSize(segmentSize)) {
         throw new Error('Old favorite workspace streaming scan is invalid.')
       }
       const priorById = new Map(manifest.segments.map((segment) => [segment.id, segment]))
@@ -471,9 +479,20 @@ export class OldFavoriteWorkspaceStore {
         [...new Set(aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
       ]))
       const content = JSON.stringify({ runId: input.runId, members })
-      const file = `scan/members/${checksum(content)}.json`
+      const contentChecksum = checksum(content)
+      const file = `scan/members/${contentChecksum}.json`
+      const existing = (manifest.managedMemberChunks ?? []).find((chunk) =>
+        chunk.file === file && chunk.checksum === contentChecksum)
+      if (existing) {
+        try {
+          if (await readFile(join(directory, file), 'utf8') === content) return
+        } catch { /* recreate a missing or unreadable chunk below */ }
+      }
       await this.atomicWrite(join(directory, file), content)
-      const chunks = [...(manifest.managedMemberChunks ?? []), { file, checksum: checksum(content) }]
+      const chunks = [
+        ...(manifest.managedMemberChunks ?? []).filter((chunk) => chunk.file !== file),
+        { file, checksum: contentChecksum }
+      ]
       const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
       await this.writeManifest(directory, { ...manifestWithoutChecksum, managedMemberChunks: chunks })
       this.writeLog.set(this.key(account, workspaceId), ['manifest.json', file])
@@ -616,6 +635,7 @@ export class OldFavoriteWorkspaceStore {
             phase: overlay.scanMetadata.phase,
             failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
             mode: overlay.scanMetadata.mode ?? scan.mode,
+            ...(overlay.scanMetadata.paused !== undefined ? { paused: overlay.scanMetadata.paused } : {}),
             ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {})
             ,...(overlay.scanMetadata.retryAvailableAt && !Number.isNaN(Date.parse(overlay.scanMetadata.retryAvailableAt))
               ? { retryAvailableAt: overlay.scanMetadata.retryAvailableAt } : {})
@@ -634,6 +654,7 @@ export class OldFavoriteWorkspaceStore {
             failedAids: [...new Set(overlay.tagEnrichment.failedAids ?? [])],
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
             taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])],
+            confirmedUntaggedAids: [...new Set(overlay.tagEnrichment.confirmedUntaggedAids ?? [])],
             acceptedSegmentIds: [...new Set(overlay.tagEnrichment.acceptedSegmentIds ?? [])]
           }
         }
@@ -650,6 +671,9 @@ export class OldFavoriteWorkspaceStore {
             tagEnrichment.taggedAids = tags.length
               ? [...new Set([...(tagEnrichment.taggedAids ?? []), delta.aid])].sort((left, right) => left - right)
               : (tagEnrichment.taggedAids ?? []).filter((aid) => aid !== delta.aid)
+            tagEnrichment.confirmedUntaggedAids = tags.length
+              ? (tagEnrichment.confirmedUntaggedAids ?? []).filter((aid) => aid !== delta.aid)
+              : [...new Set([...(tagEnrichment.confirmedUntaggedAids ?? []), delta.aid])].sort((left, right) => left - right)
             tagUpdates.set(delta.aid, tags)
             tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
             tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
@@ -950,6 +974,7 @@ export class OldFavoriteWorkspaceStore {
           phase: overlay.scanMetadata.phase,
           failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
           mode: overlay.scanMetadata.mode ?? scan.mode,
+          ...(overlay.scanMetadata.paused !== undefined ? { paused: overlay.scanMetadata.paused } : {}),
           ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {}),
           ...(Number.isSafeInteger(overlay.scanMetadata.totalItemCount) ? { totalItemCount: overlay.scanMetadata.totalItemCount } : {}),
           ...(Number.isSafeInteger(overlay.scanMetadata.scannedItemCount) ? { scannedItemCount: overlay.scanMetadata.scannedItemCount } : {}),

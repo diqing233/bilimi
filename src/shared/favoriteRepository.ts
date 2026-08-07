@@ -1,6 +1,8 @@
 export type FavoriteRepositoryLocalPlanPayload = {
   workspaceId: string
   memberAidsByFolderId: Record<string, number[]>
+  /** Replaces prior local and bilimi-logical organization for these videos before applying this plan. */
+  replaceManagedAids?: number[]
   folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
   videos?: FavoriteRepositoryVideo[]
   organizationRecords?: FavoriteRepositoryOrganizationRecord[]
@@ -1130,6 +1132,8 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       for (const aids of Object.values(payload.memberAidsByFolderId as Record<string, unknown>)) {
         if (!isValidAidList(aids)) invalidCommand()
       }
+      if (payload.replaceManagedAids !== undefined && (!isValidAidList(payload.replaceManagedAids) ||
+        new Set(payload.replaceManagedAids).size !== payload.replaceManagedAids.length)) invalidCommand()
       if (payload.folders !== undefined && (!Array.isArray(payload.folders) || !payload.folders.every(isLocalPlanFolder))) invalidCommand()
       if (payload.videos !== undefined && (!Array.isArray(payload.videos) || payload.videos.some((video) =>
         !video || typeof video !== 'object' || Array.isArray(video) ||
@@ -1441,6 +1445,31 @@ export function applyFavoriteRepositoryCommand(
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
+      const replaceManagedAids = new Set(command.payload.replaceManagedAids ?? [])
+      if (replaceManagedAids.size) {
+        const managedFolderIds = Object.keys(memberships).filter((folderId) =>
+          folderId.startsWith('local:') || folderId.startsWith('bilimi-logical:'))
+        for (const folderId of managedFolderIds) {
+          const priorMembers = memberships[folderId] ?? []
+          if (!priorMembers.some((aid) => replaceManagedAids.has(aid))) continue
+          memberships = {
+            ...memberships,
+            [folderId]: priorMembers.filter((aid) => !replaceManagedAids.has(aid))
+          }
+          affectedFolderIds.push(folderId)
+        }
+        organizationRecords = organizationRecords.filter((record) => !replaceManagedAids.has(record.aid))
+        for (const aid of replaceManagedAids) {
+          const existing = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+          if (!existing) continue
+          applyPlacement({
+            ...existing,
+            localDesiredFolderIds: [],
+            updatedAt: normalizedAcceptedAt
+          })
+        }
+        affectedAids.push(...replaceManagedAids)
+      }
       memberships = {
         ...memberships,
         ...Object.fromEntries(Array.from(membersByFolderId, ([folderId, aids]) => [
@@ -1890,14 +1919,27 @@ export function applyFavoriteRepositoryCommand(
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
         if (!position.localDesiredFolderIds.includes(logicalFolderId)) continue
+        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId)
         positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
           ...position,
-          localDesiredFolderIds: position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId),
+          localDesiredFolderIds,
           positionState: 'local-only-change', updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
         }
         affected.add(position.aid)
       }
-      affectedFolderIds = [...removedFolderIds]
+      const remainingLogicalFolderIds = folders
+        .filter((folder) => folder.kind === 'bilimi-logical')
+        .map((folder) => folder.id)
+      const inbox = new Set(memberships['local:inbox'] ?? [])
+      for (const aid of affected) {
+        const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+        const hasRemainingLogicalPlacement = position
+          ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
+          : remainingLogicalFolderIds.some((folderId) => memberships[folderId]?.includes(aid))
+        if (!hasRemainingLogicalPlacement) inbox.add(aid)
+      }
+      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
+      affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
       break
     }

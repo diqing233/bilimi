@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -43,8 +43,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(section).toContain('2000 条（推荐）')
     expect(section).toContain('<OldFavoriteBatchSizeField')
     expect(field).toContain('type="radio"')
-    expect(field).toContain('min={500}')
-    expect(field).toContain('max={2_000}')
+    expect(field).toContain('min={MIN_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE}')
+    expect(field).toContain('max={MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE}')
     expect(field).toContain('onBlur={commitDraft}')
     expect(field).toContain("event.key === 'Escape'")
     expect(section).toContain('onCommit={persistOldFavoriteBatchSize}')
@@ -152,8 +152,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(effect).toContain("key === 'assistantSidebarWidthPx' ||")
     expect(effect).toContain("key === 'petHoverShortcuts' ||")
-    expect(effect).toContain("key === 'bilibiliConnectionMode' ||")
-    expect(effect).toContain("key === 'deepseekApiKeyStored'")
+    expect(effect).toContain("key === 'bilibiliConnectionMode'")
+    expect(effect).not.toContain("key === 'deepseekApiKeyStored'")
   })
 
   it('broadcasts pet shortcut previews before the deferred persistence write', () => {
@@ -232,6 +232,21 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(effect).toContain('loadSnapshot({ resetVideoNote: true })')
     expect(effect).not.toContain('loadVideoNoteArchives')
+  })
+
+  it('refreshes the empty local runtime when all local data is cleared in app', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const effect = source.slice(
+      source.indexOf('onLocalDataReset'),
+      source.indexOf('onAssistantPreferencesChanged', source.indexOf('onLocalDataReset'))
+    )
+
+    expect(effect).toContain('setLocalDataInfo(null)')
+    expect(effect).toContain('setLocalDataUnavailable(false)')
+    expect(effect).toContain('loadSnapshot({ resetVideoNote: true })')
+    expect(effect).toContain('refreshLocalDataInfo({ force: true, retryTransient: true })')
+    expect(effect).toContain('localDataResetInProgress.current = true')
+    expect(effect).toContain('localDataResetInProgress.current = false')
   })
   it('keeps DeepSeek feature toggles behind the post-paint settings field boundary', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
@@ -335,6 +350,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(statusLightNavigation('deepseek', 'review')).toEqual({ tab: 'settings', section: 'deepseek' })
     expect(statusLightNavigation('transcription', 'noteArchive')).toEqual({ tab: 'notes', view: 'notes' })
     expect(statusLightNavigation('ledger', 'notes')).toEqual({ tab: 'ledger' })
+  })
+
+  it('calculates an inner settings scroll position for status-light navigation', () => {
+    expect(settingsSectionScrollTop({ top: 100 }, { top: 240 }, 80)).toBe(220)
+    expect(settingsSectionScrollTop({ top: 100 }, { top: 60 }, 80)).toBe(40)
+  })
+
+  it('uses the settings scroll container when opening DeepSeek from a status light', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const openSettings = source.slice(source.indexOf('function jumpToSettingsSection'), source.indexOf('function syncSettingsJumpFromScroll'))
+
+    expect(openSettings).toContain('settingsSectionScrollTop(')
+    expect(openSettings).toContain("behavior: 'auto'")
   })
 
   it('keeps the live multi-line status detail as the hover tooltip', () => {

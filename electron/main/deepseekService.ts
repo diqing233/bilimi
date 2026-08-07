@@ -89,6 +89,24 @@ function coerceStringArray(value: unknown, limit: number): string[] {
     : []
 }
 
+function coerceSummaryStringArray(value: unknown, limit: number): string[] {
+  if (Array.isArray(value)) return coerceStringArray(value, limit)
+  if (typeof value !== 'string') return []
+  return value
+    .split(/\r?\n/gu)
+    .map((item) => item.trim().replace(/^\s*(?:[-*•]|\d+[.)、])\s*/u, ''))
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function firstNonEmptySummaryField(record: Record<string, unknown>, keys: string[]): unknown {
+  return keys.map((key) => record[key]).find((value) => {
+    if (typeof value === 'string') return Boolean(value.trim())
+    if (Array.isArray(value)) return value.length > 0
+    return value !== undefined && value !== null
+  })
+}
+
 function isUnclassifiedLedgerId(value: string): boolean {
   const normalized = value.trim().toLowerCase()
   return (
@@ -796,12 +814,27 @@ export async function generateDeepSeekResult(options: {
     let title = [parsed.title, parsed.标题, parsed.heading]
       .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
       ?.trim() ?? ''
-    let subtitle = typeof parsed.subtitle === 'string' ? parsed.subtitle.trim() : ''
+    const parsedSubtitle = firstNonEmptySummaryField(parsed, ['subtitle', '主旨', '摘要', 'summary'])
+    let subtitle = typeof parsedSubtitle === 'string' ? parsedSubtitle.trim() : ''
     // Poster prompt had no consumer; do not spend output tokens persisting it.
     const prompt = ''
-    let keyPoints = coerceStringArray(parsed.keyPoints, Number.MAX_SAFE_INTEGER)
+    let keyPoints = coerceSummaryStringArray(
+      firstNonEmptySummaryField(parsed, ['keyPoints', '核心内容', '核心內容', 'key_points']),
+      Number.MAX_SAFE_INTEGER
+    )
     const keywords: string[] = []
-    let returnedDetailedOutline = coerceStringArray(parsed.detailedOutline, Number.MAX_SAFE_INTEGER)
+    let returnedDetailedOutline = coerceSummaryStringArray(
+      firstNonEmptySummaryField(parsed, [
+        'detailedOutline',
+        'detailed_outline',
+        'outline',
+        '详细内容提要',
+        '詳細內容提要',
+        '详细提要',
+        '内容提要'
+      ]),
+      Number.MAX_SAFE_INTEGER
+    )
     const missingFields = [
       ...(!title ? ['title'] : []),
       ...(!subtitle ? ['subtitle'] : []),
@@ -827,14 +860,44 @@ export async function generateDeepSeekResult(options: {
             .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
             ?.trim() ?? ''
         }
-        if (!subtitle && typeof repaired.subtitle === 'string') subtitle = repaired.subtitle.trim()
-        if (keyPoints.length === 0) keyPoints = coerceStringArray(repaired.keyPoints, Number.MAX_SAFE_INTEGER)
+        if (!subtitle) {
+          const repairedSubtitle = firstNonEmptySummaryField(repaired, ['subtitle', '主旨', '摘要', 'summary'])
+          if (typeof repairedSubtitle === 'string') subtitle = repairedSubtitle.trim()
+        }
+        if (keyPoints.length === 0) {
+          keyPoints = coerceSummaryStringArray(
+            firstNonEmptySummaryField(repaired, ['keyPoints', '核心内容', '核心內容', 'key_points']),
+            Number.MAX_SAFE_INTEGER
+          )
+        }
         if (returnedDetailedOutline.length === 0) {
-          returnedDetailedOutline = coerceStringArray(repaired.detailedOutline, Number.MAX_SAFE_INTEGER)
+          returnedDetailedOutline = coerceSummaryStringArray(
+            firstNonEmptySummaryField(repaired, [
+              'detailedOutline',
+              'detailed_outline',
+              'outline',
+              '详细内容提要',
+              '詳細內容提要',
+              '详细提要',
+              '内容提要'
+            ]),
+            Number.MAX_SAFE_INTEGER
+          )
         }
       } catch (error) {
         if (options.signal?.aborted) throw error
       }
+    }
+    if (returnedDetailedOutline.length === 0) {
+      const chapterOutline = note.chapters
+        .map((chapter) => {
+          const titleText = chapter.title.trim()
+          const summaryText = chapter.summary.trim()
+          if (titleText && summaryText) return `${titleText}：${summaryText}`
+          return titleText || summaryText
+        })
+        .filter(Boolean)
+      returnedDetailedOutline = chapterOutline.length > 0 ? chapterOutline : [...keyPoints]
     }
     const detailedOutline = mergeReviewItemsIntoDetailedOutline(returnedDetailedOutline, [
       ...reviewItems.map((item) => ({ text: item.originalText, reason: item.reason }))

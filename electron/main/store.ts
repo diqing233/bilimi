@@ -578,7 +578,9 @@ export function loadAssistantPreferences(
     theme: store.get('theme') === 'light' || store.get('theme') === 'dark' ? store.get('theme') : 'system',
     language: typeof store.get('language') === 'string' && store.get('language').trim() ? store.get('language').trim() : 'zh-CN',
     windowBounds: normalizePortableWindowBounds(store.get('windowBounds')),
-    favoritesFolderName: store.get('favoritesFolderName'),
+    favoritesFolderName: typeof store.get('favoritesFolderName') === 'string' && store.get('favoritesFolderName').trim()
+      ? store.get('favoritesFolderName').trim()
+      : DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     favoriteAccountPreferences: applyFavoriteLedgerEnabledOverrides(
       normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences')),

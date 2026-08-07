@@ -43,7 +43,9 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const cleanupAccount = currentStoredAccount ?? accounts.find((account) => account.uid === selectedCleanupUid) ?? accounts[0]
   const cleanupAccountUid = cleanupAccount?.uid
   const cleanupAccountLabel = cleanupAccount ? accountLabel(cleanupAccount) : currentAccountUid ? `当前账号（${currentAccountUid}）` : '当前账号'
+  const deletingSignedInAccount = Boolean(cleanupAccountUid && cleanupAccountUid === currentAccountUid)
   const cleanupButtonLabel = currentStoredAccount ? '预览删除当前账号本地数据' : cleanupAccount ? `预览删除${cleanupAccountLabel}本地数据` : ''
+  const deletionConfirmationLabel = deletingSignedInAccount ? '确认删除当前账号本地数据' : `确认删除${cleanupAccountLabel}本地数据`
   const recalculate = async () => { setBusy(true); try { setUsage(await calculateUsage()) } finally { setBusy(false) } }
   const toggleUid = (uid: string) => setSelectedUids((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid])
   const applyImport = async (mode: 'merge' | 'overwrite') => {
@@ -79,7 +81,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     try {
       if (deletion === 'current' && cleanupAccountUid) await onApplyCleanup?.('current-account-data', cleanupAccountUid)
       if (deletion === 'all') await onFullClear()
-      await onDataChanged?.()
+      if (deletion !== 'all' && cleanupAccountUid !== currentAccountUid) await onDataChanged?.()
       setCleanupPreview('清理完成')
     } catch (error) {
       setCleanupPreview(`清理失败：${error instanceof Error ? error.message : String(error)}`)
@@ -105,7 +107,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
     <section className="local-data-settings__section" aria-labelledby="data-management-heading">
       <h2 id="data-management-heading" className="local-data-settings__heading"><button type="button" className="local-data-settings__section-toggle" onClick={() => setCleanupOpen((open) => !open)} aria-expanded={cleanupOpen}>管理数据</button></h2><p>清理不会修改 B 站服务器数据。先查看预估范围，确认后才会执行。</p>
       {cleanupOpen ? <><div className="local-data-settings__actions"><button type="button" onClick={() => void previewCleanup('cache')}>预览清理缓存</button><button type="button" disabled={!cleanupAccountUid} onClick={() => void previewCleanup('current-account-temp', cleanupAccountUid)}>预览清理当前账号临时数据</button></div>{!currentStoredAccount && accounts.length > 1 ? <label className="local-data-settings__check">选择要删除的账号<select aria-label="选择要删除的账号" value={cleanupAccountUid ?? ''} onChange={(event) => setSelectedCleanupUid(event.target.value)}>{accounts.map((account) => <option key={account.uid} value={account.uid}>{accountLabel(account)}</option>)}</select></label> : null}{!cleanupAccountUid ? <p className="local-data-settings__empty">本机没有可删除的账号数据。</p> : null}{cleanupPreview && <p role="status">{cleanupPreview}</p>}{approvedCleanup && <button type="button" onClick={() => void applyCleanup()}>执行{approvedCleanup.level === 'cache' ? '清理缓存' : '清理当前账号临时数据'}</button>}<div className="local-data-settings__danger-actions">{cleanupAccountUid ? <button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('current')}>{cleanupButtonLabel}</button> : null}<button type="button" className="local-data-settings__danger-button" onClick={() => setPendingDeletion('all')}>清除全部用户数据</button></div></> : null}
-      {pendingDeletion ? <div className="local-data-settings__confirmation" role="alertdialog" aria-label={pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}><p>{pendingDeletion === 'current' ? `将删除 ${cleanupAccountLabel} 在本机保存的收藏库、设置、归档、转写和操作记录，不会删除 B 站服务器数据。` : '将删除这台电脑中所有 bilimi 账号数据、登录状态和缓存，不会删除 B 站服务器数据。'}</p><div className="local-data-settings__actions"><button type="button" onClick={() => setPendingDeletion(null)}>取消</button><button type="button" className="local-data-settings__danger-button" onClick={() => void confirmDeletion()}>{pendingDeletion === 'current' ? '确认删除当前账号本地数据' : '确认清除全部本地数据'}</button></div></div> : null}
+      {pendingDeletion ? <div className="local-data-settings__confirmation" role="alertdialog" aria-label={pendingDeletion === 'current' ? deletionConfirmationLabel : '确认清除全部本地数据'}><p>{pendingDeletion === 'current' ? `将删除 ${cleanupAccountLabel} 在本机保存的收藏库、设置、归档、转写和操作记录${deletingSignedInAccount ? '，并退出当前 B 站登录' : ''}，不会删除 B 站服务器数据。` : '将删除这台电脑中所有 bilimi 账号数据、登录状态和缓存，不会删除 B 站服务器数据。'}</p><div className="local-data-settings__actions"><button type="button" onClick={() => setPendingDeletion(null)}>取消</button><button type="button" className="local-data-settings__danger-button" onClick={() => void confirmDeletion()}>{pendingDeletion === 'current' ? deletionConfirmationLabel : '确认清除全部本地数据'}</button></div></div> : null}
     </section>
   </section>
 }

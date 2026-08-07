@@ -1066,6 +1066,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('background: var(--porcelain-surface);')
   })
 
+  it('uses the amber alert treatment for unclassified archive guidance', () => {
+    expectStyleSnippet('.favorite-ledger-panel__confirm-warning { margin: 0; padding: 8px 10px; border: 1px solid rgba(188, 126, 0, 0.42); border-radius: 8px; background: #fff7d6; color: #8a5700;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__confirm-warning { color: var(--porcelain-danger')
+  })
+
   it('contains narrow settings content without a horizontal workspace scrollbar', () => {
     expectStyleSnippet('.assistant-settings__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;')
     expectStyleSnippet('.assistant-settings__group { display: grid; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;')

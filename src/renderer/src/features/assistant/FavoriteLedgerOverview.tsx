@@ -10,6 +10,11 @@ import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import {
+  applyManagedFavoriteFolderDeletionToLedgers,
+  managedFavoriteFolderDeletionFailureMessage,
+  managedFavoriteFolderDeletionSucceeded
+} from './managedFavoriteFolderDeletionFeedback'
+import {
   FavoriteLedgerEnableButton,
   FavoriteLedgerEnableStore,
   FavoriteLedgerEnableSummary,
@@ -117,6 +122,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [deletionCandidates, setDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
   const [deletionConfirmed, setDeletionConfirmed] = useState(false)
   const [deletionReviewOpen, setDeletionReviewOpen] = useState(false)
+  const [deletionExecuting, setDeletionExecuting] = useState(false)
+  const [deletionError, setDeletionError] = useState<string | null>(null)
   const [deletionModeActive, setDeletionModeActive] = useState(false)
   const [deletionModePreviousEnabled, setDeletionModePreviousEnabled] = useState<Map<string, boolean> | null>(null)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
@@ -457,6 +464,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(accountMid, candidateIds)
       : []
     if (candidates?.length) {
+      setDeletionError(null)
       setDeletionCandidates(candidates)
       return
     }
@@ -467,10 +475,23 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !deletionCandidates || !deletionConfirmed) return
     const deletedIds = new Set(deletionCandidates.map((candidate) => candidate.logicalLedgerId))
-    await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, [...deletedIds])
+    setDeletionExecuting(true)
+    setDeletionError(null)
+    try {
+      const result = await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, [...deletedIds])
+      if (!managedFavoriteFolderDeletionSucceeded(result)) {
+        setDeletionError('删除结果尚未确认，已停止保存备册规则；请重新打开删除确认后再试。')
+        return
+      }
+    } catch (error) {
+      setDeletionError(managedFavoriteFolderDeletionFailureMessage(error))
+      return
+    } finally {
+      setDeletionExecuting(false)
+    }
     if (deletionModeActive) {
       const previousEnabled = deletionModePreviousEnabledRef.current ?? deletionModePreviousEnabled
-      const next = draftLedgers.map((ledger) => ({
+      const next = applyManagedFavoriteFolderDeletionToLedgers(draftLedgers, deletedIds).map((ledger) => ({
         ...ledger,
         enabled: deletedIds.has(ledger.id)
           ? false
@@ -552,11 +573,12 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
         <p>本次同步有 {deletionCandidates.length} 个 bilimi 管理的收藏夹需要删除。</p>
         <p>请先确认变更内容；继续后需要进行危险操作确认。</p>
       </OldFavoriteModal> : null}
-      {deletionCandidates && deletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel="删除并同步" confirmDisabled={!deletionConfirmed} onCancel={() => { setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionReviewOpen(false) }} onConfirm={() => void confirmManagedDeletion()}>
+      {deletionCandidates && deletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={deletionExecuting ? '删除中…' : '删除并同步'} confirmDisabled={!deletionConfirmed || deletionExecuting} onCancel={() => { if (deletionExecuting) return; setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionReviewOpen(false); setDeletionError(null) }} onConfirm={() => void confirmManagedDeletion()}>
         <p>以下 {deletionCandidates.length} 个 bilimi 管理的收藏夹将在同步时删除：</p>
         <ul>{deletionCandidates.map((candidate) => <li key={candidate.remoteFolderId}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
         <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
         <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
+        {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
     </div>
     {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { resetLedgers(); setResetConfirmOpen(false) }}><p>恢复默认收藏夹名称和分类规则，保留自建收藏夹但取消其勾选，不会删除已有收藏夹。</p></OldFavoriteModal> : null}

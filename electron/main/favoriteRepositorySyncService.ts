@@ -30,6 +30,14 @@ export type FavoriteRepositorySyncRun = {
 }
 
 type PageBridgeResult = { observedAccountMid: string }
+type PageBridgeDeleteResult = PageBridgeResult & {
+  status?: 'ok' | 'rejected' | 'unknown'
+  reason?: string
+  httpStatus?: number
+  contentType?: string
+  responseCategory?: 'html' | 'json' | 'text' | 'empty' | 'unknown'
+  bilibiliCode?: number
+}
 export type FavoriteRepositoryRemoteFolder = { id: string; title: string; memberCount: number }
 
 export type FavoriteRepositoryPageBridge = {
@@ -53,7 +61,7 @@ export type FavoriteRepositoryPageBridge = {
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
   readFolderInventory(input: { accountMid: string; operationKey: string }): Promise<PageBridgeResult & { folders: FavoriteRepositoryRemoteFolder[] }>
   createFolder(input: { accountMid: string; operationKey: string; title: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
-  deleteFolder(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeResult>
+  deleteFolder(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeDeleteResult>
 }
 
 export type FavoriteRepositoryPageBridgeManager = {
@@ -768,7 +776,20 @@ export class FavoriteRepositorySyncService {
         const bridge = this.pageBridge(account, runId)
         const verified = await this.verifiedManagedFolders(account, requestedLedgerIds, bridge, `${runId}:verify`)
         for (const { shard, folder } of verified) {
-          await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${folder.id}`, folderId: folder.id })
+          const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${folder.id}`, folderId: folder.id })
+          this.assertObservedAccount(account, result.observedAccountMid)
+          if (result.status && result.status !== 'ok') {
+            const diagnostics = [
+              result.reason?.trim() || `remote-delete-${result.status}`,
+              Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
+              result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
+              result.responseCategory ? `response-category=${result.responseCategory}` : '',
+              Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
+            ].filter(Boolean)
+            const error = new Error(diagnostics.join('; '))
+            if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
+            throw error
+          }
           await this.options.repository.commit(account, {
             id: `favorite-delete:${folder.id}`,
             accountMid: account,

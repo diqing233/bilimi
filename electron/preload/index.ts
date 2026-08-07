@@ -249,6 +249,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('local-data:preview-cleanup', level, uid, confirmation) as Promise<{ affectsBilibiliServerData: false; releasableBytes: number }>,
   applyLocalDataCleanup: (level: 'cache' | 'current-account-temp' | 'current-account-data' | 'all-user-data', uid?: string, confirmation?: string) =>
     ipcRenderer.invoke('local-data:apply-cleanup', level, uid, confirmation) as Promise<void>,
+  onLocalDataReset: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('local-data:reset', listener)
+    return () => ipcRenderer.removeListener('local-data:reset', listener)
+  },
   onFavoriteRepositoryAccountDataCleared: (callback: (accountMid: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, accountMid: unknown) => {
       if (typeof accountMid === 'string') callback(accountMid)

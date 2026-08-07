@@ -589,15 +589,17 @@ describe('assistant state', () => {
     })
   })
 
-  it('normalizes the next-round old-favorite segment limit to 500 through 2000', () => {
+  it('normalizes the next-round old-favorite segment limit to 500 through 5000 or the experimental unlimited value', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 500 } as never))
       .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 500 })
-    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_000 } as never))
-      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 5_000 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 5_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER })
     expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 499 } as never))
       .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
-    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 2_001 } as never))
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 5_001 } as never))
       .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
   })
 

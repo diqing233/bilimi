@@ -131,6 +131,10 @@ export class OldFavoriteWorkspaceScanService {
     }
   }
 
+  resumeAfterDestructiveMaintenance() {
+    this.destructiveMaintenance = false
+  }
+
   private request(accountMid: string, request: RuntimeRequest) {
     const work = () => this.options.requestRuntime(request)
     return this.options.remoteOperations?.run(accountMid, work) ?? work()
@@ -300,6 +304,17 @@ export class OldFavoriteWorkspaceScanService {
   }
 
   /** Explicitly resumes an existing durable scan lease; construction never starts or resumes work. */
+  async pause(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    this.assertAcceptingWork()
+    const account = normalizeAccountMid(accountMid)
+    if (!account) throw new Error('Old favorite workspace account is invalid.')
+    // Revoke the in-memory lease first so an in-flight runtime response cannot
+    // append another page after the durable paused marker is written.
+    this.activeScans.delete(account)
+    return this.options.coordinator.pauseScan(account)
+  }
+
+  /** Explicitly resumes an existing durable scan lease; construction never starts or resumes work. */
   async resume(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
     this.assertAcceptingWork()
     const account = normalizeAccountMid(accountMid)
@@ -344,6 +359,7 @@ export class OldFavoriteWorkspaceScanService {
     taggedAids = new Set<number>(),
     recoveryProbe?: { target: ScanTarget; inventory: RuntimeInventoryResult }
   ) {
+    let runtimeStage = 'bind-scan-target'
     try {
       let target: ScanTarget
       let inventory: RuntimeInventoryResult
@@ -351,6 +367,7 @@ export class OldFavoriteWorkspaceScanService {
         target = recoveryProbe.target
         inventory = recoveryProbe.inventory
       } else {
+        runtimeStage = 'bind-scan-target'
         const binding = await this.bindTarget(accountMid)
         if (!isCurrent()) return
         if (binding.status !== 'ok' || !binding.target) {
@@ -358,6 +375,7 @@ export class OldFavoriteWorkspaceScanService {
           return
         }
         target = binding.target
+        runtimeStage = 'read-inventory'
         const inventoryRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
           type: 'old-favorite-workspace-inventory', accountMid, target: nextTarget
         }))
@@ -373,6 +391,7 @@ export class OldFavoriteWorkspaceScanService {
         await this.options.coordinator.recordScanFailure(accountMid, 'inventory-account-mismatch', runId)
         return
       }
+      runtimeStage = 'record-inventory'
       await this.options.coordinator.recordScanInventory(accountMid, {
         sourceFolders: inventory.folders.map((folder) => ({
           id: folder.id,
@@ -389,6 +408,7 @@ export class OldFavoriteWorkspaceScanService {
       const declaredMediaCounts = new Map(inventory.folders.map((folder) => [folder.id, folder.mediaCount]))
       for (let offset = 0; offset < managedFolderIds.length; offset += 10) {
         const folderIds = managedFolderIds.slice(offset, offset + 10)
+        runtimeStage = 'read-managed-members'
         let managedRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
           type: 'old-favorite-workspace-read-managed-members', accountMid, target: nextTarget, folderIds
         }))
@@ -407,6 +427,7 @@ export class OldFavoriteWorkspaceScanService {
         if (anomalousEmpty) {
           await this.waitForInventoryRetry()
           if (!isCurrent()) return
+          runtimeStage = 'retry-read-managed-members'
           managedRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
             type: 'old-favorite-workspace-read-managed-members', accountMid, target: nextTarget, folderIds
           }))
@@ -426,6 +447,7 @@ export class OldFavoriteWorkspaceScanService {
             return
           }
         }
+        runtimeStage = 'record-managed-members'
         await this.options.coordinator.recordManagedMembers(accountMid, managed.members, runId)
       }
       let requestedSourcePageCount = 0
@@ -450,6 +472,7 @@ export class OldFavoriteWorkspaceScanService {
           }
           await this.waitForSourcePageRequest()
           if (!isCurrent()) return
+          runtimeStage = 'read-source-page'
           const sourcePageRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
             type: 'old-favorite-workspace-read-source-page', accountMid, target: nextTarget,
             folderId: folder.id, page, pageSize: 20
@@ -470,6 +493,7 @@ export class OldFavoriteWorkspaceScanService {
             await this.options.coordinator.recordScanFailure(accountMid, 'source-page-empty-with-more', runId)
             return
           }
+          runtimeStage = 'record-source-page'
           const recorded = await this.options.coordinator.recordScanPage(accountMid, {
             folderId: folder.id,
             page,
@@ -488,6 +512,7 @@ export class OldFavoriteWorkspaceScanService {
         }
       }
       if (!isCurrent()) return
+      runtimeStage = 'finish-scan'
       await this.options.coordinator.finishScan(accountMid, runId)
       if (!isCurrent()) return
       if (workspaceId && typeof this.options.coordinator.getPendingTagEnrichmentAids === 'function') {
@@ -495,7 +520,7 @@ export class OldFavoriteWorkspaceScanService {
       }
     } catch {
       if (!isCurrent()) return
-      await this.options.coordinator.recordScanFailure(accountMid, 'inventory-runtime-failed', runId)
+      await this.options.coordinator.recordScanFailure(accountMid, `inventory-runtime-failed:${runtimeStage}`, runId)
     }
   }
 

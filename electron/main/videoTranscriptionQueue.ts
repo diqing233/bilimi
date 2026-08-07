@@ -68,6 +68,7 @@ type VideoTranscriptionQueue = {
   cancelSummary: (id: string) => VideoAudioTranscriptionQueueSnapshot
   retryBatch: (ids: string[]) => VideoTranscriptionQueueBatchResult
   removeBatch: (ids: string[]) => VideoTranscriptionQueueBatchResult
+  clearAccount: (accountMid: string) => VideoAudioTranscriptionQueueSnapshot
   createRunningStopConfirmation: (ids: string[]) => { confirmationToken: string; runningCount: number }
   stopRunningBatch: (ids: string[], confirmationToken: string) => VideoTranscriptionQueueBatchResult
   cancelAllAndWait: () => Promise<VideoAudioTranscriptionQueueSnapshot>
@@ -768,6 +769,12 @@ export function createVideoTranscriptionQueue({
     return result({ affected: removed, removed, skipped })
   }
 
+  function clearAccount(accountMid: string): VideoAudioTranscriptionQueueSnapshot {
+    const normalized = accountMid.trim()
+    items = items.filter((item) => item.accountMid !== normalized || item.status === 'running')
+    return publish()
+  }
+
   function createRunningStopConfirmation(ids: string[]) {
     const runningIds = new Set(items.filter((item) => ids.includes(item.id) && item.status === 'running').map((item) => item.id))
     const confirmationToken = `transcription-stop:${now()}:${Math.random().toString(36).slice(2)}`
@@ -843,6 +850,7 @@ export function createVideoTranscriptionQueue({
     cancelSummary,
     retryBatch,
     removeBatch,
+    clearAccount,
     createRunningStopConfirmation,
     stopRunningBatch,
     cancelAllAndWait

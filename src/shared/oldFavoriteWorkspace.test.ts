@@ -181,15 +181,19 @@ describe('old favorite workspace', () => {
     })
   })
 
-  it('rejects classification changes for a frozen segment', () => {
+  it('reopens a frozen segment when its classification is edited', () => {
     const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
     const frozen = freezeWorkspaceSegment(preview, 'segment-1')
 
-    expect(() => applyWorkspaceClassificationBatch(frozen, {
+    const reopened = applyWorkspaceClassificationBatch(frozen, {
       source: 'manual',
       assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
-    })).toThrow('Old favorite workspace is frozen.')
+    })
+
+    expect(reopened.status).toBe('previewing')
+    expect(reopened.segments[0]?.status).toBe('previewing')
+    expect(reopened.classifications['1']).toMatchObject({ targetLedgerIds: ['music'] })
   })
 
   it('rejects undo and redo after a segment has frozen the classification plan', () => {
@@ -231,12 +235,39 @@ describe('old favorite workspace', () => {
     expect(completed.segments.map((segment) => segment.aids)).toEqual([[3, 1], [4, 2]])
   })
 
-  it('rejects physical segment sizes outside the supported 500 to 2000 range', () => {
+  it('accepts the experimental unlimited segment size while retaining the 5000 custom limit', () => {
+    expect(createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_000
+    }).segmentSize).toBe(5_000)
+    expect(createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: Number.MAX_SAFE_INTEGER
+    }).segmentSize).toBe(Number.MAX_SAFE_INTEGER)
     expect(() => createOldFavoriteWorkspace({
       accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 499
     })).toThrow('segment size is invalid')
     expect(() => createOldFavoriteWorkspace({
-      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 2_001
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_001
     })).toThrow('segment size is invalid')
+  })
+
+  it('keeps every scanned item in one segment when the experimental unlimited size is selected', () => {
+    const scanning = createOldFavoriteWorkspace({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: Number.MAX_SAFE_INTEGER
+    })
+
+    const preview = completeWorkspaceScan(scanning, {
+      revision: 1, aids: Array.from({ length: 5_001 }, (_, index) => index + 1)
+    })
+
+    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([5_001])
+  })
+
+  it('uses a 5000-item configured segment for a larger round', () => {
+    const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_000 })
+    const preview = completeWorkspaceScan(scanning, {
+      revision: 1, aids: Array.from({ length: 5_001 }, (_, index) => index + 1)
+    })
+
+    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([5_000, 1])
   })
 })

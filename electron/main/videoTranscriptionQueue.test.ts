@@ -74,6 +74,21 @@ async function flushNestedMicrotasks(): Promise<void> {
 }
 
 describe('video transcription queue', () => {
+  it('removes only the settled records belonging to one deleted account', () => {
+    const store = createStore([
+      { ...createRequest({ accountMid: '100', aid: 1 }), id: 'account:100:aid:1', status: 'completed', createdAt: '2026-08-06T00:00:00.000Z', updatedAt: '2026-08-06T00:00:00.000Z' },
+      { ...createRequest({ accountMid: '200', aid: 2 }), id: 'account:200:aid:2', status: 'completed', createdAt: '2026-08-06T00:00:00.000Z', updatedAt: '2026-08-06T00:00:00.000Z' }
+    ])
+    const queue = createVideoTranscriptionQueue({
+      loadItems: store.load, saveItems: store.save,
+      transcribe: vi.fn(), saveArchiveVersion: vi.fn()
+    })
+
+    const snapshot = queue.clearAccount('100')
+
+    expect(snapshot.items.map((item) => item.accountMid)).toEqual(['200'])
+    expect(store.current().map((item) => item.accountMid)).toEqual(['200'])
+  })
   it('completes and archives an empty transcript without asking DeepSeek to summarize it', async () => {
     const summarizeNote = vi.fn().mockResolvedValue('must not run')
     const saveArchiveVersion = vi.fn().mockReturnValue({ archiveId: 'archive-no-speech', versionId: 'version-no-speech' })

@@ -11,10 +11,13 @@ type OldFavoriteConfirmationStepProps = {
   preparationStatus?: string | null
   executionError?: string | null
   onSaveLocally: () => void
+  onSaveCurrentSegment?: () => void
+  onSaveWholeRun?: () => void
   onCancelExecutionIntent?: () => void
+  onFinishCurrentSegment?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
-  onConfirmAndSync: () => void
+  onConfirmAndSync: (includeInbox?: boolean) => void
   onUseOriginalClassifications?: () => void
   onExecuteFrozenPlan: () => void
   onReconcile: () => void
@@ -37,6 +40,8 @@ function retryWaitLabel(remainingMs: number) {
   return seconds < 60 ? `${seconds} 秒` : `${Math.ceil(seconds / 60)} 分钟`
 }
 
+const FAVORITE_LIBRARY_HELP = '收藏库用于保存和管理本地整理结果，可继续查看、调整和重新归类；只有点击“同步到 B 站”后才会上传。'
+
 export function OldFavoriteConfirmationStep({
   snapshot,
   ledgers = [],
@@ -45,8 +50,11 @@ export function OldFavoriteConfirmationStep({
   preparationStatus,
   executionError,
   onSaveLocally,
+  onSaveCurrentSegment = onSaveLocally,
+  onSaveWholeRun = onSaveLocally,
   onCancelExecutionIntent = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
+  onFinishCurrentSegment = onAbandonCurrentWorkspace,
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
   onUseOriginalClassifications = () => undefined,
@@ -72,6 +80,8 @@ export function OldFavoriteConfirmationStep({
       : `上次同步已安全停止：${failureReason}`
     : null
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false)
+  const [includeInbox, setIncludeInbox] = useState(false)
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
@@ -85,9 +95,8 @@ export function OldFavoriteConfirmationStep({
   const currentSegmentSaved = Boolean(currentSegmentSummary && (
     currentSegmentSummary.status === 'frozen' || currentSegmentSummary.readiness === 'saved'
   ))
-  const localSaveLabel = isMultiSegment
-    ? '保存本轮到收藏库'
-    : '仅保存本轮到收藏库'
+  const currentSegmentReady = Boolean(currentSegmentSummary && ['ready', 'saved'].includes(currentSegmentSummary.readiness))
+  const readySegmentCount = snapshot.segments.filter((segment) => ['ready', 'saved'].includes(segment.readiness)).length
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
     : '确认同步只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏；开始后本轮方案锁定。'
@@ -186,7 +195,7 @@ export function OldFavoriteConfirmationStep({
     : null
   const unmatchedCount = isMultiSegment ? snapshot.overview?.unmatchedItemCount ?? 0 : unclassifiedCount
   const blockedMessage = unmatchedCount
-    ? `bilimi·暂存 ${unmatchedCount} 条：保存到本地收藏库；点击同步时默认不上传 B 站。`
+    ? `未匹配到合适分类 ${unmatchedCount} 条；保存到本地收藏库会存入 bilimi·暂存，点击同步时默认不上传 B 站。`
     : !canSaveLocally
       ? '正在等待主进程确认本轮分类准备度。'
       : null
@@ -214,10 +223,36 @@ export function OldFavoriteConfirmationStep({
         }
       }}>沿用 {failedDeepSeekCount} 条视频的原自动分类</button>
     </div> : null}
-    <div className="favorite-ledger-panel__confirm-actions">
-      <button type="button" disabled={!canSaveLocally || deepSeekBlocksExecution || loading || (!isMultiSegment && currentSegmentSaved)} onClick={onSaveLocally}>{localSaveLabel}</button>
-      <button type="button" disabled={!canSyncToBilibili || deepSeekBlocksExecution || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
-      <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>放弃本轮整理</button>
+    <div className="favorite-ledger-panel__confirm-action-groups">
+      {isMultiSegment ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本批操作">
+        <strong>本批操作</strong>
+        <div className="favorite-ledger-panel__confirm-actions">
+          <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !currentSegmentReady || deepSeekBlocksExecution || loading} onClick={onSaveCurrentSegment}>保存本批到收藏库</button>
+          {currentSegmentSaved ? <button type="button" disabled={loading} onClick={onFinishCurrentSegment}>暂不同步结束本批整理</button> : null}
+        </div>
+      </section> : null}
+      <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
+        <strong>本轮操作</strong>
+        <div className="favorite-ledger-panel__confirm-actions">
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>保存本轮到收藏库</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading || currentSegmentSaved} onClick={onSaveLocally}>仅保存本轮到收藏库</button>}
+          <button type="button" disabled={!canSyncToBilibili || deepSeekBlocksExecution || loading} onClick={() => {
+            if (unmatchedCount > 0) setSyncDialogOpen(true)
+            else onConfirmAndSync(false)
+          }}>确认并同步到 B 站</button>
+          {(!isMultiSegment || !currentSegmentSaved) ? <button type="button" disabled={loading} onClick={currentSegmentSaved ? onFinishCurrentSegment : onAbandonCurrentWorkspace}>{currentSegmentSaved ? '暂不同步结束本轮整理' : '放弃本轮整理'}</button> : null}
+        </div>
+      </section>
     </div>
+    {syncDialogOpen ? <div className="favorite-ledger-panel__sync-dialog" role="dialog" aria-modal="true" aria-label="同步选项">
+      <h5>同步选项</h5>
+      <label>
+        <input type="checkbox" checked={includeInbox} onChange={(event) => setIncludeInbox(event.currentTarget.checked)} />
+        同步 bilimi·暂存（{unmatchedCount} 条）
+      </label>
+      <div className="favorite-ledger-panel__confirm-actions">
+        <button type="button" onClick={() => setSyncDialogOpen(false)}>取消</button>
+        <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
+      </div>
+    </div> : null}
   </section>
 }

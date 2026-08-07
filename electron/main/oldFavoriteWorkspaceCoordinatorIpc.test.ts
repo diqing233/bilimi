@@ -35,6 +35,20 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
+  it('routes an explicit scan-pause command through the scan service', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0, paused: true } }
+    const coordinator = { getSnapshot: vi.fn().mockResolvedValue(scanning) }
+    const pauseScan = vi.fn().mockResolvedValue(scanning)
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, pauseScan,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'pause-scan' })).resolves.toEqual(scanning)
+    expect(pauseScan).toHaveBeenCalledWith('100')
+  })
+
   it('returns an account-validated recovery summary without starting scan or remote execution', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
@@ -168,7 +182,7 @@ describe('old favorite workspace coordinator IPC', () => {
       ]
     })).rejects.toThrow('command is invalid')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
-      type: 'apply-classifications', source: 'manual', assignments: Array.from({ length: 2_001 }, (_, index) => ({
+      type: 'apply-classifications', source: 'manual', assignments: Array.from({ length: 5_001 }, (_, index) => ({
         aid: index + 1, targetLedgerIds: ['music']
       }))
     })).rejects.toThrow('command is invalid')
@@ -769,7 +783,7 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
-  it('resumes a persisted whole-run execution intent when the workspace is reopened', async () => {
+  it('keeps a persisted whole-run execution intent paused when the workspace is reopened', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue({
@@ -785,7 +799,7 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 7, '100')).resolves.toMatchObject({
       executionIntent: { mode: 'local', status: 'waiting' }
     })
-    expect(coordinator.continueExecutionIntent).toHaveBeenCalledWith('100')
+    expect(coordinator.continueExecutionIntent).not.toHaveBeenCalled()
   })
 
   it('prepares recommendation preview with progress and cancels it through an out-of-band command', async () => {

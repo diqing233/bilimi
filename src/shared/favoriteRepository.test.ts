@@ -244,6 +244,41 @@ describe('account favorite repository contracts', () => {
     expect(restored.organizationRecords).toEqual(snapshot.organizationRecords)
   })
 
+  it('moves videos that lose their final bilimi workspace into local inbox when deleting a managed folder', () => {
+    const now = '2026-08-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'local:inbox', title: '暂存', kind: 'local' as const, syncState: 'local-only' as const },
+        { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
+        { id: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
+        { id: 'bilimi:work:001', title: 'bilimi·工作', kind: 'bilibili' as const, logicalLedgerId: 'work', remoteFolderId: '91', syncState: 'bound' as const }
+      ],
+      memberships: {
+        'local:inbox': [],
+        'bilimi-logical:work': [1, 2],
+        'bilimi-logical:music': [2],
+        'bilimi:work:001': [1, 2]
+      },
+      physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, updatedAt: now, revision: 0 },
+        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 }
+      }
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-work', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work' }
+    }, now)
+
+    expect(deleted.memberships['local:inbox']).toEqual([1])
+    expect(deleted.memberships['bilimi-logical:music']).toEqual([2])
+    expect(deleted.positions['100:1']?.localDesiredFolderIds).toEqual([])
+    expect(deleted.positions['100:2']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])
+    expect(deleted.affectedFolderIds).toContain('local:inbox')
+  })
+
   it('does not let a hard tombstone be recreated by a later Bilibili mirror scan', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })
     const deleted = applyFavoriteRepositoryCommand(snapshot, {
@@ -689,6 +724,66 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-19T00:00:01.000Z')
 
     expect(result.memberships['local:music']).toEqual([1, 9])
+  })
+
+  it('replaces prior bilimi-managed local placements without changing ordinary Bilibili memberships', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' }),
+      memberships: {
+        'local:music': [1, 9],
+        'local:knowledge': [2],
+        'bilimi-logical:music': [1],
+        'bilimi-logical:knowledge': [2],
+        'bilibili:source': [1, 2]
+      },
+      organizationRecords: [
+        { accountMid: '100', aid: 1, targetFolderIds: ['local:music'], completedAt: '2026-07-19T00:00:00.000Z' },
+        { accountMid: '100', aid: 2, targetFolderIds: ['local:knowledge'], completedAt: '2026-07-19T00:00:00.000Z' }
+      ],
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['local:music', 'bilimi-logical:music'],
+          remoteObservedPhysicalFolderIds: ['bilibili:source'], remoteObservedLogicalFolderIds: [],
+          positionState: 'local-only-change' as const, updatedAt: '2026-07-19T00:00:00.000Z', revision: 0
+        },
+        '100:2': {
+          accountMid: '100', aid: 2, localDesiredFolderIds: ['local:knowledge', 'bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: ['bilibili:source'], remoteObservedLogicalFolderIds: [],
+          positionState: 'local-only-change' as const, updatedAt: '2026-07-19T00:00:00.000Z', revision: 0
+        }
+      }
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'replace-managed-local-plan', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        replaceManagedAids: [1],
+        memberAidsByFolderId: { 'local:knowledge': [1] },
+        organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['local:knowledge'], completedAt: '2026-07-19T00:00:01.000Z' }],
+        placements: [{
+          aid: 1, localDesiredFolderIds: ['local:knowledge'], remoteObservedPhysicalFolderIds: ['bilibili:source'],
+          remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-19T00:00:01.000Z'
+        }]
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(result.memberships).toMatchObject({
+      'local:music': [9],
+      'local:knowledge': [1, 2],
+      'bilimi-logical:music': [],
+      'bilimi-logical:knowledge': [2],
+      'bilibili:source': [1, 2]
+    })
+    expect(result.organizationRecords).toEqual([
+      expect.objectContaining({ aid: 1, targetFolderIds: ['local:knowledge'] }),
+      expect.objectContaining({ aid: 2, targetFolderIds: ['local:knowledge'] })
+    ])
+    expect(result.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: ['local:knowledge'],
+      remoteObservedPhysicalFolderIds: ['bilibili:source']
+    })
+    expect(result.positions['100:2']?.localDesiredFolderIds).toEqual(['local:knowledge', 'bilimi-logical:knowledge'])
   })
 
   it('merges multiple completed formal targets for the same protected aid', () => {

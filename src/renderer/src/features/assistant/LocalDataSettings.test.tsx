@@ -68,6 +68,19 @@ describe('LocalDataSettings', () => {
     await waitFor(() => expect(onFullClear).toHaveBeenCalledOnce())
   })
 
+  it('lets the full-clear completion event own the refresh instead of issuing a competing request', async () => {
+    const onFullClear = vi.fn().mockResolvedValue(undefined)
+    const onDataChanged = vi.fn().mockResolvedValue(undefined)
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={vi.fn()} onFullClear={onFullClear} onDataChanged={onDataChanged} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除全部用户数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认清除全部本地数据' }))
+
+    await waitFor(() => expect(onFullClear).toHaveBeenCalledOnce())
+    expect(onDataChanged).not.toHaveBeenCalled()
+  })
+
   it('retains an import preview token until the user explicitly chooses merge or overwrite', async () => {
     const onImport = vi.fn().mockResolvedValue({ token: 'preview-1', accounts: [{ uid: '100', action: 'merge' }, { uid: '200', action: 'new' }] })
     const onApplyImport = vi.fn().mockResolvedValue(undefined)
@@ -100,14 +113,17 @@ describe('LocalDataSettings', () => {
 
   it('uses a confirmation dialog before removing the current account local data', async () => {
     const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
-    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} />)
+    const onDataChanged = vi.fn()
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }]} currentAccountUid="100" calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} onDataChanged={onDataChanged} />)
 
     fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.click(screen.getByRole('button', { name: '预览删除当前账号本地数据' }))
     expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('小咪（100）')
+    expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('退出当前 B 站登录')
     fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
 
     await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '100'))
+    expect(onDataChanged).not.toHaveBeenCalled()
   })
 
   it('uses the only saved account for cleanup while signed out and refreshes after cleanup', async () => {
@@ -117,8 +133,8 @@ describe('LocalDataSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.click(screen.getByRole('button', { name: '预览删除小咪（100）本地数据' }))
-    expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('小咪（100）')
-    fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
+    expect(screen.getByRole('alertdialog', { name: '确认删除小咪（100）本地数据' })).toHaveTextContent('小咪（100）')
+    fireEvent.click(screen.getByRole('button', { name: '确认删除小咪（100）本地数据' }))
 
     await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '100'))
     expect(onDataChanged).toHaveBeenCalledOnce()
@@ -133,15 +149,17 @@ describe('LocalDataSettings', () => {
 
   it('lets a signed-out user select which saved account to delete', async () => {
     const onApplyCleanup = vi.fn().mockResolvedValue(undefined)
-    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', nickname: '阿咪', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} />)
+    const onDataChanged = vi.fn()
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[{ uid: '100', nickname: '小咪', retained: true }, { uid: '200', nickname: '阿咪', retained: true }]} calculateUsage={vi.fn()} onFullClear={vi.fn()} onApplyCleanup={onApplyCleanup} onDataChanged={onDataChanged} />)
 
     fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
     fireEvent.change(screen.getByLabelText('选择要删除的账号'), { target: { value: '200' } })
     fireEvent.click(screen.getByRole('button', { name: '预览删除阿咪（200）本地数据' }))
-    expect(screen.getByRole('alertdialog', { name: '确认删除当前账号本地数据' })).toHaveTextContent('阿咪（200）')
-    fireEvent.click(screen.getByRole('button', { name: '确认删除当前账号本地数据' }))
+    expect(screen.getByRole('alertdialog', { name: '确认删除阿咪（200）本地数据' })).toHaveTextContent('阿咪（200）')
+    fireEvent.click(screen.getByRole('button', { name: '确认删除阿咪（200）本地数据' }))
 
     await waitFor(() => expect(onApplyCleanup).toHaveBeenCalledWith('current-account-data', '200'))
+    expect(onDataChanged).toHaveBeenCalledOnce()
   })
 
   it('requires a cleanup preview before applying the selected local cleanup', async () => {

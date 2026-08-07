@@ -84,6 +84,7 @@ export type FavoriteLibraryNavigationItem =
       folderId: string
       title: string
       source: FavoriteRepositoryFolder['kind']
+      logicalLedgerId?: string
     }
 
 export type FavoriteLibraryDetail = FavoriteLibraryRow & {
@@ -92,15 +93,37 @@ export type FavoriteLibraryDetail = FavoriteLibraryRow & {
 }
 
 const defaultLedgerTitlesById = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+export const FAVORITE_LIBRARY_STAGING_TITLE = 'bilimi·暂存'
 
 function displayFolderTitle(folder: FavoriteRepositoryFolder) {
-  if (folder.id === 'local:inbox') return '未匹配分类'
+  if (folder.id === 'local:inbox') return FAVORITE_LIBRARY_STAGING_TITLE
   const logicalLedgerId = folder.kind === 'local' && folder.id.startsWith('local:')
     ? folder.id.slice('local:'.length)
     : undefined
   return logicalLedgerId && folder.title === logicalLedgerId
     ? defaultLedgerTitlesById.get(logicalLedgerId) ?? folder.title
     : folder.title
+}
+
+export type FavoriteLibraryLedgerBindingStatus = {
+  kind: 'backed' | 'missing' | 'draft'
+  label: '已备册' | '未备册' | '已生成草稿'
+  actionLabel?: '去掌库收藏夹设置保存后绑定'
+}
+
+export function favoriteLibraryLedgerBindingStatus(folder: FavoriteRepositoryFolder | undefined): FavoriteLibraryLedgerBindingStatus | undefined {
+  if (!folder?.logicalLedgerId) return undefined
+  if (folder.kind === 'local') {
+    return folder.id === `local:${folder.logicalLedgerId}`
+      ? { kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' }
+      : undefined
+  }
+  if (folder.kind !== 'bilimi-logical') return undefined
+  if (folder.syncState === 'bound') return { kind: 'backed', label: '已备册' }
+  const actionLabel = '去掌库收藏夹设置保存后绑定' as const
+  return folder.logicalLedgerId.startsWith('custom-')
+    ? { kind: 'draft', label: '已生成草稿', actionLabel }
+    : { kind: 'missing', label: '未备册', actionLabel }
 }
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
@@ -248,7 +271,8 @@ export function buildFavoriteLibraryNavigation(
       kind: 'folder' as const,
       folderId: folder.id,
       title: displayFolderTitle(folder),
-      source: folder.kind
+      source: folder.kind,
+      ...(folder.logicalLedgerId ? { logicalLedgerId: folder.logicalLedgerId } : {})
     }))
   return [
     { id: 'all', kind: 'all', title: '全部收藏' },

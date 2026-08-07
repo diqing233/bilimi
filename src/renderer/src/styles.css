@@ -5098,6 +5098,16 @@ body[data-floating-window="true"],
   color: var(--porcelain-primary);
   font-weight: 700;
 }
+.favorite-ledger-panel__deepseek-archive-disabled--warning {
+  display: block;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(188, 126, 0, 0.42);
+  border-radius: 8px;
+  background: #fff7d6;
+  color: #8a5700;
+  line-height: 1.45;
+}
 .favorite-ledger-panel__deepseek-archive-hint,
 .favorite-ledger-panel__deepseek-archive-status {
   margin: 0;
@@ -5784,6 +5794,11 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font-size: 12px;
 }
+.favorite-ledger-panel__whole-run-overview > p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
 .favorite-ledger-panel__whole-run-status,
 .favorite-ledger-panel__current-segment-summary {
   margin: 0;
@@ -5809,6 +5824,12 @@ body[data-floating-window="true"],
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+.favorite-ledger-panel__whole-run-target-subtitle {
+  margin-left: 3px;
+  color: var(--porcelain-muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 .favorite-ledger-panel__whole-run-targets ul {
   display: flex;
@@ -7619,8 +7640,56 @@ body[data-floating-window="true"],
 
 .favorite-ledger-panel__confirm-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
   justify-content: flex-end;
+}
+.favorite-ledger-panel__confirm-action-groups {
+  display: grid;
+  gap: 10px;
+}
+.favorite-ledger-panel__confirm-action-group {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.favorite-ledger-panel__confirm-action-group > strong {
+  color: var(--porcelain-deep);
+  font-size: 12px;
+}
+.favorite-ledger-panel__confirm-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(188, 126, 0, 0.42);
+  border-radius: 8px;
+  background: #fff7d6;
+  color: #8a5700;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.favorite-ledger-panel__sync-dialog {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  z-index: 20;
+  width: min(360px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  padding: 1rem;
+  border: 1px solid var(--border-subtle, #cfd6df);
+  border-radius: 8px;
+  background: var(--surface-elevated, #fff);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 18%);
+}
+.favorite-ledger-panel__sync-dialog h5 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.favorite-ledger-panel__sync-dialog label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.favorite-ledger-panel__sync-dialog .favorite-ledger-panel__confirm-actions {
+  margin-top: 1rem;
 }
 .old-favorite-modal__dialog {
   width: min(420px, calc(100vw - 32px));

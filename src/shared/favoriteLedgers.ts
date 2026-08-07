@@ -492,8 +492,8 @@ export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
   return DEFAULT_FAVORITE_LEDGERS.map(cloneLedger)
 }
 
-export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  const normalized = ledgers
+export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[] | unknown): FavoriteLedger[] {
+  const normalized = (Array.isArray(ledgers) ? ledgers : [])
     .filter(
       (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
     )

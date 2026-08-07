@@ -277,6 +277,18 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
+  it('rebuilds defaults from the sparse store left by an in-app full clear', () => {
+    const store = createFakeStore()
+    for (const key of Object.keys(store.snapshot)) delete (store.snapshot as Record<string, unknown>)[key]
+    Object.assign(store.snapshot, { rememberCloseChoice: false, closeChoiceMigrationVersion: 1 })
+
+    const preferences = loadAssistantPreferences(store)
+
+    expect(preferences.favoriteLedgers).toEqual(DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers)
+    expect(preferences.favoriteAccountPreferences).toEqual({})
+    expect(preferences.favoritesFolderName).toBe(DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName)
+  })
+
   it('writes an ordinary preference patch without rewriting untouched heavy branches', () => {
     const correctionRecords = [{
       id: 'record-1', aid: 1, title: 'Heavy', originalLedgerId: 'inbox', userLedgerIds: ['game'],
@@ -345,6 +357,17 @@ describe('assistant preference store helpers', () => {
     })
 
     expect(written).toEqual({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(store.setCalls.at(-1)).toEqual(written)
+  })
+
+  it('persists the experimental unlimited old-favorite batch size through the narrow preference patch', () => {
+    const store = createFakeStore()
+
+    const written = writeAssistantPreferencePatch(store, {
+      oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER
+    })
+
+    expect(written).toEqual({ oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER })
     expect(store.setCalls.at(-1)).toEqual(written)
   })
 
@@ -853,7 +876,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
       favoriteArchiveMultiMode: 'many' as never,
-      oldFavoriteWorkspaceSegmentSize: 2_001,
+      oldFavoriteWorkspaceSegmentSize: 5_001,
       favoriteArchiveStrategy: 'reckless' as never,
       favoriteCorrectionRecords: [
         null,

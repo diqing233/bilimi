@@ -224,7 +224,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   useEffect(() => {
     if (!snapshot || 'recovery' in snapshot) return
-    if (snapshot.deepSeekRun?.status === 'running' && activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) {
+    if (snapshot.deepSeekRun?.status === 'running' && (
+      activeDeepSeekWorkspaceId.current !== snapshot.workspaceId || deepSeekFeedback?.status !== 'running'
+    )) {
       activeDeepSeekWorkspaceId.current = snapshot.workspaceId
       observedDeepSeekCheckpointRef.current = true
       setDeepSeekCancelRequested(false)
@@ -456,6 +458,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [accountMid])
 
   const resumeScan = useCallback(() => sendCommand({ type: 'resume-scan' }), [sendCommand])
+  const pauseScan = useCallback(() => sendCommand({ type: 'pause-scan' }), [sendCommand])
   const getRecoverySummary = useCallback(async (): Promise<OldFavoriteWorkspaceRecoverySummary | null> => {
     if (!accountMid) return null
     return window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1?.(accountMid) ?? null
@@ -471,7 +474,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       type: 'select-recovery-decision', workspaceId: summary.workspaceId, choice,
       expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
       expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
-    }) as Promise<OldFavoriteWorkspaceRecoveryDecisionResult>
+    }) as unknown as Promise<OldFavoriteWorkspaceRecoveryDecisionResult>
   }, [accountMid])
 
   useEffect(() => {
@@ -810,10 +813,12 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [])
   const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
-  const confirmAndExecuteBilibiliPlan = useCallback(() => sendCommand({ type: 'confirm-and-execute-bilibili-plan' }, true), [sendCommand])
+  const confirmAndExecuteBilibiliPlan = useCallback((includeInbox = false) => sendCommand({
+    type: 'confirm-and-execute-bilibili-plan', ...(includeInbox ? { includeInbox: true } : {})
+  }, true), [sendCommand])
   const saveCurrentSegmentLocally = useCallback(() => sendCommand({ type: 'save-current-segment-locally' }), [sendCommand])
-  const setWholeRunExecutionIntent = useCallback((mode: 'local' | 'bilibili') => sendCommand({
-    type: 'set-whole-run-execution-intent', mode
+  const setWholeRunExecutionIntent = useCallback((mode: 'local' | 'bilibili', includeInbox = false) => sendCommand({
+    type: 'set-whole-run-execution-intent', mode, ...(includeInbox ? { includeInbox: true } : {})
   }, mode === 'bilibili'), [sendCommand])
   const cancelWholeRunExecutionIntent = useCallback(() => sendCommand({
     type: 'cancel-whole-run-execution-intent'
@@ -865,7 +870,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, pauseScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,

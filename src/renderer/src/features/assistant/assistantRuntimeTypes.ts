@@ -57,6 +57,8 @@ export type FloatingAssistantWorkspaceRequest = {
   selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection
   /** Stable local ledger identity requested by the Favorite Library. */
   ledgerId?: string
+  /** Display title used when the requested local draft is no longer in preferences. */
+  ledgerTitle?: string
   /** Opens a new local ledger editor. */
   createLedger?: boolean
 }

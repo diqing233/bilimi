@@ -24,6 +24,7 @@ export function registerLocalDataIpc(options: {
   chooseExportPath: () => Promise<string | undefined>
   chooseImportPath: () => Promise<string | undefined>
   openUserDataPath: () => Promise<void>
+  onCurrentAccountDataClear?: (accountMid: string, clearLocalData: () => Promise<void>) => Promise<void>
   onAccountDataCleared?: (accountMid: string) => void
 }) {
   const trusted = (event: IpcEvent) => {
@@ -32,7 +33,8 @@ export function registerLocalDataIpc(options: {
   const current = async () => account(await options.getCurrentAccountMid())
   options.ipcMain.handle('local-data:get-info', async (event) => {
     trusted(event)
-    const [accounts, currentAccount] = await Promise.all([options.service.listAccounts(), options.getCurrentAccount()])
+    const accounts = await options.service.listAccounts()
+    const currentAccount: { mid: string; nickname?: string } = await options.getCurrentAccount().catch(() => ({ mid: '', nickname: undefined }))
     const currentUid = /^\d+$/u.test(currentAccount.mid) && BigInt(currentAccount.mid) > 0n ? BigInt(currentAccount.mid).toString() : undefined
     const nickname = currentAccount.nickname?.trim()
     return {
@@ -74,7 +76,13 @@ export function registerLocalDataIpc(options: {
     trusted(event)
     const parsed = cleanup(level)
     const uid = parsed === 'cache' || parsed === 'all-user-data' ? undefined : requestedUid === undefined ? await current() : account(requestedUid)
-    const result = await options.service.applyCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+    const clearLocalData = () => options.service.applyCleanup({ level: parsed, ...(uid ? { uid } : {}), ...(typeof confirmation === 'string' ? { confirmation } : {}) })
+    const currentUid = parsed === 'current-account-data' && uid
+      ? await options.getCurrentAccountMid().then(account).catch(() => '')
+      : ''
+    const result = parsed === 'current-account-data' && uid === currentUid && options.onCurrentAccountDataClear
+      ? await options.onCurrentAccountDataClear(uid, clearLocalData)
+      : await clearLocalData()
     if (parsed === 'current-account-data' && uid) options.onAccountDataCleared?.(uid)
     return result
   })

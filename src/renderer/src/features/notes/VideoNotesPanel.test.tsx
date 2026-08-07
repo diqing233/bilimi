@@ -743,6 +743,35 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('DeepSeek 总结已完成')).not.toBeInTheDocument()
   })
 
+  it('shows the concrete summary failure reason for a completed queue item', () => {
+    renderPanel({
+      note: null,
+      transcriptionQueue: {
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'account:42:aid:8:cid:80',
+          accountMid: '42',
+          aid: 8,
+          cid: 80,
+          url: 'https://www.bilibili.com/video/BV1summary-failed',
+          title: '总结失败的视频',
+          bvid: 'BV1summary-failed',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          summaryStatus: 'failed',
+          errorMessage: 'DeepSeek 总结内容不完整：缺少详细内容提要。',
+          archiveRegistrationStatus: 'registered',
+          createdAt: '2026-07-27T00:00:00.000Z',
+          updatedAt: '2026-07-27T00:01:00.000Z'
+        }]
+      }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
+
+    expect(screen.getByText('DeepSeek 总结内容不完整：缺少详细内容提要。')).toBeInTheDocument()
+  })
+
   it('uses the standard retry action for a failed CUDA out-of-memory queue item', () => {
     const onRetryQueuedVideoAudioTranscription = vi.fn()
     renderPanel({

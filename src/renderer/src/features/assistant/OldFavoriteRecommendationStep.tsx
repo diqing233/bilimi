@@ -62,7 +62,7 @@ export function OldFavoriteRecommendationStep({
   const countForCandidate = (candidate: OldFavoriteWorkspaceRecommendationCandidate) => viewScope === 'all'
     ? overviewCounts.get(candidate.id) ?? 0
     : candidate.currentSegmentCount ?? candidate.count
-  const overviewUnavailable = hasMultipleSegments && viewScope === 'all' && !snapshot.overview?.available
+  const overviewUnavailable = hasMultipleSegments && viewScope === 'all' && !snapshot.overview
   const scopedCandidates = overviewUnavailable ? [] : snapshot.recommendations.candidates.filter((candidate) => countForCandidate(candidate) > 0)
   const authorCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'author')
   const tagCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'tag')

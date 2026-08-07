@@ -43,6 +43,7 @@ import {
   normalizeAssistantPreferencePatch,
   writeAssistantPreferencePatch,
   writeFavoriteLedgerEnabled,
+  getFavoriteLedgerEnabledOverrideStore,
   saveFavoriteAccountPreferences,
   dismissFavoriteLibraryRemoteFolder,
   isFavoriteLibraryRemoteFolderDismissed,
@@ -124,6 +125,8 @@ import { registerLocalDataIpc } from './localDataIpc'
 import { createLocalDataPersistenceAdapter } from './localDataPersistenceAdapter'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
+import { refreshBilibiliGuestPages } from './bilibiliSessionRefresh'
+import { clearCurrentAccountLocalData } from './currentAccountLocalDataClear'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -1976,9 +1979,52 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         await favoriteRepositoryService?.flush()
       })
     },
-    cleanupFailed: () => favoriteRepositoryRemoteOperations.resumeAfterFailedMaintenance(),
+    cleanupFailed: () => {
+      favoriteRepositoryRemoteOperations.resumeAfterFailedMaintenance()
+      oldFavoriteWorkspaceScanService?.resumeAfterDestructiveMaintenance()
+      oldFavoriteWorkspaceDeepSeekService?.resumeAfterDestructiveMaintenance()
+    },
     clearLoginSessions: () => session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({ storages: ['cookies'] }),
-    exitApp: () => app.quit()
+    clearRuntimeStorage: async () => {
+      const rendererTargets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+      await Promise.all(rendererTargets.map(async (target) => {
+        if (!target || target.isDestroyed()) return
+        await target.webContents.executeJavaScript('localStorage.clear(); sessionStorage.clear();', true).catch(() => undefined)
+      }))
+      await Promise.all([
+        session.defaultSession.clearCache(),
+        session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({
+          storages: ['appcache', 'cookies', 'filesystem', 'indexdb', 'localstorage', 'serviceworkers', 'websql', 'shadercache', 'cachestorage']
+        })
+      ])
+    },
+    rebuildEmptyRuntime: () => {
+      favoriteRepositoryService?.resetAfterFullLocalDataClear()
+      oldFavoriteWorkspaceCoordinator?.resetAfterFullLocalDataClear()
+      oldFavoriteWorkspaceScanService?.resumeAfterDestructiveMaintenance()
+      oldFavoriteWorkspaceDeepSeekService?.resumeAfterDestructiveMaintenance()
+      favoriteRepositoryRemoteOperations.resumeAfterFailedMaintenance()
+      videoNoteBatchExportIpc?.clearAll()
+      getDesktopStore().clear()
+      getFavoriteLedgerEnabledOverrideStore().clear()
+      videoTranscriptionQueue = null
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    },
+    cleanupCompleted: async () => {
+      await refreshBilibiliGuestPages({
+        getAllWebContents: () => webContents.getAllWebContents(),
+        targetSession: session.fromPartition(BILIMI_SESSION_PARTITION)
+      })
+      const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+      for (const target of targets) {
+        if (!target || target.isDestroyed()) continue
+        target.webContents.send('local-data:reset')
+        target.webContents.send('bilibili:account-changed')
+      }
+      publishVideoAudioTranscriptionQueueChanged(getVideoTranscriptionQueue().getSnapshot(), false)
+      notifyFloatingAssistantSnapshotChanged()
+    },
+    yieldToEventLoop: () => new Promise<void>((resolve) => setImmediate(resolve))
   })
   const favoriteRepositoryArchiveService = new FavoriteRepositoryArchiveService({
     repository: favoriteRepositoryService,
@@ -2124,14 +2170,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         accountPreferences.defaultFavoriteSystemEnabled
       )
     },
-    generate: (request) => generateDeepSeekResult({
+    generate: (request, signal) => generateDeepSeekResult({
       config: {
         enabled: loadAssistantPreferences(getDesktopStore()).deepseekEnabled,
         apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
         model: loadAssistantPreferences(getDesktopStore()).deepseekModel,
         baseUrl: loadAssistantPreferences(getDesktopStore()).deepseekBaseUrl
       },
-      request
+      request,
+      signal
     })
   })
   registerOldFavoriteWorkspaceCoordinatorIpc({
@@ -2145,6 +2192,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ),
     startScan: (accountMid, mode, options) => oldFavoriteWorkspaceScanService!.start(accountMid, mode, options),
     resumeScan: (accountMid) => oldFavoriteWorkspaceScanService!.resume(accountMid),
+    pauseScan: (accountMid) => oldFavoriteWorkspaceScanService!.pause(accountMid),
     resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),
     retryFailedTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.retryFailedTagEnrichment(accountMid),
     rebuildAndStartScan: async (accountMid) => {
@@ -2158,6 +2206,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     isTrustedReader: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    getLocalDraftLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => ledger.syncState === 'local-draft' && !ledger.bilibiliFolderId)
+      .map((ledger) => ledger.id),
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
@@ -2277,8 +2328,49 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       return result.canceled ? undefined : result.filePaths[0]
     },
     openUserDataPath: async () => { await shell.openPath(app.getPath('userData')) },
+    onCurrentAccountDataClear: async (accountMid, clearLocalData) => {
+      const notifyTargets = () => [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+        .filter((target): target is BrowserWindow => Boolean(target && !target.isDestroyed()))
+      await clearCurrentAccountLocalData(accountMid, clearLocalData, {
+        stopTranscription: async () => { await getVideoTranscriptionQueue().cancelAllAndWait() },
+        stopScan: async () => { await oldFavoriteWorkspaceScanService?.quiesceForDestructiveMaintenance() },
+        stopDeepSeek: async () => { await oldFavoriteWorkspaceDeepSeekService?.quiesceForDestructiveMaintenance() },
+        runRemoteMaintenance: async (operation) => { await favoriteRepositoryRemoteOperations.runDestructiveMaintenance(operation) },
+        flushRepository: async () => { await favoriteRepositoryService?.flush() },
+        clearLoginSession: async () => {
+          await session.fromPartition(BILIMI_SESSION_PARTITION).clearStorageData({ storages: ['cookies'] })
+          lastBilibiliAccountMid = ''
+        },
+        clearRuntimeAccount: () => {
+          getVideoTranscriptionQueue().clearAccount(accountMid)
+          oldFavoriteWorkspaceCoordinator?.resetAfterAccountLocalDataClear(accountMid)
+          videoNoteBatchExportIpc?.clearCompletedFoldersForAccount(accountMid)
+          getFavoriteLedgerEnabledOverrideStore().clear(accountMid)
+        },
+        refreshGuestPages: () => refreshBilibiliGuestPages({
+          getAllWebContents: () => webContents.getAllWebContents(),
+          targetSession: session.fromPartition(BILIMI_SESSION_PARTITION)
+        }),
+        notifyLocalDataReset: () => {
+          for (const target of notifyTargets()) target.webContents.send('local-data:reset')
+          publishVideoAudioTranscriptionQueueChanged(getVideoTranscriptionQueue().getSnapshot(), false)
+          notifyFloatingAssistantSnapshotChanged()
+        },
+        notifyAccountChanged: () => {
+          for (const target of notifyTargets()) target.webContents.send('bilibili:account-changed')
+        },
+        resumeServices: () => {
+          oldFavoriteWorkspaceScanService?.resumeAfterDestructiveMaintenance()
+          oldFavoriteWorkspaceDeepSeekService?.resumeAfterDestructiveMaintenance()
+          favoriteRepositoryRemoteOperations.resumeAfterFailedMaintenance()
+        }
+      })
+    },
     onAccountDataCleared: (accountMid) => {
       videoNoteBatchExportIpc?.clearCompletedFoldersForAccount(accountMid)
+      getVideoTranscriptionQueue().clearAccount(accountMid)
+      oldFavoriteWorkspaceCoordinator?.resetAfterAccountLocalDataClear(accountMid)
+      getFavoriteLedgerEnabledOverrideStore().clear(accountMid)
       if (!mainWindow || mainWindow.isDestroyed()) return
       mainWindow.webContents.send('favorite-library:account-data-cleared', accountMid)
     }

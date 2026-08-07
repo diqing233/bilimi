@@ -528,6 +528,26 @@ describe('AssistantSidebar', () => {
     expect(api.patchPreferences).not.toHaveBeenCalled()
   })
 
+  it('shows an experimental risk reminder before enabling an unlimited old-favorite batch', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    api.patchPreferences.mockClear()
+
+    fireEvent.click(screen.getByRole('radio', { name: '无限制（实验）' }))
+
+    expect(screen.getByRole('dialog', { name: '启用无限制批次？' })).toHaveTextContent(
+      '实验功能，出现未知异常时可能需要手动清除本地用户数据。'
+    )
+    expect(api.patchPreferences).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认启用' }))
+
+    await waitFor(() => expect(api.patchPreferences).toHaveBeenCalledWith({
+      oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER
+    }))
+  })
+
   it('saves the default favorite master switch through the full preference path', async () => {
     const api = installDesktopApi()
     Object.assign(window.bilimiDesktop, { writePreferencePatch: vi.fn() })

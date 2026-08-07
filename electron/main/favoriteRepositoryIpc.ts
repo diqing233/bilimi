@@ -400,6 +400,8 @@ export function registerFavoriteRepositoryIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpen?: (accountMid: string) => Promise<void>
+  /** Returns persisted local ledger identities that are still unbound drafts. */
+  getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
   /** Hides an ordinary remote mirror from this local library; never writes to Bilibili. */
   dismissOrdinaryFolder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
@@ -567,13 +569,19 @@ export function registerFavoriteRepositoryIpc(options: {
     // Reconciliation enriches the local projection but must not block reading
     // an already usable library when the page runtime is unavailable.
     recoverAccountInBackground(accountMid)
-    return options.service.getLibrarySummary(accountMid)
+    const localDraftLedgerIds = options.getLocalDraftLedgerIds?.(accountMid)
+    return localDraftLedgerIds
+      ? options.service.getLibrarySummary(accountMid, { localDraftLedgerIds })
+      : options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    return options.service.getLibrarySummary(accountMid)
+    const localDraftLedgerIds = options.getLocalDraftLedgerIds?.(accountMid)
+    return localDraftLedgerIds
+      ? options.service.getLibrarySummary(accountMid, { localDraftLedgerIds })
+      : options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:dismiss-ordinary-folder', async (event, requestedAccountMid: string, requestedFolderId: string) => {
     assertTrusted(event)
@@ -589,7 +597,9 @@ export function registerFavoriteRepositoryIpc(options: {
     if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === folder.remoteFolderId)) {
       throw new Error('Favorite library ordinary folder is a managed work folder.')
     }
-    return options.dismissOrdinaryFolder(accountMid, folder.remoteFolderId)
+    const result = await options.dismissOrdinaryFolder(accountMid, folder.remoteFolderId)
+    options.service.invalidateLibraryReadCache(accountMid)
+    return result
   })
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions

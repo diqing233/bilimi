@@ -323,6 +323,8 @@ export function OldFavoriteArchivePreviewStep({
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const historyTargetLabel = (targetLedgerIds: string[]) =>
     targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'
+  const detailTargetLabel = (targetLedgerIds: string[]) =>
+    targetLedgerIds.map((id) => id === 'inbox' ? '暂存' : ledgerNames.get(id) ?? id).join('、') || '未分类'
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
@@ -339,6 +341,9 @@ export function OldFavoriteArchivePreviewStep({
   const currentHistoryEntry = historyEntries.find((entry) => entry.cursor === snapshot.history.cursor)
   const previousHistoryEntries = historyEntries.filter((entry) => entry.cursor !== snapshot.history.cursor)
   const currentHistoryLabel = currentHistoryEntry ? historyLabel(currentHistoryEntry) : '初始自动分类'
+  const deepSeekHistoryDetails = historyEntries
+    .filter((entry) => entry.source === 'deepseek' && entry.cursor <= snapshot.history.cursor)
+    .flatMap((entry) => entry.summary?.details ?? [])
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) return false
@@ -444,7 +449,7 @@ export function OldFavoriteArchivePreviewStep({
               </button>}
             </div>
           </div>
-          {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
+          {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled favorite-ledger-panel__deepseek-archive-disabled--warning">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
           {deepSeekFeedbackView ? <div className="favorite-ledger-panel__deepseek-result"
             role={deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status'}>
@@ -464,6 +469,12 @@ export function OldFavoriteArchivePreviewStep({
             {deepSeekFeedbackView.failures.length ? <details className="favorite-ledger-panel__deepseek-result-details">
               <summary>查看失败详情</summary>
               {deepSeekFeedbackView.failures.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
+            </details> : null}
+            {deepSeekHistoryDetails.length ? <details className="favorite-ledger-panel__deepseek-result-details" open>
+              <summary>查看整理明细（{deepSeekHistoryDetails.length} 条）</summary>
+              {deepSeekHistoryDetails.map((detail) => <p key={`${detail.aid}-${detail.beforeTargetLedgerIds.join(',')}-${detail.afterTargetLedgerIds.join(',')}`}>
+                {detail.title?.trim() || `av${detail.aid}`}：{detailTargetLabel(detail.beforeTargetLedgerIds)} → {detailTargetLabel(detail.afterTargetLedgerIds)}
+              </p>)}
             </details> : null}
             {deepSeekFeedbackView.action === 'retry' ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}

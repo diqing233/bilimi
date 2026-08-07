@@ -158,8 +158,22 @@ function checksum(content: string) {
 }
 
 function commandFingerprint(command: FavoriteRepositoryCommand) {
-  const { issuedAt: _issuedAt, ...stableCommand } = command
+  // Timestamps and optimistic revisions vary across retries but do not change
+  // the business command represented by a durable command ID.
+  const { issuedAt: _issuedAt, expectedRevision: _expectedRevision, ...stableCommand } = command
   return checksum(stableJson(stableCommand))
+}
+
+function legacyCommandFingerprint(command: FavoriteRepositoryCommand, expectedRevision: number) {
+  const { issuedAt: _issuedAt, ...stableCommand } = { ...command, expectedRevision }
+  return checksum(stableJson(stableCommand))
+}
+
+function matchesCommandReceiptFingerprint(receipt: FavoriteRepositoryCommandReceipt, command: FavoriteRepositoryCommand) {
+  if (!receipt.commandFingerprint) return true
+  if (receipt.commandFingerprint === commandFingerprint(command)) return true
+  // Reconcile receipts written before expectedRevision became retry metadata.
+  return receipt.commandFingerprint === legacyCommandFingerprint(command, receipt.acceptedRevision - 1)
 }
 
 function stableJson(value: unknown): string {
@@ -417,7 +431,17 @@ export class FavoriteRepositoryService {
     ).snapshot))
   }
 
-  async getLibrarySummary(accountMid: string): Promise<FavoriteRepositoryLibrarySummary> {
+  /** Invalidates derived library views when durable renderer preferences change outside repository commands. */
+  invalidateLibraryReadCache(accountMid: string) {
+    const cached = this.cache.get(normalizeAccountMid(accountMid))
+    if (!cached) return
+    cached.libraryIndex = undefined
+    cached.libraryQueryCache = undefined
+  }
+
+  async getLibrarySummary(accountMid: string, options?: {
+    localDraftLedgerIds?: readonly string[]
+  }): Promise<FavoriteRepositoryLibrarySummary> {
     const account = normalizeAccountMid(accountMid)
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
@@ -432,14 +456,36 @@ export class FavoriteRepositoryService {
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
+    const localDraftLedgerIds = new Set((options?.localDraftLedgerIds ?? []).map((id) => id.trim()).filter(Boolean))
+    const trustedRemoteFolderIdByLedger = new Map<string, string>()
+    for (const shard of snapshot.physicalShards) {
+      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+      const existing = trustedRemoteFolderIdByLedger.get(shard.logicalLedgerId)
+      if (existing && existing !== shard.remoteFolderId) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, '')
+      else if (existing === undefined) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, shard.remoteFolderId)
+    }
+    const projectedFolders = index.folders.map((folder) => {
+      if (folder.kind === 'bilimi-logical' && folder.logicalLedgerId) {
+        const remoteFolderId = trustedRemoteFolderIdByLedger.get(folder.logicalLedgerId)
+        return remoteFolderId ? { ...folder, remoteFolderId } : folder
+      }
+      if (folder.kind !== 'local' || folder.id === 'local:inbox') return folder
+      const logicalLedgerId = folder.id.startsWith('local:') ? folder.id.slice('local:'.length) : ''
+      const orphanedCustomDraft = logicalLedgerId.startsWith('custom-')
+      return logicalLedgerId && (localDraftLedgerIds.has(logicalLedgerId) || orphanedCustomDraft)
+        ? { ...folder, logicalLedgerId }
+        : folder
+    })
+    const isWorkspaceFolder = (folder: typeof projectedFolders[number]) =>
+      folder.kind === 'bilimi-logical' || (folder.kind === 'local' && Boolean(folder.logicalLedgerId))
     const workspaceVideoCount = new Set(
-      index.folders
-        .filter((folder) => folder.kind === 'bilimi-logical')
+      projectedFolders
+        .filter(isWorkspaceFolder)
         .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
     ).size
     const otherFavoriteVideoCount = new Set(
-      index.folders
-        .filter((folder) => folder.kind !== 'bilimi-logical' && folder.id !== 'local:inbox')
+      projectedFolders
+        .filter((folder) => !isWorkspaceFolder(folder) && folder.id !== 'local:inbox')
         .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
     ).size
     const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
@@ -451,7 +497,7 @@ export class FavoriteRepositoryService {
       updatedAt: snapshot.updatedAt,
       videoCount: index.allAids.length,
       folderCount: index.folders.length,
-      folders: index.folders.map((folder) => ({ ...folder })),
+      folders: projectedFolders.map((folder) => ({ ...folder })),
       folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
       workspaceVideoCount,
       otherFavoriteVideoCount,
@@ -811,7 +857,7 @@ export class FavoriteRepositoryService {
           ? hasAppliedWorkspace(repository.snapshot, command)
           : true
       if (existing && retainedResultStillApplies) {
-        if (existing.commandFingerprint && existing.commandFingerprint !== commandFingerprint(command)) {
+        if (!matchesCommandReceiptFingerprint(existing, command)) {
           throw new Error('Favorite repository command id conflict.')
         }
         return this.resultFromReceipt(repository.snapshot, existing)
@@ -1113,6 +1159,13 @@ export class FavoriteRepositoryService {
       this.cache.delete(account)
       this.syncCheckpointState.delete(account)
     })
+  }
+
+  /** Drops every in-memory account projection after a coordinated full local-data clear. */
+  resetAfterFullLocalDataClear(): void {
+    this.cache.clear()
+    this.syncCheckpointState.clear()
+    this.portableImportTransactionActive = false
   }
 
   async getEventPage(accountMid: string, aid: number, options: FolderPageOptions): Promise<FavoriteRepositoryPage<FavoriteRepositoryEvent>> {
