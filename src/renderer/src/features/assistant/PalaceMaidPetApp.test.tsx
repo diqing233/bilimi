@@ -214,7 +214,12 @@ describe('PalaceMaidPetApp', () => {
       '2'
     )
 
-    vi.setSystemTime(new Date('2026-07-10T10:00:03.300+08:00'))
+    vi.setSystemTime(new Date('2026-07-10T10:00:04.200+08:00'))
+    fireEvent.click(pet)
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
+
+    vi.setSystemTime(new Date('2026-07-10T10:00:09.300+08:00'))
     fireEvent.click(pet)
     expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(3)
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
