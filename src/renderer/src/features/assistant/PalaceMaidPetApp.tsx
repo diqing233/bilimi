@@ -536,7 +536,6 @@ export function PalaceMaidPetApp() {
     if (clickTimestamps.current.length < REPEATED_CLICK_THRESHOLD) {
       return false
     }
-    clickTimestamps.current = []
     showLocalPetHint('crying', REPEATED_CLICK_CRYING_MESSAGE)
     return true
   }
