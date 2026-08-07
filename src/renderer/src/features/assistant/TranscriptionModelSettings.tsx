@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import type { TranscriptionGpuProbe, TranscriptionModelId, TranscriptionModelInstallation, TranscriptionModelInstallProgress } from '@shared/types'
 
 type Props = {
@@ -74,7 +75,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
   const [installationError, setInstallationError] = useState<string | null>(null)
   const [confirmationModel, setConfirmationModel] = useState<TranscriptionModelInstallation | null>(null)
   const [deleteConfirmationModel, setDeleteConfirmationModel] = useState<TranscriptionModelInstallation | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen, menuScope] = useExclusiveMenu()
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; maxHeight: number }>()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -144,7 +145,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
   const modelSummary = (model: TranscriptionModelInstallation) => PURPOSES[model.id]
   const renderOption = (model: TranscriptionModelInstallation) => <button key={model.id} type="button" role="option" aria-selected={candidate === model.id} onClick={() => { setCandidate(model.id); setMenuOpen(false); triggerRef.current?.focus() }}><strong>{LABELS[model.id]}{currentSuffix(model.id)}</strong><span>{modelStatus(model)} · {bytesLabel(model.downloadBytes)}</span><small>{modelSummary(model)}</small></button>
 
-  return <div className="assistant-settings__transcription-models">
+  return <div {...menuScope} className="assistant-settings__transcription-models">
     <p>选择当前账号使用的转写模型。</p>
     <button ref={triggerRef} type="button" className="assistant-settings__transcription-model-trigger" aria-haspopup="listbox" aria-expanded={menuOpen} aria-label={`转写模型：${LABELS[candidate]}${currentSuffix(candidate)}`} onClick={() => setMenuOpen((open) => !open)} onKeyDown={(event) => {
       if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
@@ -153,7 +154,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
         setMenuOpen(true)
       }
     }}><span>{LABELS[candidate]}{currentSuffix(candidate)}</span><span className="assistant-settings__transcription-model-chevron" aria-hidden="true">⌄</span></button>
-    {menuOpen ? createPortal(<div ref={menuRef} className="assistant-settings__transcription-model-menu" style={{ ...(menuPosition ?? { top: 8, left: 8, maxHeight: 360 }), boxSizing: 'border-box' }} role="listbox" aria-label="转写模型选项" tabIndex={-1}>{installedModels.length ? <div role="group" aria-label="已安装"><strong>已安装</strong>{installedModels.map(renderOption)}</div> : null}{downloadableModels.length ? <div role="group" aria-label="可下载"><strong>可下载</strong>{downloadableModels.map(renderOption)}</div> : null}</div>, document.body) : null}
+    {menuOpen ? createPortal(<div {...menuScope} ref={menuRef} className="assistant-settings__transcription-model-menu" style={{ ...(menuPosition ?? { top: 8, left: 8, maxHeight: 360 }), boxSizing: 'border-box' }} role="listbox" aria-label="转写模型选项" tabIndex={-1}>{installedModels.length ? <div role="group" aria-label="已安装"><strong>已安装</strong>{installedModels.map(renderOption)}</div> : null}{downloadableModels.length ? <div role="group" aria-label="可下载"><strong>可下载</strong>{downloadableModels.map(renderOption)}</div> : null}</div>, document.body) : null}
     {selected?.runtimeFamily === 'faster-whisper' && selected.installed ? <div className="assistant-settings__transcription-gpu-status">
       <p aria-live="polite">{gpuProbe?.status === 'available'
         ? `GPU 加速已就绪 · ${gpuProbe.gpuName} · CUDA ${gpuProbe.computeType}`

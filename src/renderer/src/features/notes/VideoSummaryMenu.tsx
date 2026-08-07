@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type VideoSummaryMenuAction = {
   id: string
@@ -18,7 +19,7 @@ export function VideoSummaryMenu({ actions, download, disabled = false, disabled
   disabled?: boolean
   disabledTitle?: string
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const rootRef = useRef<HTMLSpanElement>(null)
   const close = () => setOpen(false)
   useEffect(() => {
@@ -29,7 +30,7 @@ export function VideoSummaryMenu({ actions, download, disabled = false, disabled
     document.addEventListener('keydown', keydown)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keydown) }
   }, [open])
-  return <span ref={rootRef} className="video-summary-menu">
+  return <span {...menuScope} ref={rootRef} className="video-summary-menu">
     <button type="button" className="video-summary-menu__trigger" aria-label="视频总结" aria-expanded={open} disabled={disabled} title={disabled ? disabledTitle : undefined} onClick={() => setOpen((current) => !current)}>视频总结 <span aria-hidden="true">▾</span></button>
     {open ? <div role="menu" aria-label="视频总结菜单" className="video-summary-menu__options">
       {actions.map((action) => <button key={action.id} type="button" role="menuitem" disabled={action.disabled} onClick={() => { close(); action.onSelect() }}>{action.label}</button>)}

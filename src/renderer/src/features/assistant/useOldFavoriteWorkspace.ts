@@ -25,6 +25,23 @@ function snapshotCandidateIds(snapshot: WorkspaceView | null, accountMid?: strin
     : []
 }
 
+function mergeDeepSeekProcessedItems(
+  current: NonNullable<OldFavoriteWorkspaceDeepSeekResult['progress']['processedItems']> = [],
+  next: NonNullable<OldFavoriteWorkspaceDeepSeekResult['progress']['processedItems']> = []
+) {
+  const merged = new Map(current.map((item) => [item.aid, item]))
+  next.forEach((item) => merged.set(item.aid, item))
+  return [...merged.values()]
+}
+
+function mergeDeepSeekProgress(
+  current: OldFavoriteWorkspaceDeepSeekResult['progress'] | undefined,
+  next: OldFavoriteWorkspaceDeepSeekResult['progress']
+) {
+  const processedItems = mergeDeepSeekProcessedItems(current?.processedItems, next.processedItems)
+  return { ...next, ...(processedItems.length ? { processedItems } : {}) }
+}
+
 export type DeepSeekWorkspaceFeedback = {
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'canceled'
   message: string
@@ -135,6 +152,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [previewPreparationError, setPreviewPreparationError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const [deepSeekCancelRequested, setDeepSeekCancelRequested] = useState(false)
+  const [tagEnrichmentUpdating, setTagEnrichmentUpdating] = useState(false)
   const [draftRuleAnalysis, setDraftRuleAnalysis] = useState<DraftLedgerRuleAnalysis | null>(null)
   const [draftRuleAnalysisError, setDraftRuleAnalysisError] = useState<string | null>(null)
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
@@ -173,6 +191,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setBackgroundRefreshing(false)
     setDeepSeekFeedback(null)
     setDeepSeekCancelRequested(false)
+    setTagEnrichmentUpdating(false)
     activeDraftRuleAnalysisRef.current = null
     setDraftRuleAnalysis(null)
     setDraftRuleAnalysisError(null)
@@ -208,17 +227,19 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return subscribe((progress) => {
       if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid) ||
         progress.workspaceId !== activeDeepSeekWorkspaceId.current) return
-      setDeepSeekFeedback({
+      setDeepSeekFeedback((current) => ({
         status: 'running',
         message: 'DeepSeek 正在整理当前分段…',
-        progress: {
+        progress: mergeDeepSeekProgress(current?.progress, {
           totalChunks: progress.totalChunks,
           completedChunks: progress.completedChunks,
           totalVideoCount: progress.totalVideoCount,
           successfulVideoCount: progress.successfulVideoCount,
-          failedVideoCount: progress.failedVideoCount
-        }
-      })
+          failedVideoCount: progress.failedVideoCount,
+          processedItems: progress.processedItems
+        }),
+        failures: current?.failures
+      }))
     })
   }, [accountMid])
 
@@ -234,8 +255,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return
     }
     if (activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) return
-    if (snapshot.deepSeekRun) observedDeepSeekCheckpointRef.current = true
-    if (snapshot.deepSeekRun?.status === 'canceled' && (deepSeekFeedback?.status === 'waiting' || deepSeekFeedback?.status === 'running')) {
+    if (snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'canceled') observedDeepSeekCheckpointRef.current = true
+    if (observedDeepSeekCheckpointRef.current && snapshot.deepSeekRun?.status === 'canceled' &&
+      (deepSeekFeedback?.status === 'waiting' || deepSeekFeedback?.status === 'running')) {
       setDeepSeekFeedback((current) => current ? {
         ...current,
         status: 'canceled',
@@ -458,7 +480,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [accountMid])
 
   const resumeScan = useCallback(() => sendCommand({ type: 'resume-scan' }), [sendCommand])
-  const pauseScan = useCallback(() => sendCommand({ type: 'pause-scan' }), [sendCommand])
   const getRecoverySummary = useCallback(async (): Promise<OldFavoriteWorkspaceRecoverySummary | null> => {
     if (!accountMid) return null
     return window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1?.(accountMid) ?? null
@@ -531,13 +552,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         const deferredSegments = result.deferredSegmentCount
           ? `还有 ${result.deferredSegmentCount} 个批次等待标签补取，标签补取完成后会自动继续。`
           : ''
-        setDeepSeekFeedback(result.canceled
-          ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: result.failures }
-          : result.failures.length
-            ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: result.failures }
-            : result.deferredSegmentCount
-              ? { status: 'waiting', message: `DeepSeek 已完成当前可整理批次；${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: [] }
-            : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${deferredSegments}${referencedConstraints}`, progress: result.progress, failures: [] })
+        setDeepSeekFeedback((current) => {
+          const progress = mergeDeepSeekProgress(current?.progress, result.progress)
+          return result.canceled
+            ? { status: 'canceled', message: `DeepSeek 已在完成当前批次后停止；已更新 ${result.progress.successfulVideoCount} 条。${deferredSegments}${referencedConstraints}`, progress, failures: result.failures }
+            : result.failures.length
+              ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${deferredSegments}${referencedConstraints}`, progress, failures: result.failures }
+              : result.deferredSegmentCount
+                ? { status: 'waiting', message: `DeepSeek 已完成当前可整理批次；${deferredSegments}${referencedConstraints}`, progress, failures: [] }
+                : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${deferredSegments}${referencedConstraints}`, progress, failures: [] }
+        })
       }
       return next
     } catch (error) {
@@ -560,15 +584,30 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const cancelCurrentSegmentDeepSeek = useCallback(async () => {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return false
+    const generation = accountGeneration.current
+    setDeepSeekCancelRequested(true)
+    setDeepSeekFeedback((current) => current?.status === 'running'
+      ? { ...current, message: '正在结束当前批次，后续批次不会再开始。' }
+      : current)
     try {
-      await command(accountMid, { type: 'cancel-deepseek-current-segment' })
-      setDeepSeekCancelRequested(true)
-      setDeepSeekFeedback((current) => current?.status === 'running'
-        ? { ...current, message: '正在结束当前批次，后续批次不会再开始。' }
-        : current)
+      const next = await command(accountMid, { type: 'cancel-deepseek-current-segment' })
+      if (accountGeneration.current !== generation) return false
+      if (next && normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)) setSnapshot(next)
+      setDeepSeekFeedback((current) => current ? {
+        ...current,
+        status: 'canceled',
+        message: 'DeepSeek 已停止；已完成批次结果会保留，再次开始时将从剩余批次继续。'
+      } : current)
       return true
     } catch {
+      if (accountGeneration.current === generation) {
+        setDeepSeekFeedback((current) => current?.status === 'running'
+          ? { ...current, message: 'DeepSeek 正在整理当前批次…' }
+          : current)
+      }
       return false
+    } finally {
+      if (accountGeneration.current === generation) setDeepSeekCancelRequested(false)
     }
   }, [accountMid])
 
@@ -587,9 +626,12 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (normalizeAccountMid(result.snapshot.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) {
         setSnapshot(result.snapshot)
-        setDeepSeekFeedback(result.failures.length
-          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。`, progress: result.progress, failures: result.failures }
-          : { status: 'completed', message: 'DeepSeek 失败批次已重试完成。', progress: result.progress, failures: [] })
+        setDeepSeekFeedback((current) => {
+          const progress = mergeDeepSeekProgress(current?.progress, result.progress)
+          return result.failures.length
+            ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。`, progress, failures: result.failures }
+            : { status: 'completed', message: 'DeepSeek 失败批次已重试完成。', progress, failures: [] }
+        })
       }
       return result.snapshot
     } catch (error) {
@@ -609,10 +651,26 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
   const moveHistoryCursor = useCallback((cursor: number) => sendCommand({ type: 'move-history-cursor', cursor }), [sendCommand])
   const autoClassifyCurrentSegment = useCallback(() => sendCommand({ type: 'auto-classify-current-segment' }), [sendCommand])
-  const pauseTagEnrichment = useCallback(() => sendCommand({ type: 'pause-tag-enrichment' }), [sendCommand])
-  const resumeTagEnrichment = useCallback(() => sendCommand({ type: 'resume-tag-enrichment' }), [sendCommand])
-  const retryFailedTagEnrichment = useCallback(() => sendCommand({ type: 'retry-failed-tag-enrichment' }), [sendCommand])
-  const acceptCurrentTags = useCallback(() => sendCommand({ type: 'accept-current-tags' }), [sendCommand])
+  const sendTagEnrichmentCommand = useCallback(async (type: 'pause-tag-enrichment' | 'resume-tag-enrichment' | 'retry-failed-tag-enrichment' | 'accept-current-tags') => {
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return null
+    const generation = accountGeneration.current
+    setTagEnrichmentUpdating(true)
+    try {
+      const next = await command(accountMid, { type })
+      if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
+      setSnapshot(next)
+      return next
+    } catch {
+      return null
+    } finally {
+      if (accountGeneration.current === generation) setTagEnrichmentUpdating(false)
+    }
+  }, [accountMid])
+  const pauseTagEnrichment = useCallback(() => sendTagEnrichmentCommand('pause-tag-enrichment'), [sendTagEnrichmentCommand])
+  const resumeTagEnrichment = useCallback(() => sendTagEnrichmentCommand('resume-tag-enrichment'), [sendTagEnrichmentCommand])
+  const retryFailedTagEnrichment = useCallback(() => sendTagEnrichmentCommand('retry-failed-tag-enrichment'), [sendTagEnrichmentCommand])
+  const acceptCurrentTags = useCallback(() => sendTagEnrichmentCommand('accept-current-tags'), [sendTagEnrichmentCommand])
   const runRecommendationQueue = useCallback(async () => {
     if (recommendationQueueRunningRef.current) return
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
@@ -870,7 +928,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, pauseScan, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,

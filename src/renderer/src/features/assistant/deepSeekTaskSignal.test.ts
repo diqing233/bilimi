@@ -3,6 +3,7 @@ import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSigna
 
 class FakeBroadcastChannel {
   static channels = new Map<string, Set<FakeBroadcastChannel>>()
+  static queuedDelivery = false
   onmessage: ((event: MessageEvent) => void) | null = null
   closed = false
 
@@ -14,11 +15,16 @@ class FakeBroadcastChannel {
 
   postMessage(data: unknown) {
     if (this.closed) return
-    for (const channel of FakeBroadcastChannel.channels.get(this.name) ?? []) {
-      if (channel !== this) {
-        channel.onmessage?.({ data } as MessageEvent)
+    const deliver = () => {
+      if (this.closed) return
+      for (const channel of FakeBroadcastChannel.channels.get(this.name) ?? []) {
+        if (channel !== this) {
+          channel.onmessage?.({ data } as MessageEvent)
+        }
       }
     }
+    if (FakeBroadcastChannel.queuedDelivery) setTimeout(deliver, 0)
+    else deliver()
   }
 
   close() {
@@ -31,6 +37,7 @@ describe('deepSeekTaskSignal', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     FakeBroadcastChannel.channels.clear()
+    FakeBroadcastChannel.queuedDelivery = false
   })
 
   it('keeps concurrent DeepSeek tasks until their matching request finishes', () => {
@@ -94,6 +101,28 @@ describe('deepSeekTaskSignal', () => {
       const taskChannels = [...(FakeBroadcastChannel.channels.get('bilimi.deepseek-task') ?? [])]
       taskChannels[0]?.close()
       await vi.advanceTimersByTimeAsync(20_000)
+
+      expect(received.at(-1)).toEqual([])
+      unsubscribe()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('delivers the final task state before closing a queued Electron channel', async () => {
+    vi.useFakeTimers()
+    try {
+      FakeBroadcastChannel.queuedDelivery = true
+      vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+      const received: string[][] = []
+      const unsubscribe = subscribeDeepSeekTasks((tasks) => received.push(tasks.map((task) => task.id)))
+      const finishTask = publishDeepSeekTask({ id: 'archive-organize:100', kind: 'archive-organize' })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received.at(-1)).toEqual(['archive-organize:100'])
+
+      finishTask()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(received.at(-1)).toEqual([])
       unsubscribe()

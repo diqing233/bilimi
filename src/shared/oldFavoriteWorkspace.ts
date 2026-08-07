@@ -138,9 +138,20 @@ export type OldFavoriteWorkspaceHistoryChange = {
   after?: OldFavoriteWorkspaceClassification
 }
 
+/** A main-process DeepSeek result that was actually evaluated for organization. */
+export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
+  aid: number
+  title?: string
+  beforeTargetLedgerIds: string[]
+  afterTargetLedgerIds: string[]
+  changed: boolean
+}
+
 export type OldFavoriteWorkspaceHistoryEntry = {
   source: OldFavoriteWorkspaceClassificationSource
   changes: OldFavoriteWorkspaceHistoryChange[]
+  /** Durable detail projection, including evaluated videos whose targets did not change. */
+  deepSeekProcessedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
 }
 
 export type OldFavoriteWorkspace = {
@@ -211,13 +222,21 @@ export type OldFavoriteWorkspaceSnapshot = {
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
-    status: 'running' | 'waiting' | 'failed' | 'canceled'
+    status: 'running' | 'waiting' | 'failed' | 'canceled' | 'completed'
     completedSegmentCount: number
     waitingSegmentCount: number
     totalVideoCount?: number
     successfulVideoCount?: number
     pendingVideoCount?: number
     failedVideoCount?: number
+  }
+  deepSeekOrganization?: {
+    segments: Array<{
+      id: string
+      index: number
+      status: 'organized' | 'partial' | 'unorganized'
+      details: OldFavoriteWorkspaceDeepSeekProcessedItem[]
+    }>
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
@@ -453,7 +472,6 @@ export type OldFavoriteWorkspaceExecutionIntent = {
   status: 'waiting' | 'running' | 'blocked'
 }
 
-/** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
 export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
   /** Cancellation waits for the in-flight request, then applies only completed batches. */
@@ -468,6 +486,8 @@ export type OldFavoriteWorkspaceDeepSeekResult = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    /** Trusted main-process results for request groups that have already settled. */
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }
   failures: OldFavoriteWorkspaceDeepSeekFailure[]
 }
@@ -579,10 +599,6 @@ function isClassificationEqual(
   right: OldFavoriteWorkspaceClassification | undefined
 ) {
   return JSON.stringify(left) === JSON.stringify(right)
-}
-
-function classificationPriority(source: OldFavoriteWorkspaceClassificationSource) {
-  return { 'system-low': 0, 'system-high': 1, deepseek: 2, fallback: 3, manual: 4 }[source]
 }
 
 function segmentForAid(workspace: OldFavoriteWorkspace, aid: number) {
@@ -762,11 +778,6 @@ export function applyWorkspaceClassificationBatch(
     const targetLedgerIds = normalizeLedgerIds(assignment.targetLedgerIds)
     if (options.source === 'system-low' && targetLedgerIds.length > 1) {
       throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
-    }
-    const existing = workspace.classifications[String(assignment.aid)]
-    if (existing && classificationPriority(existing.source) > classificationPriority(options.source) &&
-      !(options.replaceExistingSystem && existing.source.startsWith('system-') && options.source.startsWith('system-'))) {
-      continue
     }
     assignments.set(assignment.aid, {
       aid: assignment.aid,

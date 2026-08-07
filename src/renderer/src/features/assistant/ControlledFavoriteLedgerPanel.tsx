@@ -139,6 +139,26 @@ export function ControlledFavoriteLedgerPanel({
   openOrganizationSelection
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
+  const [ledgerEnabledById, setLedgerEnabledById] = useState<ReadonlyMap<string, boolean>>(() =>
+    new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
+  const accountKey = normalizeAccountMid(currentAccountMid)
+  const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
+  const effectiveLedgerEnabledById = enabledStateAccountKey === accountKey
+    ? ledgerEnabledById
+    : new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled]))
+  useEffect(() => {
+    if (enabledStateAccountKey === accountKey) return
+    setLedgerEnabledById(new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
+    setEnabledStateAccountKey(accountKey)
+  }, [accountKey, enabledStateAccountKey, ledgers])
+  const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>) => {
+    setLedgerEnabledById(new Map(next))
+  }, [])
+  const handleDeleteLedger = useCallback((ledgerId: string) => {
+    if (workspace.recommendedCandidateIds.includes(ledgerId)) {
+      workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== ledgerId))
+    }
+  }, [workspace.recommendedCandidateIds, workspace.updateRecommendedCandidates])
   const applyManualClassification = useCallback((aid: number, targetLedgerIds: string[]) => {
     void workspace.applyManualClassifications([{ aid, targetLedgerIds }])
   }, [workspace.applyManualClassifications])
@@ -301,10 +321,6 @@ export function ControlledFavoriteLedgerPanel({
       }
     }
   }
-  const finishScan = async () => {
-    const paused = await workspace.pauseScan()
-    if (paused) closeGuide()
-  }
 
   const requestOldFavoriteOrganization = async () => {
     const requestedAccountMid = currentAccountMid
@@ -331,6 +347,7 @@ export function ControlledFavoriteLedgerPanel({
     }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status === 'scanning') {
+      void continueScan()
       return
     }
     void startScan('incremental')
@@ -366,6 +383,7 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(false)
       setGuideOpen(true)
       setStep('scan')
+      if (restored.status === 'scanning' && restored.scan.phase !== 'failed') void workspace.resumeScan()
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
@@ -401,7 +419,7 @@ export function ControlledFavoriteLedgerPanel({
   const continueConfirmAndSync = async (includeInbox = false) => {
     if (!activeSnapshot) return
     try {
-      if (confirmationNeedsBackup(activeSnapshot, displayedLedgers, missingLedgerIds)) {
+      if (confirmationNeedsBackup(activeSnapshot, displayedLedgersWithLiveEnabled, missingLedgerIds)) {
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
@@ -423,7 +441,7 @@ export function ControlledFavoriteLedgerPanel({
     setIncludeInboxForConfirmation(includeInbox)
     setConfirmationPreparationError(null)
     setConfirmationPreparing(true)
-    const disabledLedgerIds = displayedLedgers.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
+    const disabledLedgerIds = displayedLedgersWithLiveEnabled.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
     try {
       const candidates = currentAccountMid && disabledLedgerIds.length
         ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(currentAccountMid, disabledLedgerIds)
@@ -503,6 +521,13 @@ export function ControlledFavoriteLedgerPanel({
   }
   const canRestartFromResume = activeSnapshot !== null && activeSnapshot.status !== 'completed'
   const displayedLedgers = projectRecommendedLedgerDrafts(ledgers, workspace.snapshot, workspace.recommendedCandidateIds)
+  const displayedLedgersWithLiveEnabled = displayedLedgers.map((ledger) => ({
+    ...ledger,
+    enabled: effectiveLedgerEnabledById.get(ledger.id) ?? ledger.enabled
+  }))
+  const enabledLedgerIds = new Set(displayedLedgersWithLiveEnabled
+    .filter((ledger) => ledger.enabled)
+    .map((ledger) => ledger.id))
 
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
@@ -537,7 +562,7 @@ export function ControlledFavoriteLedgerPanel({
 
       <FavoriteLedgerOverview
         key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
-        ledgers={displayedLedgers}
+        ledgers={displayedLedgersWithLiveEnabled}
         missingLedgerIds={missingLedgerIds}
         organizationActive={Boolean(activeSnapshot && activeSnapshot.status !== 'completed')}
         hasExpandedOrganizationGuide={guideOpen}
@@ -548,6 +573,8 @@ export function ControlledFavoriteLedgerPanel({
         createLedgerRequestVersion={createLedgerRequestVersion}
         onSaveLedgers={onSaveLedgers}
         onSaveLedgerEnabled={onSaveLedgerEnabled}
+        onEnabledStateChange={handleEnabledStateChange}
+        onDeleteLedger={handleDeleteLedger}
         onSyncLedgers={onSyncLedgers}
         draftRuleAnalysis={workspace.draftRuleAnalysis}
         draftRuleAnalysisError={workspace.draftRuleAnalysisError}
@@ -616,6 +643,7 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
+        tagEnrichmentUpdating={workspace.tagEnrichmentUpdating}
         mutationLocked={Boolean(workspace.draftRuleAnalysis || activeSnapshot?.executionIntent ||
           (activeSnapshot && ['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status)))}
         reconciling={workspace.reconciling}
@@ -634,9 +662,6 @@ export function ControlledFavoriteLedgerPanel({
         onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
-        onPauseScan={() => void workspace.pauseScan()}
-        onResumeScan={() => void continueScan()}
-        onFinishScan={() => void finishScan()}
         onPauseTagEnrichment={() => void workspace.pauseTagEnrichment()}
         onResumeTagEnrichment={() => void workspace.resumeTagEnrichment()}
         onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
@@ -651,7 +676,8 @@ export function ControlledFavoriteLedgerPanel({
         previewPreparationError={workspace.previewPreparationError}
         onCancelPreviewPreparation={() => void workspace.cancelRecommendationPreviewPreparation()}
 
-        ledgers={displayedLedgers}
+        ledgers={displayedLedgersWithLiveEnabled}
+        enabledLedgerIds={enabledLedgerIds}
         deepSeekAvailable={deepSeekArchiveAvailable}
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}

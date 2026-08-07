@@ -16,6 +16,7 @@ import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitB
 import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { LocalMemoEditor } from './LocalMemoEditor'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import { NoteSelectionCheckbox, NoteSelectionStore, NoteSelectionSubscriber } from './noteSelectionStore'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import './VideoNoteArchivePanel.css'
@@ -151,8 +152,8 @@ export function VideoNoteArchivePanel({
   const [memoOpen, setMemoOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
-  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [versionMenuOpen, setVersionMenuOpen, versionMenuScope] = useExclusiveMenu()
+  const [moreMenuOpen, setMoreMenuOpen, moreMenuScope] = useExclusiveMenu()
   const [summaryGenerating, setSummaryGenerating] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [archiveSelection] = useState(() => new NoteSelectionStore())
@@ -758,7 +759,7 @@ export function VideoNoteArchivePanel({
                     {selectedArchive.source.title}
                   </a>
                 </h3>
-                <div ref={moreMenuRef} className="video-note-archive__more">
+                <div {...moreMenuScope} ref={moreMenuRef} className="video-note-archive__more">
                   <button
                     ref={moreMenuTriggerRef}
                     type="button"
@@ -811,7 +812,7 @@ export function VideoNoteArchivePanel({
                 {selectedArchive.versions.length} 次转写
               </p>
               <div className="video-note-archive__version-controls">
-              <div className="video-note-archive__version-picker">
+              <div {...versionMenuScope} className="video-note-archive__version-picker">
                 <span id="video-note-archive-version-label">历史版本</span>
                 <button
                   type="button"

@@ -20,6 +20,8 @@ type OldFavoriteWholeRunOverviewProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   ledgerNames?: ReadonlyMap<string, string>
   showArchiveTargets?: boolean
+  selectedRecommendationIds?: ReadonlySet<string>
+  enabledLedgerIds?: ReadonlySet<string>
 }
 
 const BILIMI_STAGING_TOOLTIP = '未匹配到合适分类会先归类在 bilimi·暂存里，保存到本地收藏库时会存入 bilimi·暂存，点击同步时默认不上传 B 站。'
@@ -27,7 +29,9 @@ const BILIMI_STAGING_TOOLTIP = '未匹配到合适分类会先归类在 bilimi·
 export function OldFavoriteWholeRunOverview({
   snapshot,
   ledgerNames = new Map(),
-  showArchiveTargets = false
+  showArchiveTargets = false,
+  selectedRecommendationIds,
+  enabledLedgerIds
 }: OldFavoriteWholeRunOverviewProps) {
   const overview = snapshot.overview
   if (!overview) {
@@ -38,11 +42,18 @@ export function OldFavoriteWholeRunOverview({
   }
 
   const archiveTargetById = new Map(overview.archiveTargets.map((target) => [target.ledgerId, target]))
+  const recommendationIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+  const selectedRecommendations = selectedRecommendationIds ?? new Set(snapshot.recommendations.adoptedCandidateIds)
   const archiveTargetIds = [...new Set([
     'inbox',
     ...ledgerNames.keys(),
     ...overview.archiveTargets.map((target) => target.ledgerId)
-  ])]
+  ])].filter((ledgerId) => {
+    if (ledgerId === 'inbox') return true
+    if (enabledLedgerIds && !enabledLedgerIds.has(ledgerId)) return false
+    if (!recommendationIds.has(ledgerId)) return true
+    return selectedRecommendations.has(ledgerId)
+  })
   const archiveTargets = archiveTargetIds.map((ledgerId) => archiveTargetById.get(ledgerId) ?? {
     ledgerId,
     itemCount: 0,

@@ -7,6 +7,7 @@ type OldFavoriteRecommendationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
   adoptedCandidateIds?: string[]
+  recommendationSaving?: boolean
   error?: string | null
   previewPreparationRunning?: boolean
   previewPreparationProgress?: { completedItemCount: number; totalItemCount: number } | null
@@ -41,6 +42,7 @@ export function OldFavoriteRecommendationStep({
   snapshot,
   loading,
   adoptedCandidateIds: controlledAdoptedCandidateIds,
+  recommendationSaving = false,
   error,
   previewPreparationRunning = false,
   previewPreparationProgress,
@@ -63,7 +65,8 @@ export function OldFavoriteRecommendationStep({
     ? overviewCounts.get(candidate.id) ?? 0
     : candidate.currentSegmentCount ?? candidate.count
   const overviewUnavailable = hasMultipleSegments && viewScope === 'all' && !snapshot.overview
-  const scopedCandidates = overviewUnavailable ? [] : snapshot.recommendations.candidates.filter((candidate) => countForCandidate(candidate) > 0)
+  const scopedCandidates = overviewUnavailable ? [] : snapshot.recommendations.candidates.filter((candidate) =>
+    countForCandidate(candidate) > 0 || adoptedCandidateIds.has(candidate.id))
   const authorCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'author')
   const tagCandidates = scopedCandidates.filter((candidate) => candidate.kind === 'tag')
   const groups: CandidateGroup[] = [
@@ -118,6 +121,7 @@ export function OldFavoriteRecommendationStep({
     <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
     <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
     {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
+    {recommendationSaving ? <p className="favorite-ledger-panel__recommendation-saving" role="status">正在更新归档预览…</p> : null}
     {previewPreparationRunning ? <div className="favorite-ledger-panel__preview-preparation" role="status">
       <p>正在准备归档预览：{previewPreparationProgress?.completedItemCount ?? 0} / {previewPreparationProgress?.totalItemCount ?? 0}</p>
       <button type="button" onClick={onCancelPreviewPreparation}>取消准备</button>

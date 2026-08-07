@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { startTransition } from 'react'
 import { useSyncExternalStore } from 'react'
 import { FavoriteLibraryNavigationGroupView } from './FavoriteLibraryNavigationGroupView'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 export type FavoriteLibraryNavigationItem = {
   id: string
@@ -143,7 +144,7 @@ export function FavoriteLibraryNavigation({
   />, document.body) : null}</>
 }
 function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-all') => void }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<CSSProperties>()
@@ -160,13 +161,13 @@ function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-al
     reposition(); document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); window.addEventListener('resize', reposition); window.addEventListener('scroll', reposition, true)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
   }, [close, open, reposition])
-  return <span className="favorite-library__folder-menu-wrap">
+  return <span {...menuScope} className="favorite-library__folder-menu-wrap">
     <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__ordinary-group-menu" aria-label="其他收藏夹管理菜单" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>
-    {open && typeof document !== 'undefined' ? createPortal(<div ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
+    {open && typeof document !== 'undefined' ? createPortal(<div {...menuScope} ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
   </span>
 }
 function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -223,13 +224,13 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
     setOpen(false)
     onAction?.(action)
   }
-  const floatingMenu = open ? <div ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
+  const floatingMenu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('create')}>{'\u65b0\u5efa\u5de5\u4f5c\u5939'}</button>
     <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
     <hr />
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
   </div> : null
-  return <span className="favorite-library__folder-menu-wrap">
+  return <span {...menuScope} className="favorite-library__folder-menu-wrap">
     <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__workspace-menu" aria-label={'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355'} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>
     {typeof document === 'undefined' ? null : createPortal(floatingMenu, document.body)}
   </span>

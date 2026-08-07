@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
 
 export type FavoriteLibraryBatchAction = 'copy' | 'move' | 'refresh' | 'reorganize' | 'transcribe' | 'cancel-transcribe' | 'download-documents' | 'sync' | 'delete-local' | 'remove-managed-placement'
@@ -123,7 +124,7 @@ export function FavoriteLibraryColumnMenu<T extends string>({
   onChange: (value: T) => void
   portal?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [position, setPosition] = useState<CSSProperties>()
   const reposition = useCallback(() => {
@@ -136,8 +137,8 @@ export function FavoriteLibraryColumnMenu<T extends string>({
     reposition(); window.addEventListener('resize', reposition); window.addEventListener('scroll', reposition, true)
     return () => { window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
   }, [open, portal, reposition])
-  const menu = open ? <span role="menu" className={`favorite-library__column-menu-options${portal ? ' favorite-library__column-menu-options--portal' : ''}`} style={portal ? position : undefined}>{options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={option.value === value} onClick={() => { onChange(option.value); setOpen(false) }}>{option.label}</button>)}</span> : null
-  return <span className="favorite-library__column-menu">
+  const menu = open ? <span {...menuScope} role="menu" className={`favorite-library__column-menu-options${portal ? ' favorite-library__column-menu-options--portal' : ''}`} style={portal ? position : undefined}>{options.map((option) => <button key={option.value} type="button" role="menuitemradio" aria-checked={option.value === value} onClick={() => { onChange(option.value); setOpen(false) }}>{option.label}</button>)}</span> : null
+  return <span {...menuScope} className="favorite-library__column-menu">
     <button ref={triggerRef} type="button" className="favorite-library__column-menu-trigger" aria-label={label} aria-expanded={open} onClick={() => { setOpen((currentOpen) => !currentOpen); requestAnimationFrame(reposition) }}><Chevron /></button>
     {portal && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu}
   </span>
@@ -162,9 +163,9 @@ export function FavoriteLibraryStateFilterMenu({
   value: FavoriteLibraryStateFilterValue
   onChange: <K extends keyof FavoriteLibraryStateFilterValue>(key: K, nextValue: FavoriteLibraryStateFilterValue[K]) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const [activeGroup, setActiveGroup] = useState<keyof FavoriteLibraryStateFilterValue | null>(null)
-  return <span className="favorite-library__column-menu favorite-library__state-filter-menu">
+  return <span {...menuScope} className="favorite-library__column-menu favorite-library__state-filter-menu">
     <button type="button" className="favorite-library__column-menu-trigger" aria-label="状态筛选" aria-expanded={open} onClick={() => setOpen((current) => !current)}><Chevron /></button>
     {open ? <span role="menu" aria-label="状态筛选" className="favorite-library__column-menu-options favorite-library__state-filter-options">
       {favoriteLibraryStateFilterGroups.map((group) => <span className="favorite-library__state-filter-group" key={group.key}>
@@ -185,7 +186,7 @@ export function FavoriteLibraryMultiSelectColumnMenu({
   options: Array<{ value: FavoriteLibraryTranscriptionFilter; label: string }>
   onChange: (values: FavoriteLibraryTranscriptionFilter[]) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const rootRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -213,10 +214,10 @@ export function FavoriteLibraryMultiSelectColumnMenu({
   const toggle = (value: FavoriteLibraryTranscriptionFilter) => onChange(values.includes(value)
     ? values.filter((current) => current !== value)
     : [...values, value].sort())
-  const menu = open ? <div ref={menuRef} role="menu" aria-label={label} className="favorite-library__column-menu-options favorite-library__column-menu-options--portal" style={position}>
+  const menu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={label} className="favorite-library__column-menu-options favorite-library__column-menu-options--portal" style={position}>
     {options.map((option) => <button key={option.value} type="button" role="menuitemcheckbox" aria-checked={values.includes(option.value)} onClick={() => toggle(option.value)}>{option.label}</button>)}
   </div> : null
-  return <span ref={rootRef} className="favorite-library__column-menu">
+  return <span {...menuScope} ref={rootRef} className="favorite-library__column-menu">
     <button ref={triggerRef} type="button" className="favorite-library__column-menu-trigger" aria-label={label} aria-expanded={open} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true) } }}><Chevron /></button>
     {typeof document === 'undefined' ? null : createPortal(menu, document.body)}
   </span>
@@ -237,7 +238,7 @@ export function FavoriteLibraryDestinationButton({
   onConfirm: (folderIds: string[]) => void
   disabled?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen, menuScope] = useExclusiveMenu()
   const [destinationIds, setDestinationIds] = useState<string[]>([])
   const rootRef = useRef<HTMLSpanElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -275,11 +276,11 @@ export function FavoriteLibraryDestinationButton({
     setDestinationIds([])
     setOpen((current) => !current)
   }
-  const menu = open ? <div ref={menuRef} role="menu" aria-label={`${label}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
+  const menu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={`${label}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
     <FavoriteLibraryDestinationList logicalFolders={logicalFolders} destinationIds={destinationIds} onToggle={toggleDestination} />
     <span className="favorite-library__batch-destination-actions"><button type="button" disabled={disabled || !destinationIds.length} onClick={() => { onConfirm(destinationIds); close() }}>{`确认${action === 'copy' ? '复制' : '移动'}`}</button><button type="button" onClick={close}>取消</button></span>
   </div> : null
-  return <span ref={rootRef} className="favorite-library__batch-split"><button ref={triggerRef} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={open} disabled={disabled} onClick={toggle}>{label}<Chevron /></button>{typeof document === 'undefined' ? null : createPortal(menu, document.body)}</span>
+  return <span {...menuScope} ref={rootRef} className="favorite-library__batch-split"><button ref={triggerRef} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={open} disabled={disabled} onClick={toggle}>{label}<Chevron /></button>{typeof document === 'undefined' ? null : createPortal(menu, document.body)}</span>
 }
 
 function BatchActions({
@@ -294,7 +295,7 @@ function BatchActions({
   onBatchPlacement?: (action: 'copy' | 'move', folderIds: string[]) => void
 }) {
   const disabledTitle = disabled ? '请先勾选视频' : undefined
-  const [openMenu, setOpenMenu] = useState<'copy' | 'move' | 'more' | undefined>()
+  const [openMenu, setOpenMenu, menuScope] = useExclusiveMenu<'copy' | 'move' | 'more' | undefined>(undefined)
   const [destinationIds, setDestinationIds] = useState<string[]>([])
   const [focusDestinationFirst, setFocusDestinationFirst] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -355,15 +356,15 @@ function BatchActions({
   const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['remove-managed-placement', '移出 bilimi 工作夹']]
   const hasMoreActions = allowed('sync') || dangerActions.some(([action]) => allowed(action))
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
-  const floatingMenu = destinationMenu ? <div ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
+  const floatingMenu = destinationMenu ? <div {...menuScope} ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
     <FavoriteLibraryDestinationList logicalFolders={logicalFolders} destinationIds={destinationIds} onToggle={toggleDestination} focusFirst={focusDestinationFirst} />
     <span className="favorite-library__batch-destination-actions"><button type="button" disabled={disabled || !destinationIds.length} onClick={confirmDestination}>{`确认${destinationMenu === 'copy' ? '复制' : '移动'}`}</button><button type="button" onClick={closeMenu}>取消</button></span>
-  </div> : openMenu === 'more' ? <div ref={menuRef} role="menu" aria-label="更多批量操作菜单" className="favorite-library__batch-floating-menu favorite-library__batch-more-menu" style={menuPosition}>
+  </div> : openMenu === 'more' ? <div {...menuScope} ref={menuRef} role="menu" aria-label="更多批量操作菜单" className="favorite-library__batch-floating-menu favorite-library__batch-more-menu" style={menuPosition}>
     {allowed('sync') ? <button type="button" disabled={disabled} onClick={() => run('sync')}>同步到B站</button> : null}
     <hr />
     {dangerActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" className="favorite-library__danger-action" disabled={disabled} onClick={() => run(action)}>{label}</button>)}
   </div> : null
-  return <div ref={rootRef} className="favorite-library__batch-actions">
+  return <div {...menuScope} ref={rootRef} className="favorite-library__batch-actions">
     {(['copy', 'move'] as const).filter((action) => allowed(action)).map((action) => {
       const label = action === 'copy' ? '复制至' : '移动至'
       return <span key={action} className="favorite-library__batch-split"><button ref={(element) => { triggerRefs.current[action] = element ?? undefined }} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={destinationMenu === action} disabled={disabled} title={disabledTitle} onClick={() => toggleDestinationMenu(action)} onKeyDown={(event) => {

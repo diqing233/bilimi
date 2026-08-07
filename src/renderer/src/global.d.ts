@@ -59,7 +59,7 @@ import type {
 } from '@shared/videoNoteBatchExport'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
@@ -93,6 +93,7 @@ type BilimiDesktopApi = {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }) => void) => () => void
   onOldFavoriteWorkspacePreviewPreparationProgress?: (callback: (progress: {
     accountMid: string

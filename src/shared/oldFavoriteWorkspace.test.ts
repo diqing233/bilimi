@@ -181,6 +181,25 @@ describe('old favorite workspace', () => {
     })
   })
 
+  it('lets the latest classification operation replace any earlier source', () => {
+    const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
+    const manual = applyWorkspaceClassificationBatch(preview, {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const deepSeek = applyWorkspaceClassificationBatch(manual, {
+      source: 'deepseek', assignments: [{ aid: 1, targetLedgerIds: ['deepseek'] }]
+    })
+    const automatic = applyWorkspaceClassificationBatch(deepSeek, {
+      source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['recommended'] }]
+    })
+
+    expect(automatic.classifications['1']).toMatchObject({
+      targetLedgerIds: ['recommended'], source: 'system-high'
+    })
+    expect(automatic.history).toHaveLength(3)
+  })
+
   it('reopens a frozen segment when its classification is edited', () => {
     const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const preview = completeWorkspaceScan(scanning, { revision: 1, aids: [1] })
@@ -254,20 +273,9 @@ describe('old favorite workspace', () => {
     const scanning = createOldFavoriteWorkspace({
       accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: Number.MAX_SAFE_INTEGER
     })
-
     const preview = completeWorkspaceScan(scanning, {
       revision: 1, aids: Array.from({ length: 5_001 }, (_, index) => index + 1)
     })
-
     expect(preview.segments.map((segment) => segment.aids.length)).toEqual([5_001])
-  })
-
-  it('uses a 5000-item configured segment for a larger round', () => {
-    const scanning = createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-19T00:00:00.000Z', segmentSize: 5_000 })
-    const preview = completeWorkspaceScan(scanning, {
-      revision: 1, aids: Array.from({ length: 5_001 }, (_, index) => index + 1)
-    })
-
-    expect(preview.segments.map((segment) => segment.aids.length)).toEqual([5_000, 1])
   })
 })

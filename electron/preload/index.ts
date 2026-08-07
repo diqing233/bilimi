@@ -79,7 +79,7 @@ type FavoriteLibraryOperationSelection = number[] | {
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
-import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
+    processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
   }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: {
       accountMid: string
@@ -122,6 +123,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       totalVideoCount: number
       successfulVideoCount: number
       failedVideoCount: number
+      processedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
     }) => callback(progress)
     ipcRenderer.on('old-favorite-workspace-v1:deepseek-progress', listener)
     return () => ipcRenderer.removeListener('old-favorite-workspace-v1:deepseek-progress', listener)

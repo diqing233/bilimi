@@ -29,6 +29,7 @@ function sourceProjectionValue(
 type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
+  tagControlsLoading?: boolean
   scanStarting: boolean
   scanStartFailure: string | null
   onRetry: () => void
@@ -36,16 +37,12 @@ type OldFavoriteScanOverviewStepProps = {
   onRetryDirect: () => void
   onRebuild: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
-  onPauseScan?: () => void
-  onResumeScan?: () => void
-  onFinishScan?: () => void
   onPauseTagEnrichment: () => void
   onResumeTagEnrichment: () => void
   onRetryFailedTagEnrichment: () => void
   onAcceptCurrentTags: () => void
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
-  currentScopeLocked?: boolean
 }
 
 function scanFailureGuidance(reason: string | null | undefined) {
@@ -65,6 +62,7 @@ function scanFailureGuidance(reason: string | null | undefined) {
 export function OldFavoriteScanOverviewStep({
   snapshot,
   loading,
+  tagControlsLoading = false,
   scanStarting,
   scanStartFailure,
   onRetry,
@@ -72,16 +70,12 @@ export function OldFavoriteScanOverviewStep({
   onRetryDirect,
   onRebuild,
   onSelectSourceFolders
-  ,onPauseScan
-  ,onResumeScan
-  ,onFinishScan
   ,onPauseTagEnrichment
   ,onResumeTagEnrichment
   ,onRetryFailedTagEnrichment
   ,onAcceptCurrentTags
   ,viewScope: controlledViewScope
   ,onViewScopeChange
-  ,currentScopeLocked = false
 }: OldFavoriteScanOverviewStepProps) {
   const [sourceCountMode, setSourceCountMode] = useState<SourceCountMode>('planned')
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
@@ -135,7 +129,6 @@ export function OldFavoriteScanOverviewStep({
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const resumableFailedScan = snapshot?.status === 'scanning' && snapshot.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning'
-  const scanPaused = activeSnapshot?.status === 'scanning' && activeSnapshot.scan.paused === true
   const unstarted = !snapshot && !scanStarting
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
   const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
@@ -174,8 +167,6 @@ export function OldFavoriteScanOverviewStep({
     ? '正在检查 B 站收藏读取是否已恢复；检测成功后会继续扫描，不会重复读取已保存分页。'
     : retryCoolingDown
     ? 'B站暂时限制了请求，请等待冷却结束后重试。现有收藏库和整理数据不会丢失。'
-    : scanPaused
-    ? '扫描已暂停；点击继续扫描后会从已保存的进度继续。'
     : scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'
@@ -191,7 +182,7 @@ export function OldFavoriteScanOverviewStep({
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <div className="favorite-ledger-panel__step-title-row">
       <h4>扫描概览</h4>
-      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="扫描概览视图" value={viewScope} onChange={setViewScope} disableCurrent={currentScopeLocked} /> : null}
+      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="扫描概览视图" value={viewScope} onChange={setViewScope} /> : null}
     </div>
     {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={activeSnapshot!} /> : null}
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
@@ -246,22 +237,16 @@ export function OldFavoriteScanOverviewStep({
       </div>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'running'
-          ? <button type="button" disabled={loading || currentScopeLocked} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-          : <button type="button" disabled={loading || currentScopeLocked} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={loading || currentScopeLocked} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
-        ? <button type="button" disabled={loading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
+        ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
       {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
-    {activeSnapshot?.status === 'scanning' && !scanFailed ? <div className="favorite-ledger-panel__scan-enrichment-actions">
-      {scanPaused
-        ? <button type="button" disabled={loading || scanStarting} onClick={onResumeScan}>继续扫描</button>
-        : <button type="button" disabled={loading || scanStarting} onClick={onPauseScan}>暂停扫描</button>}
-      <button type="button" disabled={loading} onClick={onFinishScan}>结束整理</button>
-    </div> : null}
     {scanFailed ? <>
       <button type="button" disabled={loading || scanStarting || retryCoolingDown} onClick={onRetry}>
         {checkingRiskControlRecovery

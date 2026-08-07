@@ -124,4 +124,23 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
       ruleType: 'author', enabled: true, priority: 0, isDefault: false
     }])
   })
+
+  it('excludes a saved rule that matches a recommendation removed from the current round', () => {
+    expect(mergeOldFavoriteWorkspaceLedgers([
+      {
+        id: 'saved-honker', displayName: 'bilimi·honker233', keywords: ['honker233-小王爱马枪'],
+        ruleType: 'author', enabled: true, priority: 1, isDefault: false
+      },
+      {
+        id: 'music', displayName: 'bilimi·音乐舞台', keywords: ['音乐'],
+        ruleType: 'keyword', enabled: true, priority: 2, isDefault: true
+      }
+    ], [], [{
+      id: 'custom-author-honker233-小王爱马枪', displayName: 'bilimi·honker233',
+      keywords: ['honker233-小王爱马枪'], ruleType: 'author', enabled: true,
+      priority: 0, isDefault: false
+    }])).toEqual([
+      expect.objectContaining({ id: 'music' })
+    ])
+  })
 })

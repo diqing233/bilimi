@@ -11,6 +11,7 @@ import type {
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import type {
   OldFavoriteWorkspaceDeepSeekFailure,
+  OldFavoriteWorkspaceDeepSeekProcessedItem,
   OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   OldFavoriteWorkspaceDeepSeekResult,
   OldFavoriteWorkspaceSnapshot
@@ -61,6 +62,15 @@ function multiArchiveLimit(mode: FavoriteArchiveMultiMode) {
 
 function uniqueTargets(targets: string[]) {
   return [...new Set(targets.map((target) => target.trim()).filter(Boolean))]
+}
+
+function mergeProcessedItems(
+  current: OldFavoriteWorkspaceDeepSeekProcessedItem[],
+  next: OldFavoriteWorkspaceDeepSeekProcessedItem[]
+) {
+  const merged = new Map(current.map((item) => [item.aid, item]))
+  next.forEach((item) => merged.set(item.aid, item))
+  return [...merged.values()]
 }
 
 function isUnavailableArchiveItem(item: { unavailable?: boolean; title?: string; author?: string }) {
@@ -157,6 +167,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const failedSegments: FailedDeepSeekSegment[] = []
     const referencedConstraintLedgerNames = new Set<string>()
+    let processedItems: OldFavoriteWorkspaceDeepSeekProcessedItem[] = []
     const aggregate = {
       totalChunks: plan.requestGroups.length,
       completedChunks: plan.requestGroups.filter((group) => group.status !== 'pending').length,
@@ -220,12 +231,14 @@ export class OldFavoriteWorkspaceDeepSeekService {
           mode,
           aids: remainingAids
         }, (progress) => {
+          processedItems = mergeProcessedItems(processedItems, progress.processedItems ?? [])
           onProgress?.({
             totalChunks: aggregate.totalChunks,
             completedChunks: Math.min(aggregate.totalChunks, aggregate.completedChunks + progress.completedChunks),
             totalVideoCount: aggregate.totalVideoCount,
             successfulVideoCount: beforeSuccessful + progress.successfulVideoCount,
-            failedVideoCount: beforeFailed + progress.failedVideoCount
+            failedVideoCount: beforeFailed + progress.failedVideoCount,
+            ...(processedItems.length ? { processedItems } : {})
           })
         }, run, frozenPreferences, async (settled) => {
           settled.successfulAids.forEach((aid) => {
@@ -525,6 +538,14 @@ export class OldFavoriteWorkspaceDeepSeekService {
   }
 
   async cancelPendingAllSegments(accountMid: string) {
+    const activeRun = this.activeRuns.get(accountMid)
+    if (activeRun) {
+      this.cancelCurrentSegment(accountMid)
+      while (this.activeRuns.get(accountMid) === activeRun) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 10))
+      }
+      return true
+    }
     if (this.cancelCurrentSegment(accountMid)) return true
     const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
     if (!checkpoint || checkpoint.scope !== 'all') return false
@@ -779,6 +800,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     let successfulVideoCount = 0
     let failedVideoCount = 0
     let completedChunks = 0
+    let processedItems: OldFavoriteWorkspaceDeepSeekProcessedItem[] = []
     let authoritativeSnapshot = snapshot
     onProgress?.({ totalChunks, completedChunks: 0, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     const delayRetry = () => this.options.retryDelay?.(1_000) ?? new Promise<void>((resolve) => setTimeout(resolve, 1_000))
@@ -879,6 +901,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
       failedVideoCount += outcome.failures.reduce((count, failure) => count + failure.affectedVideoCount, 0)
       if (!this.destructiveMaintenance && outcome.accepted.length) {
         const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
+        const beforeTargets = new Map(outcome.accepted.flatMap((row) => typeof row.aid === 'number'
+          ? [[row.aid, [...(authoritativeSnapshot.classifications[String(row.aid)]?.targetLedgerIds ?? [])]] as const]
+          : []))
         const assignments = this.assignmentsFromResult(outcome.accepted, itemByAid, authoritativeSnapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
         if (assignments.length) {
           const expected: WorkspaceExpectation = {
@@ -895,6 +920,22 @@ export class OldFavoriteWorkspaceDeepSeekService {
           if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
           authoritativeSnapshot = next
         }
+        processedItems = mergeProcessedItems(processedItems, outcome.accepted.flatMap((row) => {
+          if (typeof row.aid !== 'number') return []
+          const item = itemByAid.get(row.aid)
+          if (!item) return []
+          const beforeTargetLedgerIds = beforeTargets.get(row.aid) ?? []
+          const afterTargetLedgerIds = [...(authoritativeSnapshot.classifications[String(row.aid)]?.targetLedgerIds ?? beforeTargetLedgerIds)]
+          return [{
+            aid: row.aid,
+            ...(typeof (item as { title?: string }).title === 'string' && (item as { title?: string }).title?.trim()
+              ? { title: (item as { title: string }).title.trim().slice(0, 160) }
+              : {}),
+            beforeTargetLedgerIds,
+            afterTargetLedgerIds,
+            changed: JSON.stringify(beforeTargetLedgerIds) !== JSON.stringify(afterTargetLedgerIds)
+          }]
+        }))
       }
       const settledSuccessfulAids = outcome.accepted
         .map((row) => row.aid)
@@ -906,7 +947,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
         requestGroupUpdates: requestGroupUpdates.slice(updateStart)
       })
       completedChunks = offset / archiveChunkSize + 1
-      onProgress?.({ totalChunks, completedChunks, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
+      onProgress?.({
+        totalChunks, completedChunks, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount,
+        ...(processedItems.length ? { processedItems } : {})
+      })
     }
 
     if (this.destructiveMaintenance) {

@@ -71,6 +71,49 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(observedSignal?.aborted).toBe(true)
   })
 
+  it('keeps the cancellation command pending until an active provider request releases ownership', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    let resolveGenerate: ((result: {
+      kind: 'favorite-archive-organize'
+      results: Array<{ aid: number; targetLedgerIds: string[]; keepOriginal: boolean; reason: string; lowConfidence: boolean }>
+      keywordSuggestions: never[]
+    }) => void) | undefined
+    const generate = vi.fn(() => new Promise<{
+      kind: 'favorite-archive-organize'
+      results: Array<{ aid: number; targetLedgerIds: string[]; keepOriginal: boolean; reason: string; lowConfidence: boolean }>
+      keywordSuggestions: never[]
+    }>((resolve) => { resolveGenerate = resolve }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: {
+        getSnapshot: vi.fn().mockResolvedValue(snapshot),
+        applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+      } as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const organizing = service.organizeCurrentSegment('100')
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    const canceling = service.cancelPendingAllSegments('100')
+    let cancellationSettled = false
+    void canceling.then(() => { cancellationSettled = true })
+    await Promise.resolve()
+
+    expect(cancellationSettled).toBe(false)
+
+    resolveGenerate?.({
+      kind: 'favorite-archive-organize',
+      results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+      keywordSuggestions: []
+    })
+    await expect(canceling).resolves.toBe(true)
+    await expect(organizing).resolves.toMatchObject({ canceled: true })
+  })
+
   it('rejects DeepSeek organization before an explicit organization round exists', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue(null),
@@ -563,8 +606,45 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     await service.organizeCurrentSegment('100', 'all', progress)
 
     expect(progress).toHaveBeenNthCalledWith(1, { totalChunks: 2, completedChunks: 0, totalVideoCount: 21, successfulVideoCount: 0, failedVideoCount: 0 })
-    expect(progress).toHaveBeenNthCalledWith(2, { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 })
-    expect(progress).toHaveBeenNthCalledWith(3, { totalChunks: 2, completedChunks: 2, totalVideoCount: 21, successfulVideoCount: 21, failedVideoCount: 0 })
+    expect(progress).toHaveBeenNthCalledWith(2, expect.objectContaining({ totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }))
+    expect(progress).toHaveBeenNthCalledWith(3, expect.objectContaining({ totalChunks: 2, completedChunks: 2, totalVideoCount: 21, successfulVideoCount: 21, failedVideoCount: 0 }))
+  })
+
+  it('publishes details only for available videos that a settled request actually processed', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [
+        { aid: 1, title: 'Processed', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Not scanned', sourceFolderIds: ['source'], unavailable: true }
+      ] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } }
+    }
+    const progress = vi.fn()
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: {
+        getSnapshot: vi.fn().mockResolvedValue(snapshot),
+        applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+      } as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate: vi.fn(async (request) => ({
+        kind: 'favorite-archive-organize' as const,
+        results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: [], keepOriginal: true, reason: 'keep', lowConfidence: false })),
+        keywordSuggestions: []
+      }))
+    })
+
+    await service.organizeCurrentSegment('100', 'all', progress)
+
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
+      processedItems: [{
+        aid: 1,
+        title: 'Processed',
+        beforeTargetLedgerIds: ['music'],
+        afterTargetLedgerIds: ['music'],
+        changed: false
+      }]
+    }))
   })
 
   it('keeps successful chunks and reports a failed chunk without discarding the whole segment', async () => {

@@ -11,6 +11,25 @@ function deferred<T>() {
 
 describe('FavoriteLedgerOverview', () => {
   afterEach(() => vi.useRealTimers())
+  it('publishes live enable changes before delayed persistence completes', () => {
+    const enabledStates = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'custom', displayName: 'bilimi·自建', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn()} onEnabledStateChange={enabledStates} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·自建' }))
+    expect([...enabledStates.mock.calls.at(-1)![0]]).toContainEqual(['custom', false])
+  })
+
+  it('reports the deleted recommendation id to its parent coordinator', () => {
+    const onDeleteLedger = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'custom-tag-game', displayName: 'bilimi·游戏', keywords: ['游戏'], ruleType: 'tag', enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger} />)
+    fireEvent.click(screen.getByRole('button', { name: '游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(onDeleteLedger).toHaveBeenCalledWith('custom-tag-game')
+  })
   it('waits for active-round rule analysis before persisting and locks only draft mutations', async () => {
     const analysis = deferred<boolean>()
     const analyze = vi.fn((_ledger: unknown) => analysis.promise)

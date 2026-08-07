@@ -2045,7 +2045,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     segmentSize: () => loadAssistantPreferences(getDesktopStore()).oldFavoriteWorkspaceSegmentSize,
     onSegmentsReady: async (accountMid, segmentIds) => {
-      await oldFavoriteWorkspaceDeepSeekService?.resumePendingAllSegments(accountMid, segmentIds)
+      const workspace = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid)
+      const workspaceId = workspace && !('recovery' in workspace) ? workspace.workspaceId : undefined
+      await oldFavoriteWorkspaceDeepSeekService?.resumePendingAllSegments(accountMid, segmentIds, (progress) => {
+        if (!workspaceId) return
+        const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+          .filter((target): target is BrowserWindow => Boolean(target && !target.isDestroyed()))
+        for (const target of targets) {
+          target.webContents.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, workspaceId, ...progress })
+        }
+      })
       await oldFavoriteWorkspaceCoordinator?.continueExecutionIntent(accountMid)
     },
     refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
@@ -2059,7 +2068,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
           accountPreferences.favoriteLedgers,
           accountPreferences.defaultFavoriteSystemEnabled
         ),
-        recommendedLedgers
+        recommendedLedgers,
+        options?.excludedRecommendedLedgers
       )
       return classifyOldFavoriteItemsCooperatively(items, (batch) => batch.map((item) => {
         const result = classifyVideoContent({
