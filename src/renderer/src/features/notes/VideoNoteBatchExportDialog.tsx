@@ -35,7 +35,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
   const [formats, setFormats] = useState<Array<'markdown' | 'word'>>(initialFormats)
   const [scope, setScope] = useState<'current' | 'complete'>(initialScope)
   const [selectedContent, setSelectedContent] = useState<VideoNoteBatchExportCurrentContent>(currentContent ?? 'plain')
-  const [contentMenuOpen, setContentMenuOpen] = useExclusiveMenu()
+  const [contentMenuOpen, setContentMenuOpen, contentMenuScope] = useExclusiveMenu()
   const [includeNotes, setIncludeNotes] = useState(hasNotes)
   const [summary, setSummary] = useState<Preview>()
   const [result, setResult] = useState<Result>()
@@ -177,7 +177,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
       <strong id="video-note-export-scope-title">导出范围</strong>
       <div className="video-note-export-dialog__scope-row">
         <label><input aria-label="单项内容" type="radio" checked={scope === 'current'} onChange={() => setScope('current')} />单项内容</label>
-        <div className="video-note-export-dialog__content-picker">
+        <div {...contentMenuScope} className="video-note-export-dialog__content-picker">
           <button type="button" aria-label="选择导出内容" aria-haspopup="menu" aria-expanded={contentMenuOpen} disabled={scope !== 'current'} onClick={() => setContentMenuOpen((value) => !value)}>{selectedContentLabel}<span aria-hidden="true">▾</span></button>
           {contentMenuOpen && scope === 'current' ? <div role="menu" aria-label="单项导出内容" className="video-note-export-dialog__content-menu">
             {contentOptions.map((option, index) => option.value ? <button key={option.value} type="button" role="menuitem" onClick={() => { setSelectedContent(option.value!); setContentMenuOpen(false) }}>{option.label}</button> : <hr key={`divider-${index}`} />)}

@@ -21,6 +21,20 @@ function haveSameTargets(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((targetLedgerId) => right.includes(targetLedgerId))
 }
 
+function formatBatchIndices(indices: number[]) {
+  const sortedIndices = [...new Set(indices)].sort((left, right) => left - right)
+  const labels: string[] = []
+  for (let start = 0; start < sortedIndices.length;) {
+    let end = start
+    while (end + 1 < sortedIndices.length && sortedIndices[end + 1] === sortedIndices[end] + 1) end += 1
+    const first = sortedIndices[start]
+    const last = sortedIndices[end]
+    labels.push(end - start >= 2 ? `${first}～${last}` : sortedIndices.slice(start, end + 1).join('、'))
+    start = end + 1
+  }
+  return labels.join('、')
+}
+
 export function groupOldFavoritePreviewItems<Item extends { aid: number }>(
   items: readonly Item[],
   classifications: OldFavoriteWorkspaceSnapshot['classifications'],
@@ -94,7 +108,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [batchGroupId, setBatchGroupId] = useState<string | null>(null)
   const [batchSelectedAids, setBatchSelectedAids] = useState<Set<number>>(() => new Set())
-  const [batchTargetOpen, setBatchTargetOpen] = useExclusiveMenu()
+  const [batchTargetOpen, setBatchTargetOpen, batchTargetScope] = useExclusiveMenu()
   const [batchTargetPosition, setBatchTargetPosition] = useState({ top: 0, left: 0 })
   const [recentlyMovedAidByLedgerId, setRecentlyMovedAidByLedgerId] = useState<Record<string, number>>({})
   const groupsRootRef = useRef<HTMLDivElement>(null)
@@ -274,9 +288,9 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
                 <button type="button" disabled={loading || mutationLocked} aria-pressed={allBatchSelected} onClick={() => setBatchSelectedAids(allBatchSelected ? new Set() : new Set(group.items.map((item) => item.aid)))}>全选</button>
                 <button type="button" disabled={loading || mutationLocked} onClick={closeBatchMode}>取消批量</button>
               </span>
-              <button ref={batchTargetTriggerRef} type="button" aria-haspopup="menu" aria-expanded={batchTargetOpen} disabled={loading || mutationLocked || batchSelectedAids.size === 0}
+              <button {...batchTargetScope} ref={batchTargetTriggerRef} type="button" aria-haspopup="menu" aria-expanded={batchTargetOpen} disabled={loading || mutationLocked || batchSelectedAids.size === 0}
                 onClick={() => setBatchTargetOpen((open) => !open)}>转移所选 <span className="disclosure-arrow" aria-hidden="true">▾</span></button>
-              {batchTargetOpen ? createPortal(<div ref={batchTargetMenuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating favorite-ledger-panel__batch-target-menu"
+              {batchTargetOpen ? createPortal(<div {...batchTargetScope} ref={batchTargetMenuRef} className="favorite-ledger-panel__target-menu favorite-ledger-panel__target-menu--floating favorite-ledger-panel__batch-target-menu"
                 style={{ top: batchTargetPosition.top, left: batchTargetPosition.left }} role="menu" aria-label={`批量转移 ${group.title}`}>
                 <button type="button" role="menuitem" onClick={() => applyBatchTarget('inbox')}>暂存</button>
                 {ledgers.filter((ledger) => ledger.id !== 'inbox' && (enabledLedgerIds?.has(ledger.id) ?? ledger.enabled)).map((ledger) => <button key={ledger.id} type="button" role="menuitem" onClick={() => applyBatchTarget(ledger.id)}>{ledger.displayName}</button>)}
@@ -331,9 +345,9 @@ export function OldFavoriteArchivePreviewStep({
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
-  const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useExclusiveMenu()
+  const [deepSeekScopeOpen, setDeepSeekScopeOpen, deepSeekScopeMenuScope] = useExclusiveMenu()
   const [deepSeekDetailsOpen, setDeepSeekDetailsOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useExclusiveMenu()
+  const [historyOpen, setHistoryOpen, historyMenuScope] = useExclusiveMenu()
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
   const historyMenuRef = useRef<HTMLDivElement>(null)
   const [historyMenuPosition, setHistoryMenuPosition] = useState({ top: 0, left: 0 })
@@ -374,24 +388,51 @@ export function OldFavoriteArchivePreviewStep({
   const currentSegmentAidSet = useMemo(() => new Set(snapshot.currentSegment?.aids ?? []), [snapshot.currentSegment?.aids])
   const deepSeekDetails = useMemo(() => {
     const detailsByAid = new Map<number, OldFavoriteWorkspaceDeepSeekProcessedItem>()
-    const appliedHistoryEntries = historyEntries
-      .filter((entry) => entry.source === 'deepseek' && entry.cursor <= snapshot.history.cursor)
-      .sort((left, right) => left.cursor - right.cursor)
-    for (const entry of appliedHistoryEntries) {
-      for (const detail of entry.summary?.details ?? []) {
-        if (detail.title?.trim() === '已失效视频') continue
-        detailsByAid.set(detail.aid, {
-          ...detail,
-          changed: !haveSameTargets(detail.beforeTargetLedgerIds, detail.afterTargetLedgerIds)
-        })
+    if (snapshot.deepSeekOrganization) {
+      const selectedSegments = snapshot.deepSeekOrganization.segments
+        .filter((segment) => viewScope === 'all' || segment.id === snapshot.currentSegment?.id)
+        .sort((left, right) => left.index - right.index)
+      for (const segment of selectedSegments) {
+        for (const detail of segment.details) {
+          if (detail.title?.trim() === '已失效视频') continue
+          detailsByAid.set(detail.aid, detail)
+        }
+      }
+    } else {
+      const appliedHistoryEntries = historyEntries
+        .filter((entry) => entry.source === 'deepseek' && entry.cursor <= snapshot.history.cursor)
+        .sort((left, right) => left.cursor - right.cursor)
+      for (const entry of appliedHistoryEntries) {
+        for (const detail of entry.summary?.details ?? []) {
+          if (detail.title?.trim() === '已失效视频') continue
+          detailsByAid.set(detail.aid, {
+            ...detail,
+            changed: !haveSameTargets(detail.beforeTargetLedgerIds, detail.afterTargetLedgerIds)
+          })
+        }
       }
     }
     for (const detail of deepSeekProcessedItems ?? []) {
       if (detail.title?.trim() === '已失效视频') continue
+      if (viewScope !== 'all' && hasMultipleSegments && !currentSegmentAidSet.has(detail.aid)) continue
       detailsByAid.set(detail.aid, detail)
     }
-    return [...detailsByAid.values()].filter((detail) => viewScope === 'all' || !hasMultipleSegments || currentSegmentAidSet.has(detail.aid))
-  }, [currentSegmentAidSet, deepSeekProcessedItems, hasMultipleSegments, historyEntries, snapshot.history.cursor, viewScope])
+    return [...detailsByAid.values()]
+  }, [currentSegmentAidSet, deepSeekProcessedItems, hasMultipleSegments, historyEntries, snapshot.currentSegment?.id, snapshot.deepSeekOrganization, snapshot.history.cursor, viewScope])
+  const otherBatchOrganizationSummary = useMemo(() => {
+    if (viewScope !== 'all' || !snapshot.deepSeekOrganization) return ''
+    const otherSegments = snapshot.deepSeekOrganization.segments.filter((segment) => segment.id !== snapshot.currentSegment?.id)
+    const labels: Array<{ status: typeof otherSegments[number]['status']; label: string }> = [
+      { status: 'organized', label: '已整理' },
+      { status: 'partial', label: '部分整理' },
+      { status: 'unorganized', label: '未整理' }
+    ]
+    const summaries = labels.flatMap(({ status, label }) => {
+      const indices = otherSegments.filter((segment) => segment.status === status).map((segment) => segment.index + 1)
+      return indices.length ? [`第 ${formatBatchIndices(indices)} 批${label}`] : []
+    })
+    return summaries.length ? `其他批次：${summaries.join('；')}` : ''
+  }, [snapshot.currentSegment?.id, snapshot.deepSeekOrganization, viewScope])
   useEffect(() => setDeepSeekDetailsOpen(false), [snapshot.workspaceId])
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
@@ -461,7 +502,7 @@ export function OldFavoriteArchivePreviewStep({
           <div className="favorite-ledger-panel__deepseek-archive-heading">
             <strong>DeepSeek 辅助整理</strong>
             <div className="favorite-ledger-panel__deepseek-archive-actions">
-              <div className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
+              <div {...deepSeekScopeMenuScope} className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeepSeekScopeOpen(false)
               }}>
                 <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
@@ -500,6 +541,7 @@ export function OldFavoriteArchivePreviewStep({
           </div>
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled favorite-ledger-panel__deepseek-archive-disabled--warning">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
+          {otherBatchOrganizationSummary ? <p className="favorite-ledger-panel__deepseek-archive-hint">{otherBatchOrganizationSummary}</p> : null}
           {deepSeekFeedbackView || deepSeekDetails.length ? <div className="favorite-ledger-panel__deepseek-result"
             role={deepSeekFeedbackView ? deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status' : undefined}>
             {deepSeekFeedbackView ? <>
@@ -540,13 +582,13 @@ export function OldFavoriteArchivePreviewStep({
           <div className="favorite-ledger-panel__archive-history-actions">
             <label className="favorite-ledger-panel__archive-history-select">
               <span>改动记录</span>
-              <div className="favorite-ledger-panel__archive-history-select-control">
+              <div {...historyMenuScope} className="favorite-ledger-panel__archive-history-select-control">
               <button ref={historyTriggerRef} type="button" className="favorite-ledger-panel__archive-history-trigger"
                 aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || historyEntries.length === 0}
                 onClick={() => setHistoryOpen((open) => !open)}>
                 <span className="disclosure-arrow favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
-              {historyOpen ? createPortal(<div ref={historyMenuRef} className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
+              {historyOpen ? createPortal(<div {...historyMenuScope} ref={historyMenuRef} className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
                 <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>
                 {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
                   disabled={loading || mutationLocked} onClick={() => {

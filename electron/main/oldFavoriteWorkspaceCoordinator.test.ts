@@ -7701,6 +7701,78 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('restores DeepSeek organization details for every segment after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false }]
+    })
+    const items = Array.from({ length: 501 }, (_unused, index) => ({
+      aid: index + 1,
+      title: index === 0 ? 'First batch result' : index === 500 ? 'Second batch result' : `Untouched ${index + 1}`,
+      sourceFolderIds: ['source']
+    }))
+    for (let offset = 0; offset < items.length; offset += 50) {
+      await first.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: offset + 50 < items.length,
+        items: items.slice(offset, offset + 50)
+      })
+    }
+    await first.finishScan('100')
+
+    let snapshot = requireSnapshot(await first.getSnapshot('100'))
+    await first.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['music'] }], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment!.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: {}
+    })
+    snapshot = requireSnapshot(await first.getSnapshot('100'))
+    await first.applyDeepSeekClassificationBatch('100', [{ aid: 1, targetLedgerIds: ['music'] }], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment!.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: {
+        '1': { targetLedgerIds: ['music'], source: 'deepseek' }
+      }
+    })
+    await first.selectSegment('100', 'segment-2')
+    snapshot = requireSnapshot(await first.getSnapshot('100'))
+    await first.applyDeepSeekClassificationBatch('100', [{ aid: 501, targetLedgerIds: ['knowledge'] }], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment!.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: {}
+    })
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, segmentSize: () => 500 }
+    )
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-2' },
+      deepSeekOrganization: {
+        segments: [
+          {
+            id: 'segment-1', index: 0, status: 'organized',
+            details: [{ aid: 1, title: 'First batch result', beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['music'], changed: false }]
+          },
+          {
+            id: 'segment-2', index: 1, status: 'organized',
+            details: [{ aid: 501, title: 'Second batch result', beforeTargetLedgerIds: [], afterTargetLedgerIds: ['knowledge'], changed: true }]
+          }
+        ]
+      }
+    })
+  })
+
   it('rejects a DeepSeek batch when an equal-target manual classification arrived after its snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

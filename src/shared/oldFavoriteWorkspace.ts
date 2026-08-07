@@ -136,9 +136,20 @@ export type OldFavoriteWorkspaceHistoryChange = {
   after?: OldFavoriteWorkspaceClassification
 }
 
+/** A main-process DeepSeek result that was actually evaluated for organization. */
+export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
+  aid: number
+  title?: string
+  beforeTargetLedgerIds: string[]
+  afterTargetLedgerIds: string[]
+  changed: boolean
+}
+
 export type OldFavoriteWorkspaceHistoryEntry = {
   source: OldFavoriteWorkspaceClassificationSource
   changes: OldFavoriteWorkspaceHistoryChange[]
+  /** Durable detail projection, including evaluated videos whose targets did not change. */
+  deepSeekProcessedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
 }
 
 export type OldFavoriteWorkspace = {
@@ -215,6 +226,14 @@ export type OldFavoriteWorkspaceSnapshot = {
     successfulVideoCount?: number
     pendingVideoCount?: number
     failedVideoCount?: number
+  }
+  deepSeekOrganization?: {
+    segments: Array<{
+      id: string
+      index: number
+      status: 'organized' | 'partial' | 'unorganized'
+      details: OldFavoriteWorkspaceDeepSeekProcessedItem[]
+    }>
   }
   executionIntent?: {
     mode: 'local' | 'bilibili'
@@ -448,15 +467,6 @@ export type OldFavoriteWorkspaceExecutionIntent = {
   mode: 'local' | 'bilibili'
   includeInbox?: boolean
   status: 'waiting' | 'running' | 'blocked'
-}
-
-/** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
-export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
-  aid: number
-  title?: string
-  beforeTargetLedgerIds: string[]
-  afterTargetLedgerIds: string[]
-  changed: boolean
 }
 
 export type OldFavoriteWorkspaceDeepSeekResult = {
