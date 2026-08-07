@@ -184,7 +184,7 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
-  it('gets teary when the owner clicks 小咪 repeatedly', async () => {
+  it('cries immediately instead of restoring the main window on the third quick click', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-10T10:00:00+08:00'))
     const api = installDesktopApi()
@@ -197,12 +197,12 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(pet)
     vi.setSystemTime(new Date('2026-07-10T10:00:00.800+08:00'))
     fireEvent.click(pet)
-    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(3)
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(2)
     expect(screen.getByText('主人你坏……小咪会被点晕的。')).toBeInTheDocument()
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'crying')
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
       'data-click-reaction-signal',
-      '3'
+      '2'
     )
   })
 

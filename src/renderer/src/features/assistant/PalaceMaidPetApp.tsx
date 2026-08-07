@@ -544,11 +544,13 @@ export function PalaceMaidPetApp() {
   function restoreMainWindow() {
     setClosePromptVisible(false)
     clearPetHoverPreview()
-    setClickReactionSignal((signal) => signal + 1)
     markOwnerInteraction()
-    if (!recordPetClickForCrying()) {
-      showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
+    if (recordPetClickForCrying()) {
+      return
     }
+
+    setClickReactionSignal((signal) => signal + 1)
+    showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 
