@@ -23,9 +23,9 @@ describe('crying pet state', () => {
     })
   })
 
-  it('renders the crying character asset', () => {
+  it('uses the existing transparent wronged character asset for crying', () => {
     render(<LayeredPetRenderer petState="crying" clickReactionSignal={0} />)
     expect(screen.getByTestId('layered-pet')).toHaveAttribute('data-pet-state', 'crying')
-    expect(screen.getByTestId('layered-pet-character')).toHaveAttribute('src', expect.stringContaining('crying.png'))
+    expect(screen.getByTestId('layered-pet-character')).toHaveAttribute('src', expect.stringContaining('error.png'))
   })
 })

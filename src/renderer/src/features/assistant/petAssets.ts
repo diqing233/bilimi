@@ -3,13 +3,11 @@ import bigHeadErrorCharacterUrl from '../../assets/pet/blue-white-maid/character
 import bigHeadHintCharacterUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import bigHeadIdleCharacterUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import bigHeadWorkingCharacterUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
-import bigHeadCryingCharacterUrl from '../../assets/pet/blue-white-maid/character/big-head/crying.png'
 import classicClickedCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/clicked.png'
 import classicErrorCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/error.png'
 import classicHintCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/hint.png'
 import classicIdleCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/idle.png'
 import classicWorkingCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/working.png'
-import classicCryingCharacterUrl from '../../assets/pet/blue-white-maid/character/classic/crying.png'
 import clickHeartsUrl from '../../assets/pet/blue-white-maid/effects/click-hearts.png'
 import errorSweatUrl from '../../assets/pet/blue-white-maid/effects/error-sweat.png'
 import hintSparklesUrl from '../../assets/pet/blue-white-maid/effects/hint-sparkles.png'
@@ -38,7 +36,7 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       cheer: bigHeadWorkingCharacterUrl,
       sleepy: bigHeadIdleCharacterUrl,
       surprised: bigHeadHintCharacterUrl,
-      crying: bigHeadCryingCharacterUrl,
+      crying: bigHeadErrorCharacterUrl,
       done: bigHeadClickedCharacterUrl,
       clicked: bigHeadClickedCharacterUrl
     },
@@ -61,7 +59,7 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       cheer: classicWorkingCharacterUrl,
       sleepy: classicIdleCharacterUrl,
       surprised: classicHintCharacterUrl,
-      crying: classicCryingCharacterUrl,
+      crying: classicErrorCharacterUrl,
       done: classicClickedCharacterUrl,
       clicked: classicClickedCharacterUrl
     },
@@ -92,7 +90,7 @@ export const legacyBlueWhiteMaidPetAssets: PetAssetManifest = {
     cheer: classicWorkingCharacterUrl,
     sleepy: classicIdleCharacterUrl,
     surprised: classicHintCharacterUrl,
-    crying: classicCryingCharacterUrl,
+    crying: classicErrorCharacterUrl,
     done: classicClickedCharacterUrl,
     clicked: classicClickedCharacterUrl
   },
