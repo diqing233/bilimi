@@ -1948,6 +1948,7 @@ body[data-floating-window="true"],
   border-top: 1px dashed #d1e6fb;
   background: rgba(247, 251, 255, 0.99);
   box-shadow: 0 8px 18px rgba(45, 94, 139, 0.16);
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
 }
 .floating-assistant-global-status__menu section { display: grid; gap: 4px; padding: 8px 10px; }
 .floating-assistant-global-status__menu section + section { border-top: 1px dashed #d1e6fb; }
@@ -1955,7 +1956,7 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__menu time { flex: 0 0 auto; color: var(--porcelain-muted); }
 .floating-assistant-global-status__menu button { display: grid; gap: 2px; border: 0; background: transparent; color: inherit; padding: 4px 0; font: inherit; text-align: left; cursor: pointer; }
 .floating-assistant-global-status__menu button:hover, .floating-assistant-global-status__menu button:focus-visible { color: var(--porcelain-primary); outline: none; }
-.floating-assistant-global-status__menu small { color: var(--porcelain-muted); font-weight: 400; line-height: 1.4; }
+.floating-assistant-global-status__menu small { color: var(--porcelain-deep); font-size: 12px; font-weight: 400; line-height: 1.45; }
 .floating-assistant-global-status__lights {
   min-width: 0;
   display: grid;
@@ -1976,7 +1977,7 @@ body[data-floating-window="true"],
   gap: 4px;
   height: 100%;
   padding: 0 4px;
-  overflow: hidden;
+  overflow: visible;
   color: #285e90;
   font: inherit;
   font-size: 12px;
@@ -1999,29 +2000,32 @@ body[data-floating-window="true"],
 }
 .floating-assistant-global-status__light-tooltip {
   position: absolute;
+  top: calc(100% + 8px);
   right: auto;
-  bottom: calc(100% + 8px);
+  bottom: auto;
   left: 0;
   z-index: 4;
   box-sizing: border-box;
   width: min(360px, calc(100vw - 32px));
+  max-height: min(50vh, 420px);
   padding: 10px 12px;
   border: 1px solid #b9d6ef;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.99);
   box-shadow: 0 8px 20px rgba(35, 74, 111, 0.2);
   color: #17324d;
-  font-size: 14px;
-  font-weight: 500;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.55;
   text-align: left;
   white-space: pre-line;
   overflow-wrap: anywhere;
+  overflow-y: auto;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(4px);
-  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms ease-out;
+  transition: opacity 120ms ease-out, visibility 0s linear 120ms;
 }
 .floating-assistant-global-status__light:last-child .floating-assistant-global-status__light-tooltip {
   right: 0;
@@ -2031,7 +2035,7 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__light:focus-visible .floating-assistant-global-status__light-tooltip {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  transition: opacity 120ms ease-out;
 }
 .floating-assistant-global-status__dot {
   width: 8px;

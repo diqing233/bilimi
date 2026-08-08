@@ -115,8 +115,6 @@ const EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION: VideoNoteArchiveSelection = {
   versionId: null,
   activeResultTab: null
 }
-const FAVORITE_LEDGER_BACKUP_HINT =
-  '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '娱乐',
   humor: '娱乐',
@@ -347,7 +345,7 @@ export function statusLightTooltip(item: GlobalStatusItem): string {
 }
 
 function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。'): string {
-  return `收藏夹：${favorite}\n整理收藏：${organization}\n${FAVORITE_LEDGER_BACKUP_HINT}`
+  return `收藏夹：${favorite}\n整理收藏：${organization}`
 }
 
 type LedgerWorkspacePanelProps = {

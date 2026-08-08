@@ -371,10 +371,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
   })
 
-  it('includes the copy-preserving reminder in the wait-confirmation detail shared by the status light and task menu', () => {
-    expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).toContain(
-      '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
-    )
+  it('keeps the wait-confirmation detail concise across the status light and task menu', () => {
+    expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).not.toContain('小咪提醒')
   })
 
   it('renders a readable custom tooltip for status lights instead of a native title tooltip', () => {
@@ -388,6 +386,15 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('.floating-assistant-global-status__light-tooltip')
     expect(styles).toContain('.floating-assistant-global-status__light-label')
     expect(styles).toContain('white-space: pre-line')
+    expect(styles).toContain('top: calc(100% + 8px)')
+    expect(styles).toContain('max-height: min(50vh, 420px)')
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-size: 12px;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;[^}]*font-weight: 400;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transition: opacity 120ms ease-out, visibility 0s linear 120ms;/)
+    expect(styles).not.toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transform:/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light \{[^}]*overflow: visible;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu small \{[^}]*color: var\(--porcelain-deep\);[^}]*font-size: 12px;[^}]*font-weight: 400;[^}]*line-height: 1\.45;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;/)
   })
 
   it('removes Electron IPC wrappers from DeepSeek summary feedback', () => {
@@ -558,10 +565,11 @@ describe('resolveFavoriteOrganizationLamp', () => {
   })
 
   it('places local data and motion tuning after the Bilibili connection setting', () => {
-    expect(SETTINGS_JUMP_OPTIONS.slice(-4).map((option) => option.value)).toEqual([
+    expect(SETTINGS_JUMP_OPTIONS.slice(-5).map((option) => option.value)).toEqual([
+      'motion-tuning',
+      'review-actions',
       'bilibili-connection',
       'local-data',
-      'motion-tuning',
       'close'
     ])
   })

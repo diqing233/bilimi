@@ -154,6 +154,7 @@ import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createTranscriptionProviderResolver } from './transcriptionProviderResolver'
 import { disposeDefaultFasterWhisperGpuSessions, disposeDefaultFasterWhisperHelperSessions } from './fasterWhisperTranscription'
+import { disposeFasterWhisperGpuProbes } from './fasterWhisperGpu'
 import { createTranscriptionModelManager } from './transcriptionModelManager'
 import { registerTranscriptionModelIpc } from './transcriptionModelIpc'
 import { validateTranscriptionModelRuntime } from './transcriptionModelRuntimeValidation'
@@ -2442,6 +2443,7 @@ const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
 })
 app.on('before-quit', favoriteRepositoryQuitBarrier)
 app.on('before-quit', disposeDefaultFasterWhisperHelperSessions)
+app.on('before-quit', disposeFasterWhisperGpuProbes)
 
 app.on('window-all-closed', () => {
   if (appQuitting && process.platform !== 'darwin') app.quit()
