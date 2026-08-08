@@ -736,6 +736,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     }
+    const currentSegmentState = snapshot.segments?.find((segment) => segment.id === snapshot.currentSegment!.id)
+    if (currentSegmentState && !['ready', 'saved'].includes(currentSegmentState.readiness)) {
+      throw new Error('Old favorite workspace current batch tag enrichment is not complete.')
+    }
     if (retry && (retry.workspaceId !== snapshot.workspaceId || retry.segmentId !== snapshot.currentSegment.id)) {
       throw new Error('Old favorite workspace changed before failed DeepSeek chunks could be retried.')
     }

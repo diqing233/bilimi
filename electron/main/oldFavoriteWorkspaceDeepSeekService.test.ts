@@ -132,6 +132,30 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  it('rejects DeepSeek organization for a batch whose tags are still being enriched', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', status: 'previewing' as const, readiness: 'tagging' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn()
+    }
+    const generate = vi.fn()
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [] }),
+      generate
+    })
+
+    await expect(service.organizeCurrentSegment('100')).rejects.toThrow(
+      'Old favorite workspace current batch tag enrichment is not complete.'
+    )
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('uses account-effective ledgers so disabled default targets are excluded from archive DeepSeek', async () => {
     const snapshot = {
       accountMid: '100', workspaceId: 'workspace-100', status: 'previewing',

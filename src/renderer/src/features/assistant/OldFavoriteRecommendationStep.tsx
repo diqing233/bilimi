@@ -17,6 +17,7 @@ type OldFavoriteRecommendationStepProps = {
   onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
+  contentAvailable?: boolean
 }
 
 type CandidateGroup = {
@@ -51,7 +52,8 @@ export function OldFavoriteRecommendationStep({
   onSetRecommendedCandidates,
   onUpdateRecommendedCandidates,
   viewScope: controlledViewScope,
-  onViewScopeChange
+  onViewScopeChange,
+  contentAvailable = true
 }: OldFavoriteRecommendationStepProps) {
   const [authorCandidatesExpanded, setAuthorCandidatesExpanded] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
@@ -110,6 +112,17 @@ export function OldFavoriteRecommendationStep({
       else next.delete(candidate.id)
     }
     onSetRecommendedCandidates([...next])
+  }
+
+  if (!contentAvailable) {
+    return <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
+      <div className="favorite-ledger-panel__step-title-row">
+        <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
+        {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="推荐收藏夹视图" value={viewScope} onChange={setViewScope} /> : null}
+      </div>
+      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} /> : null}
+      <p role="status">{viewScope === 'all' ? '本轮仍有标签补取中，完成批次会在就绪后汇总到推荐收藏夹。' : '当前批次标签补取中，完成后将生成推荐收藏夹。'}</p>
+    </section>
   }
 
   return <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">

@@ -3,6 +3,77 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteGuide DeepSeek browsing', () => {
+  it('keeps an incomplete scan in the four-metric whole-run view', () => {
+    const snapshot = {
+      version: 1 as const,
+      accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0, paused: true, totalItemCount: 2_868, scannedItemCount: 140 },
+      inventoryMetrics: {
+        authority: 'incomplete' as const, relationshipCount: 2_868, plannedAidCount: null, protectedAidCount: null, unavailableAidCount: null,
+        sourceFolders: []
+      },
+      continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+
+    render(<OldFavoriteGuide
+      snapshot={snapshot} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const metrics = screen.getByLabelText('本批整理统计')
+    expect(metrics).toHaveTextContent('本批视频140')
+    expect(screen.getByLabelText('本批待整理')).toBeInTheDocument()
+    expect(screen.queryByText('已扫描 140 条视频，待获取标签')).not.toBeInTheDocument()
+  })
+
+  it('puts continue scan and finish organization side by side for a paused scan', () => {
+    const onResumeScan = vi.fn()
+    const onFinishScan = vi.fn()
+    const snapshot = {
+      version: 1 as const,
+      accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0, paused: true, totalItemCount: 2_868, scannedItemCount: 140 },
+      inventoryMetrics: {
+        authority: 'incomplete' as const, relationshipCount: 2_868, plannedAidCount: null, protectedAidCount: null, unavailableAidCount: null,
+        sourceFolders: []
+      },
+      continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+
+    render(<OldFavoriteGuide
+      snapshot={snapshot} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onPauseScan={vi.fn()} onResumeScan={onResumeScan} onFinishScan={onFinishScan} scanPaused
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const actions = screen.getByRole('group', { name: '扫描操作' })
+    expect(within(actions).getAllByRole('button').map((button) => button.textContent)).toEqual(['继续扫描', '结束整理'])
+    fireEvent.click(within(actions).getByRole('button', { name: '继续扫描' }))
+    fireEvent.click(within(actions).getByRole('button', { name: '结束整理' }))
+    expect(onResumeScan).toHaveBeenCalledOnce()
+    expect(onFinishScan).toHaveBeenCalledOnce()
+  })
+
   it('keeps whole-run scope when moving from archive preview to confirmation', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
@@ -170,7 +241,6 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
 
   it('keeps cancellation visible when an all-batch DeepSeek run advances to the scan step', () => {
     const onCancelDeepSeek = vi.fn()
-    const onPauseTagEnrichment = vi.fn()
     const snapshot = {
       version: 1 as const,
       accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const, mode: 'incremental' as const,
@@ -188,7 +258,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     render(<OldFavoriteGuide
       snapshot={snapshot} loading reconciling={false} scanStarting={false} scanStartFailure={null}
       step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
-      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={onPauseTagEnrichment} onResumeTagEnrichment={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
       onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
       ledgers={[]} deepSeekAvailable deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在等待下一批标签补取' }}
       onSelectSegment={vi.fn()} onViewSegment={vi.fn()} onAutoClassify={vi.fn()}
@@ -200,9 +270,6 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '取消整理' }))
     expect(onCancelDeepSeek).toHaveBeenCalledOnce()
-    const pauseButton = screen.getByRole('button', { name: '暂停补取标签' })
-    expect(pauseButton).toBeEnabled()
-    fireEvent.click(pauseButton)
-    expect(onPauseTagEnrichment).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '暂停补取标签' })).not.toBeInTheDocument()
   })
 })

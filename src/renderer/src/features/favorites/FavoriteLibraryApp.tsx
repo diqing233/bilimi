@@ -873,7 +873,8 @@ export function FavoriteLibraryApp({
   // A summary may return before the initial page; neither is a valid empty-library result alone.
   const workspaceTitle = !page
     ? libraryLoadState === 'error' ? '收藏库无法读取' : '正在读取收藏库'
-    : `${currentScopeLabel} ${currentScopeTotal ?? displayedTotal} 个视频`
+    : currentScopeLabel
+  const workspaceVideoCount = page ? currentScopeTotal ?? displayedTotal : undefined
   const shouldShowFilteredCount = hasActiveResultFilter && displayedTotal !== currentScopeTotal
   const detail = selected && activeRow ? buildFavoriteLibraryDetail(
     detailSnapshot?.video.aid === selected.aid
@@ -1743,7 +1744,7 @@ export function FavoriteLibraryApp({
         {workspaceSyncResult ? <p className="favorite-library__batch-eligibility" role="status">{workspaceSyncResult}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
           <div className="favorite-library__workspace-heading">
-            <h2 {...(!page ? { role: 'status', 'aria-label': workspaceTitle } : {})}>{workspaceTitle}</h2>
+            <h2 {...(!page ? { role: 'status', 'aria-label': workspaceTitle } : {})}>{workspaceTitle}{workspaceVideoCount !== undefined ? <small className="favorite-library__workspace-video-count"> {workspaceVideoCount} 个视频</small> : null}</h2>
             {currentLedgerBindingStatus ? <span className="favorite-library__ledger-binding-status" data-state={currentLedgerBindingStatus.kind}>
               <strong>{currentLedgerBindingStatus.label}</strong>
               {currentLedgerBindingStatus.actionLabel && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({

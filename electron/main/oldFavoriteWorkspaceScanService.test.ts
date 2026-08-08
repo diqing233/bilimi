@@ -656,7 +656,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     })
   })
 
-  it('starts tag preparation for a sealed batch before a later source page finishes', async () => {
+  it('waits for the full scan to finish before starting tags for a sealed batch', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     let resolveLaterPage!: (value: {
       status: 'ok'; observedAccountMid: string; items: never[]; hasMore: false
@@ -706,12 +706,14 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith(
-      '100', 1, ['Technology'], 'workspace-1'
-    ))
+    await vi.waitFor(() => expect(coordinator.recordScanPage).toHaveBeenCalledTimes(1))
+    expect(coordinator.recordTagEnrichment).not.toHaveBeenCalled()
     expect(coordinator.finishScan).not.toHaveBeenCalled()
     resolveLaterPage({ status: 'ok', observedAccountMid: '100', items: [], hasMore: false })
     await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith(
+      '100', 1, ['Technology'], 'workspace-1'
+    ))
   })
 
   it('reads Bilimi work-folder members in batches before ordinary source pages', async () => {

@@ -74,7 +74,7 @@ export function OldFavoriteWholeRunOverview({
   const pendingTagItemCount = wholeRunTagEnrichment?.pendingItemCount
     ?? snapshot.tagEnrichment?.pendingItemCount
     ?? segmentPendingTagItemCount
-  const showTagProgress = pendingTagItemCount > 0 && Boolean(
+  const showTagProgress = snapshot.status !== 'scanning' && pendingTagItemCount > 0 && Boolean(
     snapshot.tagEnrichment || snapshot.segments.some((segment) =>
       segment.readiness === 'tagging' || segment.readiness === 'waiting')
   )

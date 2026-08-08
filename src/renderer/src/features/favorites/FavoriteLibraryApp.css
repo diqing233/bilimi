@@ -155,6 +155,7 @@
 .favorite-library__ledger-binding-status button:hover,
 .favorite-library__ledger-binding-status button:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
 .favorite-library__workspace-heading h2 { min-width: 0; margin: 0; color: #173e78; font-size: 18px; line-height: 1.35; }
+.favorite-library__workspace-heading h2 .favorite-library__workspace-video-count { color: #111827; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .favorite-library__workspace-heading small { flex: 0 0 auto; color: #5b7195; font-size: 12px; font-variant-numeric: tabular-nums; }
 .favorite-library__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 30px; margin-bottom: 8px; }
 .favorite-library__actions small { color: #64748b; margin-right: auto; }

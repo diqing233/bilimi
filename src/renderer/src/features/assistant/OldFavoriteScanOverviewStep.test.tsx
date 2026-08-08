@@ -131,7 +131,7 @@ describe('OldFavoriteScanOverviewStep', () => {
 
     expect(screen.getByRole('progressbar', { name: '收藏扫描进度' })).toHaveValue(21)
     expect(screen.getByText('21 / 40 条')).toBeInTheDocument()
-    expect(screen.getByText('已获取标签 4 / 21 条')).toBeInTheDocument()
+    expect(screen.queryByLabelText('标签识别进度')).not.toBeInTheDocument()
   })
 
   it('unlocks the rescan button after cooldown without starting a scan automatically', () => {
@@ -385,7 +385,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签0')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签25')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮确认无标签0')
-    expect(screen.getByText('扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。')).toBeInTheDocument()
+    expect(screen.getByText('先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。')).toBeInTheDocument()
     expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('全选·用户收藏夹（1）总数（246）本轮待整理⇄（246）默认收藏夹246246')
   })
 
@@ -410,7 +410,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByTestId('tag-enrichment-actions')).toHaveClass('favorite-ledger-panel__scan-enrichment-actions')
   })
 
-  it('disables tag controls while the first batch keeps the current scope locked', () => {
+  it('hides queued tag enrichment until the scan has completed', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
@@ -426,8 +426,10 @@ describe('OldFavoriteScanOverviewStep', () => {
       currentScopeLocked
     />)
 
-    expect(screen.getByRole('button', { name: '暂停补取标签' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
+    expect(screen.queryByText('标签补取进行中：已处理 1 / 500 条。')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('标签补取结果')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '暂停补取标签' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
   })
 
   it('lets adopted current tags resume later and retries only failed tag reads', () => {
@@ -579,9 +581,13 @@ describe('OldFavoriteScanOverviewStep', () => {
     const ordinaryTable = screen.getByRole('table', { name: '用户收藏夹' })
     const managedTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
     expect(within(ordinaryTable).getByRole('columnheader', { name: '总数（5）' })).toBeInTheDocument()
+    expect(within(managedTable).getByRole('columnheader', { name: 'bilimi 工作夹' })).toHaveClass('favorite-ledger-panel__source-heading')
+    expect(within(managedTable).getByRole('columnheader', { name: '总数' })).toHaveClass('favorite-ledger-panel__source-metric-heading')
     expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
     expect(within(ordinaryTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
-    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习20')
+    const managedRow = within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')
+    expect(managedRow).toHaveClass('favorite-ledger-panel__source-row-content')
+    expect(managedRow).toHaveTextContent('bilimi·知识学习20')
 
     fireEvent.click(screen.getByRole('button', { name: '本轮待整理（1）' }))
     expect(screen.getByRole('button', { name: '已保护（1）' })).toBeInTheDocument()

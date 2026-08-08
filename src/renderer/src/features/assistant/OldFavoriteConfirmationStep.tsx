@@ -1,6 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useState } from 'react'
+import { OldFavoriteModal } from './OldFavoriteModal'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type OldFavoriteConfirmationStepProps = {
@@ -15,6 +16,7 @@ type OldFavoriteConfirmationStepProps = {
   onSaveWholeRun?: () => void
   onCancelExecutionIntent?: () => void
   onFinishCurrentSegment?: () => void
+  onCloseCurrentWorkspace?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
   onConfirmAndSync: (includeInbox?: boolean) => void
@@ -55,6 +57,7 @@ export function OldFavoriteConfirmationStep({
   onSaveCurrentSegment = onSaveLocally,
   onSaveWholeRun = onSaveLocally,
   onCancelExecutionIntent = () => undefined,
+  onCloseCurrentWorkspace = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
@@ -69,6 +72,7 @@ export function OldFavoriteConfirmationStep({
   const failureReason = snapshot.executionProgress?.lastFailureReason ?? ''
   const retryAvailableAt = snapshot.executionProgress?.retryAvailableAt
   const [retryClock, setRetryClock] = useState(() => Date.now())
+  const [endDialogOpen, setEndDialogOpen] = useState(false)
   const retryRemainingMs = retryAvailableAt ? Math.max(0, Date.parse(retryAvailableAt) - retryClock) : 0
   const retryCoolingDown = retryRemainingMs > 0
   useEffect(() => {
@@ -100,6 +104,8 @@ export function OldFavoriteConfirmationStep({
   ))
   const currentSegmentReady = Boolean(currentSegmentSummary && ['ready', 'saved'].includes(currentSegmentSummary.readiness))
   const readySegmentCount = snapshot.segments.filter((segment) => ['ready', 'saved'].includes(segment.readiness)).length
+  const allSegmentsReadyForWholeSave = snapshot.segments.length > 0 && snapshot.segments
+    .every((segment) => ['ready', 'saved'].includes(segment.readiness))
   const allSegmentsSaved = snapshot.segments.length > 0 && snapshot.segments.every((segment) => segment.readiness === 'saved')
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
@@ -239,17 +245,18 @@ export function OldFavoriteConfirmationStep({
         <strong>本批操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
           <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !currentSegmentReady || deepSeekBlocksExecution || loading} onClick={onSaveCurrentSegment}>{currentSegmentSaved ? '重新保存本批到收藏库' : '保存本批到收藏库'}</button>
+          <button type="button" disabled={loading} onClick={() => setEndDialogOpen(true)}>暂不同步，结束本轮整理</button>
         </div>
       </section> : null}
       {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
         <strong>本轮操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
-          <button type="button" disabled={!canSyncToBilibili || deepSeekBlocksExecution || loading} onClick={() => {
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !allSegmentsReadyForWholeSave || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment && !allSegmentsReadyForWholeSave) || deepSeekBlocksExecution || loading} onClick={() => {
             if (unmatchedCount > 0) setSyncDialogOpen(true)
             else onConfirmAndSync(false)
           }}>确认并同步到 B 站</button>
-          <button type="button" disabled={loading} onClick={onAbandonCurrentWorkspace}>暂不同步，结束本轮整理</button>
+          <button type="button" disabled={loading} onClick={() => setEndDialogOpen(true)}>暂不同步，结束本轮整理</button>
         </div>
       </section> : null}
     </div>
@@ -264,5 +271,12 @@ export function OldFavoriteConfirmationStep({
         <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
       </div>
     </div> : null}
+    {endDialogOpen ? <OldFavoriteModal title="结束本轮整理？" onCancel={() => setEndDialogOpen(false)} extraActions={<>
+      <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理，保留草稿</button>
+      <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>清空并放弃</button>
+    </>}>
+      <p>关闭整理会保留当前草稿、扫描和标签补取进度；下次可继续本轮整理。</p>
+      <p>清空并放弃会丢弃本轮未保存的草稿与进度，不影响已保存的收藏库和 B 站；之后需要重新扫描。</p>
+    </OldFavoriteModal> : null}
   </section>
 }

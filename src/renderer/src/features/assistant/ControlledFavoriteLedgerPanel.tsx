@@ -11,11 +11,6 @@ import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { OldFavoriteModal } from './OldFavoriteModal'
-import {
-  applyManagedFavoriteFolderDeletionToLedgers,
-  managedFavoriteFolderDeletionFailureMessage,
-  managedFavoriteFolderDeletionSucceeded
-} from './managedFavoriteFolderDeletionFeedback'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
@@ -180,15 +175,12 @@ export function ControlledFavoriteLedgerPanel({
   const [confirmationPreparing, setConfirmationPreparing] = useState(false)
   const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
   const [confirmationPreparationError, setConfirmationPreparationError] = useState<string | null>(null)
-  const [managedDeletionCandidates, setManagedDeletionCandidates] = useState<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }> | null>(null)
-  const [managedDeletionReviewOpen, setManagedDeletionReviewOpen] = useState(false)
-  const [managedDeletionConfirmed, setManagedDeletionConfirmed] = useState(false)
-  const [managedDeletionExecuting, setManagedDeletionExecuting] = useState(false)
-  const [includeInboxForConfirmation, setIncludeInboxForConfirmation] = useState(false)
   const scanPresentationRequestVersion = useRef(0)
   const organizationRequestVersion = useRef(0)
   const recoveryDecisionRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
+  const dismissedGuideWorkspaceIdRef = useRef<string | null>(null)
+  const previousAccountMidRef = useRef(currentAccountMid)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
   const reportScanStartFailure = (message: string) => {
@@ -208,6 +200,8 @@ export function ControlledFavoriteLedgerPanel({
   const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
   const snapshotStatus = activeSnapshot?.status
   useEffect(() => {
+    if (previousAccountMidRef.current === currentAccountMid) return
+    previousAccountMidRef.current = currentAccountMid
     scanPresentationRequestVersion.current += 1
     organizationRequestVersion.current += 1
     recoveryDecisionRequestVersion.current += 1
@@ -225,6 +219,7 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparing(false)
     setConfirmationPreparationStatus(null)
     setConfirmationPreparationError(null)
+    dismissedGuideWorkspaceIdRef.current = null
   }, [currentAccountMid])
 
   useEffect(() => {
@@ -233,6 +228,7 @@ export function ControlledFavoriteLedgerPanel({
 
   useEffect(() => {
     if (!openOrganizationRequestVersion) return
+    dismissedGuideWorkspaceIdRef.current = null
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailure(null)
@@ -256,6 +252,7 @@ export function ControlledFavoriteLedgerPanel({
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
+    if (!('recovery' in snapshot) && dismissedGuideWorkspaceIdRef.current === snapshot.workspaceId) return
     setGuideOpen(true)
     setStep((currentStep) => {
       if ('recovery' in snapshot) return 'scan'
@@ -268,6 +265,7 @@ export function ControlledFavoriteLedgerPanel({
 
   const startScan = async (mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => {
     if (scanStarting) return
+    dismissedGuideWorkspaceIdRef.current = null
     if (mode === 'incremental' && activeSnapshot && activeSnapshot.scan.phase !== 'failed' &&
       activeSnapshot.status !== 'completed' && activeSnapshot.status !== 'scanning') {
       setGuideOpen(true)
@@ -299,6 +297,7 @@ export function ControlledFavoriteLedgerPanel({
 
   const continueScan = async () => {
     if (scanStarting) return
+    dismissedGuideWorkspaceIdRef.current = null
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++scanPresentationRequestVersion.current
     setGuideOpen(true)
@@ -336,6 +335,7 @@ export function ControlledFavoriteLedgerPanel({
   const requestOldFavoriteOrganization = async () => {
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++organizationRequestVersion.current
+    dismissedGuideWorkspaceIdRef.current = null
     const isCurrentRequest = () => organizationRequestVersion.current === requestVersion &&
       activeAccountMid.current === requestedAccountMid
     setGuideOpen(true)
@@ -358,7 +358,6 @@ export function ControlledFavoriteLedgerPanel({
     }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status === 'scanning') {
-      void continueScan()
       return
     }
     void startScan('incremental')
@@ -394,7 +393,6 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(false)
       setGuideOpen(true)
       setStep('scan')
-      if (restored.status === 'scanning' && restored.scan.phase !== 'failed') void workspace.resumeScan()
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
@@ -449,47 +447,7 @@ export function ControlledFavoriteLedgerPanel({
   }
   const confirmAndSync = async (includeInbox = false) => {
     if (!snapshot || recovery || confirmationPreparing) return
-    setIncludeInboxForConfirmation(includeInbox)
-    setConfirmationPreparationError(null)
-    setConfirmationPreparing(true)
-    const disabledLedgerIds = displayedLedgersWithLiveEnabled.filter((ledger) => !ledger.enabled).map((ledger) => ledger.id)
-    try {
-      const candidates = currentAccountMid && disabledLedgerIds.length
-        ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(currentAccountMid, disabledLedgerIds)
-        : []
-      if (candidates?.length) {
-        setManagedDeletionCandidates(candidates)
-        setConfirmationPreparing(false)
-        return
-      }
-      await continueConfirmAndSync(includeInbox)
-    } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
-      setConfirmationPreparing(false)
-    }
-  }
-  const confirmManagedDeletionAndSync = async () => {
-    if (!currentAccountMid || !managedDeletionCandidates || !managedDeletionConfirmed) return
-    setConfirmationPreparing(true)
-    setManagedDeletionExecuting(true)
-    try {
-      const deletedLedgerIds = managedDeletionCandidates.map((candidate) => candidate.logicalLedgerId)
-      const result = await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(currentAccountMid, deletedLedgerIds)
-      if (!managedFavoriteFolderDeletionSucceeded(result)) {
-        setConfirmationPreparationError('删除结果尚未确认，已停止保存备册规则；请重新打开删除确认后再试。')
-        return
-      }
-      await onSaveLedgers(applyManagedFavoriteFolderDeletionToLedgers(ledgers, deletedLedgerIds), { deleteDisabled: false })
-      setManagedDeletionCandidates(null)
-      setManagedDeletionReviewOpen(false)
-      setManagedDeletionConfirmed(false)
-      await continueConfirmAndSync(includeInboxForConfirmation)
-    } catch (error) {
-      setConfirmationPreparationError(managedFavoriteFolderDeletionFailureMessage(error))
-    } finally {
-      setManagedDeletionExecuting(false)
-      setConfirmationPreparing(false)
-    }
+    await continueConfirmAndSync(includeInbox)
   }
   const reconcile = async () => {
     try {
@@ -499,6 +457,7 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
   const closeGuide = () => {
+    if (activeSnapshot) dismissedGuideWorkspaceIdRef.current = activeSnapshot.workspaceId
     setGuideOpen(false)
     setStep('scan')
     setScanStartFailure(null)
@@ -603,16 +562,6 @@ export function ControlledFavoriteLedgerPanel({
           return Boolean(result)
         }}
       />
-      {managedDeletionCandidates && !managedDeletionReviewOpen ? <OldFavoriteModal title="同步变更说明" confirmLabel="继续" onCancel={() => setManagedDeletionCandidates(null)} onConfirm={() => setManagedDeletionReviewOpen(true)}>
-        <p>本次同步有 {managedDeletionCandidates.length} 个 bilimi 管理的收藏夹需要删除。</p>
-        <p>请先确认变更内容；继续后需要进行危险操作确认。</p>
-      </OldFavoriteModal> : null}
-      {managedDeletionCandidates && managedDeletionReviewOpen ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={managedDeletionExecuting ? '删除中…' : '删除并同步'} confirmDisabled={!managedDeletionConfirmed || confirmationPreparing || managedDeletionExecuting} onCancel={() => { if (managedDeletionExecuting) return; setManagedDeletionCandidates(null); setManagedDeletionReviewOpen(false); setManagedDeletionConfirmed(false) }} onConfirm={() => void confirmManagedDeletionAndSync()}>
-        <ul>{managedDeletionCandidates.map((candidate) => <li key={candidate.remoteFolderId}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
-        <p>请确认这些 bilimi 收藏夹中没有需要保留的重要视频。删除收藏夹不会删除 B 站视频，但会移除这些收藏关系。</p>
-        <label><input type="checkbox" checked={managedDeletionConfirmed} onChange={(event) => setManagedDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
-        {confirmationPreparationError ? <p role="alert" className="favorite-ledger-panel__notice">{confirmationPreparationError}</p> : null}
-      </OldFavoriteModal> : null}
       {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { if (recoveryDecisionPending) return; setRecoverySummary(null); setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
@@ -719,6 +668,7 @@ export function ControlledFavoriteLedgerPanel({
         onFinishCurrentSegment={() => void finishCurrentSegment()}
         onUseOriginalClassifications={() => void workspace.useOriginalClassificationsForFailedDeepSeek()}
         onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
+        onCloseCurrentWorkspace={closeGuide}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}

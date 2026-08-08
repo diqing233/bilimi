@@ -195,7 +195,7 @@ export function OldFavoriteScanOverviewStep({
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <div className="favorite-ledger-panel__step-title-row">
       <h4>扫描概览</h4>
-      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="扫描概览视图" value={viewScope} onChange={setViewScope} /> : null}
+      {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="扫描概览视图" value={viewScope} onChange={setViewScope} disableCurrent={currentScopeLocked} /> : null}
     </div>
     {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={activeSnapshot!} /> : null}
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
@@ -206,11 +206,11 @@ export function OldFavoriteScanOverviewStep({
         <span>{(scanning || scanFailed) && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
-      {!tagEnrichment && scannedItemCount ? <div>
+      {!scanning && !tagEnrichment && scannedItemCount ? <div>
         <span>已获取标签</span>
         <progress aria-label="标签识别进度" max={Math.max(scannedItemCount, 1)} value={taggedItemCount} />
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
-        <strong>{untaggedItemCount ? `${untaggedItemCount} 条尚未取得标签` : '已识别'}</strong>
+        <strong className="favorite-ledger-panel__scan-progress-status">已扫描 {scannedItemCount} 条视频，待获取标签</strong>
       </div> : null}
       {viewScope === 'current' && snapshot?.segments.length && snapshot.segments.length > 1 && currentSegmentSummary ? <div>
         <span>当前批次</span>
@@ -220,11 +220,12 @@ export function OldFavoriteScanOverviewStep({
         <strong>{currentSegmentSummary.readiness === 'waiting' ? '等待扫描' : currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
       </div> : null}
     </div>
-    {scanning && !scanFailed && !scanPaused ? <>
-      <button type="button" disabled={loading || scanStarting} onClick={onPauseScan}>暂停扫描</button>
+    {scanning && !scanFailed ? <div className="favorite-ledger-panel__scan-actions" role="group" aria-label="扫描操作">
+      {scanPaused
+        ? <button type="button" disabled={loading || scanStarting} onClick={onResumeScan}>继续扫描</button>
+        : <button type="button" disabled={loading || scanStarting} onClick={onPauseScan}>暂停扫描</button>}
       <button type="button" disabled={loading || scanStarting} onClick={onFinishScan}>结束整理</button>
-    </> : null}
-    {scanPaused ? <button type="button" disabled={loading || scanStarting} onClick={onResumeScan}>继续扫描</button> : null}
+    </div> : null}
     {snapshot ? <>
       <div className="favorite-ledger-panel__scan-metrics" aria-label={viewScope === 'current' ? '本批整理统计' : '本轮整理统计'}>
         <article aria-label={viewScope === 'current' ? '本批视频' : '扫描总数'} title={viewScope === 'current'
@@ -243,9 +244,9 @@ export function OldFavoriteScanOverviewStep({
           <span>失效视频</span><strong>{lifecycleCountsConfirmed ? unavailableAidCount : '待确认'}</strong>
         </article> : null}
       </div>
-      <p className="favorite-ledger-panel__scan-explanation">扫描会读取来源列表用于增量比对；仅本轮待整理的视频会补取标签。</p>
+      <p className="favorite-ledger-panel__scan-explanation">先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。</p>
     </> : null}
-    {tagEnrichment ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
+    {tagEnrichment && !scanning ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
       <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
       <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
         <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
@@ -255,16 +256,16 @@ export function OldFavoriteScanOverviewStep({
       </div>
       {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
         {tagEnrichment.status === 'running'
-          ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-          : <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
-        ? <button type="button" disabled={tagControlsLoading || currentScopeLocked} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
+        ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
       {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
-    {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
+    {tagEnrichment?.status === 'accepted' && !scanning ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>
       <button type="button" disabled={loading || scanStarting || retryCoolingDown} onClick={onRetry}>
         {checkingRiskControlRecovery
@@ -328,11 +329,11 @@ export function OldFavoriteScanOverviewStep({
     </div> : null}
     {bilimiFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
-        <span role="columnheader" aria-label="选择" /><span role="columnheader">bilimi 工作夹</span>
-        <span role="columnheader">总数</span><span role="columnheader">{sourceModeLabel}</span>
+        <span role="columnheader" aria-label="选择" /><span role="columnheader" className="favorite-ledger-panel__source-heading">bilimi 工作夹</span>
+        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading">总数</span><span role="columnheader" className="favorite-ledger-panel__source-metric-heading">{sourceModeLabel}</span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
-        {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi">
+        {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi favorite-ledger-panel__source-row-content">
           <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
           <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
           <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>

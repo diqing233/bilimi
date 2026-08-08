@@ -261,10 +261,21 @@ export function buildFavoriteLibraryNavigation(
     'bilimi-logical': 1,
     local: 2
   }
+  let persistedPriorities: Record<string, number> = {}
+  try {
+    const raw = typeof window !== 'undefined' ? window.localStorage.getItem('bilimi:favorite-ledger-priorities') : null
+    const parsed = raw ? JSON.parse(raw) as unknown : null
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      persistedPriorities = Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === 'number' && Number.isFinite(value)))
+    }
+  } catch { /* local storage is optional */ }
   const folderItems = folders
     .filter((folder) => folder.id.trim())
     .slice()
     .sort((left, right) => kindOrder[left.kind] - kindOrder[right.kind] ||
+      (left.kind === 'bilimi-logical' && right.kind === 'bilimi-logical'
+        ? (persistedPriorities[left.logicalLedgerId ?? ''] ?? Number.POSITIVE_INFINITY) - (persistedPriorities[right.logicalLedgerId ?? ''] ?? Number.POSITIVE_INFINITY)
+        : 0) ||
       left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
     .map((folder) => ({
       id: `folder:${folder.id}`,

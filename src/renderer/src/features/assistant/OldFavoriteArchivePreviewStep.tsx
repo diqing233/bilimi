@@ -90,6 +90,7 @@ type OldFavoriteArchivePreviewStepProps = {
   enabledLedgerIds?: ReadonlySet<string>
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
+  contentAvailable?: boolean
 }
 
 type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
@@ -339,6 +340,7 @@ export function OldFavoriteArchivePreviewStep({
   enabledLedgerIds,
   viewScope: controlledViewScope,
   onViewScopeChange,
+  contentAvailable = true,
 }: OldFavoriteArchivePreviewStepProps) {
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('current')
   const viewScope = controlledViewScope ?? localViewScope
@@ -486,6 +488,19 @@ export function OldFavoriteArchivePreviewStep({
     return (snapshot.currentSegment?.items ?? []).some((item) =>
       !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
   }, [snapshot])
+
+  if (!contentAvailable) {
+    return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
+      <div className="favorite-ledger-panel__preview-topbar">
+        <div className="favorite-ledger-panel__step-title-row">
+          <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
+          {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="归档预览视图" value={viewScope} onChange={setViewScope} /> : null}
+        </div>
+      </div>
+      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
+      <p role="status">{viewScope === 'all' ? '本轮仍有标签补取中，完成批次会在就绪后汇总到归档预览。' : '当前批次标签补取中，完成后可查看归档预览。'}</p>
+    </section>
+  }
 
   return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
     <div className="favorite-ledger-panel__preview-topbar">

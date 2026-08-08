@@ -494,7 +494,7 @@ export class OldFavoriteWorkspaceScanService {
             return
           }
           runtimeStage = 'record-source-page'
-          const recorded = await this.options.coordinator.recordScanPage(accountMid, {
+          await this.options.coordinator.recordScanPage(accountMid, {
             folderId: folder.id,
             page,
             hasMore: sourcePage.hasMore,
@@ -504,9 +504,6 @@ export class OldFavoriteWorkspaceScanService {
               unavailable: item.unavailable, sourceFolderIds: [folder.id]
             }))
           }, runId)
-          if (workspaceId && recorded && typeof recorded === 'object' && recorded.sealedSegmentIds.length) {
-            void this.startTagEnrichment(accountMid, target, workspaceId, taggedAids)
-          }
           hasMore = sourcePage.hasMore
           page += 1
         }

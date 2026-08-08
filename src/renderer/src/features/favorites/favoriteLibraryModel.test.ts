@@ -20,6 +20,18 @@ const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => 
 })
 
 describe('favoriteLibraryModel', () => {
+  it('orders bilimi logical folders by the persisted ledger priority', () => {
+    window.localStorage.setItem('bilimi:favorite-ledger-priorities', JSON.stringify({ music: 20, game: 10 }))
+    const navigation = buildFavoriteLibraryNavigation([
+      { id: 'bilimi-logical:music', title: 'bilimi·音乐舞台', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+      { id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'bound' },
+      { id: 'bilibili:1', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '1' }
+    ], 0)
+    expect(navigation.filter((item) => item.kind === 'folder').map((item) => item.folderId)).toEqual([
+      'bilibili:1', 'bilimi-logical:game', 'bilimi-logical:music'
+    ])
+    window.localStorage.removeItem('bilimi:favorite-ledger-priorities')
+  })
   it('keeps cached views isolated by account while a known account refreshes', () => {
     const cache = createFavoriteLibraryViewCache<{ revision: number }, { items: number[] }, { scopeId: string }>()
     cache.setReady('100', { revision: 7 }, { items: [1] }, { scopeId: 'pending' })

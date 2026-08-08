@@ -1736,7 +1736,7 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('does not report a local classification folder as a remote binding conflict with its bound logical ledger', async () => {
+  it('canonicalizes an identity-proven local default folder into its bound logical ledger', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
     await service.commit('100', {
@@ -1755,8 +1755,10 @@ describe('FavoriteRepositoryService', () => {
       }
     })
 
-    await expect(service.getLibrarySummary('100')).resolves.not.toMatchObject({
-      folderConflicts: expect.arrayContaining([expect.objectContaining({ title: 'bilimi·游戏专区' })])
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1,
+      folders: [expect.objectContaining({ id: 'bilimi-logical:game', kind: 'bilimi-logical' })],
+      folderCounts: { 'bilimi-logical:game': 2 }
     })
   })
 

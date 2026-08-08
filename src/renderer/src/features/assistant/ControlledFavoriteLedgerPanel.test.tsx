@@ -10,6 +10,23 @@ function deferred<T>() {
 }
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('keeps the independent deletion mode open after its temporary selection reaches the parent', async () => {
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[
+        { id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'remote-game' }
+      ]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /取消删除模式/ })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /加入删除 bilimi·游戏专区/ })).toBeInTheDocument()
+  })
+
   it('keeps enabled archive targets and bilimi temporary storage visible at zero', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -79,13 +96,21 @@ describe('ControlledFavoriteLedgerPanel', () => {
       history: { cursor: 0, length: 0 }
     }
 
-    render(<OldFavoriteWholeRunOverview snapshot={snapshot} />)
+    const rendered = render(<OldFavoriteWholeRunOverview snapshot={snapshot} />)
 
     expect(screen.getByText('已处理 1000 条 · 已分类 892 条 · 暂存 108 条')).toBeInTheDocument()
     expect(screen.getByText('其中 DeepSeek 待整理 360 条')).toBeInTheDocument()
     expect(screen.getByText('标签补取中 2552 条 · 已补取 1370 条 · 待补取 1182 条')).toBeInTheDocument()
     expect(screen.queryByText('标签补取中 500 条 · 已补取 370 条 · 待补取 130 条')).not.toBeInTheDocument()
     expect(screen.queryByText('等待扫描 1052 条')).not.toBeInTheDocument()
+
+    rendered.rerender(<OldFavoriteWholeRunOverview snapshot={{
+      ...snapshot,
+      status: 'scanning',
+      scan: { ...snapshot.scan, phase: 'inventory' }
+    }} />)
+
+    expect(screen.queryByText('标签补取中 2552 条 · 已补取 1370 条 · 待补取 1182 条')).not.toBeInTheDocument()
   })
 
   it('opens the old-favorite guide for an external navigation request without starting a scan', async () => {
@@ -529,6 +554,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭整理，保留草稿' }))
 
     await waitFor(() => expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument())
   })
@@ -595,6 +621,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.getByRole('dialog', { name: '重置收藏夹规则？' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
+    expect(screen.getAllByTestId('favorite-ledger-chip-music')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false })
   })
@@ -934,11 +961,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
   })
 
-  it('explicitly resumes the durable main-process scan lease for a persisted scanning workspace', async () => {
+  it('keeps a restored scanning workspace paused until the user explicitly continues it', async () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
-      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      scan: { phase: 'inventory' as const, failureCount: 0, paused: true }, sourceFolders: [], continuationCount: 0,
       segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
       history: { cursor: 0, length: 0 }
     }
@@ -960,7 +987,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '按原草稿继续' }))
 
-    await waitFor(() => expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'resume-scan' }))
+    await waitFor(() => expect(command).toHaveBeenCalledOnce())
+    expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'select-recovery-decision',
+      choice: 'continue-original'
+    }))
+    expect(screen.getByRole('button', { name: '继续扫描' })).toBeInTheDocument()
   })
 
   it('rebuilds a corrupt workspace before starting the recovery rescan', async () => {
@@ -1464,7 +1496,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     const userTable = await screen.findByRole('table', { name: '用户收藏夹' })
-    expect(within(userTable).getByRole('columnheader', { name: '本批来源关系（待确认）' })).toBeInTheDocument()
+    expect(within(userTable).getByRole('columnheader', { name: /本批来源关系.*待确认/ })).toBeInTheDocument()
     expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
     const bilimiTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
     expect(within(bilimiTable).getByText('Bilimi Inbox')).toBeInTheDocument()
@@ -1747,7 +1779,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
   })
 
-  it('continues a persisted failed incremental scan from the organize entry', async () => {
+  it('waits for an explicit continue action before resuming a persisted failed incremental scan', async () => {
     const failed = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1768,6 +1800,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
+    expect(command).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '继续扫描' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'resume-scan' }))
   })
 
@@ -1848,8 +1882,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect((await screen.findAllByLabelText('收藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
     expect(screen.getByText('40 / 243 条')).toBeInTheDocument()
-    expect(screen.getByText('已获取标签 31 / 40 条')).toBeInTheDocument()
-    expect(screen.getByText('9 条尚未取得标签')).toBeInTheDocument()
+    expect(screen.queryByLabelText('标签识别进度')).not.toBeInTheDocument()
+    expect(screen.queryByText('已扫描 40 条视频，待获取标签')).not.toBeInTheDocument()
   })
 
   it('keeps paused tag enrichment visible and lets the user resume or adopt the current tags', async () => {
@@ -1874,9 +1908,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/标签补取\s*已暂停/)
-    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '继续补取标签' }))
@@ -1959,7 +1993,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('本轮目标收藏夹尚未同步到 B 站')
   })
 
-  it('rewrites disabled ledger rules only after managed folder deletion is confirmed', async () => {
+  it('syncs enabled ledgers without querying or deleting disabled managed folders', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1991,17 +2025,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
 
-    await waitFor(() => expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'knowledge', bilibiliFolderId: 'remote-knowledge' })
-    ], { deleteDisabled: false }))
-    expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' })
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    expect(window.bilimiDesktop.previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(window.bilimiDesktop.deleteManagedFavoriteFolders).not.toHaveBeenCalled()
   })
 
-  it('keeps managed folder deletion open and does not rewrite rules for an unknown result', async () => {
+  it('does not let an unknown deletion preview block normal Bilibili sync', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -2031,14 +2061,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
-
-    expect((await screen.findAllByRole('alert')).some((alert) => alert.textContent?.includes('删除结果尚未确认'))).toBe(true)
-    expect(screen.getByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    expect(window.bilimiDesktop.previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(window.bilimiDesktop.deleteManagedFavoriteFolders).not.toHaveBeenCalled()
     expect(save).not.toHaveBeenCalled()
-    expect(command).not.toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' })
   })
 
   it('backs up an unbound confirmation target before asking the main process to execute it', async () => {
@@ -2504,7 +2530,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    expect(await screen.findByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
     const stepNavigation = screen.getByRole('navigation', { name: '整理收藏步骤' })
     const confirmation = within(stepNavigation).getByRole('button', { name: '确认执行' })
     expect(confirmation).toBeEnabled()
@@ -2513,6 +2539,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(screen.getByRole('group', { name: '确认执行视图' }))
       .getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('group', { name: '本批操作' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '暂不同步，结束本轮整理' })).toBeEnabled()
   })
 
   it('opens a persisted whole-run wait on confirmation and keeps cancellation available while edits stay locked', async () => {
@@ -2777,8 +2804,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [],
       segments: [
-        { id: 'segment-1', index: 0, itemCount: 20, status: 'previewing' as const },
-        { id: 'segment-2', index: 1, itemCount: 10, status: 'previewing' as const }
+        { id: 'segment-1', index: 0, itemCount: 20, status: 'previewing' as const, readiness: 'ready' as const },
+        { id: 'segment-2', index: 1, itemCount: 10, status: 'previewing' as const, readiness: 'ready' as const }
       ],
       currentSegment: { id: 'segment-1', aids: [1], items: [] },
       classifications: {
@@ -3109,17 +3136,17 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-segment', segmentId: 'segment-2'
     }))
-    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
     fireEvent.click(within(screen.getByRole('navigation', { name: '整理收藏步骤' })).getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.change(selector, { target: { value: 'segment-3' } })
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-segment', segmentId: 'segment-3'
     }))
-    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled()
   })
 
   it('does not introduce segment controls for a single-segment archive preview', async () => {
@@ -3146,7 +3173,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '转移 One' })).toBeInTheDocument()
   })
 
-  it('queues whole-run confirmation while later batches are still being prepared', async () => {
+  it('keeps only the no-sync exit available for the whole run while a later batch is still tagging', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 1, hasMultipleSegments: true,
@@ -3180,10 +3207,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(screen.getByText('整体准备度：1 / 2 条已分类')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+    const abandon = screen.getByRole('button', { name: '暂不同步，结束本轮整理' })
+    expect(abandon).toBeEnabled()
+    fireEvent.click(abandon)
+    fireEvent.click(screen.getByRole('button', { name: '清空并放弃' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'set-whole-run-execution-intent', mode: 'bilibili'
+      type: 'abandon-current-workspace'
     }))
   })
 
@@ -3305,6 +3336,47 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(await screen.findByRole('button', { name: '转移 Second' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+  })
+
+  it('keeps navigation open but hides an incomplete batch recommendation and archive details', async () => {
+    const tagging = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 500, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Unfinished', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } },
+      recommendations: { candidates: [{ id: 'author-up', displayName: 'Unfinished UP', kind: 'author' as const, count: 1, reason: 'Unfinished recommendation' }], adoptedCandidateIds: [] },
+      tagEnrichment: { status: 'running' as const, totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1, failedItemCount: 0 },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 0, length: 0, entries: [] }
+    }
+    const command = vi.fn().mockResolvedValue(tagging)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(tagging),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100"
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    for (const label of ['扫描概览', '推荐收藏夹', '归档预览', '确认执行']) {
+      expect(await screen.findByRole('button', { name: label })).toBeEnabled()
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('status')).toHaveTextContent('当前批次标签补取中，完成后将生成推荐收藏夹。')
+    expect(screen.queryByRole('checkbox', { name: 'Unfinished UP' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByRole('status')).toHaveTextContent('当前批次标签补取中，完成后可查看归档预览。')
+    expect(screen.queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Unfinished')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByRole('button', { name: '暂不同步，结束本轮整理' })).toBeEnabled()
   })
 
   it('refreshes the surrounding repository projection after reconciliation settles', async () => {

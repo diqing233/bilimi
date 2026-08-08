@@ -192,8 +192,9 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(sync).toHaveBeenCalledWith(true)
   })
 
-  it('lets the user abandon a previewed organization round before any sync starts', () => {
+  it('offers one end-round dialog that keeps the draft or clears it explicitly', () => {
     const abandon = vi.fn()
+    const close = vi.fn()
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -201,15 +202,24 @@ describe('OldFavoriteConfirmationStep', () => {
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
         planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
       }}
-      loading={false} onSaveLocally={vi.fn()} onAbandonCurrentWorkspace={abandon} onConfirmAndSync={vi.fn()}
+      loading={false} onSaveLocally={vi.fn()} onCloseCurrentWorkspace={close} onAbandonCurrentWorkspace={abandon} onConfirmAndSync={vi.fn()}
       onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    screen.getByRole('button', { name: '暂不同步，结束本轮整理' }).click()
+    fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
+    expect(screen.getByRole('dialog', { name: '结束本轮整理？' })).toBeInTheDocument()
+    expect(abandon).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭整理，保留草稿' }))
+    expect(close).toHaveBeenCalledOnce()
+    expect(abandon).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '清空并放弃' }))
     expect(abandon).toHaveBeenCalledOnce()
   })
 
-  it('keeps ending the round out of the saved current-batch action group', () => {
+  it('keeps ending the round available alongside saved current-batch actions', () => {
     const finishBatch = vi.fn()
     const abandon = vi.fn()
     render(<OldFavoriteConfirmationStep
@@ -225,7 +235,7 @@ describe('OldFavoriteConfirmationStep', () => {
     />)
 
     expect(screen.getByRole('button', { name: '重新保存本批到收藏库' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: '暂不同步，结束本轮整理' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '暂不同步，结束本轮整理' })).toBeEnabled()
     expect(finishBatch).not.toHaveBeenCalled()
     expect(abandon).not.toHaveBeenCalled()
   })

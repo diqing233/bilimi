@@ -67,6 +67,7 @@ type OldFavoriteGuideProps = {
   onFinishCurrentSegment?: () => void
   onUseOriginalClassifications?: () => void
   onCancelExecutionIntent?: () => void
+  onCloseCurrentWorkspace?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
   onConfirmAndSync: (includeInbox?: boolean) => void
@@ -80,6 +81,8 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
   { id: 'preview', label: '归档预览' },
   { id: 'confirm', label: '确认执行' }
 ]
+
+const wholeRunSelectValue = '__whole-run__'
 
 function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {
   if (segment.status === 'frozen' || segment.readiness === 'saved') return '已保存'
@@ -143,6 +146,7 @@ export function OldFavoriteGuide({
   onFinishCurrentSegment,
   onUseOriginalClassifications = () => undefined,
   onCancelExecutionIntent = () => undefined,
+  onCloseCurrentWorkspace = () => undefined,
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
@@ -155,15 +159,6 @@ export function OldFavoriteGuide({
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
-  const currentSegmentSummary = snapshot && !('recovery' in snapshot)
-    ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
-    : undefined
-  const tagEnrichmentBlocksNextStep = Boolean(
-    snapshot && !('recovery' in snapshot)
-    && (currentSegmentSummary?.readiness
-      ? currentSegmentSummary.readiness === 'tagging' || currentSegmentSummary.readiness === 'waiting'
-      : snapshot.tagEnrichment?.status === 'running' || snapshot.tagEnrichment?.status === 'paused')
-  )
   const deepSeekBusy = deepSeekFeedback?.status === 'running' || deepSeekFeedback?.status === 'waiting' || deepSeekCancelRequested
   const readOnlyBrowsing = mutationLocked || deepSeekBusy
   const selectedSegmentId = viewedSegmentId && snapshot && !('recovery' in snapshot) &&
@@ -175,12 +170,17 @@ export function OldFavoriteGuide({
   const displayedSnapshot = readOnlyBrowsing && viewedSnapshot?.workspaceId === (snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : '')
     ? viewedSnapshot
     : snapshot
-  const selectedScopeValue = viewScope === 'all' ? 'all' : selectedSegmentId
-  const canOpenStep = (next: OldFavoriteGuideStep, targetScope: OldFavoriteViewScope = viewScope) => {
+  const segmentContentAvailable = !displayedSnapshot || 'recovery' in displayedSnapshot || (() => {
+    const enrichmentActive = displayedSnapshot.tagEnrichment?.status === 'running' || displayedSnapshot.tagEnrichment?.status === 'paused'
+    if (viewScope === 'all') return !enrichmentActive
+    const segment = displayedSnapshot.segments.find((candidate) => candidate.id === displayedSnapshot.currentSegment?.id)
+    if (segment?.readiness) return segment.readiness !== 'tagging' && segment.readiness !== 'waiting'
+    return !enrichmentActive
+  })()
+  const selectedScopeValue = viewScope === 'all' ? wholeRunSelectValue : selectedSegmentId
+  const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
     if (scanStarting || recovery) return false
-    if (targetScope === 'current' && tagEnrichmentBlocksNextStep &&
-      !(next === 'confirm' && snapshot && !('recovery' in snapshot) && snapshot.overview?.available)) return false
     if (readOnlyBrowsing) return Boolean(snapshot)
     if ((recommendationSaving || previewPreparationRunning) && next === 'confirm') return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
@@ -200,7 +200,7 @@ export function OldFavoriteGuide({
         <span>整理批次</span>
         <select aria-label="整理批次" value={selectedScopeValue} disabled={loading && !readOnlyBrowsing}
           onChange={(event) => {
-            if (event.currentTarget.value === 'all') {
+            if (event.currentTarget.value === wholeRunSelectValue) {
               setViewScope('all')
               return
             }
@@ -210,9 +210,8 @@ export function OldFavoriteGuide({
             setViewScope('current')
             if (readOnlyBrowsing) void onViewSegment(segment.id).then((next) => { if (next) setViewedSnapshot(next) })
             else onSelectSegment(segment.id)
-            if (segment.readiness === 'tagging' || segment.readiness === 'waiting') onStepChange('scan')
           }}>
-          <option value="all">本轮总览</option>
+          <option value={wholeRunSelectValue}>本轮总览</option>
           {snapshot.segments.map((segment) => <option key={segment.id} value={segment.id}>
             第 {segment.index + 1}/{snapshot.segments.length} 批 · {segment.itemCount} 条 · {segmentReadinessLabel(segment)}
           </option>)}
@@ -269,6 +268,7 @@ export function OldFavoriteGuide({
       onUpdateRecommendedCandidates={onUpdateRecommendedCandidates}
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
+      contentAvailable={segmentContentAvailable}
     /> : null}
     {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'preview' ? <OldFavoriteArchivePreviewStep
       snapshot={displayedSnapshot}
@@ -290,6 +290,7 @@ export function OldFavoriteGuide({
       recommendedCandidateIds={recommendedCandidateIds}
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
+      contentAvailable={segmentContentAvailable}
     /> : null}
     {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={displayedSnapshot}
@@ -305,6 +306,7 @@ export function OldFavoriteGuide({
       onFinishCurrentSegment={onFinishCurrentSegment}
       onUseOriginalClassifications={onUseOriginalClassifications}
       onCancelExecutionIntent={onCancelExecutionIntent}
+      onCloseCurrentWorkspace={onCloseCurrentWorkspace}
       onAbandonCurrentWorkspace={onAbandonCurrentWorkspace}
       onAcknowledgeCompletion={onAcknowledgeCompletion}
       onConfirmAndSync={onConfirmAndSync}
