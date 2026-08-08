@@ -3,6 +3,31 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteGuide DeepSeek browsing', () => {
+  it('shows the complete organizing reminder in both the guide tooltip and expanded instructions', () => {
+    window.localStorage.removeItem('bilimi:old-favorite-hint-open')
+
+    render(<OldFavoriteGuide
+      snapshot={null} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '展开整理收藏' })
+    expect(toggle).toHaveAttribute('title', expect.stringContaining('小咪提醒：同一个视频可以保存在多个收藏夹里。'))
+
+    fireEvent.click(toggle)
+
+    expect(screen.getByText(/整理收藏会把视频复制添加到 bilimi 收藏夹/)).toBeInTheDocument()
+    expect(screen.getByText(/暂不同步结束整理：可以选择先保留整理草稿/)).toBeInTheDocument()
+  })
+
   it('keeps an incomplete scan in the four-metric whole-run view', () => {
     const snapshot = {
       version: 1 as const,

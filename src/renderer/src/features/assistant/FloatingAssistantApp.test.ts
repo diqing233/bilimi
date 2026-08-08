@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -369,6 +369,25 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
       '收藏夹：未备册。\n整理收藏：完成备册后可开始。'
     )
+  })
+
+  it('includes the copy-preserving reminder in the wait-confirmation detail shared by the status light and task menu', () => {
+    expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).toContain(
+      '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
+    )
+  })
+
+  it('renders a readable custom tooltip for status lights instead of a native title tooltip', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+    expect(source).toContain('floating-assistant-global-status__light-tooltip')
+    expect(source).toContain('floating-assistant-global-status__light-label')
+    expect(source).toContain('aria-describedby={tooltipId}')
+    expect(source).not.toContain('title={statusLightTooltip(item)}')
+    expect(styles).toContain('.floating-assistant-global-status__light-tooltip')
+    expect(styles).toContain('.floating-assistant-global-status__light-label')
+    expect(styles).toContain('white-space: pre-line')
   })
 
   it('removes Electron IPC wrappers from DeepSeek summary feedback', () => {

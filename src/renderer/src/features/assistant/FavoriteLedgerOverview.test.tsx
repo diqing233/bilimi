@@ -11,6 +11,16 @@ function deferred<T>() {
 
 describe('FavoriteLedgerOverview', () => {
   afterEach(() => vi.useRealTimers())
+  it('shows the copy-preserving reminder in the favorite help and uses an X for deletion mode', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '展开删除模式' })).toHaveTextContent('×')
+    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
+    expect(screen.getByText('小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）')).toBeInTheDocument()
+  })
+
   it('publishes live enable changes before delayed persistence completes', () => {
     const enabledStates = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
@@ -860,7 +870,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '继续' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['tech']))
     expect(save).toHaveBeenLastCalledWith([
@@ -896,7 +906,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '继续' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledTimes(1))
     expect(save).toHaveBeenLastCalledWith([
@@ -929,7 +939,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '继续' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('删除结果尚未确认')
     expect(save).not.toHaveBeenCalled()
@@ -955,7 +965,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '继续' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
-    fireEvent.click(screen.getByRole('button', { name: '删除并同步' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法连接当前 B 站页面，请保持已登录页面打开后重试。')
     expect(screen.getByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()

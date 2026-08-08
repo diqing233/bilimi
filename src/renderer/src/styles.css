@@ -1966,6 +1966,7 @@ body[data-floating-window="true"],
 }
 .floating-assistant-global-status__light {
   appearance: none;
+  position: relative;
   border: 0;
   background: transparent;
   min-width: 0;
@@ -1991,10 +1992,46 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__light + .floating-assistant-global-status__light {
   border-left: 1px dashed #d1e6fb;
 }
-.floating-assistant-global-status__light > span:last-child {
+.floating-assistant-global-status__light-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.floating-assistant-global-status__light-tooltip {
+  position: absolute;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 4;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid #b9d6ef;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 8px 20px rgba(35, 74, 111, 0.2);
+  color: #17324d;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.55;
+  text-align: left;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms ease-out;
+}
+.floating-assistant-global-status__light:last-child .floating-assistant-global-status__light-tooltip {
+  right: 0;
+  left: auto;
+}
+.floating-assistant-global-status__light:hover .floating-assistant-global-status__light-tooltip,
+.floating-assistant-global-status__light:focus-visible .floating-assistant-global-status__light-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 .floating-assistant-global-status__dot {
   width: 8px;

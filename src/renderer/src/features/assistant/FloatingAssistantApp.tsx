@@ -116,7 +116,7 @@ const EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION: VideoNoteArchiveSelection = {
   activeResultTab: null
 }
 const FAVORITE_LEDGER_BACKUP_HINT =
-  '提示：小咪不会删除原收藏。'
+  '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '娱乐',
   humor: '娱乐',
@@ -4828,9 +4828,10 @@ export function FloatingAssistantApp({
                 { ...globalLedgerStatus, ariaLabel: '整理状态', id: 'ledger' }
               ].map((item) => {
                 const navigation = statusLightNavigation(item.id as StatusLightId, activeView)
+                const tooltipId = `floating-assistant-status-tooltip-${item.id}`
                 const content = <>
                   <span className="floating-assistant-global-status__dot" aria-hidden="true" />
-                  <span>{item.label}</span>
+                  <span className="floating-assistant-global-status__light-label">{item.label}</span>
                 </>
                 return (
                   <button
@@ -4839,13 +4840,16 @@ export function FloatingAssistantApp({
                     className="floating-assistant-global-status__light"
                     data-tone={item.tone}
                     aria-label={item.id === 'deepseek' ? '打开 DeepSeek 设置' : item.id === 'transcription' ? '打开札记查看转写' : '打开掌库查看收藏整理'}
-                    title={statusLightTooltip(item)}
+                    aria-describedby={tooltipId}
                     onClick={() => {
                       if (navigation.tab === 'settings') openSettingsSection(navigation.section)
                       else setActiveTab(navigation.tab, 'view' in navigation ? { view: navigation.view } : undefined)
                     }}
                   >
                     {content}
+                    <span id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip">
+                      {statusLightTooltip(item)}
+                    </span>
                   </button>
                 )
               })}
