@@ -266,10 +266,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toMatch(/\.video-note-archive__history-card,\n\.video-note-archive__detail \{[\s\S]*?--porcelain-card-padding: 8px;/)
     expect(normalizedStyles).toMatch(/\.assistant-settings__group \{[\s\S]*?--porcelain-card-padding: 10px;/)
     expect(normalizedStyles).toMatch(/\.video-notes__queue \{[\s\S]*?--porcelain-card-padding: 6px;/)
-    for (const selector of ['\\.video-note-archive__toolbar,\\s*\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.assistant-settings__recommendation-divider', '\\.video-notes__queue-body']) {
+    for (const selector of ['\\.video-note-archive__toolbar,\\s*\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.video-notes__queue-body']) {
       expect(normalizedStyles).toMatch(new RegExp(`${selector} \\{[\\s\\S]*?width: calc\\(100% \\+ \\(var\\(--porcelain-card-padding\\) \\* 2\\)\\);[\\s\\S]*?margin-inline: calc\\(var\\(--porcelain-card-padding\\) \\* -1\\);`))
     }
-    for (const selector of ['\\.video-note-archive__toolbar', '\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.assistant-settings__recommendation-divider', '\\.video-notes__queue-body']) {
+    for (const selector of ['\\.video-note-archive__toolbar', '\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.video-notes__queue-body']) {
       expect(normalizedStyles).toMatch(new RegExp(`${selector} \\{[\\s\\S]*?padding-inline: var\\(--porcelain-card-padding\\);`))
     }
     expect(normalizedStyles).toMatch(/\.video-note-archive__list \{[\s\S]*?padding-block: 8px 0;[\s\S]*?padding-inline: var\(--porcelain-card-padding\);/)
@@ -1064,7 +1064,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expectStyleSnippet('.assistant-settings button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.5); background: rgba(220, 238, 255, 0.88); box-shadow: 0 5px 12px rgba(31, 99, 181, 0.12);')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
-    expectStyleSnippet('.assistant-settings__recommendation-divider { box-sizing: border-box; width: calc(100% + (var(--porcelain-card-padding) * 2)); margin-inline: calc(var(--porcelain-card-padding) * -1); border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-inline: var(--porcelain-card-padding); padding-top: 4px;')
+    expectStyleSnippet('.assistant-settings__recommendation-divider { box-sizing: border-box; width: 100%; margin-inline: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-inline: 0; padding-top: 4px;')
     expectStyleSnippet(
       '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;'
     )

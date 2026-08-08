@@ -7681,10 +7681,10 @@ body[data-floating-window="true"],
 }
 .assistant-settings__recommendation-divider {
   box-sizing: border-box;
-  width: calc(100% + (var(--porcelain-card-padding) * 2));
-  margin-inline: calc(var(--porcelain-card-padding) * -1);
+  width: 100%;
+  margin-inline: 0;
   border-top: 1px dashed rgba(31, 99, 181, 0.28);
-  padding-inline: var(--porcelain-card-padding);
+  padding-inline: 0;
   padding-top: 4px;
 }
 .assistant-settings__copy-row {
