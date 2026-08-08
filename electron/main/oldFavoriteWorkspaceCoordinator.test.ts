@@ -87,6 +87,7 @@ type CoordinatorSyncService = NonNullable<ConstructorParameters<typeof OldFavori
 function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): CoordinatorSyncService {
   return {
     abandonFrozenPlan: vi.fn(),
+    stopAndAbandonFrozenPlan: vi.fn(),
     claimFrozenPlan: vi.fn(),
     executeFrozenPlan: vi.fn(),
     bindPageTarget: vi.fn(),
@@ -7282,6 +7283,40 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.confirmAndExecuteBilibiliPlan('100')).resolves.toMatchObject({ id: 'run-1', status: 'running' })
     expect(executeFrozenPlan).toHaveBeenCalledWith('100', expect.objectContaining({ operations: [expect.objectContaining({ aid: 1 })] }))
+  })
+
+  it('stops an executing Bilibili run only after preserving its full local organization result', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const stopAndAbandonFrozenPlan = vi.fn()
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings,
+      syncService: createSyncService({ stopAndAbandonFrozenPlan }), now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+    const frozen = await coordinator.freezeForBilibiliExecution('100')
+    await repository.commit('100', {
+      id: 'executing-run', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...frozen, status: 'executing', workspaceRef: { ...frozen.workspaceRef, status: 'executing' }, frozenSyncPlan: frozen.frozenSyncPlan! }
+    })
+
+    await coordinator.stopBilibiliSyncAndFinish('100')
+
+    expect(stopAndAbandonFrozenPlan).toHaveBeenCalledWith('100')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      positions: { '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }) }
+    })
   })
 
   it('commits the complete local organization result before the first Bilibili write starts', async () => {

@@ -735,7 +735,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (
       items: CurrentSegmentItem[],
@@ -4714,6 +4714,25 @@ export class OldFavoriteWorkspaceCoordinator {
     if (enrichment?.acceptedSegmentIds.includes(currentSegment.id)) return true
     const pendingAids = new Set(enrichment?.pendingAids ?? [])
     return !currentSegment.aids.some((aid) => pendingAids.has(aid))
+  }
+
+  /** Stops only the remaining remote queue after the active request reaches a durable result. */
+  async stopBilibiliSyncAndFinish(accountMid: string): Promise<void> {
+    const execution = await this.queue(async () => {
+      const persisted = await this.options.repository.getSnapshot(accountMid)
+      if (persisted.workspace?.status !== 'executing' || !persisted.workspace.frozenSyncPlan) {
+        throw new Error('Old favorite workspace is not executing a Bilibili sync.')
+      }
+      const workspace = await this.requireWorkspace(persisted.accountMid)
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      await this.commitCompleteLocalResultForRemoteExecutionUnsafe(workspace)
+      return { accountMid: persisted.accountMid, planId: persisted.workspace.frozenSyncPlan.id }
+    })
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    await this.options.syncService.stopAndAbandonFrozenPlan(execution.accountMid)
+    await this.queue(async () => {
+      this.forgetWorkspace(execution.accountMid)
+    })
   }
 
   private assertCurrentSegmentTagReady(workspace: OldFavoriteWorkspace) {

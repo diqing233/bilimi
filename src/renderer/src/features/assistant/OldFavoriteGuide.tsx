@@ -73,7 +73,13 @@ type OldFavoriteGuideProps = {
   onAcknowledgeCompletion?: () => void
   onConfirmAndSync: (includeInbox?: boolean) => void
   onExecuteFrozenPlan: () => void
+  onStopSyncAndFinish?: () => Promise<boolean> | void
   onReconcile: () => void
+}
+
+type OrganizingGuideHint = {
+  label?: string
+  detail: Array<{ text: string; strong?: boolean }>
 }
 
 const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -85,13 +91,16 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 
 const wholeRunSelectValue = '__whole-run__'
 
-const ORGANIZING_GUIDE_HINTS = [
-  { label: '小咪提醒：', detail: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' },
-  { detail: '请从左到右完成本轮整理。' },
-  { label: '① 扫描概览：', detail: '扫描视频基本信息和标签补取。标签是分类的重要依据，建议耐心等待，不要提前采用；可以勾选想要分类的收藏夹。' },
-  { label: '② 推荐收藏夹：', detail: '根据 UP 主和高频标签，勾选想采用的推荐收藏夹。勾选的收藏夹会参与整理收藏分类；也可以自建收藏夹、设置并勾选参与分类。' },
-  { label: '③ 归档预览：', detail: '检查分类结果，可用 DeepSeek 辅助调整，也可手动调整。' },
-  { label: '④ 确认执行：', detail: '如果视频较多，建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；同步到 B 站（较慢）会先保存在收藏库再依次执行，整理草稿锁定不可修改，后续可以去收藏库调整。暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }
+const ORGANIZING_GUIDE_HINTS: OrganizingGuideHint[] = [
+  { label: '小咪提醒：', detail: [{ text: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' }] },
+  { label: '请从左到右完成本轮整理。', detail: [] },
+  { label: '① 扫描概览：', detail: [{ text: '扫描所有收藏的视频基本信息和标签。标签是分类的重要依据，建议耐心等待，不要提前采用；默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。' }] },
+  { label: '② 推荐收藏夹：', detail: [{ text: '根据扫描到的 UP 主和高频标签生成推荐收藏夹，主人可勾选想采用的推荐收藏夹。勾选后的收藏夹会参与整理收藏分类；也可以自建收藏夹，保存并勾选即可参与分类。' }] },
+  { label: '③ 归档预览：', detail: [{ text: '检查分类结果，本地分类能力有限，未匹配到合适分类和把握不太稳的视频，建议用 DeepSeek 辅助整理，也可手动调整转移。可以在上方收藏夹区域编辑或者新增，归档预览会重新计算。' }] },
+  { label: '④ 确认执行：前面三步都是打草稿，最后一步来执行', detail: [] },
+  { label: '保存在收藏库：', detail: [{ text: '适合视频较多的情况', strong: true }, { text: '，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。' }] },
+  { label: '同步到 B 站（较慢）：', detail: [{ text: '会先保存在收藏库再依次执行，整理草稿锁定后不可修改，后续可以去收藏库调整。' }] },
+  { label: '暂不同步结束整理：', detail: [{ text: '可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }] }
 ]
 function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {
   if (segment.status === 'frozen' || segment.readiness === 'saved') return '已保存'
@@ -160,6 +169,7 @@ export function OldFavoriteGuide({
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
+  onStopSyncAndFinish = () => undefined,
   onReconcile
 }: OldFavoriteGuideProps) {
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
@@ -256,8 +266,8 @@ export function OldFavoriteGuide({
           </option>)}
         </select>
       </label> : null}
-      {!guideHintExpanded ? createPortal(<div ref={guideHintTooltipRef} id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={guideHintVisible || undefined} style={guideHintPosition}>{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={`${hint.label ?? 'detail'}:${hint.detail}`}>{hint.label ? <strong className="favorite-ledger-panel__help-tooltip-title">{hint.label}</strong> : null}{hint.detail}</p>)}</div>, document.body) : null}
-      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={`${hint.label ?? 'detail'}:${hint.detail}`}><strong>{hint.label}</strong>{hint.detail}</p>)}</div> : null}
+      {!guideHintExpanded ? createPortal(<div ref={guideHintTooltipRef} id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={guideHintVisible || undefined} style={guideHintPosition}>{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint.label ?? hint.detail.map((part) => part.text).join('')}><GuideHintContent hint={hint} tooltip /></p>)}</div>, document.body) : null}
+      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint.label ?? hint.detail.map((part) => part.text).join('')}><GuideHintContent hint={hint} /></p>)}</div> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => {
@@ -351,12 +361,17 @@ export function OldFavoriteGuide({
       onAcknowledgeCompletion={onAcknowledgeCompletion}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}
+      onStopSyncAndFinish={onStopSyncAndFinish}
       onReconcile={onReconcile}
       recommendedCandidateIds={recommendedCandidateIds}
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
     /> : null}
   </section>
+}
+
+function GuideHintContent({ hint, tooltip = false }: { hint: OrganizingGuideHint; tooltip?: boolean }) {
+  return <>{hint.label ? <strong className={tooltip ? 'favorite-ledger-panel__help-tooltip-title' : undefined}>{hint.label}</strong> : null}{hint.detail.map((part) => part.strong ? <strong key={part.text}>{part.text}</strong> : <span key={part.text}>{part.text}</span>)}</>
 }
 
 function Chevron() {

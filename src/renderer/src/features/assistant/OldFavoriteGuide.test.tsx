@@ -23,13 +23,16 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-organization-help-tooltip')
     expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。')
     expect(screen.getByRole('tooltip').parentElement).toBe(document.body)
 
     fireEvent.click(toggle)
 
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    expect(screen.getByText(/④ 确认执行：前面三步都是打草稿，最后一步来执行/)).toBeInTheDocument()
+    expect(screen.getByText(/收藏库可以批量转写视频音频，非常方便。/)).toBeInTheDocument()
     expect(screen.getByText(/整理收藏会把视频复制添加到 bilimi 收藏夹/)).toBeInTheDocument()
-    expect(screen.getByText(/暂不同步结束整理：可以选择先保留整理草稿/)).toBeInTheDocument()
+    expect(screen.getByText(/可以选择先保留整理草稿，或者删除草稿结束本轮整理。/)).toBeInTheDocument()
   })
 
   it('keeps an incomplete scan in the four-metric whole-run view', () => {

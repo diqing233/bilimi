@@ -853,6 +853,26 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.executeFrozenBilibiliPlan).toHaveBeenCalledWith('100')
   })
 
+  it('routes an explicit safe stop only from the current trusted account', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      stopBilibiliSyncAndFinish: vi.fn().mockResolvedValue(undefined),
+      getSnapshot: vi.fn().mockResolvedValue(null)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'stop-bilibili-sync-and-finish'
+    })).resolves.toBeNull()
+    expect(coordinator.stopBilibiliSyncAndFinish).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'stop-bilibili-sync-and-finish', extra: true
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('returns the persisted execution snapshot without waiting for remote Bilibili work', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

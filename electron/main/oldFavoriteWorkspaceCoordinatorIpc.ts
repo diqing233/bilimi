@@ -82,6 +82,7 @@ type WorkspaceCommand =
   | { type: 'freeze-bilibili-execution' }
   | { type: 'confirm-and-execute-bilibili-plan'; includeInbox?: boolean }
   | { type: 'execute-frozen-bilibili-plan' }
+  | { type: 'stop-bilibili-sync-and-finish' }
   | { type: 'reconcile-frozen-bilibili-plan' }
   | { type: 'resume-reconciled-bilibili-plan' }
 
@@ -239,6 +240,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'freeze-bilibili-execution' && Object.keys(candidate).length === 1) {
     return { type: 'freeze-bilibili-execution' }
+  }
+  if (candidate.type === 'stop-bilibili-sync-and-finish' && Object.keys(candidate).length === 1) {
+    return { type: 'stop-bilibili-sync-and-finish' }
   }
   if (candidate.type === 'confirm-and-execute-bilibili-plan' &&
     (Object.keys(candidate).length === 1 || (Object.keys(candidate).length === 2 && typeof candidate.includeInbox === 'boolean'))) {
@@ -490,6 +494,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
         : options.coordinator.beginBilibiliExecution(accountMid)
     }
     if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)
+    if (requested.type === 'stop-bilibili-sync-and-finish') await options.coordinator.stopBilibiliSyncAndFinish(accountMid)
     if (requested.type === 'reconcile-frozen-bilibili-plan') await options.coordinator.bindAndReconcileFrozenBilibiliPlan(accountMid)
     if (requested.type === 'resume-reconciled-bilibili-plan') await options.coordinator.resumeReconciledBilibiliPlan(accountMid)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {

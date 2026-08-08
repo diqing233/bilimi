@@ -898,6 +898,30 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return next && !('recovery' in next) ? next : null
   }, [accountMid])
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }, true), [sendCommand])
+  const stopBilibiliSyncAndFinish = useCallback(async () => {
+    const version = ++requestVersion.current
+    const generation = accountGeneration.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return false
+    setLoading(true)
+    foregroundRequestCount.current += 1
+    setExecutionError(null)
+    try {
+      await command(accountMid, { type: 'stop-bilibili-sync-and-finish' })
+      if (accountGeneration.current === generation && requestVersion.current === version) setSnapshot(null)
+      return true
+    } catch (error) {
+      if (accountGeneration.current === generation && requestVersion.current === version) {
+        setExecutionError(executionFailureMessage(error))
+      }
+      return false
+    } finally {
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
+    }
+  }, [accountMid])
   const reconcileFrozenBilibiliPlan = useCallback(async () => {
     const generation = accountGeneration.current
     setReconciling(true)
@@ -930,7 +954,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, stopBilibiliSyncAndFinish,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

@@ -22,6 +22,7 @@ type OldFavoriteConfirmationStepProps = {
   onConfirmAndSync: (includeInbox?: boolean) => void
   onUseOriginalClassifications?: () => void
   onExecuteFrozenPlan: () => void
+  onStopSyncAndFinish?: () => Promise<boolean> | void
   onReconcile: () => void
   recommendedCandidateIds?: string[]
   enabledLedgerIds?: ReadonlySet<string>
@@ -63,6 +64,7 @@ export function OldFavoriteConfirmationStep({
   onConfirmAndSync,
   onUseOriginalClassifications = () => undefined,
   onExecuteFrozenPlan,
+  onStopSyncAndFinish = () => undefined,
   onReconcile,
   recommendedCandidateIds,
   enabledLedgerIds,
@@ -89,6 +91,8 @@ export function OldFavoriteConfirmationStep({
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [includeInbox, setIncludeInbox] = useState(false)
+  const [stopSyncDialogOpen, setStopSyncDialogOpen] = useState(false)
+  const [stopRequested, setStopRequested] = useState(false)
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
@@ -157,6 +161,23 @@ export function OldFavoriteConfirmationStep({
         {total > 0 ? <p>已完成 {completed} / {total} 条</p> : null}
         <progress aria-label="正在同步到 B 站" value={completed} max={Math.max(total, 1)} />
       </div>
+      <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '停止同步并结束本轮整理'}</button>
+      {stopSyncDialogOpen ? <OldFavoriteModal
+        title="停止同步并结束本轮整理"
+        cancelLabel="继续同步"
+        confirmLabel="确认停止并结束本轮"
+        confirmDisabled={stopRequested}
+        onCancel={() => setStopSyncDialogOpen(false)}
+        onConfirm={() => {
+          setStopSyncDialogOpen(false)
+          setStopRequested(true)
+          void Promise.resolve(onStopSyncAndFinish()).then((stopped) => {
+            if (stopped === false) setStopRequested(false)
+          }).catch(() => setStopRequested(false))
+        }}
+      >
+        <p>正在发送的操作会完成后再停止。已同步到 B 站的内容会保留；未同步的分类结果已保存在收藏库，之后可在收藏库继续同步。停止后本轮整理草稿将关闭，不能再返回修改。</p>
+      </OldFavoriteModal> : null}
     </section>
   }
 

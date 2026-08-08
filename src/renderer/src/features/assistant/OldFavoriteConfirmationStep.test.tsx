@@ -333,6 +333,26 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
   })
 
+  it('confirms a safe stop while Bilibili sync is running', () => {
+    const stop = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3 }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      onStopSyncAndFinish={stop}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '停止同步并结束本轮整理' }))
+    expect(screen.getByRole('dialog', { name: '停止同步并结束本轮整理' })).toHaveTextContent('正在发送的操作会完成后再停止')
+    fireEvent.click(screen.getByRole('button', { name: '确认停止并结束本轮' }))
+    expect(stop).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '正在停止…' })).toBeDisabled()
+  })
+
   it('offers reconciliation only after the main process marks the remote result uncertain', () => {
     const reconcile = vi.fn()
     render(<OldFavoriteConfirmationStep

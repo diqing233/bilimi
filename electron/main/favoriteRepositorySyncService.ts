@@ -134,6 +134,8 @@ export class FavoriteRepositorySyncService {
   private readonly runTails = new Map<string, Promise<void>>()
   private readonly claimedExecutionRuns = new Set<string>()
   private readonly activeRemoteRequests = new Set<string>()
+  private readonly stopRequestedRuns = new Set<string>()
+  private readonly executingPlanIds = new Map<string, string>()
 
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
@@ -205,21 +207,30 @@ export class FavoriteRepositorySyncService {
       const { workspace } = await this.options.repository.getSnapshot(account)
       const plan = workspace?.frozenSyncPlan
       if (!workspace || !plan) return
-      await this.withRunLock(account, plan.id, async () => {
-        const current = await this.options.repository.getSnapshot(account)
-        const currentPlan = current.workspace?.frozenSyncPlan
-        if (!current.workspace || !currentPlan) return
-        await this.options.repository.commit(account, {
-          id: `favorite-sync-abandon:${current.workspace.id}:${currentPlan.id}`,
-          accountMid: account,
-          issuedAt: this.now(),
-          type: 'abandon-frozen-workspace',
-          payload: { workspaceId: current.workspace.id, frozenPlanId: currentPlan.id }
-        })
-        this.claimedExecutionRuns.delete(`${account}:${currentPlan.id}`)
-        this.options.pageBridgeManager?.release(account, currentPlan.id)
-      })
+      await this.withRunLock(account, plan.id, async () => this.abandonFrozenPlanUnderLock(account, plan.id))
     })
+  }
+
+  /** Lets the current remote request finish, then drops every still-pending operation. */
+  async stopAndAbandonFrozenPlan(accountMid: string): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    const activePlanId = this.executingPlanIds.get(account)
+    if (activePlanId) this.stopRequestedRuns.add(this.runKey(account, activePlanId))
+    const { workspace } = await this.options.repository.getSnapshot(account)
+    const plan = workspace?.frozenSyncPlan
+    if (!workspace || !plan || workspace.status !== 'executing') {
+      if (activePlanId) this.stopRequestedRuns.delete(this.runKey(account, activePlanId))
+      return
+    }
+    const key = this.runKey(account, plan.id)
+    this.stopRequestedRuns.add(key)
+    try {
+      await this.runRemote(account, () => this.withRunLock(account, plan.id, async () => {
+        await this.abandonFrozenPlanUnderLock(account, plan.id)
+      }))
+    } finally {
+      this.stopRequestedRuns.delete(key)
+    }
   }
 
   /** Persists the user-confirmed execution boundary before any remote bind begins. */
@@ -235,6 +246,7 @@ export class FavoriteRepositorySyncService {
       if (workspace.status === 'frozen') {
         await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `claim:${plan.id}`)
         this.claimedExecutionRuns.add(`${account}:${plan.id}`)
+        this.executingPlanIds.set(account, plan.id)
       }
       return run
     }))
@@ -267,6 +279,7 @@ export class FavoriteRepositorySyncService {
           if (workspace.status === 'executing' && this.claimedExecutionRuns.delete(`${account}:${plan.id}`)) {
             try {
               await this.bindPageTarget(account, plan.id)
+              this.executingPlanIds.set(account, plan.id)
               return this.drive(account, workspace.frozenSyncPlan)
             } catch (error) {
               await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `bind-failed:${plan.id}`)
@@ -288,10 +301,12 @@ export class FavoriteRepositorySyncService {
         // rather than mistake an interrupted bind for a new user-confirmed run.
         await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', workspace.frozenSyncPlan), `start:${plan.id}`)
         await this.bindPageTarget(account, plan.id)
+        this.executingPlanIds.set(account, plan.id)
         return this.drive(account, workspace.frozenSyncPlan)
       }
       await this.bindPageTarget(account, plan.id)
       await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `freeze:${plan.id}`)
+      this.executingPlanIds.set(account, plan.id)
       return this.drive(account, plan)
     }))
   }
@@ -315,6 +330,7 @@ export class FavoriteRepositorySyncService {
         throw new Error(`retry-cooldown; ${run.lastFailureReason ?? 'remote-write-temporarily-unavailable'}; retry-at=${run.retryAvailableAt}`)
       }
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'executing', plan), `resume:${runId}`)
+      this.executingPlanIds.set(account, plan.id)
       return this.drive(account, plan)
     }))
   }
@@ -360,6 +376,10 @@ export class FavoriteRepositorySyncService {
     const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(accountMid, plan.id))
     const automaticRetries = new Set<string>()
     for (let index = 0; index < plan.operations.length; index++) {
+      if (this.isStopRequested(accountMid, plan.id)) {
+        await this.abandonFrozenPlanUnderLock(accountMid, plan.id)
+        return this.summarize(plan, Array.from(records.values()))
+      }
       const operation = plan.operations[index]
       const record = records.get(operation.operationKey)
       if (record?.status === 'succeeded') continue
@@ -371,6 +391,10 @@ export class FavoriteRepositorySyncService {
 
       const completedCount = Array.from(records.values()).filter((current) => current.status === 'succeeded').length
       if (completedCount > 0) await this.sleep(completedCount)
+      if (this.isStopRequested(accountMid, plan.id)) {
+        await this.abandonFrozenPlanUnderLock(accountMid, plan.id)
+        return this.summarize(plan, Array.from(records.values()))
+      }
       const attempt = (record?.attempt ?? 0) + 1
       const activeRequestKey = this.activeRequestKey(accountMid, plan.id, operation.operationKey)
       this.activeRemoteRequests.add(activeRequestKey)
@@ -948,6 +972,32 @@ export class FavoriteRepositorySyncService {
 
   private activeRequestKey(accountMid: string, runId: string, operationKey: string) {
     return `${normalizeAccountMid(accountMid)}:${runId}:${operationKey}`
+  }
+
+  private runKey(accountMid: string, runId: string) {
+    return `${normalizeAccountMid(accountMid)}:${runId}`
+  }
+
+  private isStopRequested(accountMid: string, runId: string) {
+    return this.stopRequestedRuns.has(this.runKey(accountMid, runId))
+  }
+
+  private async abandonFrozenPlanUnderLock(accountMid: string, expectedPlanId: string) {
+    const current = await this.options.repository.getSnapshot(accountMid)
+    const workspace = current.workspace
+    const plan = workspace?.frozenSyncPlan
+    if (!workspace || !plan || plan.id !== expectedPlanId || workspace.status === 'completed') return false
+    await this.options.repository.commit(accountMid, {
+      id: `favorite-sync-abandon:${workspace.id}:${plan.id}`,
+      accountMid,
+      issuedAt: this.now(),
+      type: 'abandon-frozen-workspace',
+      payload: { workspaceId: workspace.id, frozenPlanId: plan.id }
+    })
+    this.claimedExecutionRuns.delete(this.runKey(accountMid, plan.id))
+    if (this.executingPlanIds.get(accountMid) === plan.id) this.executingPlanIds.delete(accountMid)
+    this.options.pageBridgeManager?.release(accountMid, plan.id)
+    return true
   }
 
   private recordsByOperation(plan: FavoriteRepositoryFrozenSyncPlan, records: FavoriteRepositorySyncRecord[]) {

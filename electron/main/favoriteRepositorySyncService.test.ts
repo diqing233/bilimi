@@ -350,6 +350,35 @@ describe('FavoriteRepositorySyncService', () => {
     expect(release).toHaveBeenCalledWith('100', frozenPlan.id)
   })
 
+  it('finishes the in-flight Bilibili write then abandons the remaining frozen plan', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(2)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    let releaseSleep!: () => void
+    const pausedBetweenWrites = new Promise<void>((resolve) => { releaseSleep = resolve })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const sleep = vi.fn(() => pausedBetweenWrites)
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      sleep, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 1
+    })
+
+    await service.claimFrozenPlan('100', frozenPlan)
+    const execution = service.executeFrozenPlan('100', frozenPlan)
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(sleep).toHaveBeenCalledOnce())
+    const stop = service.stopAndAbandonFrozenPlan('100')
+    releaseSleep()
+
+    await expect(Promise.all([execution, stop])).resolves.toHaveLength(2)
+    expect(append).toHaveBeenCalledOnce()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: undefined })
+  })
+
   it('retries an unknown append once only after automatic reconciliation confirms it is absent', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

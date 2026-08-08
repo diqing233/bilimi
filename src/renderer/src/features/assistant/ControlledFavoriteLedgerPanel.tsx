@@ -673,6 +673,7 @@ export function ControlledFavoriteLedgerPanel({
         onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
+        onStopSyncAndFinish={workspace.stopBilibiliSyncAndFinish}
         onReconcile={() => void reconcile()}
       /> : null}
     </section>
