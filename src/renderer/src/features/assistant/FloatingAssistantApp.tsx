@@ -4771,10 +4771,9 @@ export function FloatingAssistantApp({
               className="floating-assistant-global-status__feedback"
               aria-label="全局提示"
               aria-live="polite"
-              title={displayedGlobalFeedbackMessage}
+              title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}
               data-expanded={globalFeedbackExpanded ? 'true' : 'false'}
             >
-              <span>{displayedGlobalFeedbackMessage}</span>
               <button
                 type="button"
                 className="floating-assistant-global-status__feedback-toggle"
@@ -4782,6 +4781,7 @@ export function FloatingAssistantApp({
                 aria-expanded={globalFeedbackExpanded}
                 onClick={() => setGlobalFeedbackExpanded((current) => !current)}
               >
+                <span className="floating-assistant-global-status__feedback-message">{displayedGlobalFeedbackMessage}</span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
@@ -4808,7 +4808,7 @@ export function FloatingAssistantApp({
                       if (task.destination === 'transcription') openSettingsSection('transcription')
                       else if (task.destination === 'deepseek') openSettingsSection('deepseek')
                       else setActiveTab('ledger')
-                    }}><span>{task.label}</span><small>{task.detail}</small></button>) : <p>当前没有后台任务。</p>}
+                    }}><span className="floating-assistant-global-status__menu-task-label">{task.label}</span><small>{task.detail}</small></button>) : <p>当前没有后台任务。</p>}
                   </section>
                   <section>
                     <strong>最近提示</strong>

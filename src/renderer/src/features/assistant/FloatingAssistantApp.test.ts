@@ -203,6 +203,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(feedbackToggle).not.toContain('<span aria-hidden="true">')
   })
 
+  it('makes the complete global feedback row the expand and collapse control', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const feedbackToggle = source.slice(
+      source.indexOf('className="floating-assistant-global-status__feedback-toggle"'),
+      source.indexOf('</button>', source.indexOf('className="floating-assistant-global-status__feedback-toggle"'))
+    )
+
+    expect(feedbackToggle).toContain('className="floating-assistant-global-status__feedback-message"')
+    expect(feedbackToggle).toContain('{displayedGlobalFeedbackMessage}')
+  })
+
+  it('keeps the native status tooltip only while the global feedback row is collapsed', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
+  })
+
   it('expands global feedback into live tasks and recent transient history without changing navigation', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
@@ -393,7 +410,10 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transition: opacity 120ms ease-out, visibility 0s linear 120ms;/)
     expect(styles).not.toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transform:/)
     expect(styles).toMatch(/\.floating-assistant-global-status__light \{[^}]*overflow: visible;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu small \{[^}]*color: var\(--porcelain-deep\);[^}]*font-size: 12px;[^}]*font-weight: 400;[^}]*line-height: 1\.45;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu section > strong \{[^}]*color: #7894ae;[^}]*font-size: 11px;[^}]*font-weight: 600;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu p \{[^}]*color: #7f99b2;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu-task-label \{[^}]*color: #476e96;[^}]*font-weight: 600;[^}]*text-decoration: underline;[^}]*text-underline-offset: 2px;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu small \{[^}]*color: var\(--porcelain-muted\);[^}]*font-size: 12px;[^}]*font-weight: 400;[^}]*line-height: 1\.45;/)
     expect(styles).toMatch(/\.floating-assistant-global-status__menu \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;/)
   })
 

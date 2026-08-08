@@ -18,7 +18,16 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.getByRole('button', { name: '展开删除模式' })).toHaveTextContent('×')
     fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
-    expect(screen.getByText('小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）')).toBeInTheDocument()
+    expect(screen.getByText('小咪提醒：')).toHaveClass('favorite-ledger-panel__sync-hint-title')
+    expect(screen.getByText('同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）')).toBeInTheDocument()
+  })
+
+  it('uses a darker semantic title for each favorite help paragraph', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__sync-hint-title')
   })
 
   it('publishes live enable changes before delayed persistence completes', () => {

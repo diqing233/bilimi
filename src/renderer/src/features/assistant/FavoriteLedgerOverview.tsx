@@ -48,14 +48,14 @@ type FavoriteLedgerOverviewProps = {
 }
 
 const LEDGER_SYNC_HINTS = [
-  '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）',
-  '自定义收藏夹：点击收藏夹名称可以编辑；按住并拖动可调整顺序。',
-  '勾选 bilimi 收藏夹：勾选的收藏夹会用于批阅预分类和整理收藏分类。预分类会显示视频建议归类的位置；备册后才能将分类结果同步到 B 站。',
-  '备册到 B 站：备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。',
-  '删除 bilimi 收藏夹：点击右侧“×”进入删除模式，勾选要删除的收藏夹后点击“删除”，即可删除 B 站中由 bilimi 创建的对应收藏夹，收藏夹内已分类的视频也会一并移除；原有普通 B 站收藏夹不受影响（如果部分视频没有其他普通 B 站收藏夹需要谨慎操作）。',
-  '分类依据：关键词、UP 名称和标签用于本地识别。DeepSeek 约束可用一句话描述你想把什么视频分类到这个收藏夹里，仅在启用 DeepSeek 后生效。'
+  { title: '小咪提醒：', detail: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' },
+  { title: '自定义收藏夹：', detail: '点击收藏夹名称可以编辑；按住并拖动可调整顺序。' },
+  { title: '勾选 bilimi 收藏夹：', detail: '勾选的收藏夹会用于批阅预分类和整理收藏分类。预分类会显示视频建议归类的位置；备册后才能将分类结果同步到 B 站。' },
+  { title: '备册到 B 站：', detail: '备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。' },
+  { title: '删除 bilimi 收藏夹：', detail: '点击右侧“×”进入删除模式，勾选要删除的收藏夹后点击“删除”，即可删除 B 站中由 bilimi 创建的对应收藏夹，收藏夹内已分类的视频也会一并移除；原有普通 B 站收藏夹不受影响（如果部分视频没有其他普通 B 站收藏夹需要谨慎操作）。' },
+  { title: '分类依据：', detail: '关键词、UP 名称和标签用于本地识别。DeepSeek 约束可用一句话描述你想把什么视频分类到这个收藏夹里，仅在启用 DeepSeek 后生效。' }
 ]
-const LEDGER_SYNC_HINT = LEDGER_SYNC_HINTS.join('\n')
+const LEDGER_SYNC_HINT = LEDGER_SYNC_HINTS.map((hint) => `${hint.title}${hint.detail}`).join('\n')
 const TYPES: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
   { value: 'keyword', label: '关键词收藏夹' },
   { value: 'author', label: '专属 UP 追更收藏夹' },
@@ -511,7 +511,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
         <div className="favorite-ledger-panel__category-header"><button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} title={LEDGER_SYNC_HINT} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked || deletionModeActive} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={draftMutationLocked} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除模式' : '打开删除 bilimi 工作夹模式'} disabled={draftMutationLocked} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>
-        {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINTS.map((hint) => <p key={hint}>{hint}</p>)}</div> : null}
+        {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINTS.map((hint) => <p key={hint.title}><strong className="favorite-ledger-panel__sync-hint-title">{hint.title}</strong>{hint.detail}</p>)}</div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
           const unsaved = ledgerHasUnsavedChanges(ledger)
