@@ -35,6 +35,7 @@ import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveP
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { composeMemorialComments } from '../comments/commentComposer'
+import { resolveGlobalStatusLightTooltipPosition } from './globalStatusTooltipPosition'
 import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -64,6 +65,7 @@ import { TranscriptionModelSettings } from './TranscriptionModelSettings'
 import { SettingsPreferenceCheckbox } from './SettingsPreferenceField'
 import { PetHoverShortcutSettings } from './PetHoverShortcutSettings'
 import { createPetHoverShortcutFieldStore } from './petHoverShortcutFieldStore'
+import { WORKSPACE_GUIDANCE, type WorkspaceGuidanceKey } from './workspaceGuidance'
 import { BilimiModal } from '../../components/BilimiModal'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
@@ -175,8 +177,19 @@ function pickRandomCommentDraft(drafts: string[]) {
 
 type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
 type AssistantWorkspaceView = AssistantWorkspaceTab | 'noteArchive'
+type WorkspaceGuidanceAnnouncement = 'none' | 'global-only' | 'both'
 
 type StatusLightId = 'deepseek' | 'transcription' | 'ledger'
+
+export function resolveWorkspaceGuidanceAnnouncement(
+  activeTab: AssistantWorkspaceTab,
+  nextTab: AssistantWorkspaceTab,
+  source: 'top-tab' | 'initial-floating-review' | 'internal'
+): WorkspaceGuidanceAnnouncement {
+  if (source === 'initial-floating-review') return 'global-only'
+  if (source === 'top-tab' && activeTab !== nextTab) return 'both'
+  return 'none'
+}
 
 export function statusLightNavigation(id: StatusLightId, _activeView: AssistantWorkspaceView) {
   if (id === 'deepseek') return { tab: 'settings' as const, section: 'deepseek' as const }
@@ -325,13 +338,6 @@ const ACTION_NO_VIDEO_ERROR_HINTS: Record<AssistantAction, string> = {
   阅: '当前还没打开视频，小咪不能登记已阅。'
 }
 
-const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
-  review: '小咪切到批阅啦，当前视频的操作都在这里。',
-  notes: '小咪切到札记啦，可以转写、整理和存档。',
-  ledger: '小咪切到掌库啦，bilimi 分册在这里管理。',
-  settings: '小咪切到设置啦，宠物和 DeepSeek 都在这里调。'
-}
-
 type GlobalStatusTone = 'ok' | 'warn' | 'error' | 'running' | 'idle'
 type DeepSeekConnectionStatus = 'pending' | 'connected' | 'failed'
 
@@ -359,12 +365,14 @@ function GlobalStatusLight({
   item,
   ariaLabel,
   suppressed = false,
+  statusPanelRef,
   onOpen
 }: {
   id: string
   item: GlobalStatusItem
   ariaLabel: string
   suppressed?: boolean
+  statusPanelRef: { current: HTMLElement | null }
   onOpen: () => void
 }) {
   const [visible, setVisible] = useState(false)
@@ -377,15 +385,18 @@ function GlobalStatusLight({
     if (!visible || suppressed) return
     const updatePosition = () => {
       const anchorRect = triggerRef.current?.getBoundingClientRect()
-      if (!anchorRect) return
+      const panelRect = statusPanelRef.current?.getBoundingClientRect()
+      if (!anchorRect || !panelRect) return
       const tooltipRect = tooltipRef.current?.getBoundingClientRect()
       const tooltipWidth = tooltipRect?.width || 360
       const tooltipHeight = tooltipRect?.height || 48
-      setPosition(resolveSidebarTooltipPosition(
-        anchorRect,
-        { width: tooltipWidth, height: tooltipHeight },
-        { width: window.innerWidth, height: window.innerHeight }
-      ))
+      setPosition(resolveGlobalStatusLightTooltipPosition({
+        id: id as StatusLightId,
+        anchor: anchorRect,
+        panel: panelRect,
+        tooltip: { width: tooltipWidth, height: tooltipHeight },
+        viewport: { width: window.innerWidth, height: window.innerHeight }
+      }))
     }
     updatePosition()
     window.addEventListener('resize', updatePosition)
@@ -2609,7 +2620,15 @@ export function FloatingAssistantApp({
     }
   }), [refreshTranscriptionModels])
 
-  const loadVideoNoteArchives = useCallback(async ({ silent = false, accountMid = snapshotRef.current?.accountMid }: { silent?: boolean; accountMid?: string } = {}) => {
+  const loadVideoNoteArchives = useCallback(async ({
+    silent = false,
+    accountMid = snapshotRef.current?.accountMid,
+    announceOpen = false
+  }: {
+    silent?: boolean
+    accountMid?: string
+    announceOpen?: boolean
+  } = {}) => {
     const loadGeneration = ++videoNoteArchiveLoadGeneration.current
     if (!silent) {
       tellPet('progress', '小咪正在打开档案库。')
@@ -2617,12 +2636,13 @@ export function FloatingAssistantApp({
 
     const archives = (await window.bilimiDesktop?.loadVideoNoteArchives?.()) ?? []
     const accountArchives = archivesForCurrentAccount(archives, accountMid)
-    if (canPublishVideoNoteArchiveLoad(loadGeneration, videoNoteArchiveLoadGeneration.current)) {
+    const canPublish = canPublishVideoNoteArchiveLoad(loadGeneration, videoNoteArchiveLoadGeneration.current)
+    if (canPublish) {
       setVideoNoteArchives(accountArchives)
     }
 
-    if (!silent) {
-      tellPet('success', '档案库打开啦，想看的文稿都在这里。')
+    if (announceOpen && canPublish) {
+      announceWorkspaceGuidance('archive', 'both')
     }
 
     return accountArchives
@@ -2833,7 +2853,17 @@ export function FloatingAssistantApp({
     setDeepSeekConnectionStatus(status)
   }
 
-  function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
+  function announceWorkspaceGuidance(kind: WorkspaceGuidanceKey, announcement: WorkspaceGuidanceAnnouncement) {
+    if (announcement === 'none') return
+    const guidance = WORKSPACE_GUIDANCE[kind]
+    setGlobalFeedback(guidance.global)
+    if (announcement === 'both') tellPet('success', guidance.pet)
+  }
+
+  function setActiveTab(
+    tab: AssistantWorkspaceTab,
+    options?: { view?: AssistantWorkspaceView; announcement?: WorkspaceGuidanceAnnouncement }
+  ) {
     setFeedback(null)
     const nextView = options?.view ?? (tab === 'notes' ? notesWorkspaceView : tab)
     if (nextView === 'ledger') setLedgerWorkspaceOpened(true)
@@ -2842,7 +2872,7 @@ export function FloatingAssistantApp({
     if (tab === 'notes' && (nextView === 'notes' || nextView === 'noteArchive')) {
       setNotesWorkspaceView(nextView)
     }
-    tellPet('success', TAB_HINTS[tab])
+    announceWorkspaceGuidance(tab, options?.announcement ?? 'none')
 
     if (controlledActiveTab === undefined) {
       setUncontrolledActiveTab(tab)
@@ -4172,10 +4202,16 @@ export function FloatingAssistantApp({
       if (payload.createLedger) setCreateLedgerRequestVersion((current) => current + 1)
 
       if (payload.openNoteArchive) {
-        void loadVideoNoteArchives()
+        void loadVideoNoteArchives({ announceOpen: true })
         setActiveTab(payload.tab, { view: 'noteArchive' })
       } else {
-        setActiveTab(payload.tab)
+        setActiveTab(payload.tab, {
+          announcement: payload.action
+            ? 'none'
+            : mode === 'floating' && payload.tab === 'review'
+              ? 'global-only'
+              : 'none'
+        })
       }
 
       if (payload.organizeOldFavorites) {
@@ -4550,7 +4586,7 @@ export function FloatingAssistantApp({
     setCreateLedgerRequested(Boolean(workspaceRequest.createLedger))
     if (workspaceRequest.createLedger) setCreateLedgerRequestVersion(workspaceRequest.requestId ?? 0)
     if (workspaceRequest.openNoteArchive) {
-      void loadVideoNoteArchives()
+      void loadVideoNoteArchives({ announceOpen: true })
       setActiveTab(workspaceRequest.tab, { view: 'noteArchive' })
     } else {
       setActiveTab(workspaceRequest.tab)
@@ -4718,6 +4754,9 @@ export function FloatingAssistantApp({
     id: `archive-organize:${resolvedSnapshot.accountMid ?? 'unknown'}:${Date.now()}:${Math.random()}`,
     kind: 'archive-organize', detail
   }))
+  const announceFavoriteLibraryOpened = useStableCallback(() => {
+    announceWorkspaceGuidance('favoriteLibrary', 'both')
+  })
 
   settingsActionsRef.current = {
     restoreDefaultLayoutSize,
@@ -4860,7 +4899,9 @@ export function FloatingAssistantApp({
                 role="tab"
                 aria-label={tab.label}
                 aria-selected={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => setActiveTab(tab.id, {
+                  announcement: resolveWorkspaceGuidanceAnnouncement(activeTab, tab.id, 'top-tab')
+                })}
               >
                 <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
                 <span>{tab.label}</span>
@@ -4934,6 +4975,7 @@ export function FloatingAssistantApp({
                     id={item.id}
                     item={item}
                     suppressed={globalFeedbackExpanded}
+                    statusPanelRef={globalStatusRef}
                     ariaLabel={item.id === 'deepseek' ? '打开 DeepSeek 设置' : item.id === 'transcription' ? '打开札记查看转写' : '打开掌库查看收藏整理'}
                     onOpen={() => {
                       if (navigation.tab === 'settings') openSettingsSection(navigation.section)
@@ -4962,6 +5004,7 @@ export function FloatingAssistantApp({
             onOrganizationSnapshotChange={setFavoriteOrganizationSnapshot}
             onAcknowledgeOrganizationCompletion={acknowledgeFavoriteOrganizationCompletion}
             onTransientFeedback={reportLedgerTransientFeedback}
+            onFavoriteLibraryOpened={announceFavoriteLibraryOpened}
             onDeepSeekTaskStart={startLedgerDeepSeekTask}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
@@ -5081,7 +5124,7 @@ export function FloatingAssistantApp({
                 actionsLocked={actionsLocked}
                 feedback={feedback}
                 onOpenVideoNoteArchive={() => {
-                  void loadVideoNoteArchives()
+                  void loadVideoNoteArchives({ announceOpen: true })
                   setNotesWorkspaceView('noteArchive')
                   setActiveView('noteArchive')
                 }}

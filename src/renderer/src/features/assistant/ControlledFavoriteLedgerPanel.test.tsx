@@ -436,8 +436,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
     expect(within(guide).getByRole('button', { name: '收起整理收藏' })).toHaveAttribute('aria-expanded', 'true')
-    expect(guide).toHaveTextContent('① 扫描概览：扫描视频基本信息和标签补取。标签是分类的重要依据，建议耐心等待，不要提前采用；可以勾选想要分类的收藏夹。')
-    expect(guide).toHaveTextContent('④ 确认执行：如果视频较多，建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；')
+    expect(guide).toHaveTextContent('① 扫描概览：扫描所有收藏的视频基本信息和标签。标签是分类的重要依据，建议耐心等待，不要提前采用；默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。')
+    expect(guide).toHaveTextContent('④ 确认执行：前面三步都是打草稿，最后一步来执行')
+    expect(guide).toHaveTextContent('保存在收藏库：适合视频较多的情况，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。')
     expect(guide).toHaveTextContent('暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。')
   })
 
@@ -812,6 +813,48 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
     expect(openFavoriteLibrary).toHaveBeenCalledTimes(1)
     expect(command).not.toHaveBeenCalled()
+  })
+
+  it('announces the local favorite library only after its open request succeeds', async () => {
+    const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
+    const onFavoriteLibraryOpened = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn(),
+      openFavoriteLibrary
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+      onFavoriteLibraryOpened={onFavoriteLibraryOpened}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
+
+    await waitFor(() => expect(openFavoriteLibrary).toHaveBeenCalledTimes(1))
+    expect(onFavoriteLibraryOpened).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not announce the local favorite library when its open request fails', async () => {
+    const onFavoriteLibraryOpened = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn(),
+      openFavoriteLibrary: vi.fn().mockRejectedValue(new Error('open failed'))
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+      onFavoriteLibraryOpened={onFavoriteLibraryOpened}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
+
+    await waitFor(() => expect(window.bilimiDesktop?.openFavoriteLibrary).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+    expect(onFavoriteLibraryOpened).not.toHaveBeenCalled()
   })
 
   it('describes the library entry as waking bilimi and opening the library', () => {

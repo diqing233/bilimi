@@ -33,6 +33,21 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('announces only manual page changes to both channels and keeps the first review entry global only', () => {
+    const resolveAnnouncement = (FloatingAssistantAppModule as unknown as {
+      resolveWorkspaceGuidanceAnnouncement: (
+        activeTab: 'review' | 'notes' | 'ledger' | 'settings',
+        nextTab: 'review' | 'notes' | 'ledger' | 'settings',
+        source: 'top-tab' | 'initial-floating-review' | 'internal'
+      ) => 'none' | 'global-only' | 'both'
+    }).resolveWorkspaceGuidanceAnnouncement
+
+    expect(resolveAnnouncement('review', 'notes', 'top-tab')).toBe('both')
+    expect(resolveAnnouncement('review', 'review', 'top-tab')).toBe('none')
+    expect(resolveAnnouncement('review', 'review', 'initial-floating-review')).toBe('global-only')
+    expect(resolveAnnouncement('notes', 'ledger', 'internal')).toBe('none')
+  })
+
   it('uses the completed enabled wording in DeepSeek status help', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 

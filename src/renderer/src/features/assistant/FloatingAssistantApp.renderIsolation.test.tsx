@@ -11,9 +11,11 @@ const deepSeekTaskSignal = vi.hoisted(() => ({
 }))
 
 vi.mock('./ControlledFavoriteLedgerPanel', () => ({
-  ControlledFavoriteLedgerPanel: () => {
+  ControlledFavoriteLedgerPanel: ({ onFavoriteLibraryOpened }: { onFavoriteLibraryOpened?: () => void }) => {
     ledgerRenderCount += 1
-    return <div aria-label="掌库渲染探针" />
+    return <div aria-label="掌库渲染探针">
+      <button type="button" onClick={onFavoriteLibraryOpened}>模拟打开收藏库</button>
+    </div>
   }
 }))
 
@@ -144,6 +146,89 @@ describe('FloatingAssistantApp render isolation', () => {
     })
 
     expect(ledgerRenderCount).toBe(rendersBeforeSwitch)
+  })
+
+  it('publishes approved guidance to the global prompt and pet only for a changed top-level tab', async () => {
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi(createInitialAssistantPreferences(), { setAssistantPetHint })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '札记：通过转写音频输出视频文稿；建议在设置页下载并启用识别率更高的转写模型。启用 DeepSeek 后可总结笔记。'
+    ))
+    expect(setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'happy',
+      message: '小咪切到札记啦，点击转写音频就能输出视频文稿，还可以用 DeepSeek 总结笔记哦～'
+    })
+
+    const callsAfterChange = setAssistantPetHint.mock.calls.length
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    expect(setAssistantPetHint).toHaveBeenCalledTimes(callsAfterChange)
+  })
+
+  it('replaces archive loading feedback with archive guidance after an explicit archive request succeeds', async () => {
+    let openWorkspace: ((payload: { tab: 'notes'; openNoteArchive: true }) => void) | undefined
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi(createInitialAssistantPreferences(), {
+      setAssistantPetHint,
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    await waitFor(() => expect(openWorkspace).toBeTypeOf('function'))
+    act(() => openWorkspace?.({ tab: 'notes', openNoteArchive: true }))
+
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '档案库：可以查看已转写成功的视频文稿，支持搜索、备注和批量导出。'
+    ))
+    expect(setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'happy',
+      message: '主人，档案库已经打开啦，想看整理好的文稿，随时来找小咪哦～'
+    })
+  })
+
+  it('adds only the global review guidance when the floating assistant opens on its default tab', async () => {
+    let openWorkspace: ((payload: { tab: 'review' }) => void) | undefined
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi(createInitialAssistantPreferences(), {
+      setAssistantPetHint,
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+    render(<FloatingAssistantApp mode="floating" />)
+
+    await waitFor(() => expect(openWorkspace).toBeTypeOf('function'))
+    const petHintsBeforeOpen = setAssistantPetHint.mock.calls.length
+    act(() => openWorkspace?.({ tab: 'review' }))
+
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '批阅：可以一键三连、自动分类收藏（需先在掌库完成备册），发送弹幕（建议开启 DeepSeek 生成）。'
+    ))
+    expect(setAssistantPetHint).toHaveBeenCalledTimes(petHintsBeforeOpen)
+  })
+
+  it('publishes local favorite-library guidance when the ledger panel confirms opening', async () => {
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi(createInitialAssistantPreferences(), { setAssistantPetHint })
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(await screen.findByRole('button', { name: '模拟打开收藏库' }))
+
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '收藏库：bilimi 本地收藏库，支持批量管理所有已整理的视频。'
+    ))
+    expect(setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'happy',
+      message: '主人，收藏库已经打开啦，快看看小咪整理得怎么样呀！'
+    })
   })
 
   it('does not rerender an opened settings workspace while switching tabs', async () => {
@@ -369,7 +454,7 @@ describe('FloatingAssistantApp render isolation', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     await screen.findByLabelText('设置渲染探针')
     const rendersBeforeClick = settingsRenderCount
-    const direct = screen.getByRole('radio', { name: /始终直连/ })
+    const direct = screen.getByRole('radio', { name: /直接连接 B 站/ })
 
     fireEvent.click(direct)
 

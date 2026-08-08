@@ -28,6 +28,7 @@ type ControlledFavoriteLedgerPanelProps = {
   onOrganizationSnapshotChange?: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   onAcknowledgeOrganizationCompletion?: (accountMid: string, workspaceId: string) => void
   onTransientFeedback?: (message: string) => void
+  onFavoriteLibraryOpened?: () => void
   onDeepSeekTaskStart?: (detail: string) => () => void
   deepSeekArchiveAvailable?: boolean
   openLedgerId?: string
@@ -123,6 +124,7 @@ export function ControlledFavoriteLedgerPanel({
   onOrganizationSnapshotChange,
   onAcknowledgeOrganizationCompletion,
   onTransientFeedback,
+  onFavoriteLibraryOpened,
   onDeepSeekTaskStart,
   deepSeekArchiveAvailable = false,
   openLedgerId,
@@ -513,6 +515,15 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
+  const openFavoriteLibrary = async () => {
+    try {
+      await window.bilimiDesktop?.openFavoriteLibrary?.()
+      onFavoriteLibraryOpened?.()
+    } catch {
+      onTransientFeedback?.('收藏库打开失败，请重试。')
+    }
+  }
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
@@ -525,7 +536,7 @@ export function ControlledFavoriteLedgerPanel({
             onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理收藏" badge="整"
             label="整理收藏" description="扫描已有收藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
-            onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={idlePetUrl} iconAlt="小咪收藏库" badge="库"
+            onClick={() => void openFavoriteLibrary()} icon={idlePetUrl} iconAlt="小咪收藏库" badge="库"
             label="收藏库" description="唤醒 bilimi 并打开收藏库" />
         </div>
       </div>
