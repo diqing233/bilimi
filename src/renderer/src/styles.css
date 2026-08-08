@@ -1945,6 +1945,24 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__feedback-toggle[aria-expanded="true"] .floating-assistant-global-status__feedback-chevron {
   transform: rotate(180deg);
 }
+.floating-assistant-global-status__feedback-continuation {
+  position: absolute;
+  z-index: 4;
+  top: 100%;
+  right: 0;
+  left: 0;
+  box-sizing: border-box;
+  padding: 5px 10px 6px;
+  border-top: 1px dashed #d1e6fb;
+  background: rgba(247, 251, 255, 0.99);
+  box-shadow: 0 8px 18px rgba(45, 94, 139, 0.16);
+  color: var(--porcelain-deep);
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
 .floating-assistant-global-status__menu {
   position: absolute;
   top: 100%;

@@ -35,8 +35,8 @@ import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveP
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { composeMemorialComments } from '../comments/commentComposer'
+import { feedbackContinuationSuffix } from './feedbackContinuation'
 import { resolveGlobalStatusLightTooltipPosition } from './globalStatusTooltipPosition'
-import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
 import {
@@ -388,7 +388,7 @@ function GlobalStatusLight({
       const panelRect = statusPanelRef.current?.getBoundingClientRect()
       if (!anchorRect || !panelRect) return
       const tooltipRect = tooltipRef.current?.getBoundingClientRect()
-      const tooltipWidth = tooltipRect?.width || 360
+      const tooltipWidth = Math.min(360, Math.max(0, window.innerWidth - 32))
       const tooltipHeight = tooltipRect?.height || 48
       setPosition(resolveGlobalStatusLightTooltipPosition({
         id: id as StatusLightId,
@@ -399,9 +399,17 @@ function GlobalStatusLight({
       }))
     }
     updatePosition()
+    const stableLayoutFrame = window.requestAnimationFrame(updatePosition)
+    const resizeObserver = new ResizeObserver(updatePosition)
+    if (statusPanelRef.current) resizeObserver.observe(statusPanelRef.current)
+    if (tooltipRef.current) resizeObserver.observe(tooltipRef.current)
+    statusPanelRef.current?.addEventListener('transitionend', updatePosition)
     window.addEventListener('resize', updatePosition)
     window.addEventListener('scroll', updatePosition, true)
     return () => {
+      window.cancelAnimationFrame(stableLayoutFrame)
+      resizeObserver.disconnect()
+      statusPanelRef.current?.removeEventListener('transitionend', updatePosition)
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
@@ -2343,12 +2351,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="bilibili-connection"
             >
               <legend>B 站连接方式</legend>
-              <p>此设置只影响 bilimi 打开 B 站时的网络连接，包括网页、图片和视频。不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。</p>
-              <p>切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。</p>
               <BilibiliConnectionModeControl
                 initialMode={preferences.bilibiliConnectionMode}
                 getActions={getActions}
               />
+              <p>此设置只影响 bilimi 打开 B 站时的网络连接，包括网页、图片和视频。不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。</p>
+              <p>切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。</p>
             </fieldset>
             {localDataInfo ? <fieldset
               className="assistant-settings__group assistant-settings__group--local-data"
@@ -2540,12 +2548,15 @@ export function FloatingAssistantApp({
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [temporaryGlobalFeedbackMessage, setTemporaryGlobalFeedbackMessage] = useState('')
   const [globalFeedbackExpanded, setGlobalFeedbackExpanded] = useState(false)
+  const [globalFeedbackContinuationVisible, setGlobalFeedbackContinuationVisible] = useState(false)
+  const [globalFeedbackContinuation, setGlobalFeedbackContinuation] = useState('')
   const [globalFeedbackHistory, setGlobalFeedbackHistory] = useState<GlobalFeedbackHistoryItem[]>([])
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const settingsBodyRef = useRef<HTMLDivElement | null>(null)
   const settingsActionsRef = useRef<SettingsWorkspaceActions | null>(null)
   const globalStatusRef = useRef<HTMLElement | null>(null)
+  const globalFeedbackMessageRef = useRef<HTMLSpanElement | null>(null)
   const temporaryGlobalFeedbackTimerRef = useRef<number | null>(null)
   const mounted = useRef(false)
 
@@ -3366,6 +3377,24 @@ export function FloatingAssistantApp({
   }, [activeTab, hasBilibiliPageOpen, hasMissingFavoriteLedgers])
   const displayedGlobalFeedbackMessage =
     temporaryGlobalFeedbackMessage || globalFeedbackMessage || readinessFeedbackMessage
+
+  const updateGlobalFeedbackContinuation = useCallback(() => {
+    const messageElement = globalFeedbackMessageRef.current
+    if (globalFeedbackExpanded || !messageElement || messageElement.scrollWidth <= messageElement.clientWidth) {
+      setGlobalFeedbackContinuation('')
+      return
+    }
+    const style = window.getComputedStyle(messageElement)
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    setGlobalFeedbackContinuation(feedbackContinuationSuffix(
+      displayedGlobalFeedbackMessage,
+      messageElement.clientWidth,
+      (text) => context.measureText(text).width
+    ))
+  }, [displayedGlobalFeedbackMessage, globalFeedbackExpanded])
 
   function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {
     lastPreferenceChangeAt.current = Date.now()
@@ -4914,17 +4943,25 @@ export function FloatingAssistantApp({
               className="floating-assistant-global-status__feedback"
               aria-label="全局提示"
               aria-live="polite"
-              title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}
               data-expanded={globalFeedbackExpanded ? 'true' : 'false'}
+              onMouseEnter={() => {
+                if (globalFeedbackExpanded) return
+                setGlobalFeedbackContinuationVisible(true)
+                requestAnimationFrame(updateGlobalFeedbackContinuation)
+              }}
+              onMouseLeave={() => setGlobalFeedbackContinuationVisible(false)}
             >
               <button
                 type="button"
                 className="floating-assistant-global-status__feedback-toggle"
                 aria-label={globalFeedbackExpanded ? '收起全局提示' : '展开全局提示'}
                 aria-expanded={globalFeedbackExpanded}
-                onClick={() => setGlobalFeedbackExpanded((current) => !current)}
+                onClick={() => {
+                  setGlobalFeedbackContinuationVisible(false)
+                  setGlobalFeedbackExpanded((current) => !current)
+                }}
               >
-                <span className="floating-assistant-global-status__feedback-message">{displayedGlobalFeedbackMessage}</span>
+                <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{displayedGlobalFeedbackMessage}</span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
@@ -4941,6 +4978,11 @@ export function FloatingAssistantApp({
                   />
                 </svg>
               </button>
+              {!globalFeedbackExpanded && globalFeedbackContinuationVisible && globalFeedbackContinuation ? (
+                <div className="floating-assistant-global-status__feedback-continuation" role="tooltip">
+                  {globalFeedbackContinuation}
+                </div>
+              ) : null}
               {globalFeedbackExpanded ? (
                 <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
                   <section><strong>当前提示</strong><p>{displayedGlobalFeedbackMessage}</p></section>

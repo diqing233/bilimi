@@ -15,15 +15,20 @@ type TooltipViewport = {
   height: number
 }
 
+type SidebarPanel = {
+  left: number
+}
+
 const DEFAULT_GUTTER = 8
 
 export function resolveSidebarTooltipPosition(
   anchor: TooltipAnchor,
   tooltip: TooltipSize,
   viewport: TooltipViewport,
+  panel?: SidebarPanel,
   gutter = DEFAULT_GUTTER
 ) {
-  const preferredLeft = anchor.left - tooltip.width - gutter
+  const preferredLeft = (panel?.left ?? anchor.left) - tooltip.width - gutter
   const fallbackLeft = anchor.right + gutter
   const canPlaceLeft = preferredLeft >= gutter
   const canPlaceRight = fallbackLeft + tooltip.width <= viewport.width - gutter

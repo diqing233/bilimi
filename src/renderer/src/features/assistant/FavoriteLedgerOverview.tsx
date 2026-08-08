@@ -119,6 +119,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(() => window.localStorage.getItem('bilimi:ledger-hint-open') === 'true')
   const [ledgerHintVisible, setLedgerHintVisible] = useState(false)
   const [ledgerHintPosition, setLedgerHintPosition] = useState({ top: 0, left: 0 })
+  const ledgerHintPanelRef = useRef<HTMLElement>(null)
   const ledgerHintTriggerRef = useRef<HTMLButtonElement>(null)
   const ledgerHintTooltipRef = useRef<HTMLDivElement>(null)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
@@ -240,7 +241,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       setLedgerHintPosition(resolveSidebarTooltipPosition(
         anchorRect,
         { width: tooltipWidth, height: tooltipHeight },
-        { width: window.innerWidth, height: window.innerHeight }
+        { width: window.innerWidth, height: window.innerHeight },
+        ledgerHintPanelRef.current?.getBoundingClientRect()
       ))
     }
     updatePosition()
@@ -534,7 +536,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
     }
     setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionReviewOpen(false)
   }
-  return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
+  return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
         <div className="favorite-ledger-panel__category-header"><button ref={ledgerHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹`} aria-expanded={ledgerHintExpanded} aria-describedby={ledgerHintExpanded ? undefined : 'favorite-ledger-help-tooltip'} onMouseEnter={() => setLedgerHintVisible(true)} onMouseLeave={() => setLedgerHintVisible(false)} onFocus={() => setLedgerHintVisible(true)} onBlur={() => setLedgerHintVisible(false)} onClick={() => setLedgerHintExpanded((open) => !open)}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked || deletionModeActive} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={draftMutationLocked} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除模式' : '打开删除 bilimi 工作夹模式'} disabled={draftMutationLocked} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>

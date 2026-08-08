@@ -13,6 +13,15 @@ describe('resolveSidebarTooltipPosition', () => {
     )).toEqual({ top: 200, left: 8 })
   })
 
+  it('anchors a sidebar help card beside the sidebar panel instead of falling back to the window edge', () => {
+    expect(resolveSidebarTooltipPosition(
+      { top: 200, bottom: 224, left: 1_208, right: 1_268 },
+      { width: 360, height: 120 },
+      { width: 1_600, height: 900 },
+      { top: 100, bottom: 800, left: 1_200, right: 1_600 }
+    )).toEqual({ top: 200, left: 832 })
+  })
+
   it('falls back to a vertical position when neither side fits', () => {
     expect(resolveSidebarTooltipPosition(
       { top: 200, bottom: 224, left: 252, right: 268 },

@@ -242,10 +242,29 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(feedbackToggle).toContain('{displayedGlobalFeedbackMessage}')
   })
 
-  it('keeps the native status tooltip only while the global feedback row is collapsed', () => {
+  it('uses an overflow-only hover continuation without changing the existing click-expanded menu', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
-    expect(source).toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
+    expect(source).toContain('globalFeedbackContinuationVisible')
+    expect(source).toContain('globalFeedbackContinuation')
+    expect(source).toContain('requestAnimationFrame(updateGlobalFeedbackContinuation)')
+    expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
+    expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
+    expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
+  })
+
+  it('repositions a visible status-light tooltip after its panel finishes resizing', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const light = source.slice(source.indexOf('function GlobalStatusLight'), source.indexOf('type LedgerWorkspacePanelProps'))
+
+    expect(light).toContain('const resizeObserver = new ResizeObserver(updatePosition)')
+    expect(light).toContain('const stableLayoutFrame = window.requestAnimationFrame(updatePosition)')
+    expect(light).toContain('const tooltipWidth = Math.min(360, Math.max(0, window.innerWidth - 32))')
+    expect(light).toContain('resizeObserver.observe(statusPanelRef.current)')
+    expect(light).toContain('resizeObserver.observe(tooltipRef.current)')
+    expect(light).toContain("statusPanelRef.current?.addEventListener('transitionend', updatePosition)")
+    expect(light).toContain('window.cancelAnimationFrame(stableLayoutFrame)')
+    expect(light).toContain('resizeObserver.disconnect()')
   })
 
   it('expands global feedback into live tasks and recent transient history without changing navigation', () => {
@@ -367,6 +386,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。')
     expect(source).toContain('切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。')
     expect(source).toContain('className="assistant-settings__bilibili-connection-choice"')
+    const sectionStart = source.indexOf('data-settings-section="bilibili-connection"')
+    const section = source.slice(sectionStart, source.indexOf('</fieldset>', sectionStart))
+    expect(section.indexOf('<BilibiliConnectionModeControl')).toBeLessThan(section.indexOf('此设置只影响 bilimi 打开 B 站时的网络连接'))
   })
 
   it('uses the confirmed default favorite-system explanation instead of the provisional copy', () => {

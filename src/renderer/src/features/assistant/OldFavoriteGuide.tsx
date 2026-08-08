@@ -176,6 +176,7 @@ export function OldFavoriteGuide({
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
   const [guideHintVisible, setGuideHintVisible] = useState(false)
   const [guideHintPosition, setGuideHintPosition] = useState({ top: 0, left: 0 })
+  const guideHintPanelRef = useRef<HTMLElement>(null)
   const guideHintTriggerRef = useRef<HTMLButtonElement>(null)
   const guideHintTooltipRef = useRef<HTMLDivElement>(null)
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
@@ -193,7 +194,8 @@ export function OldFavoriteGuide({
       setGuideHintPosition(resolveSidebarTooltipPosition(
         anchorRect,
         { width: tooltipWidth, height: tooltipHeight },
-        { width: window.innerWidth, height: window.innerHeight }
+        { width: window.innerWidth, height: window.innerHeight },
+        guideHintPanelRef.current?.getBoundingClientRect()
       ))
     }
     updatePosition()
@@ -233,7 +235,7 @@ export function OldFavoriteGuide({
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
 
-  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || previewPreparationRunning || undefined} data-preview-preparing={previewPreparationRunning || undefined}>
+  return <section ref={guideHintPanelRef} className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || previewPreparationRunning || undefined} data-preview-preparing={previewPreparationRunning || undefined}>
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
           <button ref={guideHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
