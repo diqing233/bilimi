@@ -269,8 +269,11 @@ export function buildFavoriteLibraryNavigation(
       persistedPriorities = Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === 'number' && Number.isFinite(value)))
     }
   } catch { /* local storage is optional */ }
+  const restoredLogicalLedgerIds = new Set(folders
+    .filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
+    .map((folder) => folder.logicalLedgerId!))
   const folderItems = folders
-    .filter((folder) => folder.id.trim())
+    .filter((folder) => folder.id.trim() && !(folder.kind === 'local' && Boolean(folder.logicalLedgerId) && restoredLogicalLedgerIds.has(folder.logicalLedgerId!)))
     .slice()
     .sort((left, right) => kindOrder[left.kind] - kindOrder[right.kind] ||
       (left.kind === 'bilimi-logical' && right.kind === 'bilimi-logical'

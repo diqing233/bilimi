@@ -209,6 +209,7 @@
 .favorite-library__detail-title-link:hover, .favorite-library__detail-title-link:focus-visible { color: #1d4ed8 !important; text-decoration-thickness: 2px; outline: none; }
 .favorite-library__detail-heading p { margin: 0; font-size: 13px; line-height: 1.45; }
 .favorite-library__status-tags { display: grid; gap: 5px; }.favorite-library__status-row { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }.favorite-library__status-tags button, .favorite-library__inline-action { float: none; padding: 3px 6px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; font-size: 12px; }.favorite-library__detail .favorite-library__inline-action, .favorite-library__detail-action-row > button { padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; }
+.favorite-library__detail-danger .favorite-library__danger-action { color: #9d2e2e; }
 .favorite-library__status-tags button[data-tone='success'] { border-color: #cce8d7; background: #edf9f2; color: #25613b; }
 .favorite-library__status-tags button[data-tone='warning'] { border-color: #f0d3a0; background: #fff7e8; color: #8a5315; }
 .favorite-library__status-tags button[data-tone='danger'] { border-color: #efc7c0; background: #fff4f3; color: #9d2e2e; }
@@ -247,6 +248,10 @@
 .favorite-library__placement-picker > div:last-child button { float: none; }
 .favorite-library__delete-confirmation { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid #f0b6a8; border-radius: 8px; background: #fff7f5; }
 .favorite-library__dialog-overlay { width: min(520px, calc(100vw - 32px)); }
+.favorite-library__dialog-overlay .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px; }
+.favorite-library__dialog-overlay .bilimi-modal__actions button[data-variant="danger"] { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }
+.favorite-library__dialog-overlay .bilimi-modal__actions button[data-variant="danger"]:hover:not(:disabled),
+.favorite-library__dialog-overlay .bilimi-modal__actions button[data-variant="danger"]:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
 .favorite-library__conflict-list { display: grid; gap: 10px; }
 .favorite-library__conflict-list section { padding: 10px; border: 1px solid #dbe7f7; border-radius: 8px; background: #f8fbff; }
 .favorite-library__conflict-list p { margin: 5px 0; }
@@ -258,7 +263,9 @@
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),
 .bilimi-modal__body .favorite-library__dialog-actions button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, .52); background: rgba(220, 238, 255, .92); color: #173e78; outline: none; }
-.favorite-library__dialog-actions .favorite-library__danger-action { border-color: transparent; background: transparent; color: #9d2e2e; }
+.favorite-library__dialog-actions .favorite-library__danger-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }
+.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__danger-action:hover:not(:disabled),
+.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__danger-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
 .favorite-library__dialog-actions .favorite-library__dialog-remote-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }
 .bilimi-modal__body .favorite-library__dialog-actions .favorite-library__dialog-remote-action:hover:not(:disabled),
 .bilimi-modal__body .favorite-library__dialog-actions .favorite-library__dialog-remote-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }

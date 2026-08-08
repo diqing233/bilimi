@@ -20,6 +20,19 @@ const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => 
 })
 
 describe('favoriteLibraryModel', () => {
+  it('prefers a restored bilimi work folder over its same-ledger local draft navigation entry', () => {
+    const navigation = buildFavoriteLibraryNavigation([
+      { id: 'bilimi-logical:knowledge', title: 'bilimi·知识学习', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'bound' },
+      { id: 'local:knowledge', title: 'bilimi·知识学习', kind: 'local', logicalLedgerId: 'knowledge', syncState: 'local-only' },
+      { id: 'local:custom', title: 'bilimi·自建', kind: 'local', logicalLedgerId: 'custom', syncState: 'local-only' }
+    ], 0)
+
+    expect(navigation.filter((item) => item.kind === 'folder').map((item) => item.folderId)).toEqual([
+      'bilimi-logical:knowledge',
+      'local:custom'
+    ])
+  })
+
   it('orders bilimi logical folders by the persisted ledger priority', () => {
     window.localStorage.setItem('bilimi:favorite-ledger-priorities', JSON.stringify({ music: 20, game: 10 }))
     const navigation = buildFavoriteLibraryNavigation([

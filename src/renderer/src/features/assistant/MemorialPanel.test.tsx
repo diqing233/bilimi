@@ -27,6 +27,7 @@ describe('MemorialPanel', () => {
       />
     )
 
+    expect(screen.getByText('当前视频', { selector: 'p.memorial-panel__meta-eyebrow' })).toBeInTheDocument()
     expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
     expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
     expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()

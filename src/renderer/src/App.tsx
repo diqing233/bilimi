@@ -2515,6 +2515,15 @@ export default function App() {
       switch (request.type) {
         case 'snapshot':
           if (window.bilimiDesktop?.readBilibiliAccountMid) await readBilibiliAccountMid()
+          {
+            const activeTabUrl = getActiveTabSnapshot()?.url
+            const cachedContext = assistantSnapshotCacheRef.current.videoContextUrl === activeTabUrl
+              ? assistantSnapshotCacheRef.current.videoContentContext
+              : undefined
+            if (activeTabUrl && readBilibiliVideoKey(activeTabUrl) && !cachedContext?.author?.trim()) {
+              await readVideoContentContext()
+            }
+          }
           return createAssistantSnapshot(
             assistantSnapshotCacheRef.current.accountMid
               ? await readFavoriteLedgerStatus(assistantSnapshotCacheRef.current.accountMid).catch(() => null)

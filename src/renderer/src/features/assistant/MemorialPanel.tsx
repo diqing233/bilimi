@@ -265,17 +265,18 @@ export function MemorialPanel({
         {activePanelTab === 'review' ? (
           <div className="memorial-panel__body">
             <aside className="memorial-panel__meta">
-              <p title={videoTitle}>{videoTitle}</p>
+              <p className="memorial-panel__meta-eyebrow">当前视频</p>
+              <p className="memorial-panel__meta-title" title={videoTitle}>{videoTitle}</p>
               {hasCurrentVideo ? (
                 <>
-                  <p>UP 主：{authorLabel}</p>
-                  <p>小咪准备归类到：{videoCategory}</p>
+                  <p className="memorial-panel__meta-detail">UP 主：{authorLabel}</p>
+                  <p className="memorial-panel__meta-detail">小咪准备归类到：{videoCategory}</p>
                   {favoriteProvisioningHint ? <p className="memorial-panel__favorite-provisioning-hint">{favoriteProvisioningHint}</p> : null}
                 </>
               ) : (
                 <>
-                  <p>UP 主会显示在这里</p>
-                  <p>小咪会在这里展示视频的预归类位置</p>
+                  <p className="memorial-panel__meta-detail">UP 主会显示在这里</p>
+                  <p className="memorial-panel__meta-detail">小咪会在这里展示视频的预归类位置</p>
                 </>
               )}
               {recommendation.hint ? (

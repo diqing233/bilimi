@@ -1420,8 +1420,8 @@ const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeContro
 
   return <>
     {([
-      ['auto', '自动（推荐）', '默认跟随系统代理；不会自行测速或自动切换。'],
-      ['direct', '始终直连', '只让 bilimi 的 B 站会话绕过系统代理。']
+      ['auto', '跟随系统（推荐）', '使用 Windows 当前的系统代理设置；若系统没有开启代理，效果与直接连接相同。'],
+      ['direct', '直接连接', 'B 站不使用系统代理，直接建立连接；其他应用的网络设置不受影响。如果使用 Clash 等系统代理后 B 站视频加载较慢，可以尝试此选项。']
     ] as const).map(([value, label, help]) => (
       <label key={value}>
         <input
@@ -1877,6 +1877,12 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                       <option value="low-confidence-only">仅不太稳</option>
                     </select>
                   </div>
+                  <p className="assistant-settings__deepseek-official-link">
+                    <span>DeepSeek 官方开放平台：</span>
+                    <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer">
+                      https://platform.deepseek.com/
+                    </a>
+                  </p>
                   <label>
                     <span>DeepSeek API 密钥</span>
                     <input
@@ -1890,11 +1896,6 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                       }}
                     />
                   </label>
-                  <p className="assistant-settings__deepseek-official-link">
-                    <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer">
-                      DeepSeek 官方开放平台：https://platform.deepseek.com/
-                    </a>
-                  </p>
                   <label>
                     <span>DeepSeek 模型</span>
                     <input
@@ -2262,8 +2263,8 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               data-settings-section="bilibili-connection"
             >
               <legend>B 站连接方式</legend>
-              <p>只影响 bilimi 内的 B 站网页、API、图片和视频会话，不会修改 Windows 或 Clash 的代理设置，也不会影响 DeepSeek、转写下载或其他应用网络。</p>
-              <p>自动模式跟随 Windows 当前系统代理；未启用系统代理时通常与直连没有区别。切换会重新加载 B 站标签，不会撤销已提交操作；正在进行的网络请求可能需要重试。</p>
+              <p>此设置只影响 bilimi 打开 B 站时的网络连接，包括网页、图片和视频。不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。</p>
+              <p>切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。</p>
               <BilibiliConnectionModeControl
                 initialMode={preferences.bilibiliConnectionMode}
                 getActions={getActions}
@@ -2348,7 +2349,7 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               <p>重置会关闭 DeepSeek，并删除已保存的 API 密钥。</p>
               <p>视频札记、档案和收藏整理记录不会删除。</p>
             </BilimiModal> : null}
-            {settingsResetConfirmation === 'all' ? <BilimiModal title="确认重置全部设置？" tone="danger" onClose={() => actions.current.setSettingsResetConfirmation(null)} actions={<>
+            {settingsResetConfirmation === 'all' ? <BilimiModal title="确认重置全部设置？" tone="danger" className="assistant-settings__reset-confirmation" onClose={() => actions.current.setSettingsResetConfirmation(null)} actions={<>
               <button type="button" onClick={() => actions.current.setSettingsResetConfirmation(null)}>取消</button>
               <button type="button" data-variant="danger" onClick={() => { actions.current.setSettingsResetConfirmation(null); void actions.current.resetAssistantSettings() }}>确认重置</button>
             </>}>

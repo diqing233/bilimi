@@ -590,8 +590,8 @@ describe('AssistantSidebar', () => {
     const connectionSection = document.querySelector('[data-settings-section="bilibili-connection"]')
     expect(connectionSection).not.toBeNull()
     expect(connectionSection?.querySelectorAll('input[name="bilibili-connection-mode"]')).toHaveLength(2)
-    expect(screen.getByRole('radio', { name: /自动（推荐）/ })).toBeChecked()
-    expect(screen.getByRole('radio', { name: /始终直连/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /跟随系统（推荐）/ })).toBeChecked()
+    expect(screen.getAllByRole('radio', { name: /直接连接/ })).toHaveLength(2)
     expect(screen.queryByText('跟随系统代理', { exact: true })).not.toBeInTheDocument()
   })
 

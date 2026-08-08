@@ -1002,7 +1002,7 @@ export function VideoNotesPanel({
   return (
     <section className="video-notes" aria-label="视频札记">
       <section className="video-notes__source" aria-label="当前视频详情">
-        <span>{visibleNote ? '当前视频' : '当前视频详情'}</span>
+        <span>当前转写</span>
         <h3>{sourceTitle}</h3>
         <dl>
           <dt>UP主</dt>

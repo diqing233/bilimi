@@ -63,6 +63,7 @@ describe('VideoNotesPanel', () => {
     })
 
     const details = screen.getByRole('region', { name: '当前视频详情' })
+    expect(details).toHaveTextContent('当前转写')
     expect(details).toHaveTextContent('队列中的视频')
     expect(details).toHaveTextContent('UP主')
     expect(details).toHaveTextContent('待转写后补齐')

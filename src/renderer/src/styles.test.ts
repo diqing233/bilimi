@@ -19,6 +19,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.bilimi-modal__dialog[data-tone="danger"] { border-color: rgba(183, 62, 48, 0.42);')
     expectStyleSnippet('.bilimi-modal__actions button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.52);')
     expectStyleSnippet('.bilimi-modal__actions button[data-variant="danger"] { border-color: #b73e30; background: #b73e30; color: white;')
+    expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px; font-size: 14px; }')
+    expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button[data-variant="danger"] { border-color: #e7a69e; background: #fff8f7; color: #a8453b; }')
     expect(normalizedStyles).not.toContain('@media (max-width: 420px) {\n  .bilimi-modal__actions {\n    display: grid;')
   })
 
@@ -754,6 +756,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 16px;'
     )
+    expectStyleSnippet('.video-notes__source-transcription-status { margin: 0; color: inherit; font-size: 12px; line-height: inherit; font-weight: inherit; }')
     expectStyleSnippet('.video-notes__primary-actions { display: grid; grid-template-columns: 1fr;')
     expectStyleSnippet(
       '.video-notes__primary-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: center; border: 0; background: transparent; padding: 0;'
@@ -820,6 +823,12 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
     )
+  })
+
+  it('matches only the review title to the notes title hierarchy', () => {
+    expectStyleSnippet('.memorial-panel__meta-eyebrow { color: var(--porcelain-text); font-size: 14px; font-weight: 700; line-height: 1.45;')
+    expectStyleSnippet('.memorial-panel__meta-title { color: var(--porcelain-text); font-size: 16px; font-weight: 700; line-height: 1.3;')
+    expectStyleSnippet('.memorial-panel__meta-detail { color: var(--porcelain-text); font-size: 12px; font-weight: inherit; line-height: 1.45;')
   })
 
   it('keeps assistant panel rows from stretching into tall empty blocks', () => {
@@ -1048,7 +1057,6 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-left:')
     expectStyleSnippet('.assistant-settings__deepseek-review-control select:disabled { opacity: 0.5; cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__group--deepseek > label:first-of-type { display: flex; padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
-    expectStyleSnippet('.assistant-settings__group--deepseek > label:nth-of-type(2) { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-divider')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
     expect(normalizedStyles).toContain(
@@ -1064,7 +1072,18 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expectStyleSnippet('.assistant-settings button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.5); background: rgba(220, 238, 255, 0.88); box-shadow: 0 5px 12px rgba(31, 99, 181, 0.12);')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
+    expectStyleSnippet('.assistant-settings__deepseek-official-link { margin: 0; border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px; color: var(--porcelain-text); font: inherit;')
+    expectStyleSnippet('.assistant-settings__deepseek-official-link a { color: var(--porcelain-primary); text-decoration: underline; text-underline-offset: 2px;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__group--deepseek > label:nth-of-type(2)')
     expectStyleSnippet('.assistant-settings__recommendation-divider { box-sizing: border-box; width: 100%; margin-inline: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-inline: 0; padding-top: 4px;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__review-action-title')
+    expectStyleSnippet('.assistant-settings .local-data-settings__heading { margin: 0; color: var(--porcelain-text); font-size: 12px; font-weight: 700; line-height: 1.45;')
+    expectStyleSnippet('.local-data-settings__section p, .local-data-settings__section ul { margin: 0; color: var(--porcelain-text); font-size: 12px; line-height: 1.45;')
+    expectStyleSnippet('.local-data-settings button { min-height: 28px; padding: 4px 8px;')
+    expectStyleSnippet('color: var(--porcelain-text); cursor: pointer; font: inherit;')
+    expectStyleSnippet('.local-data-settings button.local-data-settings__section-toggle { display: inline-flex; align-items: center; gap: 5px;')
+    expectStyleSnippet('.local-data-settings__section-chevron { width: 12px; height: 12px; transition: transform 160ms ease; }')
+    expectStyleSnippet('.local-data-settings__section-toggle[aria-expanded="false"] .local-data-settings__section-chevron { transform: rotate(-90deg); }')
     expectStyleSnippet(
       '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;'
     )

@@ -276,6 +276,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(deepSeekSwitches).not.toContain('type="checkbox"')
   })
 
+  it('places the official DeepSeek platform link below the divider and above the API key field', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const officialLink = source.indexOf('className="assistant-settings__deepseek-official-link"')
+    const apiKeyField = source.indexOf('<span>DeepSeek API 密钥</span>')
+
+    expect(officialLink).toBeGreaterThan(-1)
+    expect(apiKeyField).toBeGreaterThan(officialLink)
+    expect(source).toMatch(/<span>DeepSeek 官方开放平台：<\/span>\s*<a href="https:\/\/platform\.deepseek\.com\/" target="_blank" rel="noreferrer">\s*https:\/\/platform\.deepseek\.com\//)
+  })
+
   it('does not normalize the complete preference tree for an ordinary DeepSeek field patch', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const updateFunction = source.slice(
@@ -318,6 +328,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).not.toContain('window.confirm(')
     expect(source).toContain('<BilimiModal title="重置 DeepSeek？"')
     expect(source).toContain('<BilimiModal title="确认重置全部设置？"')
+    expect(source).toContain('className="assistant-settings__reset-confirmation"')
+  })
+
+  it('explains B站 connection scope without implying it changes system proxy settings', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain("['auto', '跟随系统（推荐）'")
+    expect(source).toContain("['direct', '直接连接'")
+    expect(source).toContain('不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。')
+    expect(source).toContain('切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。')
   })
 
   it('creates one shared feedback event for queued transcription start, completion, and failure', () => {

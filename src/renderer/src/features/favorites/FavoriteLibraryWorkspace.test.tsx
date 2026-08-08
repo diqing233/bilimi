@@ -175,6 +175,7 @@ describe('Favorite Library workspace components', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
     expect(styles).toContain('.favorite-library__detail-danger .favorite-library__danger-action { color: #9d2e2e; }')
+    expect(styles.lastIndexOf('.favorite-library__detail-danger .favorite-library__danger-action { color: #9d2e2e; }')).toBeGreaterThan(styles.indexOf('.favorite-library__detail .favorite-library__inline-action, .favorite-library__detail-action-row > button'))
     expect(styles).not.toContain('.favorite-library__detail-danger .favorite-library__danger-action { color: #9d2e2e; border-color: transparent; background: transparent; }')
     expect(styles).toContain('.favorite-library__detail-danger .favorite-library__danger-action:hover, .favorite-library__detail-danger .favorite-library__danger-action:focus-visible { background: #fff4f3; color: #9d2e2e;')
   })

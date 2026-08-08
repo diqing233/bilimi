@@ -568,14 +568,26 @@ describe('App runtime integration', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('returns the active tab snapshot without reading video content from the webview', async () => {
-    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({
+  it('hydrates an active video snapshot with its page author only until the cache is complete', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('')
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn(() => new Promise<never>(() => undefined))
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 1,
+          cid: 2,
+          bvid: 'BV1cached',
+          title: '缓存中的活动视频',
+          author: '林簌SUSU'
+        }
+      }
+
+      return null
+    })
     Object.assign(webview, { executeJavaScript })
 
     act(() => {
@@ -598,11 +610,19 @@ describe('App runtime integration', () => {
         activeTabUrl: 'https://www.bilibili.com/video/BV1cached',
         videoTitle: '缓存中的活动视频',
         videoContentContext: expect.objectContaining({
-          title: '缓存中的活动视频'
+          title: '缓存中的活动视频',
+          author: '林簌SUSU'
         })
       })
     )
-    expect(executeJavaScript).not.toHaveBeenCalled()
+
+    await requestRuntime({ id: 'snapshot-2', type: 'snapshot' })
+
+    expect(executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
+      true
+    )
   })
 
   it('refreshes the assistant snapshot account from the authoritative desktop cookie reader', async () => {
