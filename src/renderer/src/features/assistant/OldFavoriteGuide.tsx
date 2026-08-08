@@ -1,6 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
@@ -92,8 +93,6 @@ const ORGANIZING_GUIDE_HINTS = [
   { label: '③ 归档预览：', detail: '检查分类结果，可用 DeepSeek 辅助调整，也可手动调整。' },
   { label: '④ 确认执行：', detail: '如果视频较多，建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；同步到 B 站（较慢）会先保存在收藏库再依次执行，整理草稿锁定不可修改，后续可以去收藏库调整。暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }
 ]
-const ORGANIZING_GUIDE_TOOLTIP = ORGANIZING_GUIDE_HINTS.map((hint) => `${hint.label ?? ''}${hint.detail}`).join('\n')
-
 function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {
   if (segment.status === 'frozen' || segment.readiness === 'saved') return '已保存'
   if (segment.readiness === 'waiting') return '等待扫描'
@@ -164,10 +163,38 @@ export function OldFavoriteGuide({
   onReconcile
 }: OldFavoriteGuideProps) {
   const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
+  const [guideHintVisible, setGuideHintVisible] = useState(false)
+  const [guideHintPosition, setGuideHintPosition] = useState({ top: 0, left: 0 })
+  const guideHintTriggerRef = useRef<HTMLButtonElement>(null)
+  const guideHintTooltipRef = useRef<HTMLDivElement>(null)
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   const [viewedSegmentId, setViewedSegmentId] = useState<string | null>(null)
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
+  useLayoutEffect(() => {
+    if (guideHintExpanded) return
+    const updatePosition = () => {
+      const anchorRect = guideHintTriggerRef.current?.getBoundingClientRect()
+      if (!anchorRect) return
+      const tooltipRect = guideHintTooltipRef.current?.getBoundingClientRect()
+      const gutter = 8
+      const tooltipWidth = tooltipRect?.width || 360
+      const tooltipHeight = tooltipRect?.height || 48
+      const below = anchorRect.bottom + 8
+      const above = anchorRect.top - tooltipHeight - 8
+      setGuideHintPosition({
+        top: below + tooltipHeight <= window.innerHeight || above < gutter ? below : above,
+        left: Math.max(gutter, Math.min(anchorRect.left, window.innerWidth - tooltipWidth - gutter))
+      })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [guideHintExpanded])
   const recovery = snapshot && 'recovery' in snapshot
   const deepSeekBusy = deepSeekFeedback?.status === 'running' || deepSeekFeedback?.status === 'waiting' || deepSeekCancelRequested
   const readOnlyBrowsing = mutationLocked || deepSeekBusy
@@ -200,11 +227,13 @@ export function OldFavoriteGuide({
   return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理收藏向导" data-busy={loading || recommendationSaving || previewPreparationRunning || undefined} data-preview-preparing={previewPreparationRunning || undefined}>
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
-          <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
+          <button ref={guideHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
             aria-label={`${guideHintExpanded ? '收起' : '展开'}整理收藏`}
             aria-expanded={guideHintExpanded}
             aria-describedby={guideHintExpanded ? undefined : 'favorite-organization-help-tooltip'}
-            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron />{!guideHintExpanded ? <span id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip">{ORGANIZING_GUIDE_TOOLTIP}</span> : null}</button>
+            onMouseEnter={() => setGuideHintVisible(true)} onMouseLeave={() => setGuideHintVisible(false)}
+            onFocus={() => setGuideHintVisible(true)} onBlur={() => setGuideHintVisible(false)}
+            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
       </div>
       {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
         <span>整理批次</span>
@@ -227,6 +256,7 @@ export function OldFavoriteGuide({
           </option>)}
         </select>
       </label> : null}
+      {!guideHintExpanded ? createPortal(<div ref={guideHintTooltipRef} id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={guideHintVisible || undefined} style={guideHintPosition}>{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={`${hint.label ?? 'detail'}:${hint.detail}`}>{hint.label ? <strong className="favorite-ledger-panel__help-tooltip-title">{hint.label}</strong> : null}{hint.detail}</p>)}</div>, document.body) : null}
       {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={`${hint.label ?? 'detail'}:${hint.detail}`}><strong>{hint.label}</strong>{hint.detail}</p>)}</div> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}

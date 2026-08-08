@@ -452,7 +452,7 @@ describe('AssistantSidebar', () => {
     expect(await screen.findByRole('heading', { name: '设置' })).toHaveClass('assistant-settings__title')
     expect(screen.getByText('本地数据与迁移', { selector: 'legend' })).toBeInTheDocument()
     const defaultSystem = await screen.findByRole('checkbox', { name: '启用默认收藏夹' })
-    expect(screen.getByText(/未备册也可先按默认逻辑目标等待标签完成后分类预览/)).toBeInTheDocument()
+    expect(screen.getByText(/默认收藏夹体系包含掌库的七个默认分类，不包括 bilimi·暂存/)).toBeInTheDocument()
     expect(defaultSystem).toBeChecked()
 
     const expectedSettingsOrder = [

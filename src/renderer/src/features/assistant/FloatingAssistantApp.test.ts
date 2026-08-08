@@ -39,7 +39,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const section = source.slice(start, source.indexOf('</fieldset>', start))
     const fieldStart = source.indexOf('const OldFavoriteBatchSizeField')
     const field = source.slice(fieldStart, source.indexOf('const SettingsWorkspaceContent', fieldStart))
-    expect(section).toContain('当前草稿不会被重新切分')
+    expect(section).toContain('当前正在整理的草稿不会被重新切分')
+    expect(section).toContain('<legend>整理收藏批次</legend>')
+    expect(section).toContain('请按照设备性能调整，设置下一轮整理时每批最多加载的详细视频数；当前正在整理的草稿不会被重新切分。')
     expect(section).toContain('2000 条（推荐）')
     expect(section).toContain('<OldFavoriteBatchSizeField')
     expect(field).toContain('type="radio"')
@@ -338,6 +340,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain("['direct', '直接连接'")
     expect(source).toContain('不会修改 Windows、Clash 或其他应用的代理设置，也不影响 DeepSeek、转写、下载等功能。')
     expect(source).toContain('切换连接方式后，B 站页面会重新加载。正在加载的内容可能需要重新打开，但已提交的操作不会丢失。')
+    expect(source).toContain('className="assistant-settings__bilibili-connection-choice"')
+  })
+
+  it('uses the confirmed default favorite-system explanation instead of the provisional copy', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const start = source.indexOf('data-settings-section="favorites"')
+    const section = source.slice(start, source.indexOf('</fieldset>', start))
+
+    expect(section).toContain('默认收藏夹体系包含掌库的七个默认分类，不包括 bilimi·暂存。')
+    expect(section).toContain('开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、DeepSeek 和备册；适合大多数使用场景。')
+    expect(section).toContain('关闭后，七个默认收藏夹将停用，不再参与分类、DeepSeek 或备册；主人可以 DIY 自己的收藏夹体系。')
+    expect(section).toContain('已同步但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。')
   })
 
   it('creates one shared feedback event for queued transcription start, completion, and failure', () => {

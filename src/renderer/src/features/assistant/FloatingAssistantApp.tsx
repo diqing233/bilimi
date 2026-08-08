@@ -824,7 +824,7 @@ export const SETTINGS_JUMP_OPTIONS = [
   { value: 'pet', label: '宠物设置' },
   { value: 'archive', label: '收藏整理' },
   { value: 'learning', label: '整理策略' },
-  { value: 'old-favorite-batches', label: '整理旧藏批次' },
+  { value: 'old-favorite-batches', label: '整理收藏批次' },
   { value: 'favorites', label: '收藏夹体系' },
   { value: 'motion-tuning', label: '面板动效' },
   { value: 'review-actions', label: '批阅动作' },
@@ -1423,14 +1423,16 @@ const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeContro
       ['auto', '跟随系统（推荐）', '使用 Windows 当前的系统代理设置；若系统没有开启代理，效果与直接连接相同。'],
       ['direct', '直接连接', 'B 站不使用系统代理，直接建立连接；其他应用的网络设置不受影响。如果使用 Clash 等系统代理后 B 站视频加载较慢，可以尝试此选项。']
     ] as const).map(([value, label, help]) => (
-      <label key={value}>
-        <input
-          type="radio"
-          name="bilibili-connection-mode"
-          checked={mode === value}
-          onChange={() => void chooseMode(value)}
-        />
-        <span>{label}</span>
+      <label key={value} className="assistant-settings__bilibili-connection-choice">
+        <span className="assistant-settings__bilibili-connection-choice-title">
+          <input
+            type="radio"
+            name="bilibili-connection-mode"
+            checked={mode === value}
+            onChange={() => void chooseMode(value)}
+          />
+          <span>{label}</span>
+        </span>
         <small>{help}</small>
       </label>
     ))}
@@ -2155,8 +2157,8 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               className="assistant-settings__group assistant-settings__group--old-favorite-batches"
               data-settings-section="old-favorite-batches"
             >
-              <legend>整理旧藏批次</legend>
-              <p>设置下一轮整理时每批最多加载的详细视频数；当前草稿不会被重新切分。</p>
+              <legend>整理收藏批次</legend>
+              <p>请按照设备性能调整，设置下一轮整理时每批最多加载的详细视频数；当前正在整理的草稿不会被重新切分。</p>
               {([500, 1_000, 2_000] as const).map((size) => (
                 <label key={size}>
                   <input
@@ -2200,9 +2202,10 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 initialEnabled={preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.defaultFavoriteSystemEnabled ?? true}
                 getActions={getActions}
               />
-              <p className="assistant-settings__favorites-help">默认开启；未备册也可先按默认逻辑目标等待标签完成后分类预览。</p>
-              <p className="assistant-settings__favorites-help">谨慎关闭；建议先参考默认收藏夹 DIY 新建几个自己的收藏夹。关闭后普通默认收藏夹不参与分类、DeepSeek 或备册，暂存仍会保留为安全区。</p>
-              <p className="assistant-settings__favorites-help">已同步的默认收藏夹只会在后续显式同步时进入删除确认。</p>
+              <p className="assistant-settings__favorites-help">默认收藏夹体系包含掌库的七个默认分类，不包括 bilimi·暂存。</p>
+              <p className="assistant-settings__favorites-help">开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、DeepSeek 和备册；适合大多数使用场景。主人仍可在此基础上自建收藏夹或采用推荐收藏夹，让收藏库更整洁。</p>
+              <p className="assistant-settings__favorites-help">关闭后，七个默认收藏夹将停用，不再参与分类、DeepSeek 或备册；主人可以 DIY 自己的收藏夹体系。bilimi·暂存仍会保留，作为安全区使用。建议参考默认分类创建几个自己的收藏夹，也可以和小咪交流想法～</p>
+              <p className="assistant-settings__favorites-help">已同步但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。</p>
             </fieldset>
             <PanelMotionTuningSettings />
             <fieldset

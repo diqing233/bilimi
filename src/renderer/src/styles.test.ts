@@ -861,7 +861,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-action-button:hover:not(:disabled), .assistant-action-button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.5);')
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
-    expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: var(--porcelain-muted); font-size: 12px;')
+    expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: #365b83; font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; font-weight: 500; line-height: 1.62;')
     expectStyleSnippet('.favorite-ledger-panel__section-title { display: inline-flex; align-items: center; gap: 5px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__chevron { width: 16px; height: 16px; flex: 0 0 16px; transition: transform 180ms ease-out;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron { transform: rotate(180deg);')
@@ -924,7 +924,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__guide-steps button { min-width: 0; height: 36px; min-height: 36px; padding: 0 8px; font-size: 12px; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
     )
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button[aria-current="step"] { border-color: rgba(31, 99, 181, 0.5);')
-    expectStyleSnippet('.favorite-ledger-panel__guide-hint { margin: 0; color: var(--porcelain-muted);')
+    expectStyleSnippet('.favorite-ledger-panel__guide-hint { margin: 0; color: #365b83; font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; font-weight: 500; line-height: 1.62;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__guide-hint {\n  margin: 0;\n  border:')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 36px 26px;')

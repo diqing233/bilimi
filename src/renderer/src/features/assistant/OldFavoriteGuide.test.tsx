@@ -23,6 +23,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-organization-help-tooltip')
     expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
+    expect(screen.getByRole('tooltip').parentElement).toBe(document.body)
 
     fireEvent.click(toggle)
 
