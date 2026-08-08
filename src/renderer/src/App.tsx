@@ -761,6 +761,11 @@ export default function App() {
     videoContentContext: VideoContentContext
     videoContextUrl?: string
   }>({ accountMid: '', favoriteLedgerStatus: null, videoContentContext: {} })
+  const videoNoteSourceCacheRef = useRef<{
+    url?: string
+    value?: VideoNoteExtractionResult | null
+    pending?: Promise<VideoNoteExtractionResult | null>
+  }>({})
   const favoriteLedgerStatusCacheRef = useRef<{
     accountMid: string
     ledgerSignature: string
@@ -1108,6 +1113,7 @@ export default function App() {
 
       if (tabId === activeTabIdRef.current) {
         assistantSnapshotCacheRef.current.accountMid = ''
+        videoNoteSourceCacheRef.current = {}
         assistantSnapshotCacheRef.current.videoContextUrl = url
         assistantSnapshotCacheRef.current.videoContentContext = {
           title: normalizeActiveTabVideoTitle(getActiveTabSnapshot()) ?? createTabTitle(url)
@@ -1142,6 +1148,7 @@ export default function App() {
       )
 
       if (tabId === activeTabIdRef.current) {
+        videoNoteSourceCacheRef.current = {}
         assistantSnapshotCacheRef.current.videoContextUrl = getActiveTabSnapshot()?.url
         assistantSnapshotCacheRef.current.videoContentContext = {
           ...assistantSnapshotCacheRef.current.videoContentContext,
@@ -1279,23 +1286,74 @@ export default function App() {
 
   async function readVideoNoteSource(): Promise<VideoNoteExtractionResult | null> {
     const currentActiveWebview = getCurrentActiveWebview()
+    const activeTabUrl = getActiveTabSnapshot()?.url
 
     if (!currentActiveWebview?.executeJavaScript) {
       return null
     }
 
-    try {
-      const raw = await currentActiveWebview.executeJavaScript(
-        buildVideoNoteExtractionScript(),
-        true
-      )
-
-      return normalizeExtractedVideoNoteResult(
-        raw as Parameters<typeof normalizeExtractedVideoNoteResult>[0]
-      )
-    } catch {
-      return null
+    const cached = videoNoteSourceCacheRef.current
+    if (cached.url === activeTabUrl) {
+      if (cached.value !== undefined) return cached.value
+      if (cached.pending) return cached.pending
     }
+
+    const cachedContext = assistantSnapshotCacheRef.current.videoContextUrl === activeTabUrl
+      ? assistantSnapshotCacheRef.current.videoContentContext
+      : undefined
+    if (cachedContext && (cachedContext.bvid || cachedContext.aid || cachedContext.cid)) {
+      const sharedResult: VideoNoteExtractionResult = {
+        source: {
+          title: cachedContext.title?.trim() || activeTabUrl || '当前视频',
+          author: cachedContext.author,
+          description: cachedContext.description,
+          tags: cachedContext.tags ?? [],
+          bvid: cachedContext.bvid,
+          aid: cachedContext.aid,
+          cid: cachedContext.cid,
+          url: activeTabUrl ?? 'about:blank'
+        },
+        transcript: [],
+        transcriptSource: 'manual'
+      }
+      videoNoteSourceCacheRef.current = { url: activeTabUrl, value: sharedResult }
+      return sharedResult
+    }
+
+    const pending = (async () => {
+      try {
+        const raw = await currentActiveWebview.executeJavaScript(
+          buildVideoNoteExtractionScript(),
+          true
+        )
+        return normalizeExtractedVideoNoteResult(
+          raw as Parameters<typeof normalizeExtractedVideoNoteResult>[0]
+        )
+      } catch {
+        return null
+      }
+    })()
+    videoNoteSourceCacheRef.current = { url: activeTabUrl, pending }
+
+    const result = await pending
+    if (videoNoteSourceCacheRef.current.url === activeTabUrl && videoNoteSourceCacheRef.current.pending === pending) {
+      videoNoteSourceCacheRef.current = { url: activeTabUrl, value: result }
+    }
+
+    if (result && getActiveTabSnapshot()?.url === activeTabUrl) {
+      assistantSnapshotCacheRef.current.videoContextUrl = activeTabUrl
+      assistantSnapshotCacheRef.current.videoContentContext = {
+        ...assistantSnapshotCacheRef.current.videoContentContext,
+        title: result.source.title,
+        author: result.source.author,
+        description: result.source.description,
+        tags: result.source.tags,
+        bvid: result.source.bvid
+      }
+      notifyAssistantSnapshotChanged()
+    }
+
+    return result
   }
 
   async function readCurrentVideoTime(): Promise<number> {

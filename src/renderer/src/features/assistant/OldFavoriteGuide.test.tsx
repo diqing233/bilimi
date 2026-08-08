@@ -20,10 +20,13 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     />)
 
     const toggle = screen.getByRole('button', { name: '展开整理收藏' })
-    expect(toggle).toHaveAttribute('title', expect.stringContaining('小咪提醒：同一个视频可以保存在多个收藏夹里。'))
+    expect(toggle).not.toHaveAttribute('title')
+    expect(toggle).toHaveAttribute('aria-describedby', 'favorite-organization-help-tooltip')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
 
     fireEvent.click(toggle)
 
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
     expect(screen.getByText(/整理收藏会把视频复制添加到 bilimi 收藏夹/)).toBeInTheDocument()
     expect(screen.getByText(/暂不同步结束整理：可以选择先保留整理草稿/)).toBeInTheDocument()
   })

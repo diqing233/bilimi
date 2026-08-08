@@ -136,6 +136,7 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
     expect(screen.getByRole('menuitem', { name: '转写音频' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '移出 bilimi 工作夹' })).toBeInTheDocument()

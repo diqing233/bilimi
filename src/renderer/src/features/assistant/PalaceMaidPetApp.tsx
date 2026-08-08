@@ -886,6 +886,7 @@ export function PalaceMaidPetApp() {
           showClosePrompt()
         }}
         onPointerDown={(event) => {
+          if (event.button !== 0 || event.isPrimary === false) return
           event.currentTarget.setPointerCapture?.(event.pointerId)
           setPressed(true)
           startDragCandidate(event.clientX, event.clientY, event.screenX, event.screenY)
@@ -894,6 +895,7 @@ export function PalaceMaidPetApp() {
           moveDrag(event.clientX, event.clientY)
         }}
         onPointerUp={(event) => {
+          if (event.button !== 0 || event.isPrimary === false) return
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           finishDrag()
         }}
@@ -910,6 +912,7 @@ export function PalaceMaidPetApp() {
           scheduleHideResizeControls()
           scheduleHideHoverShortcuts()
           clearPetHoverPreview()
+          if (currentDrag) return
           leaveInteractiveRegion()
         }}
         onPointerEnter={() => {

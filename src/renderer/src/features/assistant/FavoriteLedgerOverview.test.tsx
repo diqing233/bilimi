@@ -17,7 +17,12 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: '展开删除模式' })).toHaveTextContent('×')
-    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
+    const toggle = screen.getByRole('button', { name: '展开收藏夹' })
+    expect(toggle).not.toHaveAttribute('title')
+    expect(toggle).toHaveAttribute('aria-describedby', 'favorite-ledger-help-tooltip')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
+    fireEvent.click(toggle)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
     expect(screen.getByText('小咪提醒：')).toHaveClass('favorite-ledger-panel__sync-hint-title')
     expect(screen.getByText('同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）')).toBeInTheDocument()
   })

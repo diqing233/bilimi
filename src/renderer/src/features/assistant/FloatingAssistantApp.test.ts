@@ -341,6 +341,26 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })
   })
 
+  it('reports cancellation as a distinct state without an undefined progress percentage', () => {
+    const base = {
+      id: 'queue-cancel', url: 'https://www.bilibili.com/video/BV1cancel', title: '待取消视频', bvid: 'BV1cancel',
+      createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:01:00.000Z',
+      status: 'running' as const, cancelRequested: true,
+      progress: { step: 'canceling' as const, message: 'Canceling transcription.' }
+    }
+    const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      { items: [base], sessionCompletedCount: 0 },
+      'faster-whisper-large-v3-turbo'
+    )
+
+    expect(status.label).toBe('取消中')
+    expect(status.detail).not.toContain('undefined')
+    expect(createTranscriptionQueueFeedback(
+      { items: [{ ...base, cancelRequested: undefined, progress: undefined }], sessionCompletedCount: 0 },
+      { items: [{ ...base, status: 'canceled' as const, cancelRequested: undefined, progress: undefined }], sessionCompletedCount: 0 }
+    )).toMatchObject({ tone: 'success', globalMessage: '已取消转写：待取消视频' })
+  })
+
   it('uses shared feedback messages for DeepSeek summary progress, completion, and failure', () => {
     expect(createDeepSeekSummaryFeedback('progress')).toEqual({
       tone: 'progress', globalMessage: 'DeepSeek 正在生成总结。', petMessage: '小咪正在整理 DeepSeek 总结。'
@@ -382,9 +402,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(openSettings).toContain("behavior: 'auto'")
   })
 
-  it('keeps the live multi-line status detail as the hover tooltip', () => {
+  it('puts the copy-preserving reminder before the organizing status detail', () => {
     expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
-      '收藏夹：未备册。\n整理收藏：完成备册后可开始。'
+      '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）\n\n收藏夹：未备册。\n整理收藏：完成备册后可开始。'
     )
   })
 
@@ -405,16 +425,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('white-space: pre-line')
     expect(styles).toContain('top: calc(100% + 8px)')
     expect(styles).toContain('max-height: min(50vh, 420px)')
+    expect(styles).toMatch(/\.floating-assistant-global-status \{[^}]*position: relative;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*left: 50%;[^}]*translate: -50% 0;/)
+    expect(styles).not.toContain('.floating-assistant-global-status__light:last-child .floating-assistant-global-status__light-tooltip')
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-size: 12px;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;[^}]*font-weight: 400;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;[^}]*font-size: 12px;[^}]*font-weight: 500;[^}]*line-height: 1\.55;/)
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transition: opacity 120ms ease-out, visibility 0s linear 120ms;/)
     expect(styles).not.toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transform:/)
     expect(styles).toMatch(/\.floating-assistant-global-status__light \{[^}]*overflow: visible;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu section > strong \{[^}]*color: #7894ae;[^}]*font-size: 11px;[^}]*font-weight: 600;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu p \{[^}]*color: #7f99b2;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu-task-label \{[^}]*color: #476e96;[^}]*font-weight: 600;[^}]*text-decoration: underline;[^}]*text-underline-offset: 2px;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu small \{[^}]*color: var\(--porcelain-muted\);[^}]*font-size: 12px;[^}]*font-weight: 400;[^}]*line-height: 1\.45;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__menu \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu section > strong \{[^}]*color: var\(--porcelain-text\);[^}]*font-size: 13px;[^}]*font-weight: 700;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu p \{[^}]*color: var\(--porcelain-muted\);[^}]*font-size: 12px;[^}]*font-weight: 500;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu-task-label \{[^}]*color: var\(--porcelain-primary\);[^}]*font-size: 12px;[^}]*font-weight: 600;[^}]*text-decoration: underline;[^}]*text-underline-offset: 2px;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu small \{[^}]*color: var\(--porcelain-muted\);[^}]*font-size: 12px;[^}]*font-weight: 500;[^}]*line-height: 1\.45;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__menu \{[^}]*font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;/)
   })
 
   it('removes Electron IPC wrappers from DeepSeek summary feedback', () => {

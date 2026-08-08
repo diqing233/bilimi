@@ -569,7 +569,7 @@ describe('App runtime integration', () => {
   })
 
   it('returns the active tab snapshot without reading video content from the webview', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('')
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -772,7 +772,7 @@ describe('App runtime integration', () => {
   it('runs floating assistant actions through the active webview and saves preferences', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const commitFavoriteRepositoryCommand = vi.fn()
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({
       savePreferences,
       commitFavoriteRepositoryCommand
     })
@@ -795,6 +795,10 @@ describe('App runtime integration', () => {
     const executeJavaScript = vi.fn(async (script: string) => {
       if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
         return {
+          aid: 101,
+          bvid: 'BV1action',
+          author: '识别到的 UP 主',
+          tags: ['动作'],
           title: '三分钟讲清机器学习科普教程',
           pageText: '从原理到入门路线，适合学习收藏。'
         }
@@ -860,6 +864,12 @@ describe('App runtime integration', () => {
         steps: expect.arrayContaining(['favorite:open', 'favorite:folder', 'favorite'])
       })
     )
+    desktopApi.transcribeCurrentVideoAudio = vi.fn().mockResolvedValue({
+      transcriptSource: 'audio', transcript: [{ start: 0, end: 1, text: 'shared context transcript' }]
+    })
+    const note = await requestRuntime({ id: 'note-shared-context', type: 'generate-video-note-from-audio' })
+    expect(note).toEqual(expect.objectContaining({ source: expect.objectContaining({ author: '识别到的 UP 主', bvid: 'BV1action' }) }))
+    expect(executeJavaScript.mock.calls.filter(([script]) => String(script).includes('looksLikeSubtitleUrl'))).toHaveLength(0)
     await waitFor(() =>
       expect(executeJavaScript).toHaveBeenCalledWith(
         expect.stringContaining('"targetLedgerId":"knowledge"')
@@ -4091,6 +4101,33 @@ describe('App runtime integration', () => {
         summarizeWithDeepSeek: true
       })
     )
+  })
+
+  it('reuses one current-video extraction for note creation and queued transcription', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValue({
+      title: '共享识别视频',
+      author: '共享 UP',
+      bvid: 'BV1shared',
+      url: 'https://www.bilibili.com/video/BV1shared',
+      tags: ['共享'],
+      transcript: []
+    })
+    Object.assign(webview, { executeJavaScript })
+    desktopApi.transcribeCurrentVideoAudio = vi.fn().mockResolvedValue({ transcriptSource: 'audio', transcript: [] })
+    desktopApi.enqueueVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
+    desktopApi.readBilibiliAccountMid = vi.fn().mockResolvedValue('100')
+
+    await requestRuntime({ id: 'shared-note', type: 'generate-video-note-from-audio' })
+    await requestRuntime({ id: 'shared-queue', type: 'enqueue-current-video-audio' })
+
+    expect(executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(desktopApi.enqueueVideoAudioTranscription).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://www.bilibili.com/video/BV1shared', author: '共享 UP', bvid: 'BV1shared'
+    }))
   })
 
   it('does not enqueue audio transcription before the Bilibili account is available', async () => {

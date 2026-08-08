@@ -95,7 +95,7 @@ describe('FavoriteLibraryDrawer', () => {
   })
 
   it('scopes a compact sans-serif treatment and larger mark to the actual drawer', () => {
-    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8').replace(/\r\n/g, '\n')
 
     expect(styles).toContain('.favorite-library-drawer {\n  position: relative;')
     expect(styles).toContain('font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;')

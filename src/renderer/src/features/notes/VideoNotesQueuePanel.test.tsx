@@ -955,7 +955,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
 
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
-      'Transcript text.'
+      '该队列项暂无可预览文稿，可到档案库查看。'
     )
 
   })

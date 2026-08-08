@@ -407,10 +407,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' }))
     expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
-    expect(within(checklist as HTMLElement).getByText('自定义收藏夹：点击收藏夹名称可以编辑。')).toBeInTheDocument()
-    expect(within(checklist as HTMLElement).getByText('备册到 B 站：修改完成后点击“备册”，创建或更新 bilimi 工作夹。')).toBeInTheDocument()
-    expect(within(checklist as HTMLElement).getByText('停止备册：取消勾选不会删除已有收藏夹；如需删除，请打开右侧删除模式。')).toBeInTheDocument()
-    expect(within(checklist as HTMLElement).getByText(/分类依据：关键词、UP 名称和标签用于本地识别/)).toBeInTheDocument()
+    expect(checklist).toHaveTextContent('自定义收藏夹：点击收藏夹名称可以编辑；按住并拖动可调整顺序。')
+    expect(checklist).toHaveTextContent('备册到 B 站：备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。')
+    expect(checklist).toHaveTextContent('删除 bilimi 收藏夹：点击右侧“×”进入删除模式')
+    expect(checklist).toHaveTextContent('分类依据：关键词、UP 名称和标签用于本地识别。')
   })
 
   it('keeps the legacy organize-guide help arrow in the title row and expands its explanation', async () => {
@@ -436,8 +436,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
     expect(within(guide).getByRole('button', { name: '收起整理收藏' })).toHaveAttribute('aria-expanded', 'true')
-    expect(within(guide).getByText('① 扫描概览：选择来源并等待标签补取；标签是分类的重要依据')).toBeInTheDocument()
-    expect(within(guide).getByText('④ 确认执行：选择保存到收藏库或同步到 B 站，完成后点“好的”')).toBeInTheDocument()
+    expect(guide).toHaveTextContent('① 扫描概览：扫描视频基本信息和标签补取。标签是分类的重要依据，建议耐心等待，不要提前采用；可以勾选想要分类的收藏夹。')
+    expect(guide).toHaveTextContent('④ 确认执行：如果视频较多，建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；')
+    expect(guide).toHaveTextContent('暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。')
   })
 
   it('keeps the legacy folder help arrow in the checklist title row', () => {

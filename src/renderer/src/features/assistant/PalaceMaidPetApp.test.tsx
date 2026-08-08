@@ -765,6 +765,19 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('starts dragging only from the primary mouse button and preserves the right-click menu', () => {
+    const api = installDesktopApi()
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.pointerDown(pet, { button: 2, clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 2 })
+    fireEvent.pointerMove(pet, { button: 2, clientX: 28, clientY: 22, screenX: 128, screenY: 222, pointerId: 2 })
+    fireEvent.contextMenu(pet)
+
+    expect(api.startFloatingSealDrag).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
+  })
+
   it('finishes an active desktop drag when pointer capture is cancelled', () => {
     const api = installDesktopApi()
 

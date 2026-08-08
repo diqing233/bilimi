@@ -85,15 +85,14 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 const wholeRunSelectValue = '__whole-run__'
 
 const ORGANIZING_GUIDE_HINTS = [
-  '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）',
-  '请从左到右完成本轮整理',
-  '① 扫描概览：扫描视频基本信息和标签补取，标签是分类的重要依据，建议耐心等待不要提前采用，可以勾选想要分类的收藏夹',
-  '② 推荐收藏夹：根据 UP 主和高频标签，勾选想采用的推荐收藏夹，勾选的收藏夹会参与整理收藏分类，也可以自建收藏夹设置并勾选好参与分类',
-  '③ 归档预览：检查分类结果，可用 DeepSeek 辅助调整，也可手动调整',
-  '④ 确认执行：如果视频较多建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；',
-  '同步到 B 站（较慢），会先保存在收藏库再依次执行，整理草稿锁定不可修改，后续可以去收藏库调整。',
-  '暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理'
+  { label: '小咪提醒：', detail: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' },
+  { detail: '请从左到右完成本轮整理。' },
+  { label: '① 扫描概览：', detail: '扫描视频基本信息和标签补取。标签是分类的重要依据，建议耐心等待，不要提前采用；可以勾选想要分类的收藏夹。' },
+  { label: '② 推荐收藏夹：', detail: '根据 UP 主和高频标签，勾选想采用的推荐收藏夹。勾选的收藏夹会参与整理收藏分类；也可以自建收藏夹、设置并勾选参与分类。' },
+  { label: '③ 归档预览：', detail: '检查分类结果，可用 DeepSeek 辅助调整，也可手动调整。' },
+  { label: '④ 确认执行：', detail: '如果视频较多，建议先保存在收藏库，后续可在收藏库同步，支持修改后反复保存；同步到 B 站（较慢）会先保存在收藏库再依次执行，整理草稿锁定不可修改，后续可以去收藏库调整。暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }
 ]
+const ORGANIZING_GUIDE_TOOLTIP = ORGANIZING_GUIDE_HINTS.map((hint) => `${hint.label ?? ''}${hint.detail}`).join('\n')
 
 function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {
   if (segment.status === 'frozen' || segment.readiness === 'saved') return '已保存'
@@ -204,8 +203,8 @@ export function OldFavoriteGuide({
           <button type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
             aria-label={`${guideHintExpanded ? '收起' : '展开'}整理收藏`}
             aria-expanded={guideHintExpanded}
-            title={ORGANIZING_GUIDE_HINTS.join('\n')}
-            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
+            aria-describedby={guideHintExpanded ? undefined : 'favorite-organization-help-tooltip'}
+            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron />{!guideHintExpanded ? <span id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip">{ORGANIZING_GUIDE_TOOLTIP}</span> : null}</button>
       </div>
       {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
         <span>整理批次</span>
@@ -228,7 +227,7 @@ export function OldFavoriteGuide({
           </option>)}
         </select>
       </label> : null}
-      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint}>{hint}</p>)}</div> : null}
+      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={`${hint.label ?? 'detail'}:${hint.detail}`}><strong>{hint.label}</strong>{hint.detail}</p>)}</div> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => {

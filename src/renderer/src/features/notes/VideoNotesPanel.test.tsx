@@ -47,6 +47,29 @@ function renderPanel(props: Partial<ComponentProps<typeof VideoNotesPanel>> = {}
 }
 
 describe('VideoNotesPanel', () => {
+  it('keeps a queued video selected over the current page and never borrows its author', () => {
+    renderPanel({
+      accountMid: '100',
+      currentVideoTitle: '另一个当前网页视频',
+      currentVideoAuthor: '不应串入的 UP 主',
+      transcriptionQueue: {
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'pending-queue', accountMid: '100', bvid: 'BV1queued',
+          url: 'https://www.bilibili.com/video/BV1queued', title: '队列中的视频', status: 'pending',
+          createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:01:00.000Z'
+        }]
+      }
+    })
+
+    const details = screen.getByRole('region', { name: '当前视频详情' })
+    expect(details).toHaveTextContent('队列中的视频')
+    expect(details).toHaveTextContent('UP主')
+    expect(details).toHaveTextContent('待转写后补齐')
+    expect(details).not.toHaveTextContent('不应串入的 UP 主')
+    expect(details).not.toHaveTextContent('BV')
+  })
+
   it('opens the selected completed queue item directly in the plain transcript', () => {
     const archived = { ...sampleNote, source: { ...sampleNote.source, accountMid: '100', aid: 7, cid: 70 }, transcript: [{ start: 0, end: 2, text: '队列正文。' }, { start: 4, end: 6, text: '第二段。' }] }
     renderPanel({
@@ -207,7 +230,7 @@ describe('VideoNotesPanel', () => {
   it('does not expose the raw source URL in current video details', () => {
     renderPanel()
 
-    expect(screen.getByText('BV').nextElementSibling).toHaveTextContent('BV1note')
+    expect(screen.queryByText('BV')).not.toBeInTheDocument()
     expect(screen.queryByText('链接')).not.toBeInTheDocument()
     expect(screen.queryByText(sampleNote.source.url)).not.toBeInTheDocument()
   })
@@ -837,7 +860,7 @@ describe('VideoNotesPanel', () => {
       onTranscribeAudio: vi.fn()
     })
 
-    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+    expect(screen.getByText('UP主').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
   it('prompts users to enable DeepSeek when opening DeepSeek summary while disabled', () => {

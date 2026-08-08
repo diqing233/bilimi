@@ -340,8 +340,12 @@ type GlobalStatusItem = {
   tone: GlobalStatusTone
 }
 
+const ORGANIZATION_COPY_REMINDER = '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
+
 export function statusLightTooltip(item: GlobalStatusItem): string {
-  return item.detail
+  return item.detail.startsWith('收藏夹：')
+    ? `${ORGANIZATION_COPY_REMINDER}\n\n${item.detail}`
+    : item.detail
 }
 
 function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。'): string {
@@ -686,6 +690,18 @@ export function createTranscriptionQueueFeedback(
   previous: VideoAudioTranscriptionQueueSnapshot,
   next: VideoAudioTranscriptionQueueSnapshot
 ): TranscriptionQueueFeedback | null {
+  const newlyCanceled = next.items.find((item) =>
+    item.status === 'canceled' &&
+    ['pending', 'running'].includes(previous.items.find((previousItem) => previousItem.id === item.id)?.status ?? '')
+  )
+  if (newlyCanceled) {
+    return {
+      tone: 'success',
+      globalMessage: `已取消转写：${newlyCanceled.title}`,
+      petMessage: `已取消「${newlyCanceled.title}」的转写。`
+    }
+  }
+
   const newlyStarted = next.items.find((item) =>
     item.status === 'running' && previous.items.find((previousItem) => previousItem.id === item.id)?.status !== 'running'
   )
@@ -938,6 +954,15 @@ export function resolveGlobalTranscriptionStatus(
   }
   const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
   if (runningItem) {
+    const canceling = Boolean(runningItem.cancelRequested || runningItem.progress?.step.startsWith('canceling'))
+    if (canceling) {
+      const cancelingSummary = runningItem.progress?.step === 'canceling-summary'
+      return {
+        label: cancelingSummary ? '取消总结中' : '取消中',
+        detail: `${modelDetail(runningItem)}\n${runningItem.title} 正在${cancelingSummary ? '取消 DeepSeek 总结' : '取消转写'}。`,
+        tone: 'running'
+      }
+    }
     const percent = formatGlobalProgressPercent(runningItem.progress)
     const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
     const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
@@ -1075,6 +1100,8 @@ function formatGlobalProgressPercent(progress?: VideoAudioTranscriptionProgress)
     'generating-note': 94,
     'summarizing-deepseek': 96,
     'saving-archive': 98,
+    'canceling': 98,
+    'canceling-summary': 98,
     'queue-completed': 100
   }
 
@@ -1863,6 +1890,11 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                       }}
                     />
                   </label>
+                  <p className="assistant-settings__deepseek-official-link">
+                    <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer">
+                      DeepSeek 官方开放平台：https://platform.deepseek.com/
+                    </a>
+                  </p>
                   <label>
                     <span>DeepSeek 模型</span>
                     <input

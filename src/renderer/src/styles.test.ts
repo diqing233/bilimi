@@ -417,14 +417,14 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; display: flex; align-items: flex-start; color: var(--porcelain-deep);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback > span:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] > span:first-child { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: var(--porcelain-deep); font-size: 12px; font-weight: 700; line-height: 18px; background: rgba(247, 251, 255, 0.98);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; width: 16px; height: 16px; margin: 0 auto; transition: transform 180ms ease-out;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-toggle[aria-expanded="true"] .floating-assistant-global-status__feedback-chevron { transform: rotate(180deg);')
     expectStyleSnippet('.floating-assistant-global-status__menu { position: absolute; top: 100%; right: 0; left: 0; z-index: 5; max-height: min(320px, calc(100vh - 140px)); overflow: auto;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
-    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
+    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; position: static; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.floating-assistant-global-status__light:hover, .floating-assistant-global-status__light:focus-visible { background: rgba(220, 238, 255, 0.72); outline: none;')
   })
 
@@ -903,7 +903,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-title-row { display: grid; grid-template-columns: minmax(0, 1fr);')
     expectStyleSnippet('.favorite-ledger-panel__scan-metrics strong { min-width: 0; text-align: right; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__source-count { min-width: 0; text-align: right; white-space: nowrap;')
-    expectStyleSnippet('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: 20px minmax(0, 1fr) 40px 64px;')
+    expectStyleSnippet('.favorite-ledger-panel__source-header, .favorite-ledger-panel__source-row-content, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: 18px minmax(0, 1fr) 72px 110px;')
     expect(compactStyles).not.toContain('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: minmax(0, 1fr) 52px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 0;')

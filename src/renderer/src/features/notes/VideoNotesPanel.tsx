@@ -367,8 +367,10 @@ export function VideoNotesPanel({
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
     [queueItems]
   )
-  const defaultVisibleQueueItem = activeQueueItem ?? latestCompletedQueueItem ?? queueItems
-    .filter((item) => item.status === 'failed')
+  const defaultVisibleQueueItem = activeQueueItem ?? queueItems
+    .filter((item) => item.status === 'pending')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? latestCompletedQueueItem ?? queueItems
+    .filter((item) => item.status === 'failed' || item.status === 'canceled' || item.status === 'waiting-restart')
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
   const visibleQueueItem =
     queueItems.find((item) => item.id === selectedQueueItemId) ?? defaultVisibleQueueItem
@@ -377,9 +379,9 @@ export function VideoNotesPanel({
     [archivedNotes, visibleQueueItem]
   )
   const archivedQueueNote = archivedQueueVersion?.note ?? null
-  const isQueuePreviewActive = Boolean(
-    visibleQueueItem && (Boolean(selectedQueueItemId) || queueItems.length > 1 || visibleQueueItem.draftNote || archivedQueueNote || !note)
-  )
+  // Once a queue exists it owns the details card. This prevents navigation to a
+  // different page from replacing the selected queue item's identity mid-run.
+  const isQueuePreviewActive = Boolean(visibleQueueItem)
   const visibleNote = isQueuePreviewActive ? visibleQueueItem?.draftNote ?? archivedQueueNote : note
   const queuedItemCount = useMemo(
     () => queueItems.filter((item) => item.status === 'pending').length,
@@ -405,12 +407,25 @@ export function VideoNotesPanel({
   const hasDeepSeekSummary = Boolean(activePosterSummary || activeArchivedSummaryText)
   const sourceTitle =
     visibleNote?.source.title ?? (isQueuePreviewActive ? visibleQueueItem?.title : currentVideoTitle) ?? currentVideoTitle
-  const sourceAuthor =
-    visibleNote?.source.author?.trim() ||
-    (isQueuePreviewActive ? visibleQueueItem?.author?.trim() : currentVideoAuthor?.trim()) ||
-    currentVideoAuthor?.trim() ||
-    '待转写后补齐'
-  const sourceBvid = visibleNote?.source.bvid ?? (isQueuePreviewActive ? visibleQueueItem?.bvid : undefined)
+  const sourceAuthor = visibleNote?.source.author?.trim() ||
+    (isQueuePreviewActive
+      ? visibleQueueItem?.author?.trim() || '待转写后补齐'
+      : currentVideoAuthor?.trim() || '待识别')
+  const transcriptionStatus = visibleQueueItem
+    ? visibleQueueItem.cancelRequested || visibleQueueItem.progress?.step.startsWith('canceling')
+      ? '正在取消转写视频音频'
+      : visibleQueueItem.status === 'pending'
+        ? '尚未转写视频音频'
+        : visibleQueueItem.status === 'running'
+          ? '正在转写视频音频'
+          : visibleQueueItem.status === 'completed'
+            ? '视频音频已转写'
+            : visibleQueueItem.status === 'canceled'
+              ? '视频音频转写已取消'
+              : '视频音频转写失败'
+    : visibleNote
+      ? '视频音频已转写'
+      : '尚未转写视频音频'
   const plainTranscript = useMemo(
     () => (visibleNote ? createPlainTranscriptText(visibleNote) : ''),
     [visibleNote]
@@ -990,11 +1005,10 @@ export function VideoNotesPanel({
         <span>{visibleNote ? '当前视频' : '当前视频详情'}</span>
         <h3>{sourceTitle}</h3>
         <dl>
-          <dt>UP</dt>
+          <dt>UP主</dt>
           <dd>{sourceAuthor}</dd>
-          <dt>BV</dt>
-          <dd>{sourceBvid ?? '待识别'}</dd>
         </dl>
+        <p className="video-notes__source-transcription-status">{transcriptionStatus}</p>
       </section>
 
       <section className="video-notes__primary-actions" aria-label="札记主操作">
@@ -1045,7 +1059,7 @@ export function VideoNotesPanel({
         activeResultTab === 'summary' ? (
           renderSummaryPanel()
         ) : (
-          <div role="tabpanel" id={'video-notes-' + activeResultTab}>
+          <div role="tabpanel" id={'video-notes-' + activeResultTab} aria-labelledby={'video-notes-tab-' + activeResultTab}>
             {activeResultTab === 'timed'
               ? '暂无带时间线文稿。'
               : visibleQueueItem

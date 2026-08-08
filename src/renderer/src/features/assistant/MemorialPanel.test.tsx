@@ -237,7 +237,7 @@ describe('MemorialPanel', () => {
       />
     )
 
-    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+    expect(screen.getByText('UP主').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
   it('passes transcription queue cancel and retry actions into the notes panel', () => {
