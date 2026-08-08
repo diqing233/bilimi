@@ -379,7 +379,7 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(within(toolbar).queryByRole('button', { name: '批量取消转写' })).not.toBeInTheDocument()
     expect(within(toolbar).queryByRole('button', { name: '导出文稿' })).not.toBeInTheDocument()
 
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     expect(within(toolbar).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['转写音频', '取消转写', '导出文稿'])
     expect(within(toolbar).getByRole('menuitem', { name: '取消转写' })).toBeEnabled()
     fireEvent.click(within(toolbar).getByRole('menuitem', { name: '导出文稿' }))
@@ -410,7 +410,7 @@ describe('VideoNotesPanel transcription queue', () => {
     expandQueue()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Pending export' }))
     const toolbar = screen.getByLabelText('队列批量操作')
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     const exportItem = within(toolbar).getByRole('menuitem', { name: '导出文稿' })
     expect(exportItem).toBeEnabled()
     fireEvent.click(exportItem)
@@ -436,7 +436,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Second account' }))
 
     const toolbar = screen.getByLabelText('队列批量操作')
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     expect(within(toolbar).getByRole('menuitem', { name: '导出文稿' })).toBeDisabled()
   })
 
@@ -455,7 +455,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Unowned pending' }))
 
     const toolbar = screen.getByLabelText('队列批量操作')
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     expect(within(toolbar).getByRole('menuitem', { name: '导出文稿' })).toBeDisabled()
   })
 
@@ -482,7 +482,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 First queue record' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Second queue record' }))
     const toolbar = screen.getByLabelText('队列批量操作')
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     fireEvent.click(within(toolbar).getByRole('menuitem', { name: '导出文稿' }))
 
     expect(await screen.findByRole('dialog', { name: '导出文稿' })).toHaveTextContent('已选 2 项，可导出 1 项，跳过 1 项')
@@ -525,7 +525,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
 
     expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('running')
-    expect(screen.queryByRole('button', { name: '视频总结' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '转写操作' })).not.toBeInTheDocument()
   })
 
   it('cancels a selected item that starts running while waiting cancellation is in flight', async () => {
@@ -558,7 +558,7 @@ describe('VideoNotesPanel transcription queue', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 等待视频' }))
     await act(async () => {
       const toolbar = screen.getByLabelText('队列批量操作')
-      fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+      fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     })
     await act(async () => {
       fireEvent.click(within(screen.getByLabelText('队列批量操作')).getByRole('menuitem', { name: '取消转写' }))
@@ -598,7 +598,7 @@ describe('VideoNotesPanel transcription queue', () => {
 
     expandQueue()
     expect(screen.queryByRole('checkbox', { name: '选择 取消中的视频' })).not.toBeInTheDocument()
-    expect(within(screen.getByLabelText('队列批量操作')).getByRole('button', { name: '视频总结' })).toBeDisabled()
+    expect(within(screen.getByLabelText('队列批量操作')).getByRole('button', { name: '转写操作' })).toBeDisabled()
     expect(onCancelQueuedVideoAudioTranscription).not.toHaveBeenCalled()
   })
 
@@ -667,7 +667,7 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByText('49%')).toBeInTheDocument()
     expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '视频总结' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: '转写操作' })).toHaveLength(1)
     expect(screen.getByText('音频下载失败，请检查网络后重试。')).toBeInTheDocument()
     expect(screen.queryByText('Audio download failed.')).not.toBeInTheDocument()
   })
@@ -832,7 +832,7 @@ describe('VideoNotesPanel transcription queue', () => {
 
     expandQueue()
     const record = screen.getByRole('button', { name: '排队已完成：Archive failed video' }).closest('.video-notes__queue-record')!
-    expect(within(record).queryByRole('button', { name: '视频总结' })).not.toBeInTheDocument()
+    expect(within(record).queryByRole('button', { name: '转写操作' })).not.toBeInTheDocument()
     expect(onRetryQueuedArchiveRegistration).not.toHaveBeenCalled()
   })
 

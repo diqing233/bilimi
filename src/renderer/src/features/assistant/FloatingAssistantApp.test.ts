@@ -33,6 +33,17 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('uses the completed enabled wording in DeepSeek status help', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain('趣味评论：已开启')
+    expect(source).toContain('自动总结：已开启')
+    expect(source).toContain('宠物对话：已开启')
+    expect(source).toContain('批阅辅助：已开启')
+    expect(source).toContain('收藏整理：已开启')
+    expect(source).toContain('createPortal(<div')
+  })
+
   it('exposes a bounded next-round old-favorite batch setting without changing the active draft', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const start = source.indexOf('data-settings-section="old-favorite-batches"')
@@ -452,19 +463,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('floating-assistant-global-status__light-tooltip')
     expect(source).toContain('floating-assistant-global-status__light-label')
-    expect(source).toContain('aria-describedby={tooltipId}')
+    expect(source).toContain('aria-describedby={visible ? tooltipId : undefined}')
     expect(source).not.toContain('title={statusLightTooltip(item)}')
     expect(styles).toContain('.floating-assistant-global-status__light-tooltip')
     expect(styles).toContain('.floating-assistant-global-status__light-label')
     expect(styles).toContain('white-space: pre-line')
-    expect(styles).toContain('top: calc(100% + 8px)')
+    expect(styles).toContain('position: fixed;')
+    expect(styles).toContain('z-index: 10001;')
     expect(styles).toContain('max-height: min(50vh, 420px)')
-    expect(styles).toMatch(/\.floating-assistant-global-status \{[^}]*position: relative;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*left: 50%;[^}]*translate: -50% 0;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*position: fixed;[^}]*z-index: 10001;/)
     expect(styles).not.toContain('.floating-assistant-global-status__light:last-child .floating-assistant-global-status__light-tooltip')
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-size: 12px;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-family: "Microsoft YaHei", "Segoe UI", sans-serif;[^}]*font-size: 12px;[^}]*font-weight: 500;[^}]*line-height: 1\.55;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transition: opacity 120ms ease-out, visibility 0s linear 120ms;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-size: 13px;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;[^}]*font-size: 13px;[^}]*font-weight: 500;[^}]*line-height: 1\.62;/)
     expect(styles).not.toMatch(/\.floating-assistant-global-status__light-tooltip \{[^}]*transform:/)
     expect(styles).toMatch(/\.floating-assistant-global-status__light \{[^}]*overflow: visible;/)
     expect(styles).toMatch(/\.floating-assistant-global-status__menu section > strong \{[^}]*color: var\(--porcelain-text\);[^}]*font-size: 13px;[^}]*font-weight: 700;/)
@@ -520,8 +530,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ])
 
     expect(detail).toContain('DeepSeek 工作中\n当前模型：deepseek-v4-pro\n正在执行 1 项任务：')
-    expect(detail).toContain('趣味评论：开启，会生成候选弹幕，可复制发布为评论。')
-    expect(detail).toContain('收藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。')
+    expect(detail).toContain('趣味评论：已开启，会生成候选弹幕，可复制发布为评论。')
+    expect(detail).toContain('收藏整理：已开启，可在归档预览中手动执行 DeepSeek 整理。')
   })
 
   it('uses the queued transcription model and actual CUDA runtime in running status details', () => {

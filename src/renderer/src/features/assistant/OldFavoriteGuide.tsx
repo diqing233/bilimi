@@ -9,6 +9,7 @@ import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
 import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import type { OldFavoriteViewScope } from './OldFavoriteOverviewControls'
+import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 
 export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 
@@ -79,7 +80,7 @@ type OldFavoriteGuideProps = {
 
 type OrganizingGuideHint = {
   label?: string
-  detail: Array<{ text: string; strong?: boolean }>
+  detail: Array<{ text: string; strong?: boolean; body?: boolean }>
 }
 
 const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -97,8 +98,8 @@ const ORGANIZING_GUIDE_HINTS: OrganizingGuideHint[] = [
   { label: '① 扫描概览：', detail: [{ text: '扫描所有收藏的视频基本信息和标签。标签是分类的重要依据，建议耐心等待，不要提前采用；默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。' }] },
   { label: '② 推荐收藏夹：', detail: [{ text: '根据扫描到的 UP 主和高频标签生成推荐收藏夹，主人可勾选想采用的推荐收藏夹。勾选后的收藏夹会参与整理收藏分类；也可以自建收藏夹，保存并勾选即可参与分类。' }] },
   { label: '③ 归档预览：', detail: [{ text: '检查分类结果，本地分类能力有限，未匹配到合适分类和把握不太稳的视频，建议用 DeepSeek 辅助整理，也可手动调整转移。可以在上方收藏夹区域编辑或者新增，归档预览会重新计算。' }] },
-  { label: '④ 确认执行：前面三步都是打草稿，最后一步来执行', detail: [] },
-  { label: '保存在收藏库：', detail: [{ text: '适合视频较多的情况', strong: true }, { text: '，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。' }] },
+  { label: '④ 确认执行：', detail: [{ text: '前面三步都是打草稿，最后一步来执行', body: true }] },
+  { label: '保存在收藏库：', detail: [{ text: '适合视频较多的情况，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。', body: true }] },
   { label: '同步到 B 站（较慢）：', detail: [{ text: '会先保存在收藏库再依次执行，整理草稿锁定后不可修改，后续可以去收藏库调整。' }] },
   { label: '暂不同步结束整理：', detail: [{ text: '可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }] }
 ]
@@ -187,15 +188,13 @@ export function OldFavoriteGuide({
       const anchorRect = guideHintTriggerRef.current?.getBoundingClientRect()
       if (!anchorRect) return
       const tooltipRect = guideHintTooltipRef.current?.getBoundingClientRect()
-      const gutter = 8
       const tooltipWidth = tooltipRect?.width || 360
       const tooltipHeight = tooltipRect?.height || 48
-      const below = anchorRect.bottom + 8
-      const above = anchorRect.top - tooltipHeight - 8
-      setGuideHintPosition({
-        top: below + tooltipHeight <= window.innerHeight || above < gutter ? below : above,
-        left: Math.max(gutter, Math.min(anchorRect.left, window.innerWidth - tooltipWidth - gutter))
-      })
+      setGuideHintPosition(resolveSidebarTooltipPosition(
+        anchorRect,
+        { width: tooltipWidth, height: tooltipHeight },
+        { width: window.innerWidth, height: window.innerHeight }
+      ))
     }
     updatePosition()
     window.addEventListener('resize', updatePosition)
@@ -371,7 +370,9 @@ export function OldFavoriteGuide({
 }
 
 function GuideHintContent({ hint, tooltip = false }: { hint: OrganizingGuideHint; tooltip?: boolean }) {
-  return <>{hint.label ? <strong className={tooltip ? 'favorite-ledger-panel__help-tooltip-title' : undefined}>{hint.label}</strong> : null}{hint.detail.map((part) => part.strong ? <strong key={part.text}>{part.text}</strong> : <span key={part.text}>{part.text}</span>)}</>
+  return <>{hint.label ? <strong className={tooltip ? 'favorite-ledger-panel__help-tooltip-title' : undefined}>{hint.label}</strong> : null}{hint.detail.map((part) => part.strong
+    ? <strong key={part.text}>{part.text}</strong>
+    : <span key={part.text} className={part.body ? 'favorite-ledger-panel__guide-hint-body' : undefined}>{part.text}</span>)}</>
 }
 
 function Chevron() {

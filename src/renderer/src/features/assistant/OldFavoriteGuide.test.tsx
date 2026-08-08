@@ -29,7 +29,9 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     fireEvent.click(toggle)
 
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-    expect(screen.getByText(/④ 确认执行：前面三步都是打草稿，最后一步来执行/)).toBeInTheDocument()
+    expect(screen.getByText('④ 确认执行：')).toHaveProperty('tagName', 'STRONG')
+    expect(screen.getByText('前面三步都是打草稿，最后一步来执行')).toHaveClass('favorite-ledger-panel__guide-hint-body')
+    expect(screen.getByText(/适合视频较多的情况，建议先保存在收藏库/)).toHaveClass('favorite-ledger-panel__guide-hint-body')
     expect(screen.getByText(/收藏库可以批量转写视频音频，非常方便。/)).toBeInTheDocument()
     expect(screen.getByText(/整理收藏会把视频复制添加到 bilimi 收藏夹/)).toBeInTheDocument()
     expect(screen.getByText(/可以选择先保留整理草稿，或者删除草稿结束本轮整理。/)).toBeInTheDocument()

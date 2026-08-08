@@ -10,6 +10,7 @@ import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions 
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { OldFavoriteModal } from './OldFavoriteModal'
+import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 import {
   applyManagedFavoriteFolderDeletionToLedgers,
   managedFavoriteFolderDeletionFailureMessage,
@@ -234,15 +235,13 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       const anchorRect = ledgerHintTriggerRef.current?.getBoundingClientRect()
       if (!anchorRect) return
       const tooltipRect = ledgerHintTooltipRef.current?.getBoundingClientRect()
-      const gutter = 8
       const tooltipWidth = tooltipRect?.width || 360
       const tooltipHeight = tooltipRect?.height || 48
-      const below = anchorRect.bottom + 8
-      const above = anchorRect.top - tooltipHeight - 8
-      setLedgerHintPosition({
-        top: below + tooltipHeight <= window.innerHeight || above < gutter ? below : above,
-        left: Math.max(gutter, Math.min(anchorRect.left, window.innerWidth - tooltipWidth - gutter))
-      })
+      setLedgerHintPosition(resolveSidebarTooltipPosition(
+        anchorRect,
+        { width: tooltipWidth, height: tooltipHeight },
+        { width: window.innerWidth, height: window.innerHeight }
+      ))
     }
     updatePosition()
     window.addEventListener('resize', updatePosition)

@@ -32,8 +32,10 @@ import { createAssistantPreferenceOriginId } from '@shared/assistantPreferencePa
 import { createNotePosterText } from '@shared/videoNoteArchive'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveProtection'
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { composeMemorialComments } from '../comments/commentComposer'
+import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
 import {
@@ -350,6 +352,70 @@ export function statusLightTooltip(item: GlobalStatusItem): string {
 
 function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。'): string {
   return `收藏夹：${favorite}\n整理收藏：${organization}`
+}
+
+function GlobalStatusLight({
+  id,
+  item,
+  ariaLabel,
+  suppressed = false,
+  onOpen
+}: {
+  id: string
+  item: GlobalStatusItem
+  ariaLabel: string
+  suppressed?: boolean
+  onOpen: () => void
+}) {
+  const [visible, setVisible] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const tooltipId = `floating-assistant-status-tooltip-${id}`
+  useEffect(() => { if (suppressed) setVisible(false) }, [suppressed])
+  useLayoutEffect(() => {
+    if (!visible || suppressed) return
+    const updatePosition = () => {
+      const anchorRect = triggerRef.current?.getBoundingClientRect()
+      if (!anchorRect) return
+      const tooltipRect = tooltipRef.current?.getBoundingClientRect()
+      const tooltipWidth = tooltipRect?.width || 360
+      const tooltipHeight = tooltipRect?.height || 48
+      setPosition(resolveSidebarTooltipPosition(
+        anchorRect,
+        { width: tooltipWidth, height: tooltipHeight },
+        { width: window.innerWidth, height: window.innerHeight }
+      ))
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [suppressed, visible])
+  return <>
+    <button
+      ref={triggerRef}
+      type="button"
+      className="floating-assistant-global-status__light"
+      data-tone={item.tone}
+      aria-label={ariaLabel}
+      aria-describedby={visible ? tooltipId : undefined}
+      onMouseEnter={() => { if (!suppressed) setVisible(true) }}
+      onMouseLeave={() => setVisible(false)}
+      onFocus={() => { if (!suppressed) setVisible(true) }}
+      onBlur={() => setVisible(false)}
+      onClick={onOpen}
+    >
+      <span className="floating-assistant-global-status__dot" aria-hidden="true" />
+      <span className="floating-assistant-global-status__light-label">{item.label}</span>
+    </button>
+    {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip" style={position}>
+      {statusLightTooltip(item)}
+    </div>, document.body) : null}
+  </>
 }
 
 type LedgerWorkspacePanelProps = {
@@ -870,19 +936,19 @@ function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[]
 
   return [
     preferences.deepseekCommentEnabled
-      ? '趣味评论：开启，会生成候选弹幕，可复制发布为评论。'
+      ? '趣味评论：已开启，会生成候选弹幕，可复制发布为评论。'
       : '趣味评论：关闭，不会生成候选弹幕。',
     preferences.deepseekAutoSummaryEnabled
-      ? '自动总结：开启，会在视频转写后生成文稿总结。'
+      ? '自动总结：已开启，会在视频转写后生成文稿总结。'
       : '自动总结：关闭，不会在视频转写后生成文稿总结。',
     preferences.deepseekPetChatEnabled
-      ? '宠物对话：开启，小咪会调用 DeepSeek 对话。'
+      ? '宠物对话：已开启，小咪会调用 DeepSeek 对话。'
       : '宠物对话：关闭，小咪不会调用 DeepSeek 对话。',
     preferences.deepseekDailyClassificationEnabled
-      ? `批阅辅助：开启（${reviewMode}），会用 DeepSeek 复核批阅分类。`
+      ? `批阅辅助：已开启（${reviewMode}），会用 DeepSeek 复核批阅分类。`
       : '批阅辅助：关闭，不会使用 DeepSeek 复核批阅分类。',
     preferences.deepseekArchiveOrganizationEnabled
-      ? '收藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。'
+      ? '收藏整理：已开启，可在归档预览中手动执行 DeepSeek 整理。'
       : '收藏整理：关闭，无法在归档预览中执行 DeepSeek 整理。'
   ]
 }
@@ -4862,29 +4928,18 @@ export function FloatingAssistantApp({
                 { ...globalLedgerStatus, ariaLabel: '整理状态', id: 'ledger' }
               ].map((item) => {
                 const navigation = statusLightNavigation(item.id as StatusLightId, activeView)
-                const tooltipId = `floating-assistant-status-tooltip-${item.id}`
-                const content = <>
-                  <span className="floating-assistant-global-status__dot" aria-hidden="true" />
-                  <span className="floating-assistant-global-status__light-label">{item.label}</span>
-                </>
                 return (
-                  <button
+                  <GlobalStatusLight
                     key={item.id}
-                    type="button"
-                    className="floating-assistant-global-status__light"
-                    data-tone={item.tone}
-                    aria-label={item.id === 'deepseek' ? '打开 DeepSeek 设置' : item.id === 'transcription' ? '打开札记查看转写' : '打开掌库查看收藏整理'}
-                    aria-describedby={tooltipId}
-                    onClick={() => {
+                    id={item.id}
+                    item={item}
+                    suppressed={globalFeedbackExpanded}
+                    ariaLabel={item.id === 'deepseek' ? '打开 DeepSeek 设置' : item.id === 'transcription' ? '打开札记查看转写' : '打开掌库查看收藏整理'}
+                    onOpen={() => {
                       if (navigation.tab === 'settings') openSettingsSection(navigation.section)
                       else setActiveTab(navigation.tab, 'view' in navigation ? { view: navigation.view } : undefined)
                     }}
-                  >
-                    {content}
-                    <span id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip">
-                      {statusLightTooltip(item)}
-                    </span>
-                  </button>
+                  />
                 )
               })}
             </div>

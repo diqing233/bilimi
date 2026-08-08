@@ -177,7 +177,7 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 已归档视频' }))
     const toolbar = screen.getByLabelText('队列批量操作')
-    fireEvent.click(within(toolbar).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(toolbar).getByRole('button', { name: '转写操作' }))
     fireEvent.click(within(toolbar).getByRole('menuitem', { name: '导出文稿' }))
     expect(await screen.findByRole('dialog', { name: '导出文稿' })).toBeInTheDocument()
 

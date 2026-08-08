@@ -820,7 +820,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('复制至')
     expect(detail).not.toHaveTextContent('移动到其他收藏夹')
     expect(detail).not.toHaveTextContent('同步B站位置')
-    expect(within(detail).getByRole('button', { name: '视频总结' })).toBeInTheDocument()
+    expect(within(detail).getByRole('button', { name: '转写操作' })).toBeInTheDocument()
     fireEvent.click(within(detail).getByRole('button', { name: '其他操作' }))
     expect(detail).toHaveTextContent('从收藏库删除')
     expect(detail).not.toHaveTextContent('取消B站收藏')
@@ -1021,13 +1021,13 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     await screen.findByText('本地视频')
     expect(screen.getByRole('checkbox', { name: '全选' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '视频总结' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转写操作' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 B站视频' }))
     const copy = screen.getByRole('button', { name: '复制至' })
     expect(copy).toBeEnabled()
     expect(screen.queryByRole('button', { name: '移动至' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '刷新信息' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '视频总结' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '转写操作' })).toBeEnabled()
     fireEvent.click(copy)
     expect(screen.getByRole('menu', { name: '复制至收藏夹' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '目标工作夹' }))
@@ -1187,7 +1187,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(within(detail).getByRole('button', { name: '刷新信息' })).toBeInTheDocument()
     expect(within(detail).getByRole('button', { name: '重新整理' })).toBeInTheDocument()
-    expect(within(detail).getByRole('button', { name: '视频总结' })).toBeInTheDocument()
+    expect(within(detail).getByRole('button', { name: '转写操作' })).toBeInTheDocument()
     expect(within(detail).getByRole('button', { name: '查看档案详情' })).toBeInTheDocument()
     expect(within(detail).queryByRole('button', { name: '移动至' })).not.toBeInTheDocument()
     expect(within(detail).queryByRole('button', { name: '同步到B站' })).not.toBeInTheDocument()
@@ -2219,7 +2219,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('档案操作顺序'))
     const section = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    const enqueue = await within(section).findByRole('button', { name: '视频总结' })
+    const enqueue = await within(section).findByRole('button', { name: '转写操作' })
     fireEvent.click(enqueue)
     expect(within(section).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['转写音频', '取消转写', '导出文稿'])
     const archive = screen.getByRole('button', { name: '查看档案详情' })
@@ -2353,7 +2353,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(await screen.findByRole('button', { name: '查看档案详情' })).toBeDisabled()
     const audioSection = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    expect(within(audioSection).getByRole('button', { name: '视频总结' })).toBeInTheDocument()
+    expect(within(audioSection).getByRole('button', { name: '转写操作' })).toBeInTheDocument()
   })
 
   it('returns through numbered pages without retaining older page rows', async () => {
@@ -2444,7 +2444,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByRole('button', { name: text.localFolder }))
     await screen.findByText('One')
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '转写音频' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
     fireEvent.click(screen.getByRole('button', { name: '刷新信息' }))
@@ -2475,7 +2475,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: text.localFolder }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Export one' }))
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '导出文稿' }))
 
     await waitFor(() => expect(resolveFavoriteLibraryDocumentExportSelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
@@ -2509,7 +2509,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: '已转写' }))
     await waitFor(() => expect(window.bilimiDesktop.getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, expect.objectContaining({ transcriptionFilters: ['completed'] })))
     fireEvent.click(screen.getByRole('checkbox', { name: '全选' }))
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '导出文稿' }))
 
     await waitFor(() => expect(resolveFavoriteLibraryDocumentExportSelection).toHaveBeenCalledWith('100', {
@@ -2533,7 +2533,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Archive registration retry'))
     const detailSection = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    fireEvent.click(await within(detailSection).findByRole('button', { name: '视频总结' }))
+    fireEvent.click(await within(detailSection).findByRole('button', { name: '转写操作' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: '转写音频' }))
 
     await waitFor(() => expect(retryVideoAudioArchiveRegistration).toHaveBeenCalledWith('account:100:aid:1:cid:70'))
@@ -2581,7 +2581,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(document.querySelector('.favorite-library__row-transcription button')).toHaveAccessibleName('取消转写'))
     expect(screen.queryByRole('button', { name: '取消排队' })).not.toBeInTheDocument()
     const detailSection = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    fireEvent.click(within(detailSection).getByRole('button', { name: '视频总结' }))
+    fireEvent.click(within(detailSection).getByRole('button', { name: '转写操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '取消转写' }))
     await waitFor(() => expect(cancelFavoriteLibraryWaitingTranscription).toHaveBeenCalledWith('100', { targets: [{ aid: 1, cid: 70 }] }))
   })

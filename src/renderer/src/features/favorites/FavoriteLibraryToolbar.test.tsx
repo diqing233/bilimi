@@ -39,7 +39,7 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
     render(<FavoriteLibraryToolbar pageCount={1} selectedCount={1} allCurrentPageSelected onTogglePage={vi.fn()} onBatchAction={onBatchAction} onBatchDownload={onDownload} />)
 
     expect(screen.queryByRole('button', { name: '转写音频' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     expect(screen.getByRole('menuitem', { name: '转写音频' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: '导出文稿' }))
@@ -51,7 +51,7 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
   it('keeps batch actions visible but disabled until a video is selected', () => {
     render(<FavoriteLibraryToolbar pageCount={1} selectedCount={0} allCurrentPageSelected={false} onTogglePage={vi.fn()} batchDisabled />)
 
-    const summary = screen.getByRole('button', { name: '视频总结' })
+    const summary = screen.getByRole('button', { name: '转写操作' })
     const more = screen.getByRole('button', { name: '更多批量操作' })
     expect(summary).toBeVisible()
     expect(summary).toBeDisabled()
@@ -143,7 +143,7 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
       allowedActions={['copy', 'download-documents']}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     const items = screen.getAllByRole('menuitem')
     expect(items.map((item) => item.textContent)).toEqual(['转写音频', '取消转写', '导出文稿'])
     expect(items[0]).toBeDisabled()

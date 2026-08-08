@@ -1173,5 +1173,13 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(".favorite-ledger-panel .assistant-action-button[aria-busy='true'] { cursor: progress; opacity: 0.72;")
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel[aria-busy='true']")
   })
+
+  it('keeps sidebar help and status tooltips above content without using the sidebar body', () => {
+    expectStyleSnippet('.favorite-ledger-panel__help-tooltip {\n  position: fixed;\n  z-index: 10001;')
+    expectStyleSnippet('.floating-assistant-global-status__light-tooltip {\n  position: fixed;\n  z-index: 10001;')
+    expectStyleSnippet('.floating-assistant-global-status__light-tooltip {\n  position: fixed;\n  z-index: 10001;\n  box-sizing: border-box;\n  width: min(360px, calc(100vw - 32px));')
+    expectStyleSnippet('.favorite-ledger-panel__scan-enrichment-summary,\n.favorite-ledger-panel__scan-discovery {')
+    expectStyleSnippet('.video-summary-menu__options { position: absolute; z-index: 110; top: calc(100% + 4px); left: 0; display: grid; min-width: 132px;')
+  })
 })
 

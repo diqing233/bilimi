@@ -31,8 +31,8 @@ export function VideoSummaryMenu({ actions, download, disabled = false, disabled
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keydown) }
   }, [open])
   return <span {...menuScope} ref={rootRef} className="video-summary-menu">
-    <button type="button" className="video-summary-menu__trigger" aria-label="视频总结" aria-expanded={open} disabled={disabled} title={disabled ? disabledTitle : undefined} onClick={() => setOpen((current) => !current)}>视频总结 <span aria-hidden="true">▾</span></button>
-    {open ? <div role="menu" aria-label="视频总结菜单" className="video-summary-menu__options">
+    <button type="button" className="video-summary-menu__trigger" aria-label="转写操作" aria-expanded={open} disabled={disabled} title={disabled ? disabledTitle : undefined} onClick={() => setOpen((current) => !current)}>转写操作 <span aria-hidden="true">▾</span></button>
+    {open ? <div role="menu" aria-label="转写操作菜单" className="video-summary-menu__options">
       {actions.map((action) => <button key={action.id} type="button" role="menuitem" disabled={action.disabled} onClick={() => { close(); action.onSelect() }}>{action.label}</button>)}
       {download ? <button type="button" role="menuitem" disabled={download.disabled} onClick={() => { close(); download.onSelect() }}>导出文稿</button> : null}
     </div> : null}

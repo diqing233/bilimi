@@ -247,7 +247,7 @@ export function OldFavoriteScanOverviewStep({
       <p className="favorite-ledger-panel__scan-explanation">先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。</p>
     </> : null}
     {tagEnrichment && !scanning ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p>标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
+      <p className="favorite-ledger-panel__scan-enrichment-summary">标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
       <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
         <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
         <span><small>本轮获取标签</small><strong>{fetchedTagItemCount}</strong></span>
@@ -283,9 +283,9 @@ export function OldFavoriteScanOverviewStep({
         ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后{resumableFailedScan ? '继续扫描' : '重新扫描'}</button>
         : null}
     </> : null}
-    <p>已发现 {folders.length} 个 B站收藏夹。</p>
+    <p className="favorite-ledger-panel__scan-discovery">已发现 {folders.length} 个 B站收藏夹。</p>
     {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
-      ? <p role="status">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
+      ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
       : null}
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">

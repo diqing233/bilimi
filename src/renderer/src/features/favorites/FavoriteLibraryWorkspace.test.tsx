@@ -133,7 +133,7 @@ describe('Favorite Library workspace components', () => {
     expect(screen.getByRole('button', { name: '复制至' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '移动至' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '刷新信息' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     expect(screen.getByRole('menuitem', { name: '转写音频' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
@@ -145,7 +145,7 @@ describe('Favorite Library workspace components', () => {
   it('keeps more batch actions fixed while its detached popup is outside the toolbar', () => {
     const { container } = render(<FavoriteLibraryToolbar pageCount={1} selectedCount={1} allCurrentPageSelected onTogglePage={vi.fn()} />)
 
-    const transcribe = screen.getByRole('button', { name: '视频总结' })
+    const transcribe = screen.getByRole('button', { name: '转写操作' })
     const more = screen.getByRole('button', { name: '更多批量操作' })
     expect(transcribe.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
@@ -166,7 +166,7 @@ describe('Favorite Library workspace components', () => {
       disabledActions={['cancel-transcribe']}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '视频总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '转写音频' })).toBeEnabled()
   })
