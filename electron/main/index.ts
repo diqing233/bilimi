@@ -112,6 +112,7 @@ import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBat
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
 import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
+import { applyManagedFavoriteLedgerDeletion } from '../../src/shared/favoriteLedgerDeletion'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
@@ -2061,6 +2062,13 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
+    onManagedFolderDeletion: async (accountMid, logicalLedgerIds) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const favoriteLedgers = applyManagedFavoriteLedgerDeletion(current.favoriteLedgers, logicalLedgerIds)
+      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    },
     classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {
       // Capture the saved rules once per workspace command, then classify its segment in memory.
       const accountPreferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
@@ -2091,15 +2099,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
         logicalLedgerId
       ),
-    resolveLedgerBinding: async (accountMid, logicalLedgerId) => {
-      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-        .find((candidate) => candidate.id === logicalLedgerId)
-      if (!ledger) return undefined
-      return {
-        ...(ledger.bilibiliFolderId ? { remoteFolderId: ledger.bilibiliFolderId } : {}),
-        remoteDisplayTitle: ledger.displayName
-      }
-    },
     resolveRecoveryConfiguration: (accountMid) => {
       const preferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       const ledgers = classifierLedgersForAccount(
@@ -2214,6 +2213,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   registerFavoriteRepositoryIpc({
     ipcMain,
     service: favoriteRepositoryService,
+    bindingService: favoriteRepositoryBindingService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     isTrustedReader: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,

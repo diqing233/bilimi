@@ -55,13 +55,29 @@ describe('FavoriteLedgerOverview', () => {
     expect([...enabledStates.mock.calls.at(-1)![0]]).toContainEqual(['custom', false])
   })
 
-  it('reports the deleted recommendation id to its parent coordinator', () => {
+  it('routes editor deletion through the managed-folder confirmation before clearing a recommendation', async () => {
     const onDeleteLedger = vi.fn()
+    const deleteManagedFavoriteFolders = vi.fn().mockResolvedValue([])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'custom-tag-game', remoteFolderId: 'remote-game', title: 'bilimi·游戏', memberCount: 0 }
+        ]),
+        deleteManagedFavoriteFolders
+      }
+    })
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'custom-tag-game', displayName: 'bilimi·游戏', keywords: ['游戏'], ruleType: 'tag', enabled: true, priority: 10, isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger} />)
     fireEvent.click(screen.getByRole('button', { name: '游戏' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(onDeleteLedger).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['custom-tag-game'], false, { 'custom-tag-game': 'bilimi·游戏' }, { 'custom-tag-game': ['remote-game'] }))
     expect(onDeleteLedger).toHaveBeenCalledWith('custom-tag-game')
   })
   it('waits for active-round rule analysis before persisting and locks only draft mutations', async () => {
@@ -892,11 +908,11 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['tech']))
+    await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['tech'], false, { music: 'bilimi·音乐', tech: 'bilimi·科技' }, { tech: ['remote-tech'] }))
     expect(save).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'music', enabled: true })
     ], { deleteDisabled: false })
@@ -928,7 +944,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·知识' }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -961,7 +977,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -987,11 +1003,41 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '继续' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法连接当前 B 站页面，请保持已登录页面打开后重试。')
     expect(screen.getByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()
+  })
+
+  it('requires the unbound-name acknowledgement in addition to the normal deletion confirmation', async () => {
+    const deleteManagedFavoriteFolders = vi.fn().mockResolvedValue([])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+        ]),
+        deleteManagedFavoriteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    const deleteButton = screen.getByRole('button', { name: '删除' })
+    expect(deleteButton).toBeDisabled()
+    const confirmations = screen.getAllByRole('checkbox')
+    expect(confirmations).toHaveLength(2)
+    fireEvent.click(confirmations[0])
+    expect(deleteButton).toBeDisabled()
+    fireEvent.click(confirmations[1])
+    expect(deleteButton).toBeEnabled()
   })
 })

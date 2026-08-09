@@ -523,16 +523,15 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
 
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(false)
     expect(result.missingLedgerIds).toEqual(
-      ledgers
-        .filter((ledger) => ledger.id !== 'knowledge' && ledger.enabled)
-        .map((ledger) => ledger.id)
+      ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)
     )
-    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
+    expect(result.unboundLedgerIds).toEqual(['knowledge'])
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBeUndefined()
   })
 
-  it('recognizes one existing bilimi-prefixed folder for a saved custom rule without the prefix', async () => {
+  it('reports an existing bilimi-prefixed folder as an explicit rebind candidate instead of binding by name', async () => {
     installCookies()
     const ledgers: FavoriteLedger[] = [{
       id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: true,
@@ -547,11 +546,16 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
 
-    expect(result.missingLedgerIds).toEqual([])
-    expect(result.backupConflictLedgerIds).toEqual([])
+    expect(result.missingLedgerIds).toEqual(['custom-genshin'])
+    expect(result.unboundLedgerIds).toEqual(['custom-genshin'])
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-genshin',
+      candidates: [{ id: '42', title: 'bilimi·原神', memberCount: 0 }]
+    }])
     expect(result.ledgers).toEqual([
-      expect.objectContaining({ id: 'custom-genshin', displayName: '原神', bilibiliFolderId: '42' })
+      expect.objectContaining({ id: 'custom-genshin', displayName: '原神', bindingState: 'unbound' })
     ])
+    expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
   })
 
   it('does not guess when multiple folders normalize to the same custom rule name', async () => {
@@ -573,11 +577,11 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
 
     expect(result.missingLedgerIds).toEqual(['custom-genshin'])
-    expect(result.backupConflictLedgerIds).toEqual(['custom-genshin'])
+    expect(result.unboundLedgerIds).toEqual(['custom-genshin'])
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
   })
 
-  it('reuses the unique bilimi-prefixed custom folder during ensure without creating another folder', async () => {
+  it('requires an explicit rebind selection before using an existing bilimi-prefixed folder during backup', async () => {
     installCookies()
     const ledgers: FavoriteLedger[] = [{
       id: 'custom-genshin', displayName: '原神', keywords: ['原神'], enabled: true,
@@ -593,14 +597,18 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
 
-    expect(result.ok).toBe(true)
-    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderId: '42' })])
+    expect(result.ok).toBe(false)
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-genshin',
+      candidates: [{ id: '42', title: 'bilimi·原神', memberCount: 0 }]
+    }])
+    expect(result.ledgers).toEqual([expect.objectContaining({ bindingState: 'unbound' })])
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/folder/add'))).toBe(false)
   })
 
   it('creates only missing enabled ledgers', async () => {
     installCookies()
-    const ledgers = createDefaultFavoriteLedgers().slice(0, 2)
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => index === 0 ? { ...ledger, bilibiliFolderId: '1' } : ledger)
     const requests: Array<{ body?: string; url: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -630,7 +638,7 @@ describe('favorite ledger API scripts', () => {
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
   })
 
-  it('claims a title that appears in the creation recheck instead of creating a duplicate', async () => {
+  it('returns an explicit rebind candidate when a remote bilimi folder appears during creation recheck', async () => {
     installCookies()
     const ledger = createDefaultFavoriteLedgers()[0]
     let listCount = 0
@@ -648,8 +656,8 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
-    expect(result.ok).toBe(true)
-    expect((result.ledgers as FavoriteLedger[])[0]?.bilibiliFolderId).toBe('77')
+    expect(result.ok).toBe(false)
+    expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
   })
 
@@ -666,7 +674,7 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
-    expect(result).toMatchObject({ ok: false, missingTargets: [ledger.id], backupConflictLedgerIds: [ledger.id] })
+    expect(result).toMatchObject({ ok: false, missingTargets: [ledger.id], unboundLedgerIds: [ledger.id] })
   })
 
   it('rejects an overlong enabled ledger before setup can create a remote folder', async () => {
@@ -693,7 +701,7 @@ describe('favorite ledger API scripts', () => {
 
   it('reports setup as incomplete when created ledgers still lack folder ids', async () => {
     installCookies()
-    const ledgers = createDefaultFavoriteLedgers().slice(0, 2)
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => index === 0 ? { ...ledger, bilibiliFolderId: '1' } : ledger)
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -856,10 +864,10 @@ describe('favorite ledger API scripts', () => {
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(inboxLedger.displayName)}`)
   })
 
-  it('only deletes removed Bilimi-managed folders when saving edited ledgers', async () => {
+  it('never deletes a remote bilimi folder merely because a rule was removed while saving', async () => {
     installCookies()
     const baseLedgers = createDefaultFavoriteLedgers()
-    const nextLedgers = [baseLedgers[0]]
+    const nextLedgers = [{ ...baseLedgers[0], bilibiliFolderId: '9001' }]
     const previousLedgers = [
       baseLedgers[0],
       {
@@ -917,14 +925,11 @@ describe('favorite ledger API scripts', () => {
 
     const deleteRequests = requests.filter((request) => request.url.includes('/folder/del'))
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:removed-bilimi'])
-    expect(deleteRequests).toHaveLength(1)
-    const body = new URLSearchParams(deleteRequests[0].body)
-    expect(body.get('csrf')).toBe('csrf-token')
-    expect(body.get('media_ids')).toBe('9002')
+    expect(result.steps).toEqual(['api:ledger:list'])
+    expect(deleteRequests).toHaveLength(0)
   })
 
-  it('deletes disabled Bilimi-managed folders while keeping them in preferences', async () => {
+  it('keeps disabled bilimi folders remote until the explicit delete flow confirms removal', async () => {
     installCookies()
     const baseLedgers = createDefaultFavoriteLedgers()
     const nextLedgers = [
@@ -972,9 +977,8 @@ describe('favorite ledger API scripts', () => {
 
     const deleteRequests = requests.filter((request) => request.url.includes('/folder/del'))
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:knowledge'])
-    expect(deleteRequests).toHaveLength(1)
-    expect(new URLSearchParams(deleteRequests[0].body).get('media_ids')).toBe('9001')
+    expect(result.steps).toEqual(['api:ledger:list'])
+    expect(deleteRequests).toHaveLength(0)
     const disabledLedger = (result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')
     expect(disabledLedger).toEqual(
       expect.objectContaining({
@@ -982,7 +986,7 @@ describe('favorite ledger API scripts', () => {
         enabled: false
       })
     )
-    expect(disabledLedger).not.toHaveProperty('bilibiliFolderId')
+    expect(disabledLedger).toHaveProperty('bilibiliFolderId', '9001')
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'game')?.bilibiliFolderId).toBe('9002')
   })
 

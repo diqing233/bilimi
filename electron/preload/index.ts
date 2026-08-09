@@ -97,10 +97,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
   getOldFavoriteWorkspaceRecoverySummaryV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:recovery-summary', accountMid) as Promise<OldFavoriteWorkspaceRecoverySummary | null>,
-  previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[]) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>,
-  deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[]) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds) as Promise<Array<{ id: string; title: string; memberCount: number }>>,
+  previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds, ledgerTitleHints) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
+  deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion = false, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
   organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode, scope) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   retryOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>
@@ -221,6 +221,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
   getFavoriteRepositorySnapshot: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
+  adoptFavoriteRepositoryLedgerBinding: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string }) =>
+    ipcRenderer.invoke('favorite-repository:adopt-ledger-binding', accountMid, input) as Promise<unknown>,
   getFavoriteRepositoryFolderPage: (accountMid: string, folderId: string, options: { limit: number; cursor?: string }) =>
     ipcRenderer.invoke('favorite-repository:get-folder-page', accountMid, folderId, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
   searchFavoriteRepositoryPage: (accountMid: string, query: string, options: { limit: number; cursor?: string }) =>

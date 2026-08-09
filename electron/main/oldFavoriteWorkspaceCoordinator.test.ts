@@ -33,13 +33,13 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady'> & { initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService'> & { onManagedFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<void>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
     repository,
     workspaceStore,
-    ...coordinatorOptions,
+    ...(coordinatorOptions as ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]),
     now: () => '2026-07-19T00:00:00.000Z'
   })
   if (initializeOnOpen) {
@@ -102,6 +102,25 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('clears matching ledger rules only after managed folder deletion succeeds', async () => {
+    const root = await createRoot()
+    const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
+    const syncService = createSyncService({
+      deleteManagedFolders: vi.fn().mockResolvedValue([
+        { logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }
+      ])
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, syncService, onManagedFolderDeletion }
+    )
+
+    await coordinator.deleteManagedFolderCandidates('100', ['music'])
+
+    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', ['music'])
+  })
+
   it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3438,16 +3457,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ])
     })
     expect(first.physicalShards).toEqual([expect.objectContaining({
-      logicalLedgerId: 'creative-aesthetic', shardNumber: 1, remoteFolderId: 'managed-creative', bindingState: 'bound'
+      logicalLedgerId: 'creative-aesthetic', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['managed-creative']
     })])
     expect(first.memberships).toMatchObject({
-      'bilimi-logical:creative-aesthetic': [11, 12],
-      'bilimi:creative-aesthetic:001': [11, 12],
+      'bilimi-logical:creative-aesthetic': [],
+      'bilimi:creative-aesthetic:001': [],
       'bilibili:ordinary': [21]
     })
     expect(first.positions['100:11']).toMatchObject({
       remoteObservedPhysicalFolderIds: ['managed-creative'],
-      remoteObservedLogicalFolderIds: ['bilimi-logical:creative-aesthetic']
+      remoteObservedLogicalFolderIds: []
     })
 
     await coordinator.beginScan('100', 'full')
@@ -3466,8 +3485,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const second = await repository.getSnapshot('100')
     expect(second.folders.filter((folder) => folder.id === 'bilimi-logical:creative-aesthetic')).toHaveLength(1)
-    expect(second.physicalShards.filter((shard) => shard.remoteFolderId === 'managed-creative')).toHaveLength(1)
-    expect(second.memberships['bilimi-logical:creative-aesthetic']).toEqual([11, 12])
+    expect(second.physicalShards.filter((shard) => shard.knownRemoteFolderIds?.includes('managed-creative'))).toHaveLength(1)
+    expect(second.memberships['bilimi-logical:creative-aesthetic']).toEqual([])
   })
 
   it('keeps duplicate remote titles pending instead of choosing a managed binding', async () => {
@@ -3552,10 +3571,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const genshin = snapshot.folders.find((folder) => folder.title === 'bilimi\u00b7\u539f\u795e' && folder.kind === 'bilimi-logical')!
     expect(genshin.logicalLedgerId).not.toBe('game')
     expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
-      expect.objectContaining({ logicalLedgerId: 'inbox', remoteFolderId: 'inbox-remote', bindingState: 'bound' }),
-      expect.objectContaining({ remoteFolderId: 'genshin-remote', bindingState: 'bound', logicalLedgerId: expect.stringMatching(/^custom-/) })
+      expect.objectContaining({ logicalLedgerId: 'inbox', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['inbox-remote'] }),
+      expect.objectContaining({ bindingState: 'pending-reconcile', knownRemoteFolderIds: ['genshin-remote'], logicalLedgerId: expect.stringMatching(/^custom-/) })
     ]))
-    expect(snapshot.memberships[`bilimi-logical:${genshin.logicalLedgerId}`]).toEqual([2, 3])
+    expect(snapshot.memberships[`bilimi-logical:${genshin.logicalLedgerId}`]).toEqual([])
 
     await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
@@ -3569,13 +3588,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       expect.objectContaining({ id: `bilimi-logical:${genshin.logicalLedgerId}`, title: 'bilimi·原神收藏' })
     ]))
     expect(renamed.positions['100:2']).toMatchObject({
-      localDesiredFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      localDesiredFolderIds: [],
       remoteObservedPhysicalFolderIds: ['genshin-remote'],
-      remoteObservedLogicalFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      remoteObservedLogicalFolderIds: [],
       positionState: 'aligned'
     })
     expect(renamed.positions['100:3']).toMatchObject({
-      localDesiredFolderIds: [`bilimi-logical:${genshin.logicalLedgerId}`],
+      localDesiredFolderIds: [],
       positionState: 'aligned'
     })
   })
@@ -3597,7 +3616,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).toHaveBeenCalledOnce()
     expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
       id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
-      bilibiliFolderId: 'genshin-remote', syncState: 'local-draft'
+      bindingState: 'unbound', syncState: 'local-draft'
     })])
   })
 
@@ -3621,7 +3640,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).toHaveBeenCalledOnce()
     expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
       id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
-      bilibiliFolderId: 'genshin-remote', syncState: 'local-draft'
+      bindingState: 'unbound', syncState: 'local-draft'
     })])
   })
 
@@ -3690,7 +3709,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
     const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
     const commit = vi.spyOn(reopenedRepository, 'commit')
-    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 2, pendingCount: 0 })
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 2 })
     expect(commit).toHaveBeenCalledOnce()
     expect(commit.mock.calls[0][1].type).toBe('repair-persisted-managed-bindings')
 
@@ -3702,16 +3721,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const restored = await reopenedRepository.getSnapshot('100')
     expect(restored.physicalShards).toEqual(expect.arrayContaining([
-      expect.objectContaining({ logicalLedgerId: 'inbox', remoteFolderId: 'inbox-remote', bindingState: 'bound' }),
-      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), remoteFolderId: 'genshin-remote', bindingState: 'bound' })
+      expect.objectContaining({ logicalLedgerId: 'inbox', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['inbox-remote'] }),
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), bindingState: 'pending-reconcile', knownRemoteFolderIds: ['genshin-remote'] })
     ]))
     expect(restored.positions['100:2']).toMatchObject({
       remoteObservedPhysicalFolderIds: ['genshin-remote'],
-      remoteObservedLogicalFolderIds: [expect.stringMatching(/^bilimi-logical:custom-/)]
+      remoteObservedLogicalFolderIds: []
     })
     expect(restored.positions['100:1']).toMatchObject({
       remoteObservedPhysicalFolderIds: ['inbox-remote', 'ordinary-remote'],
-      remoteObservedLogicalFolderIds: ['bilimi-logical:inbox']
+      remoteObservedLogicalFolderIds: []
     })
   })
 
@@ -3752,7 +3771,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
     const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
     const commit = vi.spyOn(reopenedRepository, 'commit')
-    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 101, pendingCount: 0 })
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 101 })
 
     const repairs = commit.mock.calls.filter(([, command]) => command.type === 'repair-persisted-managed-bindings')
     expect(repairs.map(([, command]) => command.payload.bindings.length)).toEqual([100, 1])
@@ -3817,14 +3836,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' })
     const reopened = createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
     const commit = vi.spyOn(reopenedRepository, 'commit')
-    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 1, pendingCount: 0 })
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 1 })
 
     expect(commit).toHaveBeenCalledTimes(2)
     expect(commit.mock.calls.map(([, command]) => command.type)).toEqual([
       'repair-persisted-managed-bindings', 'set-favorite-placements'
     ])
     await expect(reopenedRepository.getSnapshot('100')).resolves.toMatchObject({
-      positions: { '100:501': { remoteObservedPhysicalFolderIds: ['inbox-remote'] } }
+      positions: { '100:501': { remoteObservedPhysicalFolderIds: ['inbox-remote'], remoteObservedLogicalFolderIds: [] } }
     })
   })
 
@@ -3869,7 +3888,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         aid: 1,
         localDesiredFolderIds: ['bilimi-logical:inbox'],
         remoteObservedPhysicalFolderIds: ['inbox-remote', 'obsolete-remote'],
-        remoteObservedLogicalFolderIds: ['bilimi-logical:inbox'],
+        remoteObservedLogicalFolderIds: [],
         updatedAt: '2026-07-20T00:01:00.000Z'
       }
     })
@@ -3881,7 +3900,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '100:1': {
           localDesiredFolderIds: ['bilimi-logical:inbox'],
           remoteObservedPhysicalFolderIds: ['inbox-remote'],
-          remoteObservedLogicalFolderIds: ['bilimi-logical:inbox']
+          remoteObservedLogicalFolderIds: []
         }
       }
     })
@@ -6081,13 +6100,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music'] }] }
-    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
     expect(createFolder).not.toHaveBeenCalled()
-    expect((await repository.getSnapshot('100')).physicalShards).toEqual([
-      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music', bindingState: 'bound' })
-    ])
   })
 
   it('does not freeze classifications after every selectable source is deselected', async () => {
@@ -6876,13 +6890,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
-    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
     expect(createFolder).not.toHaveBeenCalled()
-    await expect(bindings.getBindings('100')).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'saved-music-folder', bindingState: 'bound' })]
-    })
   })
 
   it('freezes a saved remote target when a prior reset left only its binding command result', async () => {
@@ -6923,9 +6932,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
-    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
   })
 
   it('binds classifications that arrive while confirmation is preparing', async () => {
@@ -6977,15 +6984,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     releaseTitle.resolve()
 
-    await expect(freezing).resolves.toMatchObject({
-      status: 'frozen',
-      frozenSyncPlan: {
-        operations: [
-          { aid: 1, folderIds: ['remote-music'] },
-          { aid: 2, folderIds: ['remote-knowledge'] }
-        ]
-      }
-    })
+    await expect(freezing).rejects.toThrow('requires explicit rebinding')
     await expect(lateClassification).resolves.toMatchObject({ classifications: { '2': { targetLedgerIds: ['knowledge'] } } })
   })
 
@@ -7032,12 +7031,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       now: () => '2026-07-20T00:00:01.000Z'
     })
 
-    await expect(recovered.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
-    })
-    await expect(bindings.getBindings('100')).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'saved-music-folder', bindingState: 'bound' })]
-    })
+    await expect(recovered.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
+    await expect(bindings.getBindings('100')).resolves.toMatchObject({ shards: [] })
   })
 
   it('reclaims an unresolved prior target from the remote inventory before freezing a retry', async () => {
@@ -7072,13 +7067,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music-1'] }] }
-    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
     expect(createFolder).not.toHaveBeenCalled()
-    await expect(bindings.getBindings('100')).resolves.toMatchObject({
-      shards: [expect.objectContaining({ bindingState: 'bound', remoteFolderId: 'remote-music-1' })]
-    })
   })
 
   it('preserves a Chinese target creation failure without completing the local round', async () => {
@@ -7137,10 +7127,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ shardNumber: 2 }))
   })
 
-  it('prepares a manually created local ledger for Bilibili binding during confirmation', async () => {
+  it('blocks a manually created local ledger from remote execution until it is formally bound', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
-    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const ensurePhysicalShard = vi.fn().mockRejectedValue(new Error('Favorite repository page bridge is unavailable.'))
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
@@ -7153,10 +7143,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['custom-saved-ledger'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
-      logicalLedgerId: 'custom-saved-ledger', logicalTitle: 'bilimi·你好'
-    }))
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('page bridge is unavailable')
+    expect(ensurePhysicalShard).toHaveBeenCalledOnce()
   })
 
   it('reports capacity exhaustion after preparing the required next shard during confirmation', async () => {

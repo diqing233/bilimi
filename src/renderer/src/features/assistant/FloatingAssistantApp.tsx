@@ -441,11 +441,12 @@ type LedgerWorkspacePanelProps = {
   currentAccountMid?: string
   ledgers: AssistantPreferences['favoriteLedgers']
   missingLedgerIds: string[]
+  unboundLedgerIds?: string[]
   defaultFavoriteSystemEnabled: boolean
   onEnsureLedgers: () => Promise<unknown>
-  onSaveLedgers: (ledgers: AssistantPreferences['favoriteLedgers']) => Promise<unknown>
+  onSaveLedgers: (ledgers: AssistantPreferences['favoriteLedgers'], options?: FavoriteLedgerSaveOptions) => Promise<unknown>
   onSaveLedgerEnabled: (ledgerId: string, enabled: boolean) => Promise<unknown>
-  onSyncLedgers: (ledgers: AssistantPreferences['favoriteLedgers']) => Promise<unknown>
+  onSyncLedgers: (ledgers: AssistantPreferences['favoriteLedgers'], options?: FavoriteLedgerSaveOptions) => Promise<unknown>
   onOpenFavoritePage: () => Promise<unknown>
   onRefreshOrganizationState: () => Promise<unknown>
   onOrganizationSnapshotChange: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
@@ -625,10 +626,10 @@ export function resolveFavoriteOrganizationLamp(args: {
   }
 
   const backupGap = favoriteLedgerBackupGap(args.ledgers)
-  if (args.favoriteLedgerStatus?.backupConflictLedgerIds?.length) {
+  if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
     return {
-      label: '备册异常',
-      detail: favoriteOrganizationDetail('发现同名 bilimi 收藏夹，无法安全备册；请先在 B 站手动处理重复收藏夹。', '发现同名 bilimi 收藏夹，无法安全备册。'),
+      label: '未绑定',
+      detail: favoriteOrganizationDetail('发现未绑定的 bilimi 收藏夹；预分类仍可使用，确认重新绑定后才能同步分类结果到 B 站。', `还有 ${args.favoriteLedgerStatus.unboundLedgerIds.length} 个收藏夹等待重新绑定。`),
       tone: 'error'
     }
   }
@@ -5069,6 +5070,7 @@ export function FloatingAssistantApp({
             currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
+            unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
             onSaveLedgers={saveFavoriteLedgerRulesForPanel}

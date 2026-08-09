@@ -128,7 +128,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
-  it('rebinds an existing displayed ledger after a local reset even when Bilibili has reached its folder limit', async () => {
+  it('requires explicit rebinding instead of claiming a same-title remote folder after a local reset', async () => {
     const repository = await createRepository()
     const createFolder = vi.fn()
     const service = new FavoriteRepositoryBindingService({
@@ -151,9 +151,7 @@ describe('FavoriteRepositoryBindingService', () => {
 
     await expect(service.ensurePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', remoteDisplayTitle: 'bilimi·音乐舞台', shardNumber: 1, memberAids: []
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'existing-music', bindingState: 'bound' })]
-    })
+    })).rejects.toThrow('explicit rebinding')
     expect(createFolder).not.toHaveBeenCalled()
   })
 
@@ -297,7 +295,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
   })
 
-  it('claims a shard title that appears in the final inventory recheck instead of creating another folder', async () => {
+  it('requires explicit rebinding when a shard title appears in the final inventory recheck', async () => {
     const repository = await createRepository()
     const readFolderInventory = vi.fn()
       .mockResolvedValueOnce({ observedAccountMid: '100', folders: [] })
@@ -314,7 +312,7 @@ describe('FavoriteRepositoryBindingService', () => {
 
     await expect(service.ensurePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: []
-    })).resolves.toMatchObject({ shards: [expect.objectContaining({ remoteFolderId: 'remote-music-1' })] })
+    })).rejects.toThrow('requires explicit rebinding')
     expect(createFolder).not.toHaveBeenCalled()
   })
 

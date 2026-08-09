@@ -1,4 +1,4 @@
-import type { FavoriteLedger } from '@shared/types'
+export { applyManagedFavoriteLedgerDeletion as applyManagedFavoriteFolderDeletionToLedgers } from '@shared/favoriteLedgerDeletion'
 
 /** Keeps the two backup-folder deletion confirmations honest about remote failures. */
 export function managedFavoriteFolderDeletionFailureMessage(error: unknown) {
@@ -23,23 +23,4 @@ export function managedFavoriteFolderDeletionFailureMessage(error: unknown) {
 export function managedFavoriteFolderDeletionSucceeded(result: unknown): boolean {
   if (Array.isArray(result)) return true
   return Boolean(result && typeof result === 'object' && (result as { status?: unknown }).status === 'succeeded')
-}
-
-/** Applies a confirmed remote deletion to local rules without touching unrelated rules. */
-export function applyManagedFavoriteFolderDeletionToLedgers(
-  ledgers: FavoriteLedger[],
-  deletedLedgerIds: Iterable<string>
-): FavoriteLedger[] {
-  const deleted = new Set(deletedLedgerIds)
-  return ledgers
-    .filter((ledger) => !deleted.has(ledger.id) || ledger.isDefault)
-    .map((ledger) => {
-      if (!deleted.has(ledger.id)) return ledger
-      const next = { ...ledger, enabled: false }
-      if (ledger.isDefault) {
-        delete next.bilibiliFolderId
-        delete next.syncState
-      }
-      return next
-    })
 }

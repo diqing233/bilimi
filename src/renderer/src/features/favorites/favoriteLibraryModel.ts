@@ -106,7 +106,7 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 }
 
 export type FavoriteLibraryLedgerBindingStatus = {
-  kind: 'backed' | 'missing' | 'draft'
+  kind: 'backed' | 'missing' | 'unbound' | 'draft'
   label: '已备册' | '未备册' | '已生成草稿'
   actionLabel?: '去掌库收藏夹设置保存后绑定'
 }
@@ -119,6 +119,7 @@ export function favoriteLibraryLedgerBindingStatus(folder: FavoriteRepositoryFol
       : undefined
   }
   if (folder.kind !== 'bilimi-logical') return undefined
+  if (folder.syncState === 'pending-reconcile') return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
   if (folder.syncState === 'bound') return { kind: 'backed', label: '已备册' }
   const actionLabel = '去掌库收藏夹设置保存后绑定' as const
   return folder.logicalLedgerId.startsWith('custom-')

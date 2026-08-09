@@ -20,6 +20,26 @@ function deferred<T>() {
 }
 
 describe('registerFavoriteRepositoryIpc', () => {
+  it('adopts an explicitly selected remote ledger into the account repository', async () => {
+    const ipcMain = new FakeIpcMain()
+    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'music' })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard },
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', remoteFolderId: '41', remoteTitle: 'bilimi·音乐'
+    })).resolves.toEqual({ logicalLedgerId: 'music' })
+    expect(adoptExistingPhysicalShard).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', remoteDisplayTitle: 'bilimi·音乐',
+      expectedRemoteTitle: 'bilimi·音乐', remoteFolderId: '41', shardNumber: 1, memberAids: []
+    })
+  })
+
   it('returns the same complete library summary contract from snapshot and account-open reads', async () => {
     const ipcMain = new FakeIpcMain()
     const summary = {

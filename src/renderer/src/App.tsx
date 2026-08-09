@@ -1473,6 +1473,68 @@ export default function App() {
       : { ...currentPreferences, favoriteLedgers }
   }
 
+  async function projectFavoriteLedgersToFormalBindings(
+    accountMid: string,
+    favoriteLedgers: FavoriteLedger[]
+  ) {
+    const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
+      ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
+      : null
+    const trustedRemoteFolderIds = new Map((repositorySummary?.folders ?? [])
+      .filter((folder) => folder.kind === 'bilimi-logical' && folder.syncState === 'bound' && folder.logicalLedgerId && folder.remoteFolderId)
+      .map((folder) => [folder.logicalLedgerId!, folder.remoteFolderId!] as const))
+
+    return {
+      trustedRemoteFolderIds,
+      ledgers: favoriteLedgers.map((ledger) => {
+        const trustedRemoteFolderId = trustedRemoteFolderIds.get(ledger.id)
+        if (trustedRemoteFolderId) {
+          return { ...ledger, bilibiliFolderId: trustedRemoteFolderId, bindingState: 'bound' as const }
+        }
+        // Settings carry user preference only. Remote writes require the repository's formal binding.
+        const { bilibiliFolderId: _bilibiliFolderId, bindingState: _bindingState, ...unboundLedger } = ledger
+        return unboundLedger
+      })
+    }
+  }
+
+  async function registerNewFavoriteLedgerBindings(
+    accountMid: string,
+    inputLedgers: FavoriteLedger[],
+    resultLedgers: FavoriteLedger[],
+    rebindRemoteFolderIds?: Record<string, string>
+  ) {
+    const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
+    const registrations = new Map<string, { ledger: FavoriteLedger; remoteFolderId: string }>()
+    for (const ledger of resultLedgers) {
+      const remoteFolderId = ledger.bilibiliFolderId?.trim()
+      if (!remoteFolderId) continue
+      const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
+      if (explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
+        registrations.set(ledger.id, { ledger, remoteFolderId })
+      }
+    }
+
+    const failures: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }> = []
+    for (const { ledger, remoteFolderId } of registrations.values()) {
+      if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
+        failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
+        continue
+      }
+      try {
+        await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(accountMid, {
+          logicalLedgerId: ledger.id,
+          logicalTitle: ledger.displayName,
+          remoteFolderId,
+          remoteTitle: ledger.displayName
+        })
+      } catch {
+        failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
+      }
+    }
+    return failures
+  }
+
   async function readFavoriteLedgerStatus(
     accountMid = assistantSnapshotCacheRef.current.accountMid,
     options: { force?: boolean } = {}
@@ -1483,6 +1545,7 @@ export default function App() {
       displayName: ledger.displayName,
       enabled: ledger.enabled,
       syncState: ledger.syncState,
+      bindingState: ledger.bindingState,
       bilibiliFolderId: ledger.bilibiliFolderId
     })))
     const cached = favoriteLedgerStatusCacheRef.current
@@ -1490,16 +1553,10 @@ export default function App() {
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
       return cached.status
     }
-    const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
-      ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
-      : null
-    const trustedRepositoryBindings = new Map((repositorySummary?.folders ?? [])
-      .filter((folder) => folder.kind === 'bilimi-logical' && folder.syncState === 'bound' && folder.logicalLedgerId && folder.remoteFolderId)
-      .map((folder) => [folder.logicalLedgerId!, folder.remoteFolderId!] as const))
-    const ledgersWithRepositoryCandidates = favoriteLedgers.map((ledger) => {
-      const trustedRemoteFolderId = trustedRepositoryBindings.get(ledger.id)
-      return trustedRemoteFolderId ? { ...ledger, bilibiliFolderId: trustedRemoteFolderId } : ledger
-    })
+    const { ledgers: ledgersWithRepositoryCandidates } = await projectFavoriteLedgersToFormalBindings(
+      accountMid,
+      favoriteLedgers
+    )
     const status = await runScript(
       buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
@@ -1508,10 +1565,12 @@ export default function App() {
       const recoveredLedgers = status.ledgers ?? ledgersWithRepositoryCandidates
       const missingLedgerIds = status.missingLedgerIds
       const recoveredStatus: FavoriteLedgerStatus = {
-        ok: missingLedgerIds.length === 0 && !(status.backupConflictLedgerIds?.length),
+        ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.length),
         ledgers: recoveredLedgers,
         missingLedgerIds,
         backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
+        unboundLedgerIds: status.unboundLedgerIds ?? [],
+        unboundCandidates: status.unboundCandidates ?? [],
         message: status.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
@@ -1536,6 +1595,7 @@ export default function App() {
           displayName: ledger.displayName,
           enabled: ledger.enabled,
           syncState: ledger.syncState,
+          bindingState: ledger.bindingState,
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
         checkedAt: Date.now(),
@@ -1565,12 +1625,30 @@ export default function App() {
     const favoriteLedgers = accountMid
       ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
       : favoriteLedgersForActiveAccount(accountMid)
+    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+      accountMid,
+      favoriteLedgers
+    )
 
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(favoriteLedgers)
+      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const bindingFailures = await registerNewFavoriteLedgerBindings(
+        accountMid,
+        ledgersWithFormalBindings,
+        result.ledgers
+      )
+      if (bindingFailures.length) {
+        return {
+          ...result,
+          ok: false,
+          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingFailures,
+          message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
+        }
+      }
       const ledgersChanged = JSON.stringify(result.ledgers) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
@@ -1592,6 +1670,8 @@ export default function App() {
         backupConflictLedgerIds: Array.isArray(result.backupConflictLedgerIds)
           ? result.backupConflictLedgerIds
           : [],
+        unboundLedgerIds: Array.isArray(result.unboundLedgerIds) ? result.unboundLedgerIds : [],
+        unboundCandidates: Array.isArray(result.unboundCandidates) ? result.unboundCandidates : [],
         message: result.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = favoriteLedgerStatus
@@ -1602,6 +1682,7 @@ export default function App() {
           displayName: ledger.displayName,
           enabled: ledger.enabled,
           syncState: ledger.syncState,
+          bindingState: ledger.bindingState,
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
         checkedAt: Date.now(),
@@ -1655,11 +1736,29 @@ export default function App() {
       return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
     }
 
+    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+      accountMid,
+      [targetLedger]
+    )
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript([targetLedger])
+      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const bindingFailures = await registerNewFavoriteLedgerBindings(
+        accountMid,
+        ledgersWithFormalBindings,
+        result.ledgers
+      )
+      if (bindingFailures.length) {
+        return {
+          ...result,
+          ok: false,
+          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingFailures,
+          message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
+        }
+      }
       const returnedById = new Map(result.ledgers.map((ledger) => [ledger.id, ledger]))
       const mergedLedgers = currentLedgers.map((ledger) => returnedById.get(ledger.id) ?? ledger)
       if (JSON.stringify(mergedLedgers) !== JSON.stringify(currentLedgers)) {
@@ -1691,12 +1790,31 @@ export default function App() {
 
     const accountMid = await readBilibiliAccountMid()
     const previousLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+      accountMid,
+      nextLedgers
+    )
 
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers, options)
+      buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, options)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const bindingFailures = await registerNewFavoriteLedgerBindings(
+        accountMid,
+        ledgersWithFormalBindings,
+        result.ledgers,
+        options?.rebindRemoteFolderIds
+      )
+      if (bindingFailures.length) {
+        return {
+          ...result,
+          ok: false,
+          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingFailures,
+          message: '收藏夹规则已保存，但正式绑定未完成，请重新确认远端收藏夹。'
+        }
+      }
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
       })

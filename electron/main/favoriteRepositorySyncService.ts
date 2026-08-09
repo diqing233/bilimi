@@ -39,6 +39,14 @@ type PageBridgeDeleteResult = PageBridgeResult & {
   bilibiliCode?: number
 }
 export type FavoriteRepositoryRemoteFolder = { id: string; title: string; memberCount: number }
+export type ManagedFavoriteFolderDeletionCandidate = {
+  logicalLedgerId: string
+  remoteFolderId?: string
+  title: string
+  memberCount: number
+  state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'
+  requiresUnboundAcknowledgement: boolean
+}
 
 export type FavoriteRepositoryPageBridge = {
   append(input: {
@@ -94,6 +102,14 @@ function normalizeAccountMid(accountMid: string) {
     accountMid,
     now: '1970-01-01T00:00:00.000Z'
   }).accountMid
+}
+
+function normalizedRemoteFolderTitle(title: string) {
+  return title.trim().replace(/^bilimi\s*[·.：:-]?\s*/iu, '').trim().toLocaleLowerCase()
+}
+
+function isBilimiRemoteFolder(title: string) {
+  return /^bilimi\s*[·.：:-]/iu.test(title.trim())
 }
 
 function clonePlan(plan: FavoriteRepositoryFrozenSyncPlan): FavoriteRepositoryFrozenSyncPlan {
@@ -790,7 +806,13 @@ export class FavoriteRepositorySyncService {
     })
   }
 
-  async deleteManagedFolders(accountMid: string, logicalLedgerIds: string[]) {
+  async deleteManagedFolders(
+    accountMid: string,
+    logicalLedgerIds: string[],
+    acknowledgeUnboundRemoteDeletion = false,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
@@ -798,48 +820,81 @@ export class FavoriteRepositorySyncService {
       await this.bindPageTarget(account, runId)
       try {
         const bridge = this.pageBridge(account, runId)
-        const verified = await this.verifiedManagedFolders(account, requestedLedgerIds, bridge, `${runId}:verify`)
-        for (const { shard, folder } of verified) {
-          const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${folder.id}`, folderId: folder.id })
-          this.assertObservedAccount(account, result.observedAccountMid)
-          if (result.status && result.status !== 'ok') {
-            const diagnostics = [
-              result.reason?.trim() || `remote-delete-${result.status}`,
-              Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
-              result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
-              result.responseCategory ? `response-category=${result.responseCategory}` : '',
-              Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
-            ].filter(Boolean)
-            const error = new Error(diagnostics.join('; '))
-            if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
-            throw error
+        const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints)
+        if (expectedRemoteFolderIds !== undefined) {
+          for (const logicalLedgerId of requestedLedgerIds) {
+            const expected = [...new Set((expectedRemoteFolderIds[logicalLedgerId] ?? []).map((id) => id.trim()).filter(Boolean))].sort()
+            const actual = [...new Set(candidates
+              .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
+              .map((candidate) => candidate.remoteFolderId!))].sort()
+            if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+              throw new Error('managed-folder-deletion-preview-stale')
+            }
           }
+        }
+        if (candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !acknowledgeUnboundRemoteDeletion) {
+          throw new Error('unbound-managed-folder-deletion-acknowledgement-required')
+        }
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const localLedgerIds = new Set(snapshot.folders
+          .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+          .map((folder) => folder.logicalLedgerId!))
+        const candidatesByLedgerId = new Map<string, ManagedFavoriteFolderDeletionCandidate[]>()
+        for (const candidate of candidates) {
+          const grouped = candidatesByLedgerId.get(candidate.logicalLedgerId) ?? []
+          grouped.push(candidate)
+          candidatesByLedgerId.set(candidate.logicalLedgerId, grouped)
+        }
+        for (const [logicalLedgerId, ledgerCandidates] of candidatesByLedgerId) {
+          const deletedRemoteFolderIds = new Set<string>()
+          for (const candidate of ledgerCandidates) {
+            if (!candidate.remoteFolderId || candidate.state === 'missing-remote' || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
+            const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${candidate.remoteFolderId}`, folderId: candidate.remoteFolderId })
+            this.assertObservedAccount(account, result.observedAccountMid)
+            if (result.status && result.status !== 'ok') {
+              const diagnostics = [
+                result.reason?.trim() || `remote-delete-${result.status}`,
+                Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
+                result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
+                result.responseCategory ? `response-category=${result.responseCategory}` : '',
+                Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
+              ].filter(Boolean)
+              const error = new Error(diagnostics.join('; '))
+              if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
+              throw error
+            }
+            deletedRemoteFolderIds.add(candidate.remoteFolderId)
+          }
+          // A logical ledger is removed locally only after every one of its remote shards is settled.
+          // A later failure leaves the full local binding intact, so the next explicit retry can reconcile it.
+          if (!localLedgerIds.has(logicalLedgerId)) continue
           await this.options.repository.commit(account, {
-            id: `favorite-delete:${folder.id}`,
+            id: `favorite-delete-local:${logicalLedgerId}:${randomUUID()}`,
             accountMid: account,
             issuedAt: this.now(),
-            type: 'remove-physical-shard-binding',
-            payload: { remoteFolderId: shard.remoteFolderId! }
+            type: 'delete-local-managed-folder',
+            payload: { logicalFolderId: `bilimi-logical:${logicalLedgerId}` }
           })
+          localLedgerIds.delete(logicalLedgerId)
         }
-        return verified.map(({ folder }) => folder)
+        return candidates
       } finally {
         this.options.pageBridgeManager?.release(account, runId)
       }
     })
   }
 
-  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[]) {
+  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[], ledgerTitleHints?: Record<string, string>) {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
       const runId = `favorite-delete-preview:${this.now()}`
       await this.bindPageTarget(account, runId)
       try {
-        const verified = await this.verifiedManagedFolders(
-          account, requestedLedgerIds, this.pageBridge(account, runId), `${runId}:inventory`
+        const candidates = await this.managedFolderDeletionCandidates(
+          account, requestedLedgerIds, this.pageBridge(account, runId), `${runId}:inventory`, ledgerTitleHints
         )
-        return verified.map(({ shard, folder }) => ({ logicalLedgerId: shard.logicalLedgerId, ...folder }))
+        return candidates
       } finally {
         this.options.pageBridgeManager?.release(account, runId)
       }
@@ -864,6 +919,84 @@ export class FavoriteRepositorySyncService {
       if (!folder || folder.title !== shard.remoteTitle) throw new Error('Favorite repository remote folder verification failed.')
       return { shard, folder }
     })
+  }
+
+  private async managedFolderDeletionCandidates(
+    account: string,
+    requestedLedgerIds: Set<string>,
+    bridge: FavoriteRepositoryPageBridge,
+    operationKey: string,
+    ledgerTitleHints?: Record<string, string>
+  ): Promise<ManagedFavoriteFolderDeletionCandidate[]> {
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const inventory = await bridge.readFolderInventory({ accountMid: account, operationKey })
+    if (normalizeAccountMid(inventory.observedAccountMid) !== account) {
+      throw new Error('Favorite repository remote account mismatch.')
+    }
+    const foldersById = new Map(inventory.folders.map((folder) => [folder.id, folder]))
+    const results: ManagedFavoriteFolderDeletionCandidate[] = []
+    for (const logicalLedgerId of requestedLedgerIds) {
+      const logicalFolder = snapshot.folders.find((folder) =>
+        folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
+      const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+      const bound = shards.filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      if (bound.length > 0) {
+        if (bound.length !== shards.length) {
+          throw new Error(`Managed folder deletion requires every shard to be reconciled: ${logicalLedgerId}`)
+        }
+        for (const shard of bound) {
+          const folder = foldersById.get(shard.remoteFolderId!)
+          if (!folder) {
+            results.push({
+              logicalLedgerId,
+              remoteFolderId: shard.remoteFolderId,
+              title: shard.remoteTitle,
+              memberCount: 0,
+              state: 'missing-remote',
+              requiresUnboundAcknowledgement: false
+            })
+            continue
+          }
+          if (folder.title !== shard.remoteTitle) throw new Error('Favorite repository remote folder verification failed.')
+          results.push({
+            logicalLedgerId,
+            remoteFolderId: folder.id,
+            title: folder.title,
+            memberCount: folder.memberCount,
+            state: 'bound',
+            requiresUnboundAcknowledgement: false
+          })
+        }
+        continue
+      }
+
+      const expectedTitle = logicalFolder?.title ?? ledgerTitleHints?.[logicalLedgerId]?.trim() ?? shards[0]?.remoteTitle
+      const matches = expectedTitle
+        ? inventory.folders.filter((folder) => isBilimiRemoteFolder(folder.title) &&
+          normalizedRemoteFolderTitle(folder.title) === normalizedRemoteFolderTitle(expectedTitle))
+        : []
+      if (matches.length > 0) {
+        for (const folder of matches) {
+          results.push({
+            logicalLedgerId,
+            remoteFolderId: folder.id,
+            title: folder.title,
+            memberCount: folder.memberCount,
+            state: 'unbound-name-match',
+            requiresUnboundAcknowledgement: true
+          })
+        }
+      } else {
+        results.push({
+          logicalLedgerId,
+          title: expectedTitle ?? logicalLedgerId,
+          memberCount: 0,
+          state: 'local-only',
+          requiresUnboundAcknowledgement: false
+        })
+      }
+    }
+    return results
   }
 
   /** Applies only a confirmed remote fact to the local warehouse projection. */

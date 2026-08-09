@@ -42,6 +42,7 @@ export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
 export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
 export type FavoriteLedgerSyncState = 'local-draft'
+export type FavoriteLedgerBindingState = 'bound' | 'unbacked' | 'unbound'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -51,6 +52,8 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
+  /** Remote folder binding is explicit; same names are only rebind candidates. */
+  bindingState?: FavoriteLedgerBindingState
   /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */
   syncState?: FavoriteLedgerSyncState
   isDefault: boolean
@@ -58,6 +61,8 @@ export type FavoriteLedger = {
 
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
+  /** Explicit user choices from the rebind confirmation dialog. */
+  rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
@@ -224,6 +229,11 @@ export type FavoriteLedgerStatus = {
   ok: boolean
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
+  unboundLedgerIds?: FavoriteLedgerId[]
+  unboundCandidates?: Array<{
+    ledgerId: FavoriteLedgerId
+    candidates: Array<{ id: string; title: string; memberCount: number }>
+  }>
   backupConflictLedgerIds?: FavoriteLedgerId[]
   message: string
 }

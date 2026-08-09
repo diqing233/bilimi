@@ -68,7 +68,10 @@ function assertPortable(value: unknown, path = '', allowsLogicalOrganizationHist
   if (!isRecord(value)) return
   for (const [key, nested] of Object.entries(value)) {
     if (SECRET_KEY.test(key)) throw new Error(`Migration contains excluded credential field: ${path}${key}`)
-    if (REMOTE_BINDING_KEY.test(key)) throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
+    const bindingIdentityPath = /^repository\.recovery\.(?:folders|physicalShards)\.\[\d+\]$/u.test(path)
+    if (REMOTE_BINDING_KEY.test(key) && !(bindingIdentityPath && key === 'remoteFolderId')) {
+      throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
+    }
     if (LOGICAL_ORGANIZATION_HISTORY_KEY.test(key) && !allowsLogicalOrganizationHistory && !/^repository\.recovery\.organizationBatches\.\[\d+\]\.?$/u.test(path)) {
       throw new Error(`Migration contains device-bound remote field: ${path}${key}`)
     }
@@ -384,6 +387,14 @@ function mergeRepositoryArchives(current: FavoriteRepositoryArchiveExport & { ch
   }
   const currentRecovery = current.recovery
   const incomingRecovery = incoming.recovery
+  const currentShards = new Map((currentRecovery?.physicalShards ?? []).map((shard) => [`${shard.logicalLedgerId}:${shard.shardNumber}`, shard]))
+  for (const shard of incomingRecovery?.physicalShards ?? []) {
+    const key = `${shard.logicalLedgerId}:${shard.shardNumber}`
+    const previous = currentShards.get(key)
+    if (previous?.remoteFolderId && shard.remoteFolderId && previous.remoteFolderId !== shard.remoteFolderId) {
+      throw new Error(`Favorite repository binding conflict requires rebinding: ${key}`)
+    }
+  }
   const mergedTombstones = mergeBy(currentRecovery?.tombstones, incomingRecovery?.tombstones, (item) => String(item.aid), (record) => record.deletedAt)
   const hardTombstonedAids = new Set(mergedTombstones.filter((item) => !item.allowRediscovery).map((item) => Number(item.aid)))
   const recovery = currentRecovery || incomingRecovery ? {

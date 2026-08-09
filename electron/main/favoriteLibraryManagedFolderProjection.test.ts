@@ -17,7 +17,7 @@ function snapshot(folders: Array<{ id: string; title: string; aids?: number[] }>
 }
 
 describe('favorite library managed folder projection', () => {
-  it('restores an exact account-configured remote id as a bound formal work folder', () => {
+  it('restores an exact account-configured remote id as an explicitly unbound work-folder candidate', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([{ id: '4050295454', title: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', aids: [11, 12] }]),
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', '4050295454')],
@@ -26,8 +26,8 @@ describe('favorite library managed folder projection', () => {
 
     expect(result).toEqual([expect.objectContaining({
       logicalLedgerId: 'creative-aesthetic', logicalTitle: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', shardNumber: 1,
-      remoteFolderId: '4050295454', remoteTitle: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', memberAids: [11, 12],
-      bindingState: 'bound', remoteMemberCount: 2
+      remoteTitle: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', memberAids: [11, 12],
+      bindingState: 'pending-reconcile', knownRemoteFolderIds: ['4050295454']
     })])
   })
 
@@ -132,7 +132,7 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(current.physicalShards).toEqual([expect.objectContaining({
-      logicalLedgerId: 'creative-aesthetic', remoteFolderId: '4050295454', bindingState: 'bound'
+      logicalLedgerId: 'creative-aesthetic', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['4050295454']
     })])
   })
 

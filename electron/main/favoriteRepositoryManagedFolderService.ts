@@ -86,6 +86,8 @@ export class FavoriteRepositoryManagedFolderService {
     const logicalShards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logical.logicalLedgerId)
     const shards = logicalShards.filter((shard) => shard.remoteFolderId)
     const remoteIds = new Set(shards.map((shard) => shard.remoteFolderId!))
+    const remoteDeletionEligible = logicalShards.length > 0 &&
+      logicalShards.every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
     const localDismissRemoteFolderIds = [...new Set(logicalShards.flatMap((shard) => [
       ...(shard.remoteFolderId ? [shard.remoteFolderId] : []),
       ...(shard.knownRemoteFolderIds ?? [])
@@ -106,7 +108,9 @@ export class FavoriteRepositoryManagedFolderService {
         const position = snapshot.positions[`${normalizedAccount}:${aid}`]
         return !(position?.localDesiredFolderIds ?? []).some((candidate) => candidate !== folderId && candidate.startsWith('bilimi-logical:'))
       }).length,
-      ...(remoteIds.size === 1 ? { remoteBinding: { remoteFolderId: [...remoteIds][0], shardCount: shards.length } } : {}),
+      ...(remoteDeletionEligible && remoteIds.size === 1
+        ? { remoteBinding: { remoteFolderId: [...remoteIds][0], shardCount: shards.length } }
+        : {}),
       remoteOnlyMemberCount: remoteOnly, extraRemoteMemberCount: extraRemote, currentRevision: snapshot.revision,
       executionToken: randomUUID(), status: 'previewed', localDismissRemoteFolderIds
     }

@@ -398,6 +398,17 @@ export function registerFavoriteRepositoryIpc(options: {
   /** The embedded main-window favorite library drawer may read page snapshots but never mutate the repository. */
   isTrustedReader?: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  bindingService?: {
+    adoptExistingPhysicalShard: (accountMid: string, input: {
+      logicalLedgerId: string
+      logicalTitle: string
+      remoteDisplayTitle?: string
+      expectedRemoteTitle?: string
+      remoteFolderId: string
+      shardNumber: number
+      memberAids: number[]
+    }) => Promise<unknown>
+  }
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpen?: (accountMid: string) => Promise<void>
   /** Returns persisted local ledger identities that are still unbound drafts. */
@@ -488,6 +499,27 @@ export function registerFavoriteRepositoryIpc(options: {
     if (!records?.size) subscriptions.delete(senderId)
     return true
   }
+  options.ipcMain.handle('favorite-repository:adopt-ledger-binding', async (event, requestedAccountMid: string, requestedInput: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.bindingService) throw new Error('Favorite repository binding is unavailable.')
+    if (!requestedInput || typeof requestedInput !== 'object' || Array.isArray(requestedInput)) {
+      throw new Error('Favorite repository binding input is invalid.')
+    }
+    const input = requestedInput as Record<string, unknown>
+    const logicalLedgerId = typeof input.logicalLedgerId === 'string' ? input.logicalLedgerId.trim() : ''
+    const logicalTitle = typeof input.logicalTitle === 'string' ? input.logicalTitle.trim() : ''
+    const remoteFolderId = typeof input.remoteFolderId === 'string' ? input.remoteFolderId.trim() : ''
+    const remoteTitle = typeof input.remoteTitle === 'string' ? input.remoteTitle.trim() : ''
+    if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !remoteTitle) {
+      throw new Error('Favorite repository binding input is invalid.')
+    }
+    return options.bindingService.adoptExistingPhysicalShard(accountMid, {
+      logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
+      remoteFolderId, shardNumber: 1, memberAids: []
+    })
+  })
   const issueRestoreToken = (
     tokens: Map<string, ArchiveRestorePreviewToken>,
     senderId: number,

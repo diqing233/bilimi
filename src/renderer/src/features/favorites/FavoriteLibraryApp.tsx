@@ -25,7 +25,7 @@ import { FavoriteLibraryColumnMenu, FavoriteLibraryDestinationButton, FavoriteLi
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
 import { VideoNoteBatchExportDialog } from '../notes/VideoNoteBatchExportDialog'
 import { VideoSummaryMenu } from '../notes/VideoSummaryMenu'
-import { FavoriteLibraryConfirmationDialog, FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
+import { FavoriteLibraryConfirmationDialog } from './FavoriteLibraryDialogs'
 import { FavoriteLibraryFooter } from './FavoriteLibraryFooter'
 import {
   FavoriteLibrarySelectionCheckbox,
@@ -62,6 +62,15 @@ type FavoriteLibraryApiStateFilters = {
   sync?: Exclude<FavoriteLibraryStateFilterSelection['sync'], 'all'>
   protection?: Exclude<FavoriteLibraryStateFilterSelection['protection'], 'all'>
   organization?: Exclude<FavoriteLibraryStateFilterSelection['organization'], 'all'>
+}
+
+type ManagedFavoriteFolderDeletionCandidate = {
+  logicalLedgerId: string
+  remoteFolderId?: string
+  title: string
+  memberCount: number
+  state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'
+  requiresUnboundAcknowledgement: boolean
 }
 
 function apiStateFilters(filters: FavoriteLibraryStateFilterSelection): FavoriteLibraryApiStateFilters {
@@ -356,25 +365,13 @@ export function FavoriteLibraryApp({
   const [documentExport, setDocumentExport] = useState<{ accountMid: string; selections: Array<{ archiveId: string; versionId: string }>; skippedAids: number[]; initialFormats?: Array<'markdown' | 'word'> }>()
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveRestoreScope, setArchiveRestoreScope] = useState<'all' | 'selected' | 'current-folder'>('all')
-  const [managedFolderDialog, setManagedFolderDialog] = useState<{
-    id: string
-    title: string
-    preview: {
-      executionToken: string
-      currentRevision: number
-      localMemberCount: number
-      unmatchedFallbackCount: number
-      extraRemoteMemberCount: number
-      remoteOnlyMemberCount: number
-      remoteBinding?: { remoteFolderId: string; shardCount: number }
-    }
+  const [managedFolderDeletionDialog, setManagedFolderDeletionDialog] = useState<{
+    candidates: ManagedFavoriteFolderDeletionCandidate[]
+    ledgerTitleHints: Record<string, string>
   }>()
-  const [managedFolderGroupDialog, setManagedFolderGroupDialog] = useState<{
-    remoteAllowed: boolean
-    affectedVideoCount: number
-    folders: Array<{ logicalFolderId: string; executionToken: string; localMemberCount: number; remoteAllowed: boolean }>
-  }>()
-  const [managedFolderGroupRemoteConfirming, setManagedFolderGroupRemoteConfirming] = useState(false)
+  const [managedFolderDeletionAcknowledged, setManagedFolderDeletionAcknowledged] = useState(false)
+  const [managedFolderDeletionAcknowledgedUnbound, setManagedFolderDeletionAcknowledgedUnbound] = useState(false)
+  const [managedFolderDeletionExecuting, setManagedFolderDeletionExecuting] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const [workspaceSyncResult, setWorkspaceSyncResult] = useState<string>()
   const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
@@ -1223,6 +1220,52 @@ export function FavoriteLibraryApp({
     }
     await refresh(accountMid)
   }
+  const openManagedFolderDeletion = async (ledgerIds: string[]) => {
+    const api = window.bilimiDesktop
+    const uniqueLedgerIds = [...new Set(ledgerIds.map((id) => id.trim()).filter(Boolean))]
+    if (!accountMid || !uniqueLedgerIds.length || !api?.previewManagedFavoriteFolderDeletion) throw new Error(text.unavailable)
+    const ledgerTitleHints = Object.fromEntries(uniqueLedgerIds.map((logicalLedgerId) => {
+      const folder = folders.find((candidate) => candidate.kind === 'bilimi-logical' && candidate.logicalLedgerId === logicalLedgerId)
+      return [logicalLedgerId, folder?.title ?? logicalLedgerId]
+    }))
+    const candidates = await api.previewManagedFavoriteFolderDeletion(accountMid, uniqueLedgerIds, ledgerTitleHints)
+    if (!Array.isArray(candidates) || !candidates.length) throw new Error(text.unavailable)
+    setManagedFolderDeletionAcknowledged(false)
+    setManagedFolderDeletionAcknowledgedUnbound(false)
+    setManagedFolderDeletionDialog({ candidates, ledgerTitleHints })
+  }
+  const confirmManagedFolderDeletion = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !managedFolderDeletionDialog || !managedFolderDeletionAcknowledged || !api?.deleteManagedFavoriteFolders) {
+      throw new Error(text.unavailable)
+    }
+    const requiresUnboundAcknowledgement = managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement)
+    if (requiresUnboundAcknowledgement && !managedFolderDeletionAcknowledgedUnbound) throw new Error(text.unavailable)
+    setManagedFolderDeletionExecuting(true)
+    try {
+      const logicalLedgerIds = [...new Set(managedFolderDeletionDialog.candidates.map((candidate) => candidate.logicalLedgerId))]
+      const expectedRemoteFolderIds = Object.fromEntries(logicalLedgerIds.map((logicalLedgerId) => [
+        logicalLedgerId,
+        [...new Set(managedFolderDeletionDialog.candidates
+          .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
+          .map((candidate) => candidate.remoteFolderId!))]
+      ]))
+      await api.deleteManagedFavoriteFolders(
+        accountMid,
+        logicalLedgerIds,
+        managedFolderDeletionAcknowledgedUnbound,
+        managedFolderDeletionDialog.ledgerTitleHints,
+        expectedRemoteFolderIds
+      )
+      if (scope.kind === 'folder' && managedFolderDeletionDialog.candidates.some((candidate) => candidate.logicalLedgerId === currentFolder?.logicalLedgerId)) {
+        setScopeId('all')
+      }
+      setManagedFolderDeletionDialog(undefined)
+      await refresh(accountMid)
+    } finally {
+      setManagedFolderDeletionExecuting(false)
+    }
+  }
   const exportFavoriteArchive = async () => {
     const api = window.bilimiDesktop
     if (!accountMid || !api?.exportFavoriteRepositoryArchive) throw new Error(text.unavailable)
@@ -1512,37 +1555,16 @@ export function FavoriteLibraryApp({
           if (scope.kind === 'folder' && folders.some((folder) => `folder:${folder.id}` === scopeId && folder.kind === 'bilibili')) setScopeId('all')
         })}>确认全部从收藏库删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {managedFolderGroupDialog ? <FavoriteLibraryConfirmationDialog label="删除全部工作夹" onClose={() => { setManagedFolderGroupDialog(undefined); setManagedFolderGroupRemoteConfirming(false) }}>
-        <p>将删除 {managedFolderGroupDialog.folders.length} 个工作夹的本地收藏库归属（inbox 不参与）。</p>
-        <p>受影响视频 {managedFolderGroupDialog.affectedVideoCount} 个。{managedFolderGroupDialog.remoteAllowed ? `其中 ${managedFolderGroupDialog.folders.filter((folder) => folder.remoteAllowed).length} 个远程绑定唯一且已完整扫描，可同步删除 B 站。` : '存在未绑定、歧义或扫描不完整的工作夹，禁止同步删除 B 站。'}</p>
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => { setManagedFolderGroupDialog(undefined); setManagedFolderGroupRemoteConfirming(false) }}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(async () => {
-          const api = window.bilimiDesktop
-          if (!accountMid || !api?.previewFavoriteLibraryManagedFolderDelete || !api.deleteFavoriteLibraryManagedFolderLocal) throw new Error(text.unavailable)
-          for (const folder of managedFolderGroupDialog.folders) {
-            const current = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, folder.logicalFolderId) as { executionToken?: string }
-            if (!current.executionToken) throw new Error(text.unavailable)
-            await api.deleteFavoriteLibraryManagedFolderLocal(accountMid, current.executionToken)
-          }
-          setManagedFolderGroupDialog(undefined)
-          setManagedFolderGroupRemoteConfirming(false)
-        })}>仅从收藏库删除全部</button>
-        {managedFolderGroupDialog.remoteAllowed && !managedFolderGroupRemoteConfirming ? <button type="button" className="favorite-library__dialog-remote-action" onClick={() => setManagedFolderGroupRemoteConfirming(true)}>同步删除 B 站</button> : null}</div>
-        {managedFolderGroupDialog.remoteAllowed && managedFolderGroupRemoteConfirming ? <div className="favorite-library__dialog-secondary-confirmation"><p>将同步删除已预览的 {managedFolderGroupDialog.folders.filter((folder) => folder.remoteAllowed).length} 个 B 站受管工作夹。</p><div className="favorite-library__dialog-actions"><button type="button" onClick={() => setManagedFolderGroupRemoteConfirming(false)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" onClick={() => void runAction(async () => {
-          const api = window.bilimiDesktop
-          if (!accountMid || !api?.previewFavoriteLibraryManagedFolderDelete || !api?.confirmFavoriteLibraryManagedFolderRemoteDelete || !api.executeFavoriteLibraryManagedFolderRemoteDelete) throw new Error(text.unavailable)
-          for (const folder of managedFolderGroupDialog.folders.filter((candidate) => candidate.remoteAllowed)) {
-            const current = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, folder.logicalFolderId) as { executionToken?: string; remoteBinding?: unknown }
-            if (!current.executionToken || !current.remoteBinding) throw new Error(text.unavailable)
-            const confirmation = await api.confirmFavoriteLibraryManagedFolderRemoteDelete(accountMid, current.executionToken)
-            const result = await api.executeFavoriteLibraryManagedFolderRemoteDelete(accountMid, current.executionToken, confirmation.confirmationToken) as { status?: string; operationId?: string } | undefined
-            if (result?.status === 'result-unknown') {
-              setRemoteReconciliations((reconciliations) => [...reconciliations, { kind: 'managed-folder', operationId: result.operationId ?? current.executionToken }])
-              throw new Error('受管工作夹删除结果待确认，已停止后续删除。')
-            }
-            if (result?.status === 'failed') throw new Error('受管工作夹删除失败，已停止后续删除。')
-          }
-          setManagedFolderGroupDialog(undefined)
-        })}>确认同步删除 B 站</button></div></div> : null}
+      {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
+        if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
+      }}>
+        <p>将删除所选 bilimi 收藏夹及其分类关系；视频本体、档案、转写、札记和原有普通 B 站收藏夹不会删除。</p>
+        <ul className="favorite-library__managed-folder-preview">{managedFolderDeletionDialog.candidates.map((candidate) => <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>
+          {candidate.title}（{candidate.memberCount} 个视频，{candidate.state === 'bound' ? '已备册' : candidate.state === 'unbound-name-match' ? '未绑定' : candidate.state === 'missing-remote' ? '远端已不存在' : '未备册'}）
+        </li>)}</ul>
+        {managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
+        <label><input type="checkbox" aria-label="我已确认" checked={managedFolderDeletionAcknowledged} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledged(event.currentTarget.checked)} />我已确认</label>
+        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || !managedFolderDeletionAcknowledged || (managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion)}>删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {conflictsOpen && summary?.folderConflicts?.length ? <FavoriteLibraryConfirmationDialog label="收藏夹问题处理" onClose={() => setConflictsOpen(false)}>
         <h2>收藏夹问题</h2>
@@ -1637,34 +1659,8 @@ export function FavoriteLibraryApp({
               return
             }
             if (!folder || !accountMid) return
-            void window.bilimiDesktop?.previewFavoriteLibraryManagedFolderDelete?.(accountMid, folder.id)
-              .then((preview) => {
-                const value = preview as Partial<{
-                  executionToken: string
-                  currentRevision: number
-                  localMemberCount: number
-                  unmatchedFallbackCount: number
-                  extraRemoteMemberCount: number
-                  remoteOnlyMemberCount: number
-                  remoteBinding: { remoteFolderId: string; shardCount: number }
-                }>
-                const currentRevision = value.currentRevision
-                if (!value.executionToken || !Number.isSafeInteger(currentRevision)) throw new Error(text.unavailable)
-                setManagedFolderDialog({
-                  id,
-                  title: folder.title,
-                  preview: {
-                    executionToken: value.executionToken,
-                    currentRevision: currentRevision as number,
-                    localMemberCount: value.localMemberCount ?? 0,
-                    unmatchedFallbackCount: value.unmatchedFallbackCount ?? 0,
-                    extraRemoteMemberCount: value.extraRemoteMemberCount ?? 0,
-                    remoteOnlyMemberCount: value.remoteOnlyMemberCount ?? 0,
-                    remoteBinding: value.remoteBinding
-                  }
-                })
-              })
-              .catch(() => setError(text.actionFailed))
+            if (!folder.logicalLedgerId) return
+            void openManagedFolderDeletion([folder.logicalLedgerId]).catch(() => setError(text.actionFailed))
           }}
           onOrdinaryFolderRemove={(id) => {
             const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
@@ -1706,41 +1702,12 @@ export function FavoriteLibraryApp({
               })().catch(() => setError(text.actionFailed))
             }
             if (action === 'delete-all') {
-              void window.bilimiDesktop?.previewFavoriteLibraryManagedFolderGroupDelete?.(accountMid)
-                .then((preview) => {
-                  const value = preview as Partial<typeof managedFolderGroupDialog> & { folders?: Array<{ logicalFolderId: string; executionToken: string; localMemberCount: number; remoteAllowed: boolean }> }
-                  if (!value.folders?.every((folder) => folder.executionToken)) throw new Error(text.unavailable)
-                  setManagedFolderGroupRemoteConfirming(false)
-                  setManagedFolderGroupDialog({ remoteAllowed: Boolean(value.remoteAllowed), affectedVideoCount: value.affectedVideoCount ?? 0, folders: value.folders })
-                })
-                .catch(() => setError(text.actionFailed))
+              const ledgerIds = folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+                .map((folder) => folder.logicalLedgerId!)
+              void openManagedFolderDeletion(ledgerIds).catch(() => setError(text.actionFailed))
             }
           }}
         />
-        <FavoriteLibraryDialogs managedFolder={managedFolderDialog ? {
-          title: managedFolderDialog.title,
-          canDeleteRemotely: Boolean(managedFolderDialog.preview.remoteBinding),
-          preview: managedFolderDialog.preview
-        } : undefined} onClose={() => setManagedFolderDialog(undefined)} onManagedFolderChoice={async (choice) => {
-          if (!managedFolderDialog) return
-          uiCallbacks?.onManagedFolderDeleteChoice?.(managedFolderDialog.id, choice)
-          if (accountMid) await (async () => {
-              const api = window.bilimiDesktop
-              const preview = managedFolderDialog.preview
-              if (choice === 'local') await api.deleteFavoriteLibraryManagedFolderLocal?.(accountMid, preview.executionToken)
-              else {
-                const confirmation = await api.confirmFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken)
-                if (!confirmation?.confirmationToken) throw new Error(text.unavailable)
-                const result = await api.executeFavoriteLibraryManagedFolderRemoteDelete?.(accountMid, preview.executionToken, confirmation.confirmationToken) as { status?: string; operationId?: string } | undefined
-                if (result?.status === 'result-unknown') {
-                  setRemoteReconciliations((current) => [...current, { kind: 'managed-folder', operationId: result.operationId ?? preview.executionToken }])
-                  return
-                }
-              }
-              await refresh(accountMid)
-            })()
-          setManagedFolderDialog(undefined)
-        }} />
         {workspaceSyncResult ? <p className="favorite-library__batch-eligibility" role="status">{workspaceSyncResult}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
           <div className="favorite-library__workspace-heading">

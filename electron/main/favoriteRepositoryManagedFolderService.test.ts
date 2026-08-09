@@ -51,6 +51,23 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     })
   })
 
+  it('does not permit remote deletion when one logical folder still has a pending shard', async () => {
+    const current = {
+      ...managedSnapshot(),
+      physicalShards: [
+        ...managedSnapshot().physicalShards,
+        { logicalLedgerId: 'work', folderId: 'bilimi:work:002', shardNumber: 2, bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: ['100'] }
+      ]
+    }
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() },
+      remote: { removeRemoteFolder: vi.fn() }, remoteObserver: { remoteFolderExists: vi.fn(async () => 'present' as const) }
+    })
+
+    const preview = await service.preview('100', 'bilimi-logical:work')
+    await expect(() => service.confirm('100', preview.executionToken)).toThrow('unambiguous remote binding')
+  })
+
   it('does not offer a stale repository binding for remote deletion when the current Bilibili inventory no longer contains it', async () => {
     const current = managedSnapshot()
     const remoteFolderExists = vi.fn(async () => 'absent' as const)

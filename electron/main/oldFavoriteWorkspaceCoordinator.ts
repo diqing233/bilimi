@@ -636,8 +636,10 @@ function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'],
         remoteFolderId: folder.id,
         remoteTitle: title,
         memberAids,
-        bindingState: memberAids.length === folder.itemCount ? 'bound' : 'pending-reconcile',
-        ...(memberAids.length === folder.itemCount ? {} : { knownRemoteFolderIds: [folder.id] })
+        // A scan after reset is evidence, not authority. Rebinding still requires
+        // an explicit remote-folder ID selection, even with a complete member read.
+        bindingState: 'pending-reconcile',
+        knownRemoteFolderIds: [folder.id]
       })
       recovered = true
       break
@@ -650,8 +652,8 @@ function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'],
         remoteFolderId: folder.id,
         remoteTitle: title,
         memberAids,
-        bindingState: memberAids.length === folder.itemCount ? 'bound' : 'pending-reconcile',
-        ...(memberAids.length === folder.itemCount ? {} : { knownRemoteFolderIds: [folder.id] })
+        bindingState: 'pending-reconcile',
+        knownRemoteFolderIds: [folder.id]
       })
     }
   }
@@ -754,13 +756,10 @@ export class OldFavoriteWorkspaceCoordinator {
     ) => Promise<boolean | void>
     notifyRecommendedLedgersChanged?: (accountMid: string) => void
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
+    onManagedFolderDeletion?: (accountMid: string, logicalLedgerIds: string[]) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
     refreshSelectedVideoMetadata?: (accountMid: string, aid: number) => Promise<FavoriteRepositoryVideo>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
-    resolveLedgerBinding?: (accountMid: string, logicalLedgerId: string) => Promise<{
-      remoteFolderId?: string
-      remoteDisplayTitle?: string
-    } | undefined>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
     onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
@@ -845,7 +844,7 @@ export class OldFavoriteWorkspaceCoordinator {
         }]
       })
       const recoveredCustomDrafts = [...new Map([...candidates, ...persistedCustomCandidates]
-        .filter((candidate) => candidate.bindingState === 'bound' && candidate.remoteFolderId && candidate.logicalLedgerId.startsWith('custom-'))
+        .filter((candidate) => candidate.bindingState === 'pending-reconcile' && candidate.logicalLedgerId.startsWith('custom-'))
         .map((candidate) => [candidate.logicalLedgerId, candidate])).values()]
         .map((candidate, index): FavoriteLedger => ({
           id: candidate.logicalLedgerId,
@@ -854,7 +853,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ruleType: 'keyword',
           enabled: false,
           priority: 20_000 + index,
-          bilibiliFolderId: candidate.remoteFolderId,
+          bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false
         }))
@@ -2417,7 +2416,7 @@ export class OldFavoriteWorkspaceCoordinator {
         })
       }
       const recoveredCustomDrafts = recoveredBindings
-        .filter((binding) => binding.bindingState === 'bound' && binding.remoteFolderId && binding.logicalLedgerId.startsWith('custom-'))
+        .filter((binding) => binding.bindingState === 'pending-reconcile' && binding.logicalLedgerId.startsWith('custom-'))
         .map((binding, index): FavoriteLedger => ({
           id: binding.logicalLedgerId,
           displayName: binding.logicalTitle.replace(/^bilimi[\u00b7.\s_-]*/i, '').trim() || binding.logicalTitle,
@@ -2425,7 +2424,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ruleType: 'keyword',
           enabled: false,
           priority: 20_000 + index,
-          bilibiliFolderId: binding.remoteFolderId,
+          bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false
         }))
@@ -3141,14 +3140,22 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[]) {
+  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[], ledgerTitleHints?: Record<string, string>) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds)
+    return this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints)
   }
 
-  async deleteManagedFolderCandidates(accountMid: string, logicalLedgerIds: string[]) {
+  async deleteManagedFolderCandidates(
+    accountMid: string,
+    logicalLedgerIds: string[],
+    acknowledgeUnboundRemoteDeletion = false,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds)
+    const deleted = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+    await this.options.onManagedFolderDeletion?.(accountMid, [...new Set(deleted.map((candidate) => candidate.logicalLedgerId))])
+    return deleted
   }
 
   private async autoClassifyCurrentSegmentUnsafe(
@@ -3697,14 +3704,21 @@ export class OldFavoriteWorkspaceCoordinator {
             1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
           ), 0)
           const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
+          const hasUnreconciledShard = snapshot.physicalShards.some((shard) =>
+            shard.logicalLedgerId === logicalLedgerId && shard.bindingState !== 'bound'
+          )
+          // A brand-new logical ledger may provision its first Bilibili shard here.
+          // If a prior attempt left an unbound/pending shard, stop instead of
+          // creating another remote folder and losing the reconciliation path.
+          if (newAssignmentCount > 0 && existing.length === 0 && hasUnreconciledShard) {
+            throw new Error(`Old favorite workspace cannot freeze: remote-target-unbound:${logicalLedgerId}`)
+          }
           const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
           for (let offset = 0; offset < shardCount; offset += 1) {
-            const savedBinding = await this.options.resolveLedgerBinding?.(preparation.accountMid, logicalLedgerId)
             await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
               logicalLedgerId,
               logicalTitle,
-              remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
-              ...(savedBinding?.remoteFolderId ? { preferredRemoteFolderId: savedBinding.remoteFolderId } : {}),
+              remoteDisplayTitle: logicalTitle,
               shardNumber: nextShardNumber + offset,
               memberAids: []
             })

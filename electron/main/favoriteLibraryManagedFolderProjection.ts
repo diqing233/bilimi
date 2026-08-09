@@ -69,6 +69,10 @@ function splitShardTitle(title: string) {
   }
 }
 
+function normalizedLedgerDisplayTitle(title: string) {
+  return title.trim().replace(/^bilimi\s*[·.\s_-]*/iu, '').trim().toLocaleLowerCase()
+}
+
 export function planFavoriteLibraryManagedFolderProjection(input: {
   snapshot: AccountFavoriteRepositorySnapshot
   ledgers: FavoriteLedger[]
@@ -78,6 +82,9 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
+  const formalBindingsByRemoteId = new Map(input.snapshot.physicalShards
+    .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+    .map((shard) => [shard.remoteFolderId!, shard]))
   const candidates: FavoriteLibraryManagedFolderProjection[] = []
 
   for (const folder of input.snapshot.folders) {
@@ -87,12 +94,17 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     if (!isBilimiManagedLedgerName(title)) continue
     const { baseTitle, shardNumber } = splitShardTitle(title)
     const configuredById = configuredLedgersByRemoteId.get(folder.remoteFolderId)
-    // A matching display name is not binding evidence. Only the persisted
-    // remote id can make this physical folder an established work folder.
-    const ledger = configuredById
+    const formalBinding = formalBindingsByRemoteId.get(folder.remoteFolderId)
+    // Renderer settings are not binding authority. The repository shard must
+    // confirm the same remote ID and logical ledger before this is considered bound.
+    // A saved remote ID can restore the local logical identity as an unbound
+    // candidate, but only a repository shard makes it a formal binding.
+    const ledger = configuredById && normalizedLedgerDisplayTitle(configuredById.displayName) === normalizedLedgerDisplayTitle(baseTitle)
+      ? configuredById
+      : undefined
     const logicalTitle = ledger?.displayName.trim() || baseTitle
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
-    const bound = Boolean(configuredById && configuredById.id === ledger?.id && shardNumber === 1)
+    const bound = Boolean(ledger && formalBinding && formalBinding.logicalLedgerId === ledger.id && formalBinding.shardNumber === shardNumber)
     candidates.push({
       logicalLedgerId: ledger?.id ?? stableCustomLedgerId(baseTitle),
       logicalTitle,

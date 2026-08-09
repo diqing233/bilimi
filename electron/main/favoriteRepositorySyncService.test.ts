@@ -247,6 +247,127 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('keeps every shard binding when a later remote deletion fails for the same logical ledger', async () => {
+    const repository = await createRepository()
+    for (const [shardNumber, remoteFolderId] of [[1, 'remote-music-1'], [2, 'remote-music-2']] as const) {
+      await repository.commit('100', {
+        id: `music-binding-${shardNumber}`, accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [], remoteTitle: `bilimi·Music·${shardNumber}`,
+          bindingState: 'bound', remoteFolderId
+        }
+      })
+    }
+    const deleteFolder = vi.fn()
+      .mockResolvedValueOnce({ observedAccountMid: '100', status: 'ok' })
+      .mockRejectedValueOnce(new Error('remote music shard failure'))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-music-1', title: 'bilimi·Music·1', memberCount: 0 },
+          { id: 'remote-music-2', title: 'bilimi·Music·2', memberCount: 0 }
+        ] })
+      }
+    })
+
+    await expect(service.deleteManagedFolders('100', ['music'])).rejects.toThrow('remote music shard failure')
+    expect(deleteFolder).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music-1' }),
+        expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music-2' })
+      ])
+    })
+  })
+
+  it('refuses managed deletion while a logical ledger has both bound and pending shards', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-bound', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'music-pending', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 2, memberAids: [], remoteTitle: 'bilimi·Music·02', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['remote-music-2'] }
+    })
+    const deleteFolder = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 0 }] })
+      }
+    })
+
+    await expect(service.deleteManagedFolders('100', ['music'])).rejects.toThrow('requires every shard to be reconciled')
+    expect(deleteFolder).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ remoteFolderId: 'remote-music', bindingState: 'bound' }),
+        expect.objectContaining({ bindingState: 'pending-reconcile' })
+      ])
+    })
+  })
+
+  it('reports a same-title bilimi folder as an unbound deletion candidate instead of silently ignoring it', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'pending-music', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'pending-reconcile', knownRemoteFolderIds: [] }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 4 }] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['music'])).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music', state: 'unbound-name-match', requiresUnboundAcknowledgement: true })
+    ])
+  })
+
+  it('refuses managed deletion when the remote ids differ from its confirmed preview', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'bound-music', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const deleteFolder = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 3 }] })
+      }
+    })
+
+    await expect(service.deleteManagedFolders('100', ['music'], false, undefined, { music: ['other-remote'] }))
+      .rejects.toThrow('managed-folder-deletion-preview-stale')
+    expect(deleteFolder).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: [expect.objectContaining({ remoteFolderId: 'remote-music', bindingState: 'bound' })]
+    })
+  })
+
+  it('uses a local ledger title hint when the repository has not created its logical folder yet', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi\u00b7Music', memberCount: 7 }] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['music'], { music: 'bilimi\u00b7Music' })).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music', state: 'unbound-name-match', requiresUnboundAcknowledgement: true })
+    ])
+  })
+
   it.each([
     ['unknown', 'remote-ambiguous'],
     ['rejected', 'csrf-missing']

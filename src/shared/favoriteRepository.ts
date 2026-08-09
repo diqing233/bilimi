@@ -115,7 +115,7 @@ export type FavoriteRepositoryArchiveExport = {
   protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
   events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
-  /** Account-local recovery data. Device-bound remote entities stay local; portable lifecycle authority is retained. */
+  /** Account-local recovery data. Bilimi binding identity is portable; remote membership observations stay local. */
   recovery?: Pick<AccountFavoriteRepositorySnapshot,
     'folders' | 'memberships' | 'physicalShards' | 'workspace' | 'syncRecords' |
     'organizationRecords' | 'organizationBatches' | 'organizationMigrationInitialized'> & {
@@ -274,24 +274,48 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
   }))
 }
 
-/** Produces a portable, credential-free recovery archive without device-bound remote entity identifiers. */
+/** Produces a portable, credential-free recovery archive while retaining same-account Bilimi binding identity. */
 export function createFavoriteRepositoryArchiveExport(
   snapshot: AccountFavoriteRepositorySnapshot,
   input: { generatedAt: string; events?: FavoriteRepositoryEvent[]; archives?: FavoriteRepositoryArchiveExport['archives'] }
 ): FavoriteRepositoryArchiveExport & { checksum: string } {
   const accountMid = normalizedAccountMid(snapshot.accountMid)
-  // Remote IDs and observations belong to this installation only. Retain the
-  // logical plan and force the destination installation to reconcile it.
-  const recoveryFolders = snapshot.folders
+  const boundShardsByLedger = new Map<string, FavoriteRepositoryPhysicalShard[]>()
+  for (const shard of snapshot.physicalShards) {
+    const shards = boundShardsByLedger.get(shard.logicalLedgerId) ?? []
+    shards.push(shard)
+    boundShardsByLedger.set(shard.logicalLedgerId, shards)
+  }
+  const recoveryLogicalFolders = snapshot.folders
     .filter((folder) => folder.kind !== 'bilibili')
-    .map((folder) => ({
-      id: folder.id,
-      title: folder.title,
-      kind: folder.kind,
-      ...(folder.logicalLedgerId ? { logicalLedgerId: folder.logicalLedgerId } : {}),
-      syncState: folder.kind === 'bilimi-logical' ? 'pending-reconcile' as const : 'local-only' as const
+    .map((folder) => {
+      const shards = folder.logicalLedgerId ? boundShardsByLedger.get(folder.logicalLedgerId) ?? [] : []
+      const bound = folder.kind === 'bilimi-logical' && shards.length > 0 && shards.every((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      const firstRemoteFolderId = bound ? shards[0]?.remoteFolderId : undefined
+      return {
+        id: folder.id,
+        title: folder.title,
+        kind: folder.kind,
+        ...(folder.logicalLedgerId ? { logicalLedgerId: folder.logicalLedgerId } : {}),
+        ...(firstRemoteFolderId ? { remoteFolderId: firstRemoteFolderId } : {}),
+        syncState: bound ? 'bound' as const : folder.kind === 'bilimi-logical' ? 'pending-reconcile' as const : 'local-only' as const
+      }
+    })
+  const recoveryPhysicalFolders = snapshot.physicalShards
+    .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+    .map((shard) => ({
+      id: shard.folderId,
+      title: shard.remoteTitle,
+      kind: 'bilibili' as const,
+      logicalLedgerId: shard.logicalLedgerId,
+      remoteFolderId: shard.remoteFolderId,
+      syncState: 'bound' as const
     }))
+  const recoveryFolders = [...new Map([...recoveryLogicalFolders, ...recoveryPhysicalFolders].map((folder) => [folder.id, folder])).values()]
   const recoveryFolderIds = new Set(recoveryFolders.map((folder) => folder.id))
+  const portableLocalFolderIds = new Set(recoveryFolders
+    .filter((folder) => folder.kind !== 'bilibili')
+    .map((folder) => folder.id))
   const exported: FavoriteRepositoryArchiveExport = {
     version: 1,
     accountMid,
@@ -319,12 +343,18 @@ export function createFavoriteRepositoryArchiveExport(
       // Older snapshots can contain a transient inbox membership before its
       // folder projection exists. Do not emit an archive our strict reader
       // would necessarily reject.
-      memberships: Object.fromEntries(Object.entries(snapshot.memberships).filter(([folderId]) => recoveryFolderIds.has(folderId)).map(([folderId, aids]) => [folderId, [...aids]])),
+      // Physical Bilibili memberships are observations from the source machine,
+      // not portable current facts. Re-read them after migration; preserve only
+      // local logical memberships and the formal binding identity below.
+      memberships: Object.fromEntries(Object.entries(snapshot.memberships)
+        .filter(([folderId]) => portableLocalFolderIds.has(folderId))
+        .map(([folderId, aids]) => [folderId, [...aids]])),
       physicalShards: snapshot.physicalShards
         .filter((shard) => recoveryFolderIds.has(shard.folderId))
         .map((shard) => ({
           logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
-          remoteTitle: shard.remoteTitle, bindingState: 'pending-reconcile' as const
+          ...(shard.remoteFolderId && shard.bindingState === 'bound' ? { remoteFolderId: shard.remoteFolderId } : {}),
+          remoteTitle: shard.remoteTitle, bindingState: shard.bindingState
       })), ...(snapshot.workspace ? { workspace: portableWorkspace(snapshot.workspace) } : {}),
       syncRecords: snapshot.syncRecords.map(portableSyncRecord), organizationRecords: snapshot.organizationRecords.map(portableOrganizationRecord),
       organizationBatches: snapshot.organizationBatches.map(portableOrganizationChange), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
@@ -942,14 +972,19 @@ function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
 function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const folder = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'title', 'kind', 'logicalLedgerId', 'syncState'])
+  const allowedKeys = new Set(['id', 'title', 'kind', 'logicalLedgerId', 'remoteFolderId', 'syncState'])
   if (Object.keys(folder).some((key) => !allowedKeys.has(key)) || typeof folder.id !== 'string' || !folder.id.trim() || ids.has(folder.id) || typeof folder.title !== 'string' || !folder.title.trim() ||
-    !['bilimi-logical', 'local'].includes(String(folder.kind)) || !['local-only', 'pending-reconcile'].includes(String(folder.syncState))) return false
+    !['bilimi-logical', 'bilibili', 'local'].includes(String(folder.kind))) return false
   if (folder.kind === 'bilimi-logical') {
     if (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim() ||
-      folder.id !== `bilimi-logical:${folder.logicalLedgerId}` || folder.syncState !== 'pending-reconcile') return false
-  } else if (folder.logicalLedgerId !== undefined || !folder.id.startsWith('local:') || folder.syncState !== 'local-only') return false
-  if (folder.remoteFolderId !== undefined) return false
+      folder.id !== `bilimi-logical:${folder.logicalLedgerId}` || !['bound', 'pending-reconcile'].includes(String(folder.syncState))) return false
+    if (folder.remoteFolderId !== undefined && (typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim())) return false
+    if (folder.syncState === 'bound' && !folder.remoteFolderId) return false
+    if (folder.syncState === 'pending-reconcile' && folder.remoteFolderId !== undefined) return false
+  } else if (folder.kind === 'bilibili') {
+    if (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim() ||
+      typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim() || folder.syncState !== 'bound') return false
+  } else if (folder.logicalLedgerId !== undefined || !folder.id.startsWith('local:') || folder.syncState !== 'local-only' || folder.remoteFolderId !== undefined) return false
   ids.add(folder.id)
   return true
 }
@@ -957,11 +992,13 @@ function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
 function isPortableRecoveryShard(value: unknown, folderIds: Set<string>, shardKeys: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const shard = value as Record<string, unknown>
-  const allowedKeys = new Set(['logicalLedgerId', 'folderId', 'shardNumber', 'remoteTitle', 'bindingState'])
+  const allowedKeys = new Set(['logicalLedgerId', 'folderId', 'shardNumber', 'remoteFolderId', 'remoteTitle', 'bindingState'])
   if (Object.keys(shard).some((key) => !allowedKeys.has(key)) || typeof shard.logicalLedgerId !== 'string' || !shard.logicalLedgerId.trim() ||
-    typeof shard.folderId !== 'string' || shard.folderId !== `bilimi-logical:${shard.logicalLedgerId}` || !folderIds.has(shard.folderId) ||
+    typeof shard.folderId !== 'string' || !folderIds.has(shard.folderId) ||
     !Number.isSafeInteger(shard.shardNumber) || Number(shard.shardNumber) <= 0 || typeof shard.remoteTitle !== 'string' || !shard.remoteTitle.trim() ||
-    shard.bindingState !== 'pending-reconcile' || shard.remoteFolderId !== undefined || shard.knownRemoteFolderIds !== undefined || shard.remoteMemberCount !== undefined) return false
+    !['bound', 'pending-reconcile'].includes(String(shard.bindingState)) ||
+    (shard.bindingState === 'bound' && (typeof shard.remoteFolderId !== 'string' || !shard.remoteFolderId.trim())) ||
+    (shard.bindingState === 'pending-reconcile' && shard.remoteFolderId !== undefined)) return false
   const key = `${shard.logicalLedgerId}:${shard.shardNumber}`
   if (shardKeys.has(key)) return false
   shardKeys.add(key)

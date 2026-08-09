@@ -81,8 +81,8 @@ type BilimiDesktopApi = {
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   getOldFavoriteWorkspaceRecoverySummaryV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceRecoverySummary | null>
-  previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ logicalLedgerId: string; remoteFolderId: string; title: string; memberCount: number }>>
-  deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[]) => Promise<Array<{ id: string; title: string; memberCount: number }>>
+  previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'; requiresUnboundAcknowledgement: boolean }>>
+  deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {
@@ -143,6 +143,7 @@ type BilimiDesktopApi = {
   onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
+  adoptFavoriteRepositoryLedgerBinding?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string }) => Promise<unknown>
   getFavoriteRepositoryFolderPage?: (
     accountMid: string,
     folderId: string,

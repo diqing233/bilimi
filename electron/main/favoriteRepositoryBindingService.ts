@@ -321,12 +321,7 @@ export class FavoriteRepositoryBindingService {
         }, token)
       }
       if (existing.length === 1) {
-        return this.preparePhysicalShardWithToken(account, {
-          ...input,
-          observedAccountMid: inventory.observedAccountMid,
-          remoteFolderId: existing[0].id,
-          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
-        }, token)
+        throw new Error('Favorite repository remote shard title requires explicit rebinding.')
       }
       if (inventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
         throw new Error('Favorite repository remote folder limit is exceeded.')
@@ -340,12 +335,7 @@ export class FavoriteRepositoryBindingService {
       const finalMatches = finalInventory.folders.filter((folder) => folder.title === title)
       if (finalMatches.length > 1) throw new Error('Favorite repository remote shard title is ambiguous.')
       if (finalMatches.length === 1) {
-        return this.preparePhysicalShardWithToken(account, {
-          ...input,
-          observedAccountMid: finalInventory.observedAccountMid,
-          remoteFolderId: finalMatches[0].id,
-          inventory: finalInventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
-        }, token)
+        throw new Error('Favorite repository remote shard title requires explicit rebinding.')
       }
       if (finalInventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
         throw new Error('Favorite repository remote folder limit is exceeded.')

@@ -413,18 +413,23 @@ describe('account favorite repository contracts', () => {
     expect(validateFavoriteRepositoryArchiveExport(exported)).toEqual(exported)
   })
 
-  it('sanitizes recovery bindings into local reconciliation intent', () => {
+  it('keeps managed recovery bindings available for same-account migration', () => {
     const exported = createFavoriteRepositoryArchiveExport({
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
       folders: [
         { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' as const },
-        { id: 'bilibili:900', title: 'Device mirror', kind: 'bilibili' as const, remoteFolderId: '900', syncState: 'bound' as const }
+        { id: 'bilimi:music:001', title: 'Music 1', kind: 'bilibili' as const, remoteFolderId: '900', syncState: 'bound' as const }
       ],
-      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi-logical:music', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'bound' as const, remoteFolderId: '900', knownRemoteFolderIds: ['900'], remoteMemberCount: 12 }]
+      memberships: { 'bilimi-logical:music': [1], 'bilimi:music:001': [1] },
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'bound' as const, remoteFolderId: '900', knownRemoteFolderIds: ['900'], remoteMemberCount: 12 }]
     }, { generatedAt: '2026-07-23T01:00:00.000Z' })
 
-    expect(exported.recovery?.folders).toEqual([{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }])
-    expect(exported.recovery?.physicalShards).toEqual([{ logicalLedgerId: 'music', folderId: 'bilimi-logical:music', shardNumber: 1, remoteTitle: 'Music 1', bindingState: 'pending-reconcile' }])
+    expect(exported.recovery?.folders).toEqual(expect.arrayContaining([
+      { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' },
+      { id: 'bilimi:music:001', title: 'Music 1', kind: 'bilibili', logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' }
+    ]))
+    expect(exported.recovery?.physicalShards).toEqual([{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '900', remoteTitle: 'Music 1', bindingState: 'bound' }])
+    expect(exported.recovery?.memberships).toEqual({ 'bilimi-logical:music': [1] })
   })
 
   it('removes remote observations from every portable recovery record', () => {
@@ -480,7 +485,7 @@ describe('account favorite repository contracts', () => {
     expect(() => validateFavoriteRepositoryArchiveExport(invalid)).toThrow('invalid')
   })
 
-  it('round-trips account-local repository recovery state while excluding remote observations', () => {
+  it('round-trips account-local repository recovery state while excluding only transient observations', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),
       folders: [{ id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const }, { id: 'bilimi:music:001', title: 'Music 1', kind: 'bilibili' as const, remoteFolderId: '42', syncState: 'bound' as const }],
@@ -496,8 +501,13 @@ describe('account favorite repository contracts', () => {
     const exported = createFavoriteRepositoryArchiveExport(snapshot, { generatedAt: '2026-07-23T01:00:00.000Z' })
 
     expect(exported.recovery).toMatchObject({
-      folders: [{ id: 'bilimi-logical:music', syncState: 'pending-reconcile' }],
-      memberships: { 'bilimi-logical:music': [1] }, physicalShards: [], workspace: snapshot.workspace,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilimi-logical:music', syncState: 'bound', remoteFolderId: '42' }),
+        expect.objectContaining({ id: 'bilimi:music:001', remoteFolderId: '42', syncState: 'bound' })
+      ]),
+      memberships: { 'bilimi-logical:music': [1] }, physicalShards: expect.arrayContaining([
+        expect.objectContaining({ remoteFolderId: '42', bindingState: 'bound' })
+      ]), workspace: snapshot.workspace,
       syncRecords: snapshot.syncRecords, tombstones: [snapshot.tombstones['100:2']]
     })
     expect(exported.positions).toEqual([expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] })])

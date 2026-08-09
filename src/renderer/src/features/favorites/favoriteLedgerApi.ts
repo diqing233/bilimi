@@ -126,7 +126,19 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\s*[·:：\-]?\s*/iu, '')
       .trim();
-    const syncLedgerFolderIds = (ledgers, folders) => {
+    const isBilimiManagedFolder = (folder) => /^bilimi\s*[·.：:-]/iu.test(String(folder?.title || '').trim());
+    const remoteFolderCandidates = (ledger, folders) => {
+      const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
+      return folders
+        .filter((candidate) => isBilimiManagedFolder(candidate) &&
+          normalizeFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate))
+        .map((candidate) => ({
+          id: String(findFolderId(candidate)),
+          title: String(candidate.title || ''),
+          memberCount: Math.max(0, Number(candidate.media_count ?? candidate.count ?? 0) || 0)
+        }));
+    };
+    const syncLedgerFolderIds = (ledgers, folders, selectedRemoteFolderIds = {}) => {
       const folderById = new Map(
         folders
           .map((folder) => [String(findFolderId(folder) || ''), folder])
@@ -134,26 +146,36 @@ function sharedScriptHelpers(): string {
       );
       return ledgers.map((ledger) => {
         const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
+        const candidates = remoteFolderCandidates(ledger, folders);
+        const selectedRemoteFolderId = String(selectedRemoteFolderIds?.[ledger.id] || '').trim();
+        const selectedFolder = selectedRemoteFolderId
+          ? folderById.get(selectedRemoteFolderId)
+          : null;
+        if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
+          normalizeFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
+          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bindingState: 'bound' };
+        }
         const storedFolder = ledger.bilibiliFolderId
           ? folderById.get(String(ledger.bilibiliFolderId))
           : null;
-        const titleMatches = folders.filter((candidate) =>
-          normalizeFolderTitle(candidate?.title) === normalizedLedgerTitle
-        );
         const folder = storedFolder && normalizeFolderTitle(storedFolder.title) === normalizedLedgerTitle
           ? storedFolder
-          : titleMatches.length === 1
-            ? titleMatches[0]
-            : null;
+          : null;
         const folderId = findFolderId(folder);
         if (folderId) {
-          return { ...ledger, bilibiliFolderId: String(folderId) };
+          return { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
         }
 
-        const { bilibiliFolderId, ...ledgerWithoutStaleFolderId } = ledger;
-        return ledgerWithoutStaleFolderId;
+        const { bilibiliFolderId, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
+        return {
+          ...ledgerWithoutStaleFolderId,
+          bindingState: candidates.length > 0 ? 'unbound' : 'unbacked'
+        };
       });
     };
+    const collectUnboundCandidates = (ledgers, folders) => ledgers
+      .filter((ledger) => ledger.bindingState === 'unbound')
+      .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
   `
 }
 
@@ -173,17 +195,19 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
       const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
-      const backupConflictLedgerIds = payload.ledgers.filter((ledger) =>
-        ledger.enabled && ledger.syncState !== 'local-draft' &&
-        folders.filter((folder) => normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)).length > 1
-      ).map((ledger) => ledger.id);
+      const unboundLedgerIds = nextLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+        .map((ledger) => ledger.id);
+      const unboundCandidates = collectUnboundCandidates(nextLedgers, folders);
 
       return {
-        ok: backupConflictLedgerIds.length === 0,
+        ok: unboundLedgerIds.length === 0,
         ledgers: nextLedgers,
-        missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId).map((ledger) => ledger.id),
-        backupConflictLedgerIds,
-        message: backupConflictLedgerIds.length === 0 ? '册目查验已毕。' : '发现同名 bilimi 收藏夹，请先手动处理重复收藏夹。'
+        missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState !== 'bound').map((ledger) => ledger.id),
+        backupConflictLedgerIds: [],
+        unboundLedgerIds,
+        unboundCandidates,
+        message: unboundLedgerIds.length === 0 ? '册目查验已毕。' : '发现未绑定的 bilimi 收藏夹，请在备册时主动确认复用对应收藏夹。'
       };
     })();
   `
@@ -217,21 +241,21 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      const duplicateLedgers = payload.ledgers.filter((ledger) =>
-        ledger.enabled && ledger.syncState !== 'local-draft' &&
-        folders.filter((folder) => normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)).length > 1
-      );
-      if (duplicateLedgers.length > 0) {
+      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const unboundLedgerIds = nextLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+        .map((ledger) => ledger.id);
+      if (unboundLedgerIds.length > 0) {
         return {
           ok: false,
-          ledgers: payload.ledgers,
+          ledgers: nextLedgers,
           steps,
-          missingTargets: duplicateLedgers.map((ledger) => ledger.id),
-          backupConflictLedgerIds: duplicateLedgers.map((ledger) => ledger.id),
-          message: '发现同名 bilimi 收藏夹，无法安全备册；请先手动处理重复收藏夹。'
+          missingTargets: unboundLedgerIds,
+          unboundLedgerIds,
+          unboundCandidates: collectUnboundCandidates(nextLedgers, folders),
+          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
         };
       }
-      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
@@ -242,22 +266,17 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
-        const recheckedMatches = recheckedFolders.filter((folder) =>
-          normalizeFolderTitle(folder?.title) === normalizeFolderTitle(ledger.displayName)
-        );
-        if (recheckedMatches.length > 1) {
+        const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
+        if (recheckedCandidates.length > 0) {
           return {
             ok: false,
             ledgers: nextLedgers,
             steps,
             missingTargets: [ledger.id],
-            backupConflictLedgerIds: [ledger.id],
-            message: '发现同名 bilimi 收藏夹，无法安全备册；请先手动处理重复收藏夹。'
+            unboundLedgerIds: [ledger.id],
+            unboundCandidates: [{ ledgerId: ledger.id, candidates: recheckedCandidates }],
+            message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
           };
-        }
-        if (recheckedMatches.length === 1) {
-          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(findFolderId(recheckedMatches[0])) };
-          continue;
         }
 
         const body = new URLSearchParams();
@@ -275,12 +294,12 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
-          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId) };
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
         }
         steps.push('api:ledger:create:' + ledger.id);
       }
 
-      const missingTargets = nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId).map((ledger) => ledger.id);
+      const missingTargets = nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState !== 'bound').map((ledger) => ledger.id);
 
       return {
         ok: missingTargets.length === 0,
@@ -335,12 +354,21 @@ export function buildSaveFavoriteLedgersScript(
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      const folderById = new Map(
-        folders
-          .map((folder) => [String(findFolderId(folder) || ''), folder])
-          .filter(([folderId]) => folderId)
-      );
-      let nextLedgers = syncLedgerFolderIds(payload.nextLedgers, folders);
+      let nextLedgers = syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds);
+      const unboundLedgerIds = nextLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+        .map((ledger) => ledger.id);
+      if (unboundLedgerIds.length > 0) {
+        return {
+          ok: false,
+          ledgers: nextLedgers,
+          steps,
+          missingTargets: unboundLedgerIds,
+          unboundLedgerIds,
+          unboundCandidates: collectUnboundCandidates(nextLedgers, folders),
+          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+        };
+      }
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
@@ -363,73 +391,13 @@ export function buildSaveFavoriteLedgersScript(
         const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
-          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId) };
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
         }
         steps.push('api:ledger:create:' + ledger.id);
       }
 
-      const canDeleteManagedFolder = (ledger) => {
-        if (!ledger.bilibiliFolderId) {
-          return false;
-        }
-
-        const folder = folderById.get(String(ledger.bilibiliFolderId));
-        const remoteTitle = String(folder?.title ?? '');
-        return /^bilimi[·\\s-]?/i.test(String(ledger.displayName || '')) || /^bilimi[·\\s-]?/i.test(remoteTitle);
-      };
-      const canDeleteRemovedLedger = (ledger) => !ledger.isDefault && canDeleteManagedFolder(ledger);
-      const shouldDeleteDisabled = payload.options?.deleteDisabled !== false;
-      const disabledLedgers = shouldDeleteDisabled
-        ? nextLedgers.filter((ledger) => !ledger.enabled && canDeleteManagedFolder(ledger))
-        : [];
-
-      for (const ledger of disabledLedgers) {
-        const body = new URLSearchParams();
-        body.set('csrf', csrf);
-        body.set('media_ids', String(ledger.bilibiliFolderId));
-        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body
-        });
-        await ensureApiOk(response, 'favorite ledger delete');
-        nextLedgers = nextLedgers.map((item) => {
-          if (item.id !== ledger.id) {
-            return item;
-          }
-
-          const { bilibiliFolderId, ...ledgerWithoutFolderId } = item;
-          return ledgerWithoutFolderId;
-        });
-        steps.push('api:ledger:delete:' + ledger.id);
-      }
-
-      const nextLedgerIds = new Set(nextLedgers.map((ledger) => ledger.id));
-      const removedLedgers = payload.previousLedgers.filter(
-        (ledger) => !nextLedgerIds.has(ledger.id) && canDeleteRemovedLedger(ledger)
-      );
-
-      for (const ledger of removedLedgers) {
-        const body = new URLSearchParams();
-        body.set('csrf', csrf);
-        body.set('media_ids', String(ledger.bilibiliFolderId));
-        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body
-        });
-        await ensureApiOk(response, 'favorite ledger delete');
-        steps.push('api:ledger:delete:' + ledger.id);
-      }
-
       const missingTargets = nextLedgers
-        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId)
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState !== 'bound')
         .map((ledger) => ledger.id);
 
       return {

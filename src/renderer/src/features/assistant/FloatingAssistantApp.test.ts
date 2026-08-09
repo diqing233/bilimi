@@ -734,7 +734,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
         backupConflictLedgerIds: ['knowledge'],
         message: '\u53d1\u73b0\u540c\u540d\u6536\u85cf\u5939'
       }
-    })).toMatchObject({ label: '\u5907\u518c\u5f02\u5e38', tone: 'error' })
+    })).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
   })
 
   it('uses the backup status only when no real organization round is active', () => {

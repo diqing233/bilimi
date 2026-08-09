@@ -142,6 +142,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     }),
     setAssistantPetHint: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
+    adoptFavoriteRepositoryLedgerBinding: vi.fn().mockResolvedValue(undefined),
     registerAssistantRuntime,
     ...apiOverrides
   }
@@ -1104,8 +1105,10 @@ describe('App runtime integration', () => {
 
   it('persists existing Bilibili folder ids returned by backup before the next assistant snapshot', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
     const { requestRuntime } = renderAppWithRuntimeBridge({
       savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -1132,6 +1135,9 @@ describe('App runtime integration', () => {
     })
 
     await expect(requestRuntime({ id: 'backup-ledgers', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'knowledge', remoteFolderId: '9000', remoteTitle: expect.any(String)
+    }))
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
       favoriteAccountPreferences: expect.objectContaining({
         '100': expect.objectContaining({
@@ -1141,6 +1147,59 @@ describe('App runtime integration', () => {
         })
       })
     }))
+  })
+
+  it('does not treat a legacy preference folder id as a formal remote binding during backup', async () => {
+    const accountMid = '100'
+    const legacyLedger = {
+      ...createDefaultFavoriteLedgers()[0],
+      bilibiliFolderId: '9000',
+      bindingState: 'bound' as const
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [legacyLedger]
+        }
+      }
+    })
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 0, updatedAt: '2026-08-09T00:00:00.000Z',
+        videoCount: 0, folderCount: 0, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0,
+        remoteReconciliations: []
+      }),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        expect(script).not.toContain('9000')
+        return {
+          ok: false,
+          ledgers: [{ ...legacyLedger, bilibiliFolderId: undefined, bindingState: 'unbound' }],
+          steps: ['api:ledger:list'],
+          missingTargets: [legacyLedger.id],
+          unboundLedgerIds: [legacyLedger.id],
+          unboundCandidates: [{ ledgerId: legacyLedger.id, candidates: [{ id: '9000', title: legacyLedger.displayName, memberCount: 0 }] }],
+          message: '发现未绑定的 bilimi 收藏夹。'
+        }
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'legacy-backup', type: 'ensure-ledgers' })).resolves.toMatchObject({
+      ok: false,
+      unboundLedgerIds: [legacyLedger.id]
+    })
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
   it('provisions one requested ledger while retaining every other account ledger', async () => {

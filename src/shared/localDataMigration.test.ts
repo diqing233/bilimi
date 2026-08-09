@@ -60,6 +60,38 @@ describe('local data migration v1', () => {
     expect(parseMigrationArchiveV1(JSON.stringify(archive)).accounts['100'].settings).toEqual(source.settings)
   })
 
+  it('keeps formal repository recovery bindings portable during export', () => {
+    const source = account()
+    source.repository = createFavoriteRepositoryArchiveExport({
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }),
+      folders: [
+        { id: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' as const },
+        { id: 'bilimi:music:001', title: 'bilimi·音乐', kind: 'bilibili' as const, logicalLedgerId: 'music', remoteFolderId: '900', syncState: 'bound' as const }
+      ],
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '900', remoteTitle: 'bilimi·音乐', bindingState: 'bound' as const }]
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+
+    expect(() => createMigrationArchiveV1({
+      appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': source }
+    })).not.toThrow()
+  })
+
+  it('rejects conflicting remote identities for the same logical shard during migration merge', () => {
+    const withBinding = (remoteFolderId: string) => createFavoriteRepositoryArchiveExport({
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' }),
+      folders: [
+        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
+        { id: 'bilimi:music:001', title: '音乐', kind: 'bilibili' as const, logicalLedgerId: 'music', remoteFolderId, syncState: 'bound' as const }
+      ],
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId, remoteTitle: '音乐', bindingState: 'bound' as const }]
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+    const local = account()
+    const imported = account()
+    local.repository = withBinding('remote-a')
+    imported.repository = withBinding('remote-b')
+    expect(() => mergeMigrationAccounts({ '100': local }, { '100': imported })).toThrow('binding conflict requires rebinding')
+  })
+
   it('uses an explicit persistent-source registry and rejects unregistered sources for every UID', () => {
     expect(LOCAL_DATA_MIGRATION_ACCOUNT_SOURCES).toEqual([
       'repository', 'settings', 'archives', 'transcription', 'auditEvents', 'workspaces', 'remoteOperations'
