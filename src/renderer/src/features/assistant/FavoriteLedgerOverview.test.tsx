@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
@@ -11,6 +13,13 @@ function deferred<T>() {
 
 describe('FavoriteLedgerOverview', () => {
   afterEach(() => vi.useRealTimers())
+  it('remeasures sidebar help after the hidden tooltip becomes visible', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx'), 'utf8')
+
+    expect(source).toContain('}, [ledgerHintExpanded, ledgerHintVisible])')
+    expect(source).toContain('resizeObserver?.observe(ledgerHintPanelRef.current)')
+  })
+
   it('shows the copy-preserving reminder in the favorite help and uses an X for deletion mode', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }

@@ -1181,5 +1181,17 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__scan-enrichment-summary,\n.favorite-ledger-panel__scan-discovery {')
     expectStyleSnippet('.video-summary-menu__options { position: absolute; z-index: 110; top: calc(100% + 4px); left: 0; display: grid; min-width: 132px;')
   })
+
+  it('renders feedback continuation as a seamless second line instead of a separate card', () => {
+    expectStyleSnippet('.floating-assistant-global-status__feedback-continuation { position: absolute; z-index: 4; top: 100%; right: 0; left: 0; box-sizing: border-box; padding: 0 10px 6px; background: rgba(247, 251, 255, 0.98);')
+    expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  border-top:')
+    expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  box-shadow:')
+  })
+
+  it('keeps each Bilibili connection option radio beside one readable text column', () => {
+    expectStyleSnippet('.assistant-settings__group .assistant-settings__bilibili-connection-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: start; min-height: 0;')
+    expectStyleSnippet('.assistant-settings__bilibili-connection-choice-copy { display: grid; min-width: 0; gap: 2px;')
+    expectStyleSnippet('.assistant-settings__bilibili-connection-choice small { color: var(--porcelain-muted); font-size: 12px; line-height: 1.5; display: block; padding-left: 0;')
+  })
 })
 

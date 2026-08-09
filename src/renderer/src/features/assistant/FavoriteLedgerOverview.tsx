@@ -231,7 +231,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
   }, [createLedgerRequest, newLedger])
   useEffect(() => { window.localStorage.setItem('bilimi:ledger-hint-open', String(ledgerHintExpanded)) }, [ledgerHintExpanded])
   useLayoutEffect(() => {
-    if (ledgerHintExpanded) return
+    if (ledgerHintExpanded || !ledgerHintVisible) return
     const updatePosition = () => {
       const anchorRect = ledgerHintTriggerRef.current?.getBoundingClientRect()
       if (!anchorRect) return
@@ -246,13 +246,22 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, organization
       ))
     }
     updatePosition()
+    const layoutFrame = window.requestAnimationFrame(updatePosition)
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePosition)
+    if (ledgerHintPanelRef.current) resizeObserver?.observe(ledgerHintPanelRef.current)
+    if (ledgerHintTriggerRef.current) resizeObserver?.observe(ledgerHintTriggerRef.current)
+    if (ledgerHintTooltipRef.current) resizeObserver?.observe(ledgerHintTooltipRef.current)
+    ledgerHintPanelRef.current?.addEventListener('transitionend', updatePosition)
     window.addEventListener('resize', updatePosition)
     window.addEventListener('scroll', updatePosition, true)
     return () => {
+      window.cancelAnimationFrame(layoutFrame)
+      resizeObserver?.disconnect()
+      ledgerHintPanelRef.current?.removeEventListener('transitionend', updatePosition)
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [ledgerHintExpanded])
+  }, [ledgerHintExpanded, ledgerHintVisible])
   useEffect(() => {
     const priorities = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.priority]))
     window.localStorage.setItem('bilimi:favorite-ledger-priorities', JSON.stringify(priorities))

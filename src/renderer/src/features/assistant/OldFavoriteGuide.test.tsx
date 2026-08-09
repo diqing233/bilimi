@@ -1,8 +1,17 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteGuide DeepSeek browsing', () => {
+  it('remeasures sidebar guide help after the hidden tooltip becomes visible', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/OldFavoriteGuide.tsx'), 'utf8')
+
+    expect(source).toContain('}, [guideHintExpanded, guideHintVisible])')
+    expect(source).toContain('resizeObserver?.observe(guideHintPanelRef.current)')
+  })
+
   it('shows the complete organizing reminder in both the guide tooltip and expanded instructions', () => {
     window.localStorage.removeItem('bilimi:old-favorite-hint-open')
 

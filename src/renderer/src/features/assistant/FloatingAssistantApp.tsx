@@ -1509,16 +1509,16 @@ const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeContro
       ['direct', '直接连接', 'B 站不使用系统代理，直接建立连接；其他应用的网络设置不受影响。如果使用 Clash 等系统代理后 B 站视频加载较慢，可以尝试此选项。']
     ] as const).map(([value, label, help]) => (
       <label key={value} className="assistant-settings__bilibili-connection-choice">
-        <span className="assistant-settings__bilibili-connection-choice-title">
-          <input
-            type="radio"
-            name="bilibili-connection-mode"
-            checked={mode === value}
-            onChange={() => void chooseMode(value)}
-          />
+        <input
+          type="radio"
+          name="bilibili-connection-mode"
+          checked={mode === value}
+          onChange={() => void chooseMode(value)}
+        />
+        <span className="assistant-settings__bilibili-connection-choice-copy">
           <span>{label}</span>
+          <small>{help}</small>
         </span>
-        <small>{help}</small>
       </label>
     ))}
     {message ? <p role="status">{message}</p> : null}
@@ -2288,9 +2288,9 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 getActions={getActions}
               />
               <p className="assistant-settings__favorites-help">默认收藏夹体系包含掌库的七个默认分类，不包括 bilimi·暂存。</p>
-              <p className="assistant-settings__favorites-help">开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、DeepSeek 和备册；适合大多数使用场景。主人仍可在此基础上自建收藏夹或采用推荐收藏夹，让收藏库更整洁。</p>
-              <p className="assistant-settings__favorites-help">关闭后，七个默认收藏夹将停用，不再参与分类、DeepSeek 或备册；主人可以 DIY 自己的收藏夹体系。bilimi·暂存仍会保留，作为安全区使用。建议参考默认分类创建几个自己的收藏夹，也可以和小咪交流想法～</p>
-              <p className="assistant-settings__favorites-help">已同步但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。</p>
+              <p className="assistant-settings__favorites-help">开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、备册；适合大多数使用场景。主人仍可在此基础上自建收藏夹或采用推荐收藏夹，让收藏库更整洁。</p>
+              <p className="assistant-settings__favorites-help">关闭后，七个默认收藏夹将停用，不再参与分类，不会备册；主人可以 DIY 自己的收藏夹体系。bilimi·暂存仍会保留，作为安全区使用。建议参考默认分类创建几个自己的收藏夹，也可以和小咪交流想法～</p>
+              <p className="assistant-settings__favorites-help">已备册到b站但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。</p>
             </fieldset>
             <PanelMotionTuningSettings />
             <fieldset
@@ -3395,6 +3395,24 @@ export function FloatingAssistantApp({
       (text) => context.measureText(text).width
     ))
   }, [displayedGlobalFeedbackMessage, globalFeedbackExpanded])
+
+  useLayoutEffect(() => {
+    if (globalFeedbackExpanded || !globalFeedbackContinuationVisible) return
+    const updateContinuation = () => updateGlobalFeedbackContinuation()
+    updateContinuation()
+    const layoutFrame = window.requestAnimationFrame(updateContinuation)
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateContinuation)
+    if (globalFeedbackMessageRef.current) resizeObserver?.observe(globalFeedbackMessageRef.current)
+    if (globalStatusRef.current) resizeObserver?.observe(globalStatusRef.current)
+    globalStatusRef.current?.addEventListener('transitionend', updateContinuation)
+    window.addEventListener('resize', updateContinuation)
+    return () => {
+      window.cancelAnimationFrame(layoutFrame)
+      resizeObserver?.disconnect()
+      globalStatusRef.current?.removeEventListener('transitionend', updateContinuation)
+      window.removeEventListener('resize', updateContinuation)
+    }
+  }, [globalFeedbackExpanded, globalFeedbackContinuationVisible, updateGlobalFeedbackContinuation])
 
   function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {
     lastPreferenceChangeAt.current = Date.now()
@@ -4947,7 +4965,6 @@ export function FloatingAssistantApp({
               onMouseEnter={() => {
                 if (globalFeedbackExpanded) return
                 setGlobalFeedbackContinuationVisible(true)
-                requestAnimationFrame(updateGlobalFeedbackContinuation)
               }}
               onMouseLeave={() => setGlobalFeedbackContinuationVisible(false)}
             >

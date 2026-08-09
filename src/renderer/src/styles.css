@@ -1261,11 +1261,8 @@ body[data-floating-window="true"],
   border-radius: 8px;
   background: rgba(247, 251, 255, 0.94);
   color: var(--porcelain-text);
-  font:
-    11px "Noto Serif SC",
-    "Songti SC",
-    "SimSun",
-    serif;
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font-size: 11px;
   line-height: 1.35;
   text-align: left;
   box-shadow: 0 8px 18px rgba(7, 26, 51, 0.18);
@@ -1952,10 +1949,8 @@ body[data-floating-window="true"],
   right: 0;
   left: 0;
   box-sizing: border-box;
-  padding: 5px 10px 6px;
-  border-top: 1px dashed #d1e6fb;
-  background: rgba(247, 251, 255, 0.99);
-  box-shadow: 0 8px 18px rgba(45, 94, 139, 0.16);
+  padding: 0 10px 6px;
+  background: rgba(247, 251, 255, 0.98);
   color: var(--porcelain-deep);
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
   font-size: 12px;
@@ -7001,6 +6996,7 @@ body[data-floating-window="true"],
     var(--porcelain-ice) 100%
   );
   color: var(--porcelain-text);
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
   padding: 12px;
   font-size: 12px;
   line-height: 1.45;
@@ -7199,19 +7195,32 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.5;
 }
-.assistant-settings__bilibili-connection-choice {
+.assistant-settings__group .assistant-settings__bilibili-connection-choice {
   display: grid;
-  gap: 3px;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
   align-items: start;
+  min-height: 0;
 }
-.assistant-settings__bilibili-connection-choice-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.assistant-settings__bilibili-connection-choice > input {
+  margin: 3px 0 0;
+}
+.assistant-settings__bilibili-connection-choice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.assistant-settings__bilibili-connection-choice-copy > span {
+  color: var(--porcelain-text);
+  font-size: 13px;
+  font-weight: 700;
 }
 .assistant-settings__bilibili-connection-choice small {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.5;
   display: block;
-  padding-left: 22px;
+  padding-left: 0;
 }
 .assistant-settings__inline-options {
   display: flex;

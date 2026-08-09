@@ -184,7 +184,7 @@ export function OldFavoriteGuide({
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
   useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   useLayoutEffect(() => {
-    if (guideHintExpanded) return
+    if (guideHintExpanded || !guideHintVisible) return
     const updatePosition = () => {
       const anchorRect = guideHintTriggerRef.current?.getBoundingClientRect()
       if (!anchorRect) return
@@ -199,13 +199,22 @@ export function OldFavoriteGuide({
       ))
     }
     updatePosition()
+    const layoutFrame = window.requestAnimationFrame(updatePosition)
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePosition)
+    if (guideHintPanelRef.current) resizeObserver?.observe(guideHintPanelRef.current)
+    if (guideHintTriggerRef.current) resizeObserver?.observe(guideHintTriggerRef.current)
+    if (guideHintTooltipRef.current) resizeObserver?.observe(guideHintTooltipRef.current)
+    guideHintPanelRef.current?.addEventListener('transitionend', updatePosition)
     window.addEventListener('resize', updatePosition)
     window.addEventListener('scroll', updatePosition, true)
     return () => {
+      window.cancelAnimationFrame(layoutFrame)
+      resizeObserver?.disconnect()
+      guideHintPanelRef.current?.removeEventListener('transitionend', updatePosition)
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [guideHintExpanded])
+  }, [guideHintExpanded, guideHintVisible])
   const recovery = snapshot && 'recovery' in snapshot
   const deepSeekBusy = deepSeekFeedback?.status === 'running' || deepSeekFeedback?.status === 'waiting' || deepSeekCancelRequested
   const readOnlyBrowsing = mutationLocked || deepSeekBusy

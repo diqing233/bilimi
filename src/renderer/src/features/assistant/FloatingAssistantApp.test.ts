@@ -247,7 +247,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('globalFeedbackContinuationVisible')
     expect(source).toContain('globalFeedbackContinuation')
-    expect(source).toContain('requestAnimationFrame(updateGlobalFeedbackContinuation)')
+    expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
+    expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
     expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
@@ -397,9 +398,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const section = source.slice(start, source.indexOf('</fieldset>', start))
 
     expect(section).toContain('默认收藏夹体系包含掌库的七个默认分类，不包括 bilimi·暂存。')
-    expect(section).toContain('开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、DeepSeek 和备册；适合大多数使用场景。')
-    expect(section).toContain('关闭后，七个默认收藏夹将停用，不再参与分类、DeepSeek 或备册；主人可以 DIY 自己的收藏夹体系。')
-    expect(section).toContain('已同步但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。')
+    expect(section).toContain('开启后，七个默认收藏夹会固定参与批阅预分类、整理收藏分类、备册；适合大多数使用场景。')
+    expect(section).toContain('关闭后，七个默认收藏夹将停用，不再参与分类，不会备册；主人可以 DIY 自己的收藏夹体系。')
+    expect(section).toContain('已备册到b站但不再需要的默认收藏夹，可在掌库收藏夹区域统一删除。')
   })
 
   it('creates one shared feedback event for queued transcription start, completion, and failure', () => {
@@ -779,5 +780,30 @@ describe('resolveFavoriteOrganizationLamp', () => {
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
     })).toMatchObject({ label: '整理完成' })
+  })
+})
+
+describe('current settings copy and feedback continuation contract', () => {
+  it('uses the confirmed default favorite-system wording without DeepSeek participation', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const start = source.indexOf('data-settings-section="favorites"')
+    const section = source.slice(start, source.indexOf('</fieldset>', start))
+
+    expect(section).toContain('\u5f00\u542f\u540e\uff0c\u4e03\u4e2a\u9ed8\u8ba4\u6536\u85cf\u5939\u4f1a\u56fa\u5b9a\u53c2\u4e0e\u6279\u9605\u9884\u5206\u7c7b\u3001\u6574\u7406\u6536\u85cf\u5206\u7c7b\u3001\u5907\u518c\uff1b\u9002\u5408\u5927\u591a\u6570\u4f7f\u7528\u573a\u666f\u3002')
+    expect(section).toContain('\u5173\u95ed\u540e\uff0c\u4e03\u4e2a\u9ed8\u8ba4\u6536\u85cf\u5939\u5c06\u505c\u7528\uff0c\u4e0d\u518d\u53c2\u4e0e\u5206\u7c7b\uff0c\u4e0d\u4f1a\u5907\u518c\uff1b\u4e3b\u4eba\u53ef\u4ee5 DIY \u81ea\u5df1\u7684\u6536\u85cf\u5939\u4f53\u7cfb\u3002')
+    expect(section).toContain('\u5df2\u5907\u518c\u5230b\u7ad9\u4f46\u4e0d\u518d\u9700\u8981\u7684\u9ed8\u8ba4\u6536\u85cf\u5939\uff0c\u53ef\u5728\u638c\u5e93\u6536\u85cf\u5939\u533a\u57df\u7edf\u4e00\u5220\u9664\u3002')
+    expect(section).not.toContain('\u3001DeepSeek \u548c\u5907\u518c')
+  })
+
+  it('keeps Bilibili connection titles and descriptions in a shared copy column', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain('className="assistant-settings__bilibili-connection-choice-copy"')
+  })
+
+  it('recalculates a visible feedback continuation after layout changes', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+
+    expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
   })
 })
