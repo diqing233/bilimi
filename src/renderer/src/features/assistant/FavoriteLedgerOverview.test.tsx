@@ -263,31 +263,29 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
-  it('uses one bulk toggle that selects and clears the currently operable ledgers', async () => {
-    vi.useFakeTimers()
+  it('uses one bulk toggle only for the isolated deletion selection', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
-      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
-      { id: 'custom-tech', displayName: '科技', keywords: [], enabled: true, priority: 20, isDefault: false }
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: false, bilibiliFolderId: 'remote-music' },
+      { id: 'custom-tech', displayName: '科技', keywords: [], enabled: false, priority: 20, isDefault: false, bilibiliFolderId: 'remote-tech' }
     ]} missingLedgerIds={[]} onSaveLedgers={save} />)
 
     const toggle = screen.getByTestId('favorite-ledger-cancel-all')
     expect(toggle).toHaveTextContent('全选')
+    expect(toggle).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    expect(toggle).toBeEnabled()
     fireEvent.click(toggle)
     expect(save).not.toHaveBeenCalled()
-    await act(async () => { vi.advanceTimersByTime(250) })
-    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'music', enabled: true }),
-      expect.objectContaining({ id: 'custom-tech', enabled: true })
-    ]), { deleteDisabled: false })
-
     expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('取消全选')
+    expect(screen.getByRole('button', { name: '取消删除 bilimi·音乐' })).toBeEnabled()
     fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
-    await act(async () => { vi.advanceTimersByTime(250) })
-    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'music', enabled: false }),
-      expect.objectContaining({ id: 'custom-tech', enabled: false })
-    ]), { deleteDisabled: false })
+    expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('全选')
+    expect(screen.getByRole('button', { name: '加入删除 bilimi·音乐' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
+    expect(toggle).toBeDisabled()
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·音乐' })).toBeEnabled()
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('keeps default ledgers checked and non-cancelable while the default system is enabled', () => {
@@ -484,9 +482,10 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: actionName })).toHaveAttribute('data-enabled', 'false'))
   })
 
-  it('keeps required defaults selected when cancel-all clears custom targets during a round', async () => {
+  it('keeps required defaults selected while a custom target is removed during a round', async () => {
     vi.useFakeTimers()
     const save = vi.fn()
+    const saveEnabled = vi.fn()
     render(<FavoriteLedgerOverview
       organizationActive
       ledgers={[
@@ -496,15 +495,13 @@ describe('FavoriteLedgerOverview', () => {
       ]}
       missingLedgerIds={[]}
       onSaveLedgers={save}
+      onSaveLedgerEnabled={saveEnabled}
     />)
 
-    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+    fireEvent.click(screen.getByRole('button', { name: /移出同步 .*科技/ }))
     await act(async () => { vi.advanceTimersByTime(250) })
-    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'knowledge', enabled: true }),
-      expect.objectContaining({ id: 'inbox', enabled: true }),
-      expect.objectContaining({ id: 'custom-tech', enabled: false })
-    ]), { deleteDisabled: false })
+    expect(save).not.toHaveBeenCalled()
+    expect(saveEnabled).toHaveBeenCalledWith('custom-tech', false)
     expect(screen.getByRole('button', { name: '移出同步 bilimi·暂存' })).toBeDisabled()
   })
 
@@ -681,24 +678,23 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
 
-  it('uses the restored cancel-all action to clear the current selection', async () => {
-    vi.useFakeTimers()
+  it('keeps normal selections unchanged when the deletion bulk action is used', () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview
       ledgers={[
-        { id: 'music', displayName: 'bilimi:音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: true },
-        { id: 'reading', displayName: 'bilimi:阅读', keywords: ['阅读'], ruleType: 'keyword', enabled: true, priority: 20, isDefault: true }
+        { id: 'music', displayName: 'bilimi:音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: true, bilibiliFolderId: 'remote-music' },
+        { id: 'reading', displayName: 'bilimi:阅读', keywords: ['阅读'], ruleType: 'keyword', enabled: true, priority: 20, isDefault: true, bilibiliFolderId: 'remote-reading' }
       ]}
       missingLedgerIds={[]}
       onSaveLedgers={save}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
-    await act(async () => { vi.advanceTimersByTime(250) })
-    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'music', enabled: false }),
-      expect.objectContaining({ id: 'reading', enabled: false })
-    ]), { deleteDisabled: false })
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+    expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('取消全选')
+    fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
+    expect(screen.getByRole('button', { name: '移出同步 bilimi:音乐' })).toBeEnabled()
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('keeps the legacy collapsed ledger list and its expand toggle', () => {
@@ -831,7 +827,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(saveEnabled).toHaveBeenCalledTimes(1)
   })
 
-  it('persists the latest single toggle after a pending bulk toggle before deletion mode', async () => {
+  it('persists a pending normal toggle before deletion mode', async () => {
     vi.useFakeTimers()
     const save = vi.fn().mockResolvedValue(undefined)
     const saveEnabled = vi.fn().mockResolvedValue(undefined)
@@ -847,17 +843,12 @@ describe('FavoriteLedgerOverview', () => {
       onSyncLedgers={vi.fn()}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
-    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
     await act(async () => {})
 
-    expect(save).toHaveBeenCalledTimes(1)
-    expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'music', enabled: true }),
-      expect.objectContaining({ id: 'tech', enabled: false })
-    ], { deleteDisabled: false })
-    expect(saveEnabled).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(saveEnabled).toHaveBeenCalledWith('tech', false)
   })
 
   it('keeps the latest normal selections when a managed folder is confirmed for deletion', async () => {
