@@ -661,14 +661,16 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
   })
 
-  it('shows the current backup state beside the folder name while editing', () => {
+  it('shows the current backup state at the right of the folder-name label while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
     ]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
 
-    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('正在编辑：bilimi·音乐未备册')
+    const editor = screen.getByRole('region', { name: '当前收藏夹' })
+    expect(editor.querySelector('.favorite-ledger-panel__editor-title .favorite-ledger-panel__binding-status')).toBeNull()
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
   it('shows an unbound state before the unsaved marker for a recovered remote draft', () => {
@@ -679,7 +681,9 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '（未保存）你好' }))
 
-    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('正在编辑：bilimi·你好未绑定')
+    const editor = screen.getByRole('region', { name: '当前收藏夹' })
+    expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未绑定')
   })
 
   it('includes the backup state in the favorite folder hover title', () => {

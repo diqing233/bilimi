@@ -4934,6 +4934,19 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font-size: 12px;
 }
+.favorite-ledger-panel__ledger-name-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.favorite-ledger-panel__ledger-name-label > span {
+  min-width: 0;
+}
+.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status {
+  margin-left: auto;
+}
 .favorite-ledger-panel__name-label {
   display: flex;
   align-items: center;
