@@ -568,7 +568,7 @@ describe('FavoriteLedgerOverview', () => {
       onSaveLedgerEnabled={saveEnabled}
     />)
 
-    expect(screen.getByText(/识别到一个可启用的 bilimi 工作夹/)).toBeInTheDocument()
+    expect(screen.getByText(/识别到 1 个可启用的 bilimi 工作夹/)).toBeInTheDocument()
     expect(screen.getByText(/更换设备.*本地数据迁移/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '（未保存）原神' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '加入同步 原神' })).toBeDisabled()
@@ -646,6 +646,36 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
     fireEvent.click(card)
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+  })
+
+  it('shows the current backup state beside the folder name while editing', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('正在编辑：bilimi·音乐未备册')
+  })
+
+  it('shows an unbound state before the unsaved marker for a recovered remote draft', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
+      bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} unboundLedgerIds={['custom-remote-hello']} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）你好' }))
+
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('正在编辑：bilimi·你好未绑定')
+  })
+
+  it('includes the backup state in the favorite folder hover title', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bindingState: 'bound', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '音乐' })).toHaveAttribute('title', 'bilimi·音乐（已备册）')
   })
 
   it('persists a cross-row drag reorder as soon as the item is dropped', () => {

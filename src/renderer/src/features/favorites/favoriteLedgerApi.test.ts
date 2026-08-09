@@ -558,6 +558,47 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
   })
 
+  it('creates an unsaved local draft for an unconfigured remote bilimi folder', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([]))
+
+    expect(result.ok).toBe(true)
+    expect(result.missingLedgerIds).toEqual([])
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      displayName: 'bilimi·你好', keywords: [], ruleType: 'keyword', enabled: false, isDefault: false,
+      bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft'
+    })])
+  })
+
+  it('recognizes bilimi folders written with a space or without punctuation', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 89, title: 'bilimi 资料' },
+          { id: 90, title: 'bilimi知识' },
+          { id: 91, title: 'bilimini' }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([]))
+
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({ displayName: 'bilimi 资料', bilibiliFolderId: '89', syncState: 'local-draft' }),
+      expect.objectContaining({ displayName: 'bilimi知识', bilibiliFolderId: '90', syncState: 'local-draft' })
+    ])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([expect.objectContaining({ displayName: 'bilimini' })]))
+  })
+
   it('does not guess when multiple folders normalize to the same custom rule name', async () => {
     installCookies()
     const ledgers: FavoriteLedger[] = [{
@@ -799,6 +840,7 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers))
 
     expect(result.ok).toBe(true)
+    expect(result.message).toBe('收藏夹已备册。')
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:custom-bilimi'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
     expect(requests[1].body).toContain('csrf=csrf-token')

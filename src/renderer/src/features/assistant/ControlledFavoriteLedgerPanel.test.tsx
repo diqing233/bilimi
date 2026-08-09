@@ -10,6 +10,59 @@ function deferred<T>() {
 }
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('uses one backup flow for the toolbar and the收藏夹 backup action', async () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn().mockResolvedValue({ ok: true })
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={ensure}
+      onSyncLedgers={sync}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+    expect(ensure).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+  })
+
+  it('opens the same rebinding flow from the toolbar backup action', async () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        unboundCandidates: [{
+          ledgerId: 'music',
+          candidates: [{ id: 'remote-music', title: 'bilimi·音乐', memberCount: 4 }]
+        }]
+      })
+      .mockResolvedValueOnce({ ok: true })
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={ensure}
+      onSyncLedgers={sync}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+    const dialog = await screen.findByRole('dialog', { name: '重新绑定 bilimi 收藏夹' })
+    expect(within(dialog).getByRole('button', { name: '确认绑定' })).toBeEnabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认绑定' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+    expect(sync).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: 'music' })],
+      { deleteDisabled: false, rebindRemoteFolderIds: { music: 'remote-music' } }
+    )
+    expect(ensure).not.toHaveBeenCalled()
+  })
+
   it('keeps the independent deletion mode open after its temporary selection reaches the parent', async () => {
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"

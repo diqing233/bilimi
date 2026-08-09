@@ -124,9 +124,9 @@ function sharedScriptHelpers(): string {
     const findFolderId = (folder) => folder?.id ?? folder?.fid;
     const normalizeFolderTitle = (title) => String(title || '')
       .trim()
-      .replace(/^bilimi\s*[·:：\-]?\s*/iu, '')
+      .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
-    const isBilimiManagedFolder = (folder) => /^bilimi\s*[·.：:-]/iu.test(String(folder?.title || '').trim());
+    const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
       return folders
@@ -176,6 +176,42 @@ function sharedScriptHelpers(): string {
     const collectUnboundCandidates = (ledgers, folders) => ledgers
       .filter((ledger) => ledger.bindingState === 'unbound')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
+    const stableRemoteDraftLedgerId = (title) => {
+      let hash = 2166136261;
+      for (const character of String(title || '').trim().normalize('NFKC').toLocaleLowerCase()) {
+        hash ^= character.codePointAt(0) || 0;
+        hash = Math.imul(hash, 16777619);
+      }
+      return 'custom-remote-' + (hash >>> 0).toString(36);
+    };
+    const appendRemoteOnlyDrafts = (ledgers, folders) => {
+      const nextLedgers = [...ledgers];
+      const knownTitles = new Set(nextLedgers.map((ledger) => normalizeFolderTitle(ledger.displayName)));
+      const seenTitles = new Set();
+      let priority = nextLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
+      for (const folder of folders) {
+        if (!isBilimiManagedFolder(folder)) continue;
+        const folderId = findFolderId(folder);
+        const displayName = String(folder.title || '').trim();
+        const normalizedTitle = normalizeFolderTitle(displayName);
+        if (!folderId || !displayName || !normalizedTitle || knownTitles.has(normalizedTitle) || seenTitles.has(normalizedTitle)) continue;
+        seenTitles.add(normalizedTitle);
+        const id = stableRemoteDraftLedgerId(normalizedTitle);
+        nextLedgers.push({
+          id,
+          displayName,
+          keywords: [],
+          ruleType: 'keyword',
+          enabled: false,
+          priority: priority++,
+          bilibiliFolderId: String(folderId),
+          bindingState: 'unbound',
+          syncState: 'local-draft',
+          isDefault: false
+        });
+      }
+      return nextLedgers;
+    };
   `
 }
 
@@ -194,7 +230,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
-      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const nextLedgers = appendRemoteOnlyDrafts(syncLedgerFolderIds(payload.ledgers, folders), folders);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
         .map((ledger) => ledger.id);
@@ -346,7 +382,7 @@ export function buildSaveFavoriteLedgersScript(
           ledgers: payload.nextLedgers,
           steps: [],
           missingTargets: ['favorite-api-user'],
-          message: 'favorite credentials are unavailable'
+          message: 'B 站登录凭证不可用，请刷新 B 站页面后重试。'
         };
       }
 
@@ -405,7 +441,7 @@ export function buildSaveFavoriteLedgersScript(
         ledgers: nextLedgers,
         steps,
         missingTargets,
-        message: missingTargets.length === 0 ? 'favorite ledgers saved' : 'some favorite ledgers are still missing'
+        message: missingTargets.length === 0 ? '收藏夹已备册。' : '部分收藏夹尚未备册。'
       };
     })();
   `

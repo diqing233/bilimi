@@ -7,7 +7,7 @@ import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/c
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { AssistantActionButton } from './AssistantActionButton'
-import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
+import { FavoriteLedgerOverview, type FavoriteLedgerOverviewHandle } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { OldFavoriteModal } from './OldFavoriteModal'
@@ -175,6 +175,7 @@ export function ControlledFavoriteLedgerPanel({
   const [scanStarting, setScanStarting] = useState(false)
   const [ensuringLedgers, setEnsuringLedgers] = useState(false)
   const ensuringLedgersRef = useRef(false)
+  const favoriteLedgerOverviewRef = useRef<FavoriteLedgerOverviewHandle>(null)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const [confirmationPreparing, setConfirmationPreparing] = useState(false)
   const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
@@ -509,7 +510,9 @@ export function ControlledFavoriteLedgerPanel({
     setEnsuringLedgers(true)
     try {
       await waitForVisiblePaint()
-      const result = await onEnsureLedgers() as { ok?: boolean } | undefined
+      const result = (onSyncLedgers
+        ? await favoriteLedgerOverviewRef.current?.requestBackup()
+        : await onEnsureLedgers()) as { ok?: boolean } | undefined
       if (result?.ok !== false) await onOpenFavoritePage?.()
     } finally {
       ensuringLedgersRef.current = false
@@ -544,6 +547,7 @@ export function ControlledFavoriteLedgerPanel({
       </div>
 
       <FavoriteLedgerOverview
+        ref={favoriteLedgerOverviewRef}
         key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
         ledgers={displayedLedgersWithLiveEnabled}
         missingLedgerIds={missingLedgerIds}
