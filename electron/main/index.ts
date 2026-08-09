@@ -2228,9 +2228,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
     onAccountOpen: async (accountMid) => {
-      // A previous complete scan already contains the full remote inventory.
-      // Restore only its unique, complete Bilimi bindings before the drawer
-      // projects folders, so old managed folders do not reappear as ordinary.
+      // Validate pending/migrated bindings against the current remote inventory
+      // before any persisted scan projection is allowed to restore them.
+      await favoriteRepositoryBindingService!.reconcilePendingBindingsFromRemote(accountMid).catch(() => undefined)
+      // A previous complete scan can still restore local same-device bindings;
+      // imported bindings are pending until the live inventory check above has
+      // proved a unique matching remote folder.
       await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
       const store = getDesktopStore()
       await restoreFavoriteLibraryManagedFolderProjection({

@@ -417,6 +417,27 @@ export function restoreFavoriteRepositoryArchiveRecovery(value: unknown): Favori
     }
   }
   if (restored.recovery) {
+    // A portable archive carries the user's logical classification intent,
+    // never a current-device observation of Bilibili.  Keep every imported
+    // managed folder pending until this device reads the current remote
+    // inventory and finds one exact candidate.  This prevents a stale ID from
+    // being treated as a safe target after migration or a local-data reset.
+    const pendingLogicalLedgerIds = new Set(restored.recovery.physicalShards.map((shard) => shard.logicalLedgerId))
+    const folders = restored.recovery.folders
+      .filter((folder) => folder.kind !== 'bilibili')
+      .map((folder) => folder.kind === 'bilimi-logical' && pendingLogicalLedgerIds.has(folder.logicalLedgerId!)
+        ? { ...folder, syncState: 'pending-reconcile' as const, remoteFolderId: undefined }
+        : folder)
+    restored.recovery = {
+      ...restored.recovery,
+      folders,
+      memberships: Object.fromEntries(Object.entries(restored.recovery.memberships)
+        .filter(([folderId]) => folders.some((folder) => folder.id === folderId))),
+      physicalShards: restored.recovery.physicalShards.map((shard) => {
+        const { remoteFolderId: _remoteFolderId, ...pending } = shard
+        return { ...pending, bindingState: 'pending-reconcile' as const }
+      })
+    }
     restored.recovery.syncRecords = restored.recovery.syncRecords.map((record) => record.status === 'result-unknown'
       ? { ...record, status: 'reconciliation-required', autoRetry: false }
       : record)
@@ -994,7 +1015,7 @@ function isPortableRecoveryShard(value: unknown, folderIds: Set<string>, shardKe
   const shard = value as Record<string, unknown>
   const allowedKeys = new Set(['logicalLedgerId', 'folderId', 'shardNumber', 'remoteFolderId', 'remoteTitle', 'bindingState'])
   if (Object.keys(shard).some((key) => !allowedKeys.has(key)) || typeof shard.logicalLedgerId !== 'string' || !shard.logicalLedgerId.trim() ||
-    typeof shard.folderId !== 'string' || !folderIds.has(shard.folderId) ||
+    typeof shard.folderId !== 'string' || (!folderIds.has(shard.folderId) && !/^bilimi:\S+:\d{3}$/u.test(shard.folderId)) ||
     !Number.isSafeInteger(shard.shardNumber) || Number(shard.shardNumber) <= 0 || typeof shard.remoteTitle !== 'string' || !shard.remoteTitle.trim() ||
     !['bound', 'pending-reconcile'].includes(String(shard.bindingState)) ||
     (shard.bindingState === 'bound' && (typeof shard.remoteFolderId !== 'string' || !shard.remoteFolderId.trim())) ||
@@ -1451,9 +1472,7 @@ export function applyFavoriteRepositoryCommand(
     const existingLogical = folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
     if (existingLogical && existingLogical.title !== logicalTitle) throw new Error('Favorite repository logical ledger title is immutable.')
     if (!existingLogical) {
-      folders = [...folders, { id: `bilimi-logical:${logicalLedgerId}`, title: logicalTitle, kind: 'bilimi-logical', logicalLedgerId, syncState: bindingState }]
-    } else {
-      folders = folders.map((folder) => folder === existingLogical ? { ...folder, syncState: bindingState } : folder)
+      folders = [...folders, { id: `bilimi-logical:${logicalLedgerId}`, title: logicalTitle, kind: 'bilimi-logical', logicalLedgerId, syncState: 'pending-reconcile' }]
     }
     const existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === payload.shardNumber)
     if (existingShard?.remoteFolderId && remoteFolderId && existingShard.remoteFolderId !== remoteFolderId) {
@@ -1468,6 +1487,14 @@ export function applyFavoriteRepositoryCommand(
         ...(payload.remoteMemberCount !== undefined ? { remoteMemberCount: payload.remoteMemberCount } : {})
       }
     ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
+    const logicalSyncState = physicalShards
+      .filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+      .every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+      ? 'bound' as const
+      : 'pending-reconcile' as const
+    folders = folders.map((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId
+      ? { ...folder, syncState: logicalSyncState }
+      : folder)
     memberships = { ...memberships, [folderId]: uniquePositiveAids(payload.memberAids) }
     const logicalFolderId = `bilimi-logical:${logicalLedgerId}`
     const logicalMembers = new Set<number>()

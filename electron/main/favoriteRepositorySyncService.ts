@@ -816,6 +816,7 @@ export class FavoriteRepositorySyncService {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
+      if (!requestedLedgerIds.size) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-delete:${this.now()}`
       await this.bindPageTarget(account, runId)
       try {
@@ -888,6 +889,7 @@ export class FavoriteRepositorySyncService {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
+      if (!requestedLedgerIds.size) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-delete-preview:${this.now()}`
       await this.bindPageTarget(account, runId)
       try {

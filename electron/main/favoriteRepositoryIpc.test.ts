@@ -20,6 +20,21 @@ function deferred<T>() {
 }
 
 describe('registerFavoriteRepositoryIpc', () => {
+  it('exposes a read-only binding candidate preview and keeps adoption separate', async () => {
+    const ipcMain = new FakeIpcMain()
+    const previewLedgerBindingCandidates = vi.fn().mockResolvedValue([{ ledgerId: 'music', candidates: [] }])
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard: vi.fn(), previewLedgerBindingCandidates },
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:preview-ledger-binding-candidates', 7, '100', [
+      { ledgerId: 'music', title: 'bilimi·Music' }
+    ])).resolves.toEqual([{ ledgerId: 'music', candidates: [] }])
+    expect(previewLedgerBindingCandidates).toHaveBeenCalledWith('100', [{ ledgerId: 'music', title: 'bilimi·Music' }])
+  })
+
   it('adopts an explicitly selected remote ledger into the account repository', async () => {
     const ipcMain = new FakeIpcMain()
     const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'music' })

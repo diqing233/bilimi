@@ -1070,4 +1070,32 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(confirmations[1])
     expect(deleteButton).toBeEnabled()
   })
+
+  it('shows a confirmation dialog before deleting a local-only ledger', async () => {
+    const save = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'local-only', title: 'bilimi路鍦ㄦ湰', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
+        ]),
+        deleteManagedFavoriteFolders: vi.fn()
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
+      { id: 'local-only', displayName: 'bilimi路鍦ㄦ湰', keywords: [], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft' }
+    ]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(document.querySelector('.favorite-ledger-panel__mode-toggle')!)
+    fireEvent.click(document.querySelector('[data-testid="favorite-ledger-chip-local-only"] .favorite-ledger-panel__chip-action')!)
+    fireEvent.click(document.querySelector('[aria-label="备册收藏夹"]')!)
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toBeInTheDocument()
+    const deleteButton = dialog.querySelector('[data-variant="danger"]') as HTMLButtonElement
+    expect(deleteButton).toBeDisabled()
+    fireEvent.click(dialog.querySelector('input[type="checkbox"]')!)
+    expect(deleteButton).toBeEnabled()
+  })
 })

@@ -831,7 +831,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
   })
 
-  it('persists deletion of a custom ledger through the normal local save path', () => {
+  it('persists deletion of a custom ledger through the normal local save path after confirmation', () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
@@ -839,6 +839,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(dialog.querySelector('input[type="checkbox"]')!)
+    fireEvent.click(dialog.querySelector('[data-variant="danger"]')!)
 
     expect(save).toHaveBeenCalledWith([], { deleteDisabled: false })
     expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()

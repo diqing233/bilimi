@@ -1535,6 +1535,19 @@ export default function App() {
     return failures
   }
 
+  async function previewFavoriteLedgerBindingCandidates(accountMid: string, ledgers: FavoriteLedger[]) {
+    if (!window.bilimiDesktop?.previewFavoriteRepositoryLedgerBindingCandidates) return []
+    try {
+      return await window.bilimiDesktop.previewFavoriteRepositoryLedgerBindingCandidates(accountMid, ledgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId)
+        .map((ledger) => ({ ledgerId: ledger.id, title: ledger.displayName })))
+    } catch {
+      // The legacy page script remains the fallback when the runtime bridge is
+      // temporarily unavailable; a preview failure must not block normal backup.
+      return []
+    }
+  }
+
   async function readFavoriteLedgerStatus(
     accountMid = assistantSnapshotCacheRef.current.accountMid,
     options: { force?: boolean } = {}
@@ -1794,6 +1807,20 @@ export default function App() {
       accountMid,
       nextLedgers
     )
+
+    if (!options?.rebindRemoteFolderIds) {
+      const previewCandidates = await previewFavoriteLedgerBindingCandidates(accountMid, ledgersWithFormalBindings)
+      if (previewCandidates.length) {
+        return {
+          ok: false,
+          steps: ['favorite-repository:binding-preview'],
+          missingTargets: previewCandidates.map((entry) => entry.ledgerId),
+          unboundLedgerIds: previewCandidates.map((entry) => entry.ledgerId),
+          unboundCandidates: previewCandidates,
+          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的远端收藏夹。'
+        } as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+      }
+    }
 
     const result = await runScript(
       buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, options)

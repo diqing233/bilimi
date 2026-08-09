@@ -155,6 +155,47 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(createFolder).not.toHaveBeenCalled()
   })
 
+  it('reconciles pending bindings from the live page inventory on account open', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'pending-music', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'pending-reconcile' }
+    })
+    const readFolderInventory = vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+      { id: 'remote-music', title: 'bilimi·Music', memberCount: 4 }
+    ]})
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({ readFolderInventory, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }))
+      }
+    })
+
+    await service.reconcilePendingBindingsFromRemote('100')
+    expect(readFolderInventory).toHaveBeenCalledOnce()
+    expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music' })
+  })
+
+  it('previews remote rebinding candidates without adopting them', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+            { id: 'remote-music', title: 'bilimi·Music', memberCount: 4 }
+          ]}), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.previewLedgerBindingCandidates('100', [{ ledgerId: 'music', title: 'bilimi·Music' }])).resolves.toEqual([
+      { ledgerId: 'music', candidates: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 4 }] }
+    ])
+  })
+
   it('reclaims a saved remote id after a reset retained its prior binding command result', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({

@@ -168,6 +168,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTarget, setDragTarget] = useState<string | null>(null)
+  const backupInFlightRef = useRef<Promise<unknown> | null>(null)
   const draftMutationLocked = Boolean(draftRuleAnalysis)
   const recoveredRemoteDrafts = draftLedgers.filter((ledger) =>
     ledger.syncState === 'local-draft' && Boolean(ledger.bilibiliFolderId) && !ledger.enabled)
@@ -519,18 +520,28 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setNewLedger(false)
   }
   const requestBackup = async () => {
-    if (draftMutationLocked) return undefined
-    const currentLedgers = projectEnabled(draftLedgers)
-    const result = await onSyncLedgers(currentLedgers, { deleteDisabled: false }) as {
-      unboundCandidates?: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }>
-    } | undefined
-    if (result?.unboundCandidates?.length) {
-      setRebindCandidates(result.unboundCandidates)
-      setRebindSelections(Object.fromEntries(result.unboundCandidates
-        .filter((entry) => entry.candidates.length === 1)
-        .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+    if (draftMutationLocked) return { ok: false, message: '当前收藏夹规则分析尚未完成，暂不能备册。' }
+    if (backupInFlightRef.current) return backupInFlightRef.current
+    const operation = (async () => {
+      const currentLedgers = projectEnabled(draftLedgers)
+      const result = await onSyncLedgers(currentLedgers, { deleteDisabled: false }) as {
+        ok?: boolean
+        unboundCandidates?: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }>
+      } | undefined
+      if (result?.unboundCandidates?.length) {
+        setRebindCandidates(result.unboundCandidates)
+        setRebindSelections(Object.fromEntries(result.unboundCandidates
+          .filter((entry) => entry.candidates.length === 1)
+          .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+      }
+      return result
+    })()
+    backupInFlightRef.current = operation
+    try {
+      return await operation
+    } finally {
+      if (backupInFlightRef.current === operation) backupInFlightRef.current = null
     }
-    return result
   }
   useImperativeHandle(ref, () => ({ requestBackup }))
 
@@ -546,20 +557,28 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const requestManagedDeletion = async (ledgerIds: string[]) => {
     if (draftMutationLocked) return
     const deletedIds = new Set(ledgerIds)
-    const deletingOnlyLocalLedgers = ledgerIds.length > 0 && ledgerIds.every((ledgerId) => {
+    if (!deletedIds.size) {
+      setDeletionError('请选择至少一个 bilimi 收藏夹后再删除。')
+      return
+    }
+    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
+    const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
+    const selectedLocalOnly = ledgerIds.every((ledgerId) => {
       const ledger = draftLedgers.find((item) => item.id === ledgerId)
       return Boolean(ledger) && !ledger.bilibiliFolderId && ledger.bindingState !== 'unbound'
     })
-    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
-    const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
     try {
       const candidates = accountMid && ledgerIds.length
         ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(accountMid, ledgerIds, ledgerTitleHints)
-        : []
-      if (!candidates?.length && deletingOnlyLocalLedgers) {
-        finalizeLedgerDeletion(deletedIds)
-        return
-      }
+        : selectedLocalOnly
+          ? ledgerIds.map((logicalLedgerId) => ({
+            logicalLedgerId,
+            title: draftLedgers.find((ledger) => ledger.id === logicalLedgerId)?.displayName ?? logicalLedgerId,
+            memberCount: 0,
+            state: 'local-only' as const,
+            requiresUnboundAcknowledgement: false
+          }))
+          : []
       setDeletionError(candidates?.length ? null : '没有可删除的 bilimi 收藏夹；请检查当前帐号和收藏夹状态后重试。')
       setDeletionCandidates(candidates ?? [])
     } catch (error) {
@@ -583,9 +602,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const confirmManagedDeletion = async () => {
     if (draftMutationLocked) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
-    if (!accountMid || !deletionCandidates || !deletionConfirmed ||
+    if (!deletionCandidates || !deletionConfirmed ||
       (deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)) return
     const deletedIds = new Set(deletionCandidates.map((candidate) => candidate.logicalLedgerId))
+    if (deletionCandidates.length > 0 && deletionCandidates.every((candidate) => candidate.state === 'local-only' && !candidate.remoteFolderId)) {
+      finalizeLedgerDeletion(deletedIds)
+      return
+    }
+    if (!accountMid) {
+      setDeletionError('当前没有可用的 B 站账户，无法核验远端收藏夹。')
+      return
+    }
     setDeletionExecuting(true)
     setDeletionError(null)
     try {

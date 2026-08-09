@@ -114,6 +114,11 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
   return { logicalLedgerId, logicalTitle, memberAids, remoteFolderId, title, inventory, remote }
 }
 
+export type FavoriteRepositoryLedgerBindingCandidate = {
+  ledgerId: string
+  candidates: Array<{ id: string; title: string; memberCount: number }>
+}
+
 function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
   const logicalLedgerId = input.logicalLedgerId.trim()
   const logicalTitle = input.logicalTitle.trim()
@@ -396,6 +401,60 @@ export class FavoriteRepositoryBindingService {
       })
     }
     return this.getBindings(account)
+  }
+
+  /** Reads the current Bilibili inventory before accepting migrated/pending bindings. */
+  async reconcilePendingBindingsFromRemote(accountMid: string) {
+    const account = normalizedAccountMid(accountMid)
+    const run = async () => {
+      const pageBridgeManager = this.options.pageBridgeManager
+      if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+      const runId = `favorite-binding-reconcile:${account}:${randomUUID()}`
+      await pageBridgeManager.bind(account, runId)
+      try {
+        const inventory = await pageBridgeManager.pageBridge(account, runId).readFolderInventory({
+          accountMid: account, operationKey: `${runId}:inventory`
+        })
+        if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+          throw new Error('Favorite repository remote account mismatch.')
+        }
+        return this.reconcilePendingBindings(account, {
+          observedAccountMid: inventory.observedAccountMid,
+          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+        })
+      } finally {
+        pageBridgeManager.release(account, runId)
+      }
+    }
+    return this.options.remoteOperations?.run(account, run) ?? run()
+  }
+
+  /** Read-only candidate preview; adoption still requires an explicit remote id. */
+  async previewLedgerBindingCandidates(accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>): Promise<FavoriteRepositoryLedgerBindingCandidate[]> {
+    const account = normalizedAccountMid(accountMid)
+    if (!Array.isArray(ledgers) || !ledgers.length) return []
+    const run = async () => {
+      const pageBridgeManager = this.options.pageBridgeManager
+      if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+      const runId = `favorite-binding-preview:${account}:${randomUUID()}`
+      await pageBridgeManager.bind(account, runId)
+      try {
+        const inventory = await pageBridgeManager.pageBridge(account, runId).readFolderInventory({
+          accountMid: account, operationKey: `${runId}:inventory`
+        })
+        if (normalizedAccountMid(inventory.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
+        const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
+        return ledgers.map((ledger) => ({
+          ledgerId: ledger.ledgerId.trim(),
+          candidates: inventory.folders
+            .filter((folder) => normalize(folder.title) === normalize(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
+            .map((folder) => ({ id: folder.id, title: folder.title, memberCount: folder.memberCount }))
+        })).filter((entry) => entry.ledgerId && entry.candidates.length)
+      } finally {
+        pageBridgeManager.release(account, runId)
+      }
+    }
+    return this.options.remoteOperations?.run(account, run) ?? run()
   }
 
   private now() {

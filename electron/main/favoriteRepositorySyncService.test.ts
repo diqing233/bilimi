@@ -53,6 +53,21 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositorySyncService', () => {
+  it('rejects an empty managed-folder deletion preview and deletion request', async () => {
+    const repository = await createRepository()
+    const readFolderInventory = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', [])).rejects.toThrow('selection is empty')
+    await expect(service.deleteManagedFolders('100', [])).rejects.toThrow('selection is empty')
+    expect(readFolderInventory).not.toHaveBeenCalled()
+  })
+
   it('synchronizes a saved local placement through the per-account remote arbiter and projects the confirmed physical fact', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

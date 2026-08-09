@@ -21,6 +21,25 @@ const snapshot = {
 }
 
 describe('old favorite workspace coordinator IPC', () => {
+  it('rejects empty managed-folder deletion requests before invoking the coordinator', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      previewManagedFolderDeletion: vi.fn(),
+      deleteManagedFolderCandidates: vi.fn()
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', 7, '100', []))
+      .rejects.toThrow('selection is empty')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:delete-managed-folders', 7, '100', []))
+      .rejects.toThrow('selection is empty')
+    expect(coordinator.previewManagedFolderDeletion).not.toHaveBeenCalled()
+    expect(coordinator.deleteManagedFolderCandidates).not.toHaveBeenCalled()
+  })
+
   it('opens only the current account and returns a compact current-segment snapshot', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = { getSnapshot: vi.fn().mockResolvedValue(snapshot) }

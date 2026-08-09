@@ -408,6 +408,10 @@ export function registerFavoriteRepositoryIpc(options: {
       shardNumber: number
       memberAids: number[]
     }) => Promise<unknown>
+    previewLedgerBindingCandidates?: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) => Promise<Array<{
+      ledgerId: string
+      candidates: Array<{ id: string; title: string; memberCount: number }>
+    }>>
   }
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpen?: (accountMid: string) => Promise<void>
@@ -519,6 +523,26 @@ export function registerFavoriteRepositoryIpc(options: {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
       remoteFolderId, shardNumber: 1, memberAids: []
     })
+  })
+  options.ipcMain.handle('favorite-repository:preview-ledger-binding-candidates', async (event, requestedAccountMid: string, requestedLedgers: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.bindingService?.previewLedgerBindingCandidates || !Array.isArray(requestedLedgers) || !requestedLedgers.length || requestedLedgers.length > 100) {
+      throw new Error('Favorite repository binding preview is invalid.')
+    }
+    const ledgers = requestedLedgers.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Favorite repository binding preview is invalid.')
+      const ledger = value as { ledgerId?: unknown; title?: unknown }
+      const ledgerId = typeof ledger.ledgerId === 'string' ? ledger.ledgerId.trim() : ''
+      const title = typeof ledger.title === 'string' ? ledger.title.trim() : ''
+      if (!ledgerId || !title) throw new Error('Favorite repository binding preview is invalid.')
+      return { ledgerId, title }
+    })
+    if (new Set(ledgers.map((ledger) => ledger.ledgerId)).size !== ledgers.length) {
+      throw new Error('Favorite repository binding preview is invalid.')
+    }
+    return options.bindingService.previewLedgerBindingCandidates(accountMid, ledgers)
   })
   const issueRestoreToken = (
     tokens: Map<string, ArchiveRestorePreviewToken>,
