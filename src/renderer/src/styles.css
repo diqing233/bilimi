@@ -1892,19 +1892,18 @@ body[data-floating-window="true"],
   z-index: 3;
   margin: 0;
   min-width: 0;
-  color: #f8fbff;
+  color: var(--porcelain-deep);
   font-size: 12px;
   font-weight: 700;
   line-height: 18px;
-  background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);
+  background: rgba(247, 251, 255, 0.98);
 }
 .floating-assistant-global-status__feedback-message {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .floating-assistant-global-status__feedback[data-expanded="true"] {
   box-shadow: 0 6px 12px rgba(45, 94, 139, 0.12);
@@ -1917,7 +1916,7 @@ body[data-floating-window="true"],
 }
 .floating-assistant-global-status__feedback[data-continuation-visible="true"],
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation {
-  background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);
+  background: rgba(247, 251, 255, 0.98);
 }
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
   text-overflow: clip;
@@ -1939,7 +1938,7 @@ body[data-floating-window="true"],
   cursor: pointer;
 }
 .floating-assistant-global-status__feedback-toggle:hover,
-.floating-assistant-global-status__feedback-toggle:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
+.floating-assistant-global-status__feedback-toggle:focus-visible { background: rgba(220, 238, 255, 0.72); outline: none; }
 .floating-assistant-global-status__feedback-chevron {
   display: block;
   width: 16px;
@@ -1958,8 +1957,8 @@ body[data-floating-window="true"],
   left: 0;
   box-sizing: border-box;
   padding: 0 10px 6px;
-  background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);
-  color: #f8fbff;
+  background: rgba(247, 251, 255, 0.98);
+  color: var(--porcelain-deep);
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
   font-size: 12px;
   font-weight: 700;
