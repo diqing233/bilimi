@@ -1912,11 +1912,6 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__feedback[data-expanded="true"] {
   box-shadow: 0 6px 12px rgba(45, 94, 139, 0.12);
 }
-.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message {
-  display: block;
-  overflow: visible;
-  -webkit-line-clamp: unset;
-}
 .floating-assistant-global-status__feedback[data-continuation-visible="true"],
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation {
   background: rgba(247, 251, 255, 0.98);

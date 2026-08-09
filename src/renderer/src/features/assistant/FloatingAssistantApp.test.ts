@@ -273,13 +273,13 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(light).toContain('resizeObserver.disconnect()')
   })
 
-  it('expands the feedback row itself and keeps the menu free of duplicate current feedback', () => {
+  it('keeps the feedback row clamped and removes only the menu current-feedback section', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('createPersistentStatusTasks({')
     expect(source).toContain('className="floating-assistant-global-status__menu"')
-    expect(source).toContain('const recentGlobalFeedbackHistory = globalFeedbackHistory.filter((item) => item.message !== displayedGlobalFeedbackMessage)')
-    expect(source).toContain('recentGlobalFeedbackHistory.length > 0 ? recentGlobalFeedbackHistory.map((item) => (')
+    expect(source).toContain('globalFeedbackHistory.length > 0 ? globalFeedbackHistory.map((item) => (')
+    expect(source).not.toContain('recentGlobalFeedbackHistory')
     expect(source).not.toContain('className="floating-assistant-global-status__menu-message"')
     expect(source).not.toContain('<strong>当前提示</strong>')
     expect(source).toContain('后台任务')

@@ -3378,7 +3378,6 @@ export function FloatingAssistantApp({
   }, [activeTab, hasBilibiliPageOpen, hasMissingFavoriteLedgers])
   const displayedGlobalFeedbackMessage =
     temporaryGlobalFeedbackMessage || globalFeedbackMessage || readinessFeedbackMessage
-  const recentGlobalFeedbackHistory = globalFeedbackHistory.filter((item) => item.message !== displayedGlobalFeedbackMessage)
 
   const updateGlobalFeedbackContinuation = useCallback(() => {
     const messageElement = globalFeedbackMessageRef.current
@@ -5031,7 +5030,7 @@ export function FloatingAssistantApp({
                   </section>
                   <section>
                     <strong>最近提示</strong>
-                    {recentGlobalFeedbackHistory.length > 0 ? recentGlobalFeedbackHistory.map((item) => (
+                    {globalFeedbackHistory.length > 0 ? globalFeedbackHistory.map((item) => (
                       <p key={`${item.occurredAt}:${item.message}`}><time>{new Date(item.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time><span>{item.message}{item.count > 1 ? ` ×${item.count}` : ''}</span></p>
                     )) : <p>本次启动暂无其他提示。</p>}
                   </section>
