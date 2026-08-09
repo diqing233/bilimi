@@ -252,6 +252,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
+    expect(source).toContain("style.whiteSpace !== 'nowrap'")
     expect(source).toContain('measure(displayedGlobalFeedbackMessage) <= messageElement.clientWidth')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(!nextExpanded)')

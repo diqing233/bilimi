@@ -3387,6 +3387,11 @@ export function FloatingAssistantApp({
       return
     }
     const style = window.getComputedStyle(messageElement)
+    if (style.whiteSpace !== 'nowrap') {
+      setGlobalFeedbackVisiblePrefix('')
+      setGlobalFeedbackContinuation('')
+      return
+    }
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d')
     if (!context) return
