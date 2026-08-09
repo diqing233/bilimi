@@ -1871,9 +1871,9 @@ body[data-floating-window="true"],
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 .floating-assistant-global-status {
-  min-height: 88px;
+  min-height: 76px;
   display: grid;
-  grid-template-rows: minmax(54px, auto) 34px;
+  grid-template-rows: minmax(42px, auto) 34px;
   gap: 0;
   padding: 0;
   border-bottom: 0;
@@ -1928,12 +1928,12 @@ body[data-floating-window="true"],
   background: transparent;
   width: 100%;
   min-width: 0;
-  min-height: 54px;
+  min-height: 42px;
   box-sizing: border-box;
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  padding: 7px 6px 7px 10px;
+  padding: 3px 6px 3px 10px;
   color: inherit;
   font: inherit;
   line-height: inherit;
@@ -7232,6 +7232,9 @@ body[data-floating-window="true"],
   line-height: 1.5;
   display: block;
   padding-left: 0;
+}
+.assistant-settings__group--bilibili-connection > p {
+  margin: 0;
 }
 .assistant-settings__inline-options {
   display: flex;

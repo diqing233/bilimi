@@ -418,7 +418,7 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 88px; display: grid; grid-template-rows: minmax(54px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
     expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: var(--porcelain-deep); font-size: 12px; font-weight: 700; line-height: 18px; background: rgba(247, 251, 255, 0.98);')
     expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
@@ -1191,9 +1191,9 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('reserves two lines for the global feedback and keeps its chevron out of the text column', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 88px; display: grid; grid-template-rows: minmax(54px, auto) 34px;')
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
-    expectStyleSnippet('.floating-assistant-global-status__feedback-toggle { appearance: none; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 54px; box-sizing: border-box;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-toggle { appearance: none; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; flex: 0 0 16px; width: 16px; height: 16px; margin: 0;')
   })
 
@@ -1201,6 +1201,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__group .assistant-settings__bilibili-connection-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: start; min-height: 0;')
     expectStyleSnippet('.assistant-settings__bilibili-connection-choice-copy { display: grid; min-width: 0; gap: 2px;')
     expectStyleSnippet('.assistant-settings__bilibili-connection-choice small { color: var(--porcelain-muted); font-size: 12px; line-height: 1.5; display: block; padding-left: 0;')
+    expectStyleSnippet('.assistant-settings__group--bilibili-connection > p { margin: 0;')
   })
 })
 
