@@ -100,7 +100,7 @@ const ORGANIZING_GUIDE_HINTS: OrganizingGuideHint[] = [
   { label: '③ 归档预览：', detail: [{ text: '检查分类结果，本地分类能力有限，未匹配到合适分类和把握不太稳的视频，建议用 DeepSeek 辅助整理，也可手动调整转移。可以在上方收藏夹区域编辑或者新增，归档预览会重新计算。' }] },
   { label: '④ 确认执行：', detail: [{ text: '前面三步都是打草稿，最后一步来执行', body: true }] },
   { label: '保存在收藏库：', detail: [{ text: '适合视频较多的情况，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。', body: true }] },
-  { label: '同步到 B 站（较慢）：', detail: [{ text: '会先保存在收藏库再依次执行，整理草稿锁定后不可修改，后续可以去收藏库调整。' }] },
+  { label: '同步到 B 站（较慢）：', detail: [{ text: '会先保存在收藏库再依次执行，如有勾选未备册的收藏夹会同时备册，整理草稿锁定后不可修改，后续可以去收藏库调整。' }] },
   { label: '暂不同步结束整理：', detail: [{ text: '可以选择先保留整理草稿，或者删除草稿结束本轮整理。' }] }
 ]
 function segmentReadinessLabel(segment: Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }>['segments'][number]) {

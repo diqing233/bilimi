@@ -12,6 +12,12 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(source).toContain('resizeObserver?.observe(guideHintPanelRef.current)')
   })
 
+  it('explains that selected unbacked folders are backed up during Bilibili sync', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/OldFavoriteGuide.tsx'), 'utf8')
+
+    expect(source).toContain('如有勾选未备册的收藏夹会同时备册')
+  })
+
   it('shows the complete organizing reminder in both the guide tooltip and expanded instructions', () => {
     window.localStorage.removeItem('bilimi:old-favorite-hint-open')
 
