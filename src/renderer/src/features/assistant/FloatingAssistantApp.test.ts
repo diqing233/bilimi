@@ -273,13 +273,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(light).toContain('resizeObserver.disconnect()')
   })
 
-  it('expands global feedback into complete text, live tasks, and recent transient history without a current-prompt heading', () => {
+  it('expands the feedback row itself and keeps the menu free of duplicate current feedback', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('createPersistentStatusTasks({')
     expect(source).toContain('className="floating-assistant-global-status__menu"')
-    expect(source).toContain('className="floating-assistant-global-status__menu-message"')
-    expect(source).toContain('{displayedGlobalFeedbackMessage}</p>')
+    expect(source).toContain('const recentGlobalFeedbackHistory = globalFeedbackHistory.filter((item) => item.message !== displayedGlobalFeedbackMessage)')
+    expect(source).toContain('recentGlobalFeedbackHistory.length > 0 ? recentGlobalFeedbackHistory.map((item) => (')
+    expect(source).not.toContain('className="floating-assistant-global-status__menu-message"')
     expect(source).not.toContain('<strong>当前提示</strong>')
     expect(source).toContain('后台任务')
     expect(source).toContain('当前没有后台任务')
