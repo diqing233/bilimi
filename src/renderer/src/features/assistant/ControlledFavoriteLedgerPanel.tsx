@@ -19,6 +19,8 @@ type ControlledFavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
+  remoteOnlyDraftLedgerIds?: string[]
+  onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
   defaultFavoriteSystemEnabled?: boolean
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
@@ -116,6 +118,8 @@ export function ControlledFavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
   unboundLedgerIds,
+  remoteOnlyDraftLedgerIds = [],
+  onDismissRemoteDraftReminder,
   defaultFavoriteSystemEnabled,
   onEnsureLedgers,
   onSaveLedgers,
@@ -552,6 +556,8 @@ export function ControlledFavoriteLedgerPanel({
         ledgers={displayedLedgersWithLiveEnabled}
         missingLedgerIds={missingLedgerIds}
         unboundLedgerIds={unboundLedgerIds}
+        remoteOnlyDraftLedgerIds={remoteOnlyDraftLedgerIds}
+        onDismissRemoteDraftReminder={onDismissRemoteDraftReminder}
         organizationActive={Boolean(activeSnapshot && activeSnapshot.status !== 'completed')}
         hasExpandedOrganizationGuide={guideOpen}
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}

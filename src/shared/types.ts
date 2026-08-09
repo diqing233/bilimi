@@ -230,6 +230,8 @@ export type FavoriteLedgerStatus = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
   unboundLedgerIds?: FavoriteLedgerId[]
+  /** Remote-only Bilimi drafts found on Bilibili but not configured locally. */
+  remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   unboundCandidates?: Array<{
     ledgerId: FavoriteLedgerId
     candidates: Array<{ id: string; title: string; memberCount: number }>

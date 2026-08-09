@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
@@ -756,6 +756,34 @@ describe('resolveFavoriteOrganizationLamp', () => {
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
     })).toMatchObject({ label: '\u6574\u7406\u626b\u63cf\u4e2d', tone: 'running' })
+  })
+
+  it('offers a per-remote-folder reminder dismissal for a remote-only bilimi draft', () => {
+    const onDismiss = vi.fn()
+    const draft: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi\u00b7\u4f60\u597d', keywords: [], enabled: false,
+      priority: 20_000, bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }
+    const status = resolveFavoriteOrganizationLamp({
+      snapshot: null,
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [draft],
+      favoriteLedgerStatus: {
+        ok: true,
+        ledgers: [draft],
+        missingLedgerIds: [],
+        unboundLedgerIds: [],
+        remoteOnlyDraftLedgerIds: ['custom-remote-hello'],
+        message: 'remote-only',
+      },
+      onDismissRemoteDraftReminder: onDismiss
+    })
+
+    expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
+    expect(status.detail).toContain('\u53d1\u73b0 B \u7ad9\u7591\u4f3c bilimi \u6536\u85cf\u5939')
+    expect(status.detailAction).toMatchObject({ label: '\u4e0d\u518d\u63d0\u9192' })
+    status.detailAction?.onClick()
+    expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello')
   })
 
   it.each([

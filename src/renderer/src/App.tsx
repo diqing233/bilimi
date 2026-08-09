@@ -1570,8 +1570,9 @@ export default function App() {
       accountMid,
       favoriteLedgers
     )
+    const dismissedRemoteDraftReminderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? []
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates)
+      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates, dismissedRemoteDraftReminderIds)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
@@ -1584,6 +1585,7 @@ export default function App() {
         backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
         unboundLedgerIds: status.unboundLedgerIds ?? [],
         unboundCandidates: status.unboundCandidates ?? [],
+        remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds ?? [],
         message: status.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
@@ -1685,6 +1687,7 @@ export default function App() {
           : [],
         unboundLedgerIds: Array.isArray(result.unboundLedgerIds) ? result.unboundLedgerIds : [],
         unboundCandidates: Array.isArray(result.unboundCandidates) ? result.unboundCandidates : [],
+        remoteOnlyDraftLedgerIds: Array.isArray(result.remoteOnlyDraftLedgerIds) ? result.remoteOnlyDraftLedgerIds : [],
         message: result.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = favoriteLedgerStatus

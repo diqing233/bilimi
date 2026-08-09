@@ -109,6 +109,8 @@ export type AssistantPreferences = {
 export type DesktopStoreState = AssistantPreferences & {
   /** Device-local opt-outs for automatic work-folder adoption by Bilibili UID. */
   favoriteLibraryDismissedRemoteFolderIdsByAccount: Record<string, string[]>
+  /** Device-local opt-outs for the remote-only Bilimi draft reminder by Bilibili UID. */
+  favoriteLedgerRemoteDraftReminderDismissedByAccount: Record<string, string[]>
   deepseekApiKey: string
   deepseekApiKeyEncrypted: string
   videoNotes: VideoNote[]
@@ -309,6 +311,7 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
   closeChoiceMigrationVersion: 0,
   favoriteLibraryDismissedRemoteFolderIdsByAccount: {},
+  favoriteLedgerRemoteDraftReminderDismissedByAccount: {},
   deepseekApiKey: '',
   deepseekApiKeyEncrypted: '',
   videoNotes: [],
@@ -899,6 +902,33 @@ export function dismissFavoriteLibraryRemoteFolder(
   const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLibraryDismissedRemoteFolderIdsByAccount'))
   const next = [...new Set([...(current[account] ?? []), folderId])].sort()
   store.set('favoriteLibraryDismissedRemoteFolderIdsByAccount', { ...current, [account]: next })
+}
+
+export function isFavoriteLedgerRemoteDraftReminderDismissed(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) return false
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))[account]?.includes(folderId) ?? false
+}
+
+export function loadFavoriteLedgerRemoteDraftReminderDismissals(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))[account] ?? []
+}
+
+export function dismissFavoriteLedgerRemoteDraftReminder(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) throw new Error('Favorite ledger remote draft reminder folder is invalid.')
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))
+  const next = [...new Set([...(current[account] ?? []), folderId])].sort()
+  store.set('favoriteLedgerRemoteDraftReminderDismissedByAccount', { ...current, [account]: next })
 }
 
 /** Reads a durable account setting instead of accepting a renderer-owned projection. */

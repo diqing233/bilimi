@@ -575,6 +575,22 @@ describe('favorite ledger API scripts', () => {
       displayName: 'bilimi·你好', keywords: [], ruleType: 'keyword', enabled: false, isDefault: false,
       bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft'
     })])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
+  })
+
+  it('does not recreate a dismissed remote-only draft reminder for the same remote folder', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([], ['88']))
+
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.ledgers).toEqual([])
   })
 
   it('recognizes bilimi folders written with a space or without punctuation', async () => {

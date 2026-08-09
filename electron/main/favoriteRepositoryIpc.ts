@@ -419,6 +419,9 @@ export function registerFavoriteRepositoryIpc(options: {
   getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
   /** Hides an ordinary remote mirror from this local library; never writes to Bilibili. */
   dismissOrdinaryFolder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
+  /** Suppresses only the remote-only Bilimi draft reminder for this account and remote folder. */
+  getRemoteDraftReminderDismissed?: (accountMid: string) => readonly string[]
+  dismissRemoteDraftReminder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
@@ -656,6 +659,20 @@ export function registerFavoriteRepositoryIpc(options: {
     const result = await options.dismissOrdinaryFolder(accountMid, folder.remoteFolderId)
     options.service.invalidateLibraryReadCache(accountMid)
     return result
+  })
+  options.ipcMain.handle('favorite-repository:get-remote-draft-reminder-dismissals', async (event, requestedAccountMid: string) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.getRemoteDraftReminderDismissed?.(accountMid) ?? []
+  })
+  options.ipcMain.handle('favorite-repository:dismiss-remote-draft-reminder', async (event, requestedAccountMid: string, requestedRemoteFolderId: string) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.dismissRemoteDraftReminder) throw new Error('Favorite ledger remote draft reminder is unavailable.')
+    if (typeof requestedRemoteFolderId !== 'string' || !requestedRemoteFolderId.trim()) throw new Error('Favorite ledger remote draft reminder folder is invalid.')
+    return options.dismissRemoteDraftReminder(accountMid, requestedRemoteFolderId.trim())
   })
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions

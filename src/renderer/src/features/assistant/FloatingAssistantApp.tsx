@@ -346,6 +346,7 @@ type GlobalStatusItem = {
   detail: string
   menuDetail?: string
   tone: GlobalStatusTone
+  detailAction?: { label: string; onClick: () => void }
 }
 
 const ORGANIZATION_COPY_REMINDER = '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
@@ -379,8 +380,24 @@ function GlobalStatusLight({
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const hideTimerRef = useRef<number | null>(null)
   const tooltipId = `floating-assistant-status-tooltip-${id}`
   useEffect(() => { if (suppressed) setVisible(false) }, [suppressed])
+  useEffect(() => () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current)
+  }, [])
+  const showTooltip = () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = null
+    if (!suppressed) setVisible(true)
+  }
+  const hideTooltip = () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = window.setTimeout(() => {
+      hideTimerRef.current = null
+      setVisible(false)
+    }, item.detailAction ? 180 : 0)
+  }
   useLayoutEffect(() => {
     if (!visible || suppressed) return
     const updatePosition = () => {
@@ -422,8 +439,8 @@ function GlobalStatusLight({
       data-tone={item.tone}
       aria-label={ariaLabel}
       aria-describedby={visible ? tooltipId : undefined}
-      onMouseEnter={() => { if (!suppressed) setVisible(true) }}
-      onMouseLeave={() => setVisible(false)}
+      onMouseEnter={showTooltip}
+      onMouseLeave={hideTooltip}
       onFocus={() => { if (!suppressed) setVisible(true) }}
       onBlur={() => setVisible(false)}
       onClick={onOpen}
@@ -431,8 +448,9 @@ function GlobalStatusLight({
       <span className="floating-assistant-global-status__dot" aria-hidden="true" />
       <span className="floating-assistant-global-status__light-label">{item.label}</span>
     </button>
-    {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip" style={position}>
-      {statusLightTooltip(item)}
+    {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip" style={position} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
+      <span className="floating-assistant-global-status__light-tooltip-copy">{statusLightTooltip(item)}</span>
+      {item.detailAction ? <button type="button" className="floating-assistant-global-status__light-tooltip-action" onClick={item.detailAction.onClick}>{item.detailAction.label}</button> : null}
     </div>, document.body) : null}
   </>
 }
@@ -461,6 +479,8 @@ type LedgerWorkspacePanelProps = {
   openOrganizationRequestVersion: number
   openOrganizationSelectionAids?: number[]
   openOrganizationSelection?: FavoriteLibraryWorkspaceSelection
+  remoteOnlyDraftLedgerIds?: string[]
+  onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
 }
 
 const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel(props: LedgerWorkspacePanelProps) {
@@ -606,6 +626,7 @@ export function resolveFavoriteOrganizationLamp(args: {
   defaultFavoriteSystemEnabled: boolean
   ledgers: FavoriteLedger[]
   favoriteLedgerStatus: FavoriteLedgerStatus | null
+  onDismissRemoteDraftReminder?: (ledgerId: string) => void
 }): GlobalStatusItem {
   if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
     return {
@@ -626,6 +647,17 @@ export function resolveFavoriteOrganizationLamp(args: {
   }
 
   const backupGap = favoriteLedgerBackupGap(args.ledgers)
+  if (args.favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.length) {
+    const draftIds = args.favoriteLedgerStatus.remoteOnlyDraftLedgerIds
+    return {
+      label: '未绑定',
+      detail: favoriteOrganizationDetail('发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。', `还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`),
+      detailAction: args.onDismissRemoteDraftReminder
+        ? { label: '不再提醒', onClick: () => args.onDismissRemoteDraftReminder?.(draftIds[0]) }
+        : undefined,
+      tone: 'warn'
+    }
+  }
   if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
     return {
       label: '未绑定',
@@ -2803,6 +2835,25 @@ export function FloatingAssistantApp({
     transcriptionQueue
   ])
 
+  const dismissRemoteDraftReminder = useCallback(async (_ledgerId: string, remoteFolderId: string) => {
+    const accountMid = snapshot?.accountMid?.trim()
+    if (!accountMid || !remoteFolderId.trim()) return
+    await window.bilimiDesktop?.dismissFavoriteLedgerRemoteDraftReminder?.(accountMid, remoteFolderId)
+    window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+  }, [snapshot?.accountMid])
+  const dismissAllRemoteDraftReminders = useCallback((ledgerId: string) => {
+    const accountMid = snapshot?.accountMid ?? ''
+    const ledgers = preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers
+    const ids = favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.length
+      ? favoriteLedgerStatus.remoteOnlyDraftLedgerIds
+      : [ledgerId]
+    const requests = ids.flatMap((id) => {
+      const ledger = ledgers.find((item) => item.id === id)
+      return ledger?.bilibiliFolderId ? [dismissRemoteDraftReminder(id, ledger.bilibiliFolderId)] : []
+    })
+    void Promise.all(requests)
+  }, [dismissRemoteDraftReminder, favoriteLedgerStatus?.remoteOnlyDraftLedgerIds, preferences.favoriteAccountPreferences, preferences.favoriteLedgers, snapshot?.accountMid])
+
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
     const accountMid = snapshot?.accountMid ?? ''
     return resolveFavoriteOrganizationLamp({
@@ -2810,7 +2861,8 @@ export function FloatingAssistantApp({
       acknowledgedWorkspaceId: acknowledgedFavoriteWorkspaces[accountMid],
       defaultFavoriteSystemEnabled,
       ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
-      favoriteLedgerStatus
+      favoriteLedgerStatus,
+      onDismissRemoteDraftReminder: dismissAllRemoteDraftReminders
     })
   }, [
     favoriteLedgerStatus,
@@ -2818,7 +2870,8 @@ export function FloatingAssistantApp({
     acknowledgedFavoriteWorkspaces,
     snapshot?.accountMid,
     defaultFavoriteSystemEnabled,
-    preferences.favoriteLedgers
+    preferences.favoriteLedgers,
+    dismissAllRemoteDraftReminders
   ])
 
   const acknowledgeFavoriteOrganizationCompletion = useCallback((accountMid: string, workspaceId: string) => {
@@ -3368,6 +3421,12 @@ export function FloatingAssistantApp({
   const activeFavoriteLedgers = useMemo(
     () => projectFavoriteLedgerDraft(configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle),
     [configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle]
+  )
+  const editorRemoteOnlyDraftLedgerIds = useMemo(
+    () => activeFavoriteLedgers
+      .filter((ledger) => ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && Boolean(ledger.bilibiliFolderId))
+      .map((ledger) => ledger.id),
+    [activeFavoriteLedgers]
   )
   const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {
@@ -5071,6 +5130,8 @@ export function FloatingAssistantApp({
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
+            remoteOnlyDraftLedgerIds={editorRemoteOnlyDraftLedgerIds}
+            onDismissRemoteDraftReminder={dismissRemoteDraftReminder}
             defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
             onSaveLedgers={saveFavoriteLedgerRulesForPanel}

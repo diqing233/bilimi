@@ -26,6 +26,8 @@ import {
   clearPendingFavoriteQueue,
   dismissFavoriteLibraryRemoteFolder,
   isFavoriteLibraryRemoteFolderDismissed,
+  dismissFavoriteLedgerRemoteDraftReminder,
+  isFavoriteLedgerRemoteDraftReminderDismissed,
   upsertPendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
@@ -89,6 +91,7 @@ function createFakeStore(
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
     favoriteAccountPreferences: initial.favoriteAccountPreferences ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteAccountPreferences,
     favoriteLibraryDismissedRemoteFolderIdsByAccount: initial.favoriteLibraryDismissedRemoteFolderIdsByAccount ?? {},
+    favoriteLedgerRemoteDraftReminderDismissedByAccount: initial.favoriteLedgerRemoteDraftReminderDismissedByAccount ?? {},
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
@@ -235,6 +238,18 @@ describe('assistant preference store helpers', () => {
     expect(store.snapshot.favoriteLibraryDismissedRemoteFolderIdsByAccount).toEqual({
       '100': ['4070414411', 'new-folder'], '200': ['other']
     })
+  })
+
+  it('keeps remote-only ledger reminder dismissals local to the account and remote folder', () => {
+    const store = createFakeStore()
+
+    expect(isFavoriteLedgerRemoteDraftReminderDismissed(store, '00100', ' 4070414411 ')).toBe(false)
+    dismissFavoriteLedgerRemoteDraftReminder(store, '00100', ' 4070414411 ')
+    dismissFavoriteLedgerRemoteDraftReminder(store, '100', '4070414411')
+
+    expect(isFavoriteLedgerRemoteDraftReminderDismissed(store, '100', '4070414411')).toBe(true)
+    expect(isFavoriteLedgerRemoteDraftReminderDismissed(store, '200', '4070414411')).toBe(false)
+    expect(store.snapshot.favoriteLedgerRemoteDraftReminderDismissedByAccount).toEqual({ '100': ['4070414411'] })
   })
 
   it('patches review preferences without overwriting a newer DeepSeek endpoint', () => {

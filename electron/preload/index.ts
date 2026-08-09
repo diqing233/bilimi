@@ -306,6 +306,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:reconcile-managed-folder-delete', accountMid, operationId) as Promise<unknown>,
   dismissFavoriteLibraryOrdinaryFolder: (accountMid: string, folderId: string) =>
     ipcRenderer.invoke('favorite-repository:dismiss-ordinary-folder', accountMid, folderId) as Promise<unknown>,
+  getFavoriteLedgerRemoteDraftReminderDismissals: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-repository:get-remote-draft-reminder-dismissals', accountMid) as Promise<string[]>,
+  dismissFavoriteLedgerRemoteDraftReminder: (accountMid: string, remoteFolderId: string) =>
+    ipcRenderer.invoke('favorite-repository:dismiss-remote-draft-reminder', accountMid, remoteFolderId) as Promise<unknown>,
   syncFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   synchronizeFavoriteLibraryPlacements: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>

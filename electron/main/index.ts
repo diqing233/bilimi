@@ -47,6 +47,8 @@ import {
   saveFavoriteAccountPreferences,
   dismissFavoriteLibraryRemoteFolder,
   isFavoriteLibraryRemoteFolderDismissed,
+  loadFavoriteLedgerRemoteDraftReminderDismissals,
+  dismissFavoriteLedgerRemoteDraftReminder,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
@@ -2245,6 +2247,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     },
     dismissOrdinaryFolder: (accountMid, remoteFolderId) => {
       dismissFavoriteLibraryRemoteFolder(getDesktopStore(), accountMid, remoteFolderId)
+      return { status: 'succeeded' as const, remoteFolderId }
+    },
+    getRemoteDraftReminderDismissed: (accountMid) => loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid),
+    dismissRemoteDraftReminder: (accountMid, remoteFolderId) => {
+      dismissFavoriteLedgerRemoteDraftReminder(getDesktopStore(), accountMid, remoteFolderId)
       return { status: 'succeeded' as const, remoteFolderId }
     },
     commandService: favoriteLibraryCommandService,

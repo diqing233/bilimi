@@ -45,6 +45,19 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__sync-hint-title')
   })
 
+  it('shows the remote-only binding reminder beside the editor status with one dismissal action', () => {
+    const onDismiss = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'custom-remote-hello', displayName: 'bilimi\u00b7\u4f60\u597d', keywords: [], enabled: false, priority: 20_000,
+      bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} remoteOnlyDraftLedgerIds={['custom-remote-hello']} onDismissRemoteDraftReminder={onDismiss} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）你好' }))
+    expect(screen.getByText(/\u53d1\u73b0 B \u7ad9\u7591\u4f3c.*\u672c\u5730\u5c1a\u672a\u5efa\u7acb\u7ed1\u5b9a/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '\u4e0d\u518d\u63d0\u9192' }))
+    expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello', '88')
+  })
+
   it('publishes live enable changes before delayed persistence completes', () => {
     const enabledStates = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[

@@ -184,8 +184,9 @@ function sharedScriptHelpers(): string {
       }
       return 'custom-remote-' + (hash >>> 0).toString(36);
     };
-    const appendRemoteOnlyDrafts = (ledgers, folders) => {
+    const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
       const nextLedgers = [...ledgers];
+      const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
       const knownTitles = new Set(nextLedgers.map((ledger) => normalizeFolderTitle(ledger.displayName)));
       const seenTitles = new Set();
       let priority = nextLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
@@ -194,7 +195,7 @@ function sharedScriptHelpers(): string {
         const folderId = findFolderId(folder);
         const displayName = String(folder.title || '').trim();
         const normalizedTitle = normalizeFolderTitle(displayName);
-        if (!folderId || !displayName || !normalizedTitle || knownTitles.has(normalizedTitle) || seenTitles.has(normalizedTitle)) continue;
+        if (!folderId || dismissedIds.has(String(folderId)) || !displayName || !normalizedTitle || knownTitles.has(normalizedTitle) || seenTitles.has(normalizedTitle)) continue;
         seenTitles.add(normalizedTitle);
         const id = stableRemoteDraftLedgerId(normalizedTitle);
         nextLedgers.push({
@@ -215,8 +216,8 @@ function sharedScriptHelpers(): string {
   `
 }
 
-export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): string {
-  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers) })
+export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[], dismissedRemoteFolderIds: string[] = []): string {
+  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers), dismissedRemoteFolderIds })
 
   return `
     (async () => {
@@ -230,7 +231,11 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
-      const nextLedgers = appendRemoteOnlyDrafts(syncLedgerFolderIds(payload.ledgers, folders), folders);
+      const nextLedgers = appendRemoteOnlyDrafts(syncLedgerFolderIds(payload.ledgers, folders), folders, payload.dismissedRemoteFolderIds);
+      const dismissedRemoteFolderIds = new Set((Array.isArray(payload.dismissedRemoteFolderIds) ? payload.dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+      const remoteOnlyDraftLedgerIds = nextLedgers
+        .filter((ledger) => ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledger.bilibiliFolderId && !dismissedRemoteFolderIds.has(String(ledger.bilibiliFolderId)))
+        .map((ledger) => ledger.id);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
         .map((ledger) => ledger.id);
@@ -243,6 +248,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
         backupConflictLedgerIds: [],
         unboundLedgerIds,
         unboundCandidates,
+        remoteOnlyDraftLedgerIds,
         message: unboundLedgerIds.length === 0 ? '册目查验已毕。' : '发现未绑定的 bilimi 收藏夹，请在备册时主动确认复用对应收藏夹。'
       };
     })();
