@@ -1186,6 +1186,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.floating-assistant-global-status__feedback-continuation { position: absolute; z-index: 4; top: 100%; right: 0; left: 0; box-sizing: border-box; padding: 0 10px 6px; background: rgba(247, 251, 255, 0.98);')
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  border-top:')
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  box-shadow:')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"], .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation { background: rgba(247, 251, 255, 0.98);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message { text-overflow: clip;')
   })
 
   it('keeps each Bilibili connection option radio beside one readable text column', () => {

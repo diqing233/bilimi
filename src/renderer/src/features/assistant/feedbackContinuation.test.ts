@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { feedbackContinuationSuffix } from './feedbackContinuation'
+import { feedbackContinuationSuffix, splitFeedbackContinuation } from './feedbackContinuation'
 
 describe('feedbackContinuationSuffix', () => {
   const measure = (value: string) => Array.from(value).length
@@ -8,11 +8,18 @@ describe('feedbackContinuationSuffix', () => {
     expect(feedbackContinuationSuffix('准备就绪', 8, measure)).toBe('')
   })
 
-  it('returns only the text hidden after the visible ellipsis prefix', () => {
-    expect(feedbackContinuationSuffix('批阅：可以一键三连、自动分类收藏、发送弹幕。', 15, measure)).toBe('收藏、发送弹幕。')
+  it('returns the hidden suffix after a prefix that fills the first line without reserving ellipsis width', () => {
+    expect(feedbackContinuationSuffix('批阅：可以一键三连、自动分类收藏、发送弹幕。', 15, measure)).toBe('藏、发送弹幕。')
   })
 
-  it('keeps the whole message as continuation when even the ellipsis cannot fit with one character', () => {
-    expect(feedbackContinuationSuffix('批阅提示', 1, measure)).toBe('批阅提示')
+  it('keeps the whole message as continuation when the first line cannot fit one character', () => {
+    expect(feedbackContinuationSuffix('批阅提示', 1, measure)).toBe('阅提示')
+  })
+
+  it('returns a visible prefix so the clipped first line does not render the suffix twice', () => {
+    expect(splitFeedbackContinuation('批阅：可以一键三连、自动分类收藏、发送弹幕。', 15, measure)).toEqual({
+      visible: '批阅：可以一键三连、自动分类收',
+      suffix: '藏、发送弹幕。'
+    })
   })
 })

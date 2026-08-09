@@ -239,7 +239,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(feedbackToggle).toContain('className="floating-assistant-global-status__feedback-message"')
-    expect(feedbackToggle).toContain('{displayedGlobalFeedbackMessage}')
+    expect(feedbackToggle).toContain('globalFeedbackVisiblePrefix')
+    expect(feedbackToggle).toContain('displayedGlobalFeedbackMessage')
   })
 
   it('uses an overflow-only hover continuation without changing the existing click-expanded menu', () => {
@@ -247,10 +248,13 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('globalFeedbackContinuationVisible')
     expect(source).toContain('globalFeedbackContinuation')
+    expect(source).toContain('data-continuation-visible')
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
+    expect(source).toContain('measure(displayedGlobalFeedbackMessage) <= messageElement.clientWidth')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
+    expect(source).toContain('setGlobalFeedbackContinuationVisible(!nextExpanded)')
     expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
   })
 

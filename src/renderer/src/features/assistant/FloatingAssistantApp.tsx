@@ -35,7 +35,7 @@ import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveP
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { composeMemorialComments } from '../comments/commentComposer'
-import { feedbackContinuationSuffix } from './feedbackContinuation'
+import { splitFeedbackContinuation } from './feedbackContinuation'
 import { resolveGlobalStatusLightTooltipPosition } from './globalStatusTooltipPosition'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -2549,6 +2549,7 @@ export function FloatingAssistantApp({
   const [temporaryGlobalFeedbackMessage, setTemporaryGlobalFeedbackMessage] = useState('')
   const [globalFeedbackExpanded, setGlobalFeedbackExpanded] = useState(false)
   const [globalFeedbackContinuationVisible, setGlobalFeedbackContinuationVisible] = useState(false)
+  const [globalFeedbackVisiblePrefix, setGlobalFeedbackVisiblePrefix] = useState('')
   const [globalFeedbackContinuation, setGlobalFeedbackContinuation] = useState('')
   const [globalFeedbackHistory, setGlobalFeedbackHistory] = useState<GlobalFeedbackHistoryItem[]>([])
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
@@ -3380,7 +3381,8 @@ export function FloatingAssistantApp({
 
   const updateGlobalFeedbackContinuation = useCallback(() => {
     const messageElement = globalFeedbackMessageRef.current
-    if (globalFeedbackExpanded || !messageElement || messageElement.scrollWidth <= messageElement.clientWidth) {
+    if (globalFeedbackExpanded || !messageElement) {
+      setGlobalFeedbackVisiblePrefix('')
       setGlobalFeedbackContinuation('')
       return
     }
@@ -3389,11 +3391,19 @@ export function FloatingAssistantApp({
     const context = canvas.getContext('2d')
     if (!context) return
     context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
-    setGlobalFeedbackContinuation(feedbackContinuationSuffix(
+    const measure = (text: string) => context.measureText(text).width
+    if (measure(displayedGlobalFeedbackMessage) <= messageElement.clientWidth) {
+      setGlobalFeedbackVisiblePrefix('')
+      setGlobalFeedbackContinuation('')
+      return
+    }
+    const split = splitFeedbackContinuation(
       displayedGlobalFeedbackMessage,
       messageElement.clientWidth,
-      (text) => context.measureText(text).width
-    ))
+      measure
+    )
+    setGlobalFeedbackVisiblePrefix(split.visible)
+    setGlobalFeedbackContinuation(split.suffix)
   }, [displayedGlobalFeedbackMessage, globalFeedbackExpanded])
 
   useLayoutEffect(() => {
@@ -4962,6 +4972,7 @@ export function FloatingAssistantApp({
               aria-label="全局提示"
               aria-live="polite"
               data-expanded={globalFeedbackExpanded ? 'true' : 'false'}
+              data-continuation-visible={globalFeedbackContinuationVisible && Boolean(globalFeedbackContinuation) ? 'true' : 'false'}
               onMouseEnter={() => {
                 if (globalFeedbackExpanded) return
                 setGlobalFeedbackContinuationVisible(true)
@@ -4974,11 +4985,12 @@ export function FloatingAssistantApp({
                 aria-label={globalFeedbackExpanded ? '收起全局提示' : '展开全局提示'}
                 aria-expanded={globalFeedbackExpanded}
                 onClick={() => {
-                  setGlobalFeedbackContinuationVisible(false)
-                  setGlobalFeedbackExpanded((current) => !current)
+                  const nextExpanded = !globalFeedbackExpanded
+                  setGlobalFeedbackExpanded(nextExpanded)
+                  setGlobalFeedbackContinuationVisible(!nextExpanded)
                 }}
               >
-                <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{displayedGlobalFeedbackMessage}</span>
+                <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{globalFeedbackContinuationVisible && globalFeedbackContinuation ? globalFeedbackVisiblePrefix : displayedGlobalFeedbackMessage}</span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
