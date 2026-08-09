@@ -620,6 +620,15 @@ export function hasMissingFavoriteLedgerBindings(ledgers: FavoriteLedger[], favo
     backupGap.enabledCount === 0 || backupGap.enabledWithoutFolderCount > 0
 }
 
+export function suppressRemoteDraftReminder(status: FavoriteLedgerStatus | null, ledgerId: string) {
+  const normalizedLedgerId = ledgerId.trim()
+  if (!status || !normalizedLedgerId || !status.remoteOnlyDraftLedgerIds?.includes(normalizedLedgerId)) return status
+  return {
+    ...status,
+    remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds.filter((id) => id !== normalizedLedgerId)
+  }
+}
+
 export function resolveFavoriteOrganizationLamp(args: {
   snapshot: OldFavoriteWorkspaceSnapshot | null
   acknowledgedWorkspaceId?: string
@@ -2509,6 +2518,7 @@ export function FloatingAssistantApp({
   const deepSeekConnectionValidationSaveRequired = useRef(false)
   const snapshotLoadGeneration = useRef(0)
   const snapshotChangeLoadScheduled = useRef(false)
+  const dismissedRemoteDraftReminderLedgerIdsRef = useRef(new Set<string>())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -2835,10 +2845,19 @@ export function FloatingAssistantApp({
     transcriptionQueue
   ])
 
-  const dismissRemoteDraftReminder = useCallback(async (_ledgerId: string, remoteFolderId: string) => {
+  const dismissRemoteDraftReminder = useCallback(async (ledgerId: string, remoteFolderId: string) => {
     const accountMid = snapshot?.accountMid?.trim()
     if (!accountMid || !remoteFolderId.trim()) return
     await window.bilimiDesktop?.dismissFavoriteLedgerRemoteDraftReminder?.(accountMid, remoteFolderId)
+    dismissedRemoteDraftReminderLedgerIdsRef.current.add(ledgerId)
+    setFavoriteLedgerStatus((current) => suppressRemoteDraftReminder(current, ledgerId))
+    setSnapshot((current) => {
+      const favoriteLedgerStatus = suppressRemoteDraftReminder(current?.favoriteLedgerStatus ?? null, ledgerId)
+      if (!current || favoriteLedgerStatus === current.favoriteLedgerStatus) return current
+      const nextSnapshot = { ...current, favoriteLedgerStatus }
+      snapshotRef.current = nextSnapshot
+      return nextSnapshot
+    })
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }, [snapshot?.accountMid])
   const dismissAllRemoteDraftReminders = useCallback((ledgerId: string) => {
@@ -2987,30 +3006,35 @@ export function FloatingAssistantApp({
       try {
       const nextSnapshot =
         (await window.bilimiDesktop?.requestAssistantSnapshot?.()) ?? createFallbackSnapshot()
+      const favoriteLedgerStatus = [...dismissedRemoteDraftReminderLedgerIdsRef.current]
+        .reduce(suppressRemoteDraftReminder, nextSnapshot.favoriteLedgerStatus)
+      const loadedSnapshot = favoriteLedgerStatus === nextSnapshot.favoriteLedgerStatus
+        ? nextSnapshot
+        : { ...nextSnapshot, favoriteLedgerStatus }
 
       if (!mounted.current || loadGeneration !== snapshotLoadGeneration.current) {
         return
       }
 
-      if (didActiveVideoChange(snapshotRef.current, nextSnapshot)) {
+      if (didActiveVideoChange(snapshotRef.current, loadedSnapshot)) {
         setCommentChooserOpen(false)
         setAiCommentDrafts([])
       }
 
-      snapshotRef.current = nextSnapshot
-      setSnapshot(nextSnapshot)
+      snapshotRef.current = loadedSnapshot
+      setSnapshot(loadedSnapshot)
       if (!runtimeFeedbackSnapshotLoaded.current) {
         runtimeFeedbackSnapshotLoaded.current = true
-        lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
+        lastRuntimeFeedbackId.current = loadedSnapshot.runtimeFeedbackId
       } else if (
-        nextSnapshot.runtimeFeedback &&
-        nextSnapshot.runtimeFeedbackId !== undefined &&
-        nextSnapshot.runtimeFeedbackId !== lastRuntimeFeedbackId.current
+        loadedSnapshot.runtimeFeedback &&
+        loadedSnapshot.runtimeFeedbackId !== undefined &&
+        loadedSnapshot.runtimeFeedbackId !== lastRuntimeFeedbackId.current
       ) {
-        lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
-        setGlobalFeedback(nextSnapshot.runtimeFeedback)
+        lastRuntimeFeedbackId.current = loadedSnapshot.runtimeFeedbackId
+        setGlobalFeedback(loadedSnapshot.runtimeFeedback)
       }
-      const snapshotPreferencesFromRuntime = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotPreferencesFromRuntime = createInitialAssistantPreferences(loadedSnapshot.preferences)
       const snapshotPreferences = deepSeekKeyConfiguredRef.current === undefined
         ? snapshotPreferencesFromRuntime
         : createInitialAssistantPreferences({
@@ -3032,7 +3056,7 @@ export function FloatingAssistantApp({
         preferencesRef.current = nextPreferences
         return nextPreferences
       })
-      setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
+      setFavoriteLedgerStatus(loadedSnapshot.favoriteLedgerStatus)
 
       if (resetVideoNote) {
         setVideoNote(null)
@@ -3424,9 +3448,12 @@ export function FloatingAssistantApp({
   )
   const editorRemoteOnlyDraftLedgerIds = useMemo(
     () => activeFavoriteLedgers
-      .filter((ledger) => ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && Boolean(ledger.bilibiliFolderId))
+      .filter((ledger) =>
+        favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.includes(ledger.id) &&
+        ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && Boolean(ledger.bilibiliFolderId)
+      )
       .map((ledger) => ledger.id),
-    [activeFavoriteLedgers]
+    [activeFavoriteLedgers, favoriteLedgerStatus?.remoteOnlyDraftLedgerIds]
   )
   const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {

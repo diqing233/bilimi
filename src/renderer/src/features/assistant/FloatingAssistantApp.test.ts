@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, suppressRemoteDraftReminder } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -33,6 +33,19 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('suppresses a dismissed remote-only draft from refreshed favorite status', () => {
+    const remoteDraftStatus = {
+      ok: true,
+      ledgers: [defaultLedger],
+      missingLedgerIds: [],
+      remoteOnlyDraftLedgerIds: ['custom-remote-hello', 'custom-remote-world']
+    }
+
+    expect(suppressRemoteDraftReminder(remoteDraftStatus, 'custom-remote-hello')).toMatchObject({
+      remoteOnlyDraftLedgerIds: ['custom-remote-world']
+    })
+  })
+
   it('announces only manual page changes to both channels and keeps the first review entry global only', () => {
     const resolveAnnouncement = (FloatingAssistantAppModule as unknown as {
       resolveWorkspaceGuidanceAnnouncement: (
