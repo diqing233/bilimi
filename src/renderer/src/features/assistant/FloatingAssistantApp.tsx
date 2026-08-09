@@ -5019,7 +5019,7 @@ export function FloatingAssistantApp({
               ) : null}
               {globalFeedbackExpanded ? (
                 <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
-                  <section><strong>当前提示</strong><p>{displayedGlobalFeedbackMessage}</p></section>
+                  <p className="floating-assistant-global-status__menu-message">{displayedGlobalFeedbackMessage}</p>
                   <section>
                     <strong>后台任务</strong>
                     {persistentStatusTasks.length > 0 ? persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {

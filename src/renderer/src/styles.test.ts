@@ -420,8 +420,7 @@ describe('renderer porcelain theme styles', () => {
   it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
     expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: var(--porcelain-deep); font-size: 12px; font-weight: 700; line-height: 18px; background: rgba(247, 251, 255, 0.98);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
-    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; flex: 0 0 16px; width: 16px; height: 16px; margin: 0; transition: transform 180ms ease-out;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-toggle[aria-expanded="true"] .floating-assistant-global-status__feedback-chevron { transform: rotate(180deg);')
     expectStyleSnippet('.floating-assistant-global-status__menu { position: absolute; top: 100%; right: 0; left: 0; z-index: 5; max-height: min(320px, calc(100vh - 140px)); overflow: auto;')
@@ -1192,7 +1191,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('reserves two lines for the global feedback and keeps its chevron out of the text column', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px;')
-    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-toggle { appearance: none; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; flex: 0 0 16px; width: 16px; height: 16px; margin: 0;')
   })

@@ -273,11 +273,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(light).toContain('resizeObserver.disconnect()')
   })
 
-  it('expands global feedback into live tasks and recent transient history without changing navigation', () => {
+  it('expands global feedback into complete text, live tasks, and recent transient history without a current-prompt heading', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('createPersistentStatusTasks({')
     expect(source).toContain('className="floating-assistant-global-status__menu"')
+    expect(source).toContain('className="floating-assistant-global-status__menu-message"')
+    expect(source).toContain('{displayedGlobalFeedbackMessage}</p>')
+    expect(source).not.toContain('<strong>当前提示</strong>')
     expect(source).toContain('后台任务')
     expect(source).toContain('当前没有后台任务')
     expect(source).toContain('最近提示')
