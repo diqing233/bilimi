@@ -16,25 +16,38 @@ describe('FavoriteLedgerOverview', () => {
   it('remeasures sidebar help after the hidden tooltip becomes visible', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx'), 'utf8')
 
-    expect(source).toContain('}, [ledgerHintExpanded, ledgerHintVisible])')
+    expect(source).toContain('}, [ledgerHintVisible])')
     expect(source).toContain('resizeObserver?.observe(ledgerHintPanelRef.current)')
   })
 
-  it('shows the copy-preserving reminder in the favorite help and uses an X for deletion mode', () => {
+  it('keeps the favorite help tooltip after clicking and uses an X for deletion mode', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: '展开删除模式' })).toHaveTextContent('×')
-    const toggle = screen.getByRole('button', { name: '展开收藏夹' })
+    const toggle = screen.getByRole('button', { name: '固定显示收藏夹说明' })
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-ledger-help-tooltip')
     expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
     expect(screen.getByRole('tooltip').parentElement).toBe(document.body)
     fireEvent.click(toggle)
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-    expect(screen.getByText('小咪提醒：')).toHaveClass('favorite-ledger-panel__sync-hint-title')
-    expect(screen.getByText('同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）')).toBeInTheDocument()
+    expect(screen.getByRole('tooltip')).toBeVisible()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('starts with the favorite card list expanded and folds it to fifteen cards', () => {
+    render(<FavoriteLedgerOverview ledgers={Array.from({ length: 16 }, (_, index) => ({
+      id: `ledger-${index}`, displayName: `bilimi·收藏夹${index}`, keywords: [], enabled: true, priority: index, isDefault: false
+    }))} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(16)
+    fireEvent.click(screen.getByRole('button', { name: '折叠' }))
+    expect(screen.getByRole('button', { name: '展开' })).toBeInTheDocument()
+    expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(15)
   })
 
   it('uses a darker semantic title for each favorite help paragraph', () => {
@@ -42,7 +55,7 @@ describe('FavoriteLedgerOverview', () => {
       { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 10, isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__sync-hint-title')
+    expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__help-tooltip-title')
   })
 
   it('shows the remote-only binding reminder beside the editor status with one dismissal action', () => {
@@ -88,6 +101,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(onDeleteLedger).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['custom-tag-game'], false, { 'custom-tag-game': 'bilimi·游戏' }, { 'custom-tag-game': ['remote-game'] }))
@@ -769,7 +783,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(save).not.toHaveBeenCalled()
   })
 
-  it('keeps the legacy collapsed ledger list and its expand toggle', () => {
+  it('starts the ledger list expanded and folds it with the existing toggle', () => {
     const ledgers = Array.from({ length: 16 }, (_, index) => ({
       id: `ledger-${index + 1}`,
       displayName: `bilimi:收藏夹${index + 1}`,
@@ -781,10 +795,10 @@ describe('FavoriteLedgerOverview', () => {
     }))
     render(<FavoriteLedgerOverview ledgers={ledgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.queryByRole('button', { name: '收藏夹16' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '展开' }))
     expect(screen.getByRole('button', { name: '收藏夹16' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '折叠' }))
+    expect(screen.queryByRole('button', { name: '收藏夹16' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开' })).toBeInTheDocument()
   })
 
   it('keeps the ledger list expanded when recommendation drafts refresh the ledgers', () => {
@@ -798,8 +812,6 @@ describe('FavoriteLedgerOverview', () => {
       isDefault: false
     }))
     const { rerender } = render(<FavoriteLedgerOverview ledgers={ledgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: '展开' }))
-
     rerender(<FavoriteLedgerOverview
       ledgers={[...ledgers, {
         id: 'recommended-up',
@@ -956,6 +968,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -992,6 +1005,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -1025,6 +1039,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -1051,6 +1066,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -1078,6 +1094,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     const deleteButton = screen.getByRole('button', { name: '删除' })
     expect(deleteButton).toBeDisabled()
     const confirmations = screen.getAllByRole('checkbox')

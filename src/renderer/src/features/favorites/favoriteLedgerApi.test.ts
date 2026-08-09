@@ -578,6 +578,62 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
   })
 
+  it('creates one remote-only draft per Bilibili folder even when titles are identical', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 88, title: 'bilimi·同名', media_count: 6 },
+          { id: 89, title: 'bilimi·同名', media_count: 9 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([]))
+
+    expect(result.ledgers).toHaveLength(2)
+    expect(result.ledgers.map((ledger: FavoriteLedger) => ledger.bilibiliFolderId)).toEqual(['88', '89'])
+    expect(new Set(result.ledgers.map((ledger: FavoriteLedger) => ledger.id)).size).toBe(2)
+  })
+
+  it('keeps a same-name local draft separate from the remote folder until the user rebinds it', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·同名', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'local-same-name', displayName: 'bilimi·同名', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bindingState: 'unbound'
+    }]))
+
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'local-same-name', bindingState: 'unbound' }),
+      expect.objectContaining({ bilibiliFolderId: '88', syncState: 'local-draft', bindingState: 'unbound' })
+    ]))
+  })
+
+  it('keeps a bound folder when Bilibili changes its title', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: '用户改过的名称', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'local-bound', displayName: 'bilimi·原名称', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bilibiliFolderId: '88', bindingState: 'bound'
+    }]))
+
+    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'local-bound', bilibiliFolderId: '88', bindingState: 'bound' })])
+  })
+
   it('does not recreate a dismissed remote-only draft reminder for the same remote folder', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

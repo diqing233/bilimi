@@ -368,9 +368,11 @@ export function FavoriteLibraryApp({
   const [managedFolderDeletionDialog, setManagedFolderDeletionDialog] = useState<{
     candidates: ManagedFavoriteFolderDeletionCandidate[]
     ledgerTitleHints: Record<string, string>
+    localExecutionTokens: Record<string, string>
   }>()
   const [managedFolderDeletionAcknowledged, setManagedFolderDeletionAcknowledged] = useState(false)
   const [managedFolderDeletionAcknowledgedUnbound, setManagedFolderDeletionAcknowledgedUnbound] = useState(false)
+  const [managedFolderDeletionScope, setManagedFolderDeletionScope] = useState<'local-only' | 'bilibili'>('local-only')
   const [managedFolderDeletionExecuting, setManagedFolderDeletionExecuting] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const [workspaceSyncResult, setWorkspaceSyncResult] = useState<string>()
@@ -1230,20 +1232,40 @@ export function FavoriteLibraryApp({
     }))
     const candidates = await api.previewManagedFavoriteFolderDeletion(accountMid, uniqueLedgerIds, ledgerTitleHints)
     if (!Array.isArray(candidates) || !candidates.length) throw new Error(text.unavailable)
+    const localExecutionTokens: Record<string, string> = {}
+    if (api.previewFavoriteLibraryManagedFolderDelete) {
+      for (const logicalLedgerId of uniqueLedgerIds) {
+        const folder = folders.find((candidate) => candidate.kind === 'bilimi-logical' && candidate.logicalLedgerId === logicalLedgerId)
+        if (!folder) continue
+        const localPreview = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, folder.id) as { executionToken?: string }
+        if (localPreview?.executionToken) localExecutionTokens[logicalLedgerId] = localPreview.executionToken
+      }
+    }
     setManagedFolderDeletionAcknowledged(false)
     setManagedFolderDeletionAcknowledgedUnbound(false)
-    setManagedFolderDeletionDialog({ candidates, ledgerTitleHints })
+    setManagedFolderDeletionScope('local-only')
+    setManagedFolderDeletionDialog({ candidates, ledgerTitleHints, localExecutionTokens })
   }
   const confirmManagedFolderDeletion = async () => {
     const api = window.bilimiDesktop
-    if (!accountMid || !managedFolderDeletionDialog || !managedFolderDeletionAcknowledged || !api?.deleteManagedFavoriteFolders) {
+    if (!accountMid || !managedFolderDeletionDialog || !managedFolderDeletionAcknowledged) {
       throw new Error(text.unavailable)
     }
     const requiresUnboundAcknowledgement = managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement)
-    if (requiresUnboundAcknowledgement && !managedFolderDeletionAcknowledgedUnbound) throw new Error(text.unavailable)
+    if (managedFolderDeletionScope === 'bilibili' && requiresUnboundAcknowledgement && !managedFolderDeletionAcknowledgedUnbound) throw new Error(text.unavailable)
     setManagedFolderDeletionExecuting(true)
     try {
       const logicalLedgerIds = [...new Set(managedFolderDeletionDialog.candidates.map((candidate) => candidate.logicalLedgerId))]
+      if (managedFolderDeletionScope === 'local-only') {
+        if (!api?.deleteFavoriteLibraryManagedFolderLocal || logicalLedgerIds.some((id) => !managedFolderDeletionDialog.localExecutionTokens[id])) throw new Error(text.unavailable)
+        for (const logicalLedgerId of logicalLedgerIds) {
+          await api.deleteFavoriteLibraryManagedFolderLocal(accountMid, managedFolderDeletionDialog.localExecutionTokens[logicalLedgerId])
+        }
+        setManagedFolderDeletionDialog(undefined)
+        await refresh(accountMid)
+        return
+      }
+      if (!api?.deleteManagedFavoriteFolders) throw new Error(text.unavailable)
       const expectedRemoteFolderIds = Object.fromEntries(logicalLedgerIds.map((logicalLedgerId) => [
         logicalLedgerId,
         [...new Set(managedFolderDeletionDialog.candidates
@@ -1558,13 +1580,14 @@ export function FavoriteLibraryApp({
       {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
         if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
       }}>
-        <p>将删除所选 bilimi 收藏夹及其分类关系；视频本体、档案、转写、札记和原有普通 B 站收藏夹不会删除。</p>
+        <fieldset className="favorite-library__managed-folder-delete-scope"><legend>删除范围</legend><label><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'local-only'} onChange={() => setManagedFolderDeletionScope('local-only')} />仅从 bilimi 删除（保留 B 站收藏夹）</label><label><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'bilibili'} onChange={() => setManagedFolderDeletionScope('bilibili')} />同时从 B 站删除收藏夹及其中分类视频</label></fieldset>
+        <p>{managedFolderDeletionScope === 'local-only' ? '仅从 bilimi 收藏夹和收藏库删除分类关系；视频本体、档案、转写、札记和 B 站收藏夹都会保留。' : '将删除所选 bilimi 收藏夹及其分类关系，并删除对应 B 站收藏夹；原有普通 B 站收藏夹不会删除。'}</p>
         <ul className="favorite-library__managed-folder-preview">{managedFolderDeletionDialog.candidates.map((candidate) => <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>
           {candidate.title}（{candidate.memberCount} 个视频，{candidate.state === 'bound' ? '已备册' : candidate.state === 'unbound-name-match' ? '未绑定' : candidate.state === 'missing-remote' ? '远端已不存在' : '未备册'}）
         </li>)}</ul>
-        {managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
+        {managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         <label><input type="checkbox" aria-label="我已确认" checked={managedFolderDeletionAcknowledged} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledged(event.currentTarget.checked)} />我已确认</label>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || !managedFolderDeletionAcknowledged || (managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion)}>删除</button></div>
+        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || !managedFolderDeletionAcknowledged || (managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion)}>删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {conflictsOpen && summary?.folderConflicts?.length ? <FavoriteLibraryConfirmationDialog label="收藏夹问题处理" onClose={() => setConflictsOpen(false)}>
         <h2>收藏夹问题</h2>

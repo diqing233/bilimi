@@ -426,17 +426,14 @@ export function restoreFavoriteRepositoryArchiveRecovery(value: unknown): Favori
     const folders = restored.recovery.folders
       .filter((folder) => folder.kind !== 'bilibili')
       .map((folder) => folder.kind === 'bilimi-logical' && pendingLogicalLedgerIds.has(folder.logicalLedgerId!)
-        ? { ...folder, syncState: 'pending-reconcile' as const, remoteFolderId: undefined }
+        ? { ...folder, syncState: 'pending-reconcile' as const }
         : folder)
     restored.recovery = {
       ...restored.recovery,
       folders,
       memberships: Object.fromEntries(Object.entries(restored.recovery.memberships)
         .filter(([folderId]) => folders.some((folder) => folder.id === folderId))),
-      physicalShards: restored.recovery.physicalShards.map((shard) => {
-        const { remoteFolderId: _remoteFolderId, ...pending } = shard
-        return { ...pending, bindingState: 'pending-reconcile' as const }
-      })
+      physicalShards: restored.recovery.physicalShards.map((shard) => ({ ...shard, bindingState: 'pending-reconcile' as const }))
     }
     restored.recovery.syncRecords = restored.recovery.syncRecords.map((record) => record.status === 'result-unknown'
       ? { ...record, status: 'reconciliation-required', autoRetry: false }
@@ -1001,7 +998,6 @@ function isPortableRecoveryFolder(value: unknown, ids: Set<string>) {
       folder.id !== `bilimi-logical:${folder.logicalLedgerId}` || !['bound', 'pending-reconcile'].includes(String(folder.syncState))) return false
     if (folder.remoteFolderId !== undefined && (typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim())) return false
     if (folder.syncState === 'bound' && !folder.remoteFolderId) return false
-    if (folder.syncState === 'pending-reconcile' && folder.remoteFolderId !== undefined) return false
   } else if (folder.kind === 'bilibili') {
     if (typeof folder.logicalLedgerId !== 'string' || !folder.logicalLedgerId.trim() ||
       typeof folder.remoteFolderId !== 'string' || !folder.remoteFolderId.trim() || folder.syncState !== 'bound') return false
@@ -1018,8 +1014,8 @@ function isPortableRecoveryShard(value: unknown, folderIds: Set<string>, shardKe
     typeof shard.folderId !== 'string' || (!folderIds.has(shard.folderId) && !/^bilimi:\S+:\d{3}$/u.test(shard.folderId)) ||
     !Number.isSafeInteger(shard.shardNumber) || Number(shard.shardNumber) <= 0 || typeof shard.remoteTitle !== 'string' || !shard.remoteTitle.trim() ||
     !['bound', 'pending-reconcile'].includes(String(shard.bindingState)) ||
-    (shard.bindingState === 'bound' && (typeof shard.remoteFolderId !== 'string' || !shard.remoteFolderId.trim())) ||
-    (shard.bindingState === 'pending-reconcile' && shard.remoteFolderId !== undefined)) return false
+    (shard.remoteFolderId !== undefined && (typeof shard.remoteFolderId !== 'string' || !shard.remoteFolderId.trim())) ||
+    (shard.bindingState === 'bound' && !shard.remoteFolderId)) return false
   const key = `${shard.logicalLedgerId}:${shard.shardNumber}`
   if (shardKeys.has(key)) return false
   shardKeys.add(key)

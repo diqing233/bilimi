@@ -4760,7 +4760,7 @@ body[data-floating-window="true"],
   transition: transform 180ms ease-out;
 }
 .favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 .favorite-ledger-panel__sync-hint {
   color: #365b83;

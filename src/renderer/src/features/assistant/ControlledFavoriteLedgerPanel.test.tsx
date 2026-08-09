@@ -450,7 +450,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     const checklist = screen.getByRole('region', { name: '收藏夹' }).querySelector('.favorite-ledger-panel__checklist')
     expect(checklist).not.toBeNull()
-    expect(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '固定显示收藏夹说明' })).toHaveAttribute('aria-expanded', 'false')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
     expect(within(checklist as HTMLElement).getByRole('button', { name: '备册收藏夹' })).toBeInTheDocument()
@@ -458,12 +458,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(checklist as HTMLElement).getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false')
     expect(within(checklist as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
 
-    fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹' }))
-    expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
-    expect(checklist).toHaveTextContent('自定义收藏夹：点击收藏夹名称可以编辑；按住并拖动可调整顺序。')
-    expect(checklist).toHaveTextContent('备册到 B 站：备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。')
-    expect(checklist).toHaveTextContent('删除 bilimi 收藏夹：点击右侧“×”进入删除模式')
-    expect(checklist).toHaveTextContent('分类依据：关键词、UP 名称和标签用于本地识别。')
+    fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '固定显示收藏夹说明' }))
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('favorite-ledger-help-tooltip')).toHaveTextContent('自定义收藏夹：点击收藏夹名称可以编辑；按住并拖动可调整顺序。')
+    expect(document.getElementById('favorite-ledger-help-tooltip')).toHaveTextContent('备册到 B 站：备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。')
   })
 
   it('keeps the legacy organize-guide help arrow in the title row and expands its explanation', async () => {
@@ -483,41 +481,40 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
     const guide = await screen.findByRole('region', { name: '整理收藏向导' })
-    const help = within(guide).getByRole('button', { name: '展开整理收藏' })
+    const help = within(guide).getByRole('button', { name: '固定显示整理收藏说明' })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
     expect(help).toHaveClass('favorite-ledger-panel__guide-title-toggle')
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
-    expect(within(guide).getByRole('button', { name: '收起整理收藏' })).toHaveAttribute('aria-expanded', 'true')
-    expect(guide).toHaveTextContent('① 扫描概览：扫描所有收藏的视频基本信息和标签。标签是分类的重要依据，建议耐心等待，不要提前采用；默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。')
-    expect(guide).toHaveTextContent('④ 确认执行：前面三步都是打草稿，最后一步来执行')
-    expect(guide).toHaveTextContent('保存在收藏库：适合视频较多的情况，建议先保存在收藏库，后续可在收藏库同步，支持回到前三步修改后反复保存，收藏库可以批量转写视频音频，非常方便。')
-    expect(guide).toHaveTextContent('暂不同步结束整理：可以选择先保留整理草稿，或者删除草稿结束本轮整理。')
+    expect(within(guide).getByRole('button', { name: '收起整理收藏说明' })).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('favorite-organization-help-tooltip')).toHaveTextContent('① 扫描概览：扫描所有收藏的视频基本信息和标签。标签是分类的重要依据')
+    expect(document.getElementById('favorite-organization-help-tooltip')).toHaveTextContent('④ 确认执行：前面三步都是打草稿，最后一步来执行')
   })
 
   it('keeps the legacy folder help arrow in the checklist title row', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    const help = screen.getByRole('button', { name: /^(展开|收起)收藏夹$/ })
+    const help = screen.getByRole('button', { name: /^(固定显示|收起)收藏夹说明$/ })
     expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     expect(help).toHaveTextContent('收藏夹')
   })
 
-  it('remembers each explanation row after it is expanded', async () => {
+  it('does not use the explanation arrow to control the favorite card list', async () => {
     window.localStorage.clear()
-    const ledgers = [{ id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true }]
+    const ledgers = Array.from({ length: 16 }, (_, index) => ({ id: `knowledge-${index}`, displayName: `bilimi·知识学习${index + 1}`, keywords: [], ruleType: 'keyword' as const, enabled: true, priority: index, isDefault: index === 0 }))
     const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
-    expect(screen.getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '固定显示收藏夹说明' }))
+    expect(screen.getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
     first.unmount()
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    expect(screen.getByRole('button', { name: '收起收藏夹' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
 
     window.localStorage.clear()
   })
@@ -1808,7 +1805,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('collapses an expanded ledger list when the active account changes', () => {
+  it('keeps the default-expanded ledger list when the active account changes', () => {
     const ledgers = Array.from({ length: 16 }, (_, index) => ({
       id: `ledger-${index + 1}`,
       displayName: `bilimi:收藏夹${index + 1}`,
@@ -1825,12 +1822,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onSaveLedgers: vi.fn()
     }
     const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} currentAccountMid="100" />)
-    fireEvent.click(screen.getByRole('button', { name: '展开' }))
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '折叠' }))
 
     rerender(<ControlledFavoriteLedgerPanel {...props} currentAccountMid="200" />)
 
-    expect(screen.getByRole('button', { name: '展开' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '收藏夹16' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收藏夹16' })).toBeInTheDocument()
   })
 
   it('resets live ledger enablement when the active account changes', async () => {
@@ -2890,7 +2888,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const resumeDialog = await screen.findByRole('dialog', { name: '整理收藏' })
     fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
-    fireEvent.click(screen.getByRole('button', { name: '展开收藏夹' }))
+    fireEvent.click(screen.getByRole('button', { name: '固定显示收藏夹说明' }))
     fireEvent.click(await screen.findByRole('button', { name: 'honker233' }))
 
     expect(screen.getByLabelText('册名')).toHaveValue('honker233')

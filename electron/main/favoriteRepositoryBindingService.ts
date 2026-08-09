@@ -379,8 +379,17 @@ export class FavoriteRepositoryBindingService {
     const snapshot = await this.options.repository.getSnapshot(account)
     for (const shard of snapshot.physicalShards.filter((candidate) => candidate.bindingState === 'pending-reconcile')) {
       const known = new Set(shard.knownRemoteFolderIds ?? [])
-      const matches = input.inventory.filter((folder) => folder.title === shard.remoteTitle &&
-        !known.has(folder.id) && folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
+      // A migrated shard may carry its last known Bilibili ID.  Prefer that
+      // immutable identity so a remote rename does not create a duplicate or
+      // lose the binding.  Name matching is only the legacy fallback and is
+      // deliberately excluded from folders already observed on the old device.
+      const exact = shard.remoteFolderId
+        ? input.inventory.find((folder) => folder.id === shard.remoteFolderId && folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
+        : undefined
+      const matches = exact
+        ? [exact]
+        : input.inventory.filter((folder) => folder.title === shard.remoteTitle &&
+          !known.has(folder.id) && folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
       if (matches.length !== 1) continue
       const logical = snapshot.folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === shard.logicalLedgerId)
       if (!logical) continue
@@ -394,7 +403,7 @@ export class FavoriteRepositoryBindingService {
           logicalTitle: logical.title,
           shardNumber: shard.shardNumber,
           memberAids: snapshot.memberships[shard.folderId] ?? [],
-          remoteTitle: shard.remoteTitle,
+          remoteTitle: matches[0].title,
           bindingState: 'bound',
           remoteFolderId: matches[0].id
         }

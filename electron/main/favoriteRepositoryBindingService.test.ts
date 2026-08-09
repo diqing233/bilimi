@@ -177,6 +177,23 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music' })
   })
 
+  it('restores a migrated pending binding by exact folder ID after the remote folder was renamed', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'migrated-music', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'pending-reconcile', remoteFolderId: 'remote-music' }
+    })
+    const service = new FavoriteRepositoryBindingService({ repository })
+
+    await service.reconcilePendingBindings('100', {
+      observedAccountMid: '100', inventory: [{ id: 'remote-music', title: 'renamed-on-bilibili', memberCount: 4 }]
+    })
+
+    expect((await service.getBindings('100')).shards[0]).toMatchObject({
+      bindingState: 'bound', remoteFolderId: 'remote-music', remoteTitle: 'renamed-on-bilibili'
+    })
+  })
+
   it('previews remote rebinding candidates without adopting them', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({

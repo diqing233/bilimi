@@ -353,7 +353,7 @@ const ORGANIZATION_COPY_REMINDER = '小咪提醒：同一个视频可以保存�
 
 export function statusLightTooltip(item: GlobalStatusItem): string {
   return item.detail.startsWith('收藏夹：')
-    ? `${ORGANIZATION_COPY_REMINDER}\n\n${item.detail}`
+    ? `${item.detail}\n\n${ORGANIZATION_COPY_REMINDER}`
     : item.detail
 }
 
@@ -661,9 +661,6 @@ export function resolveFavoriteOrganizationLamp(args: {
     return {
       label: '未绑定',
       detail: favoriteOrganizationDetail('发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。', `还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`),
-      detailAction: args.onDismissRemoteDraftReminder
-        ? { label: '不再提醒', onClick: () => args.onDismissRemoteDraftReminder?.(draftIds[0]) }
-        : undefined,
       tone: 'warn'
     }
   }

@@ -507,9 +507,9 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(openSettings).toContain("behavior: 'auto'")
   })
 
-  it('puts the copy-preserving reminder before the organizing status detail', () => {
+  it('puts the copy-preserving reminder after the organizing status detail', () => {
     expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
-      '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）\n\n收藏夹：未备册。\n整理收藏：完成备册后可开始。'
+      '收藏夹：未备册。\n整理收藏：完成备册后可开始。\n\n小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
     )
   })
 
@@ -771,7 +771,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })).toMatchObject({ label: '\u6574\u7406\u626b\u63cf\u4e2d', tone: 'running' })
   })
 
-  it('offers a per-remote-folder reminder dismissal for a remote-only bilimi draft', () => {
+  it('keeps remote-only draft dismissal out of the global status light', () => {
     const onDismiss = vi.fn()
     const draft: FavoriteLedger = {
       id: 'custom-remote-hello', displayName: 'bilimi\u00b7\u4f60\u597d', keywords: [], enabled: false,
@@ -794,19 +794,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
     expect(status.detail).toContain('\u53d1\u73b0 B \u7ad9\u7591\u4f3c bilimi \u6536\u85cf\u5939')
-    expect(status.detailAction).toMatchObject({ label: '\u4e0d\u518d\u63d0\u9192' })
-    status.detailAction?.onClick()
-    expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello')
+    expect(status.detailAction).toBeUndefined()
+    expect(onDismiss).not.toHaveBeenCalled()
   })
 
-  it('wires the status-light dismissal to only the currently displayed remote draft', () => {
+  it('does not offer a global status-light dismissal for remote drafts', () => {
     const source = readFloatingAssistantAppRootSource()
     const globalLamp = source.slice(
       source.indexOf('const globalLedgerStatus'),
       source.indexOf('const globalStatusItems')
     )
 
-    expect(globalLamp).toContain('onDismissRemoteDraftReminder: dismissRemoteDraftReminderFromStatus')
+    expect(globalLamp).not.toContain('detailAction: args.onDismissRemoteDraftReminder')
     expect(source).not.toContain('const dismissAllRemoteDraftReminders')
   })
 

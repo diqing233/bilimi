@@ -153,20 +153,21 @@ function sharedScriptHelpers(): string {
           : null;
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
           normalizeFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
-          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bindingState: 'bound' };
+          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bindingState: 'bound' };
         }
+        // A persisted binding is keyed by the remote folder ID. Bilibili users
+        // may rename a bound folder, so a title mismatch must not silently
+        // discard an otherwise valid binding.
         const storedFolder = ledger.bilibiliFolderId
           ? folderById.get(String(ledger.bilibiliFolderId))
           : null;
-        const folder = storedFolder && normalizeFolderTitle(storedFolder.title) === normalizedLedgerTitle
-          ? storedFolder
-          : null;
+        const folder = storedFolder || null;
         const folderId = findFolderId(folder);
         if (folderId) {
-          return { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
+          return { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: String(folder.title || ledger.displayName), bindingState: 'bound' };
         }
 
-        const { bilibiliFolderId, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
+        const { bilibiliFolderId, bilibiliFolderTitle, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
         return {
           ...ledgerWithoutStaleFolderId,
           bindingState: candidates.length > 0 ? 'unbound' : 'unbacked'
@@ -176,9 +177,9 @@ function sharedScriptHelpers(): string {
     const collectUnboundCandidates = (ledgers, folders) => ledgers
       .filter((ledger) => ledger.bindingState === 'unbound')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
-    const stableRemoteDraftLedgerId = (title) => {
+    const stableRemoteDraftLedgerId = (remoteFolderId) => {
       let hash = 2166136261;
-      for (const character of String(title || '').trim().normalize('NFKC').toLocaleLowerCase()) {
+      for (const character of String(remoteFolderId || '').trim()) {
         hash ^= character.codePointAt(0) || 0;
         hash = Math.imul(hash, 16777619);
       }
@@ -187,17 +188,22 @@ function sharedScriptHelpers(): string {
     const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
       const nextLedgers = [...ledgers];
       const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-      const knownTitles = new Set(nextLedgers.map((ledger) => normalizeFolderTitle(ledger.displayName)));
-      const seenTitles = new Set();
+      const knownRemoteFolderIds = new Set(nextLedgers.map((ledger) => String(ledger.bilibiliFolderId || '').trim()).filter(Boolean));
+      // A normal local rule with the same title is an explicit rebind
+      // candidate, not a remote-only draft. A local bilimi-prefixed draft is
+      // kept separate so the owner can choose which one to bind.
+      const localRebindTitles = new Set(nextLedgers
+        .filter((ledger) => ledger.bindingState === 'unbound' && !isBilimiManagedFolder({ title: ledger.displayName }))
+        .map((ledger) => normalizeFolderTitle(ledger.displayName)));
       let priority = nextLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       for (const folder of folders) {
         if (!isBilimiManagedFolder(folder)) continue;
         const folderId = findFolderId(folder);
         const displayName = String(folder.title || '').trim();
         const normalizedTitle = normalizeFolderTitle(displayName);
-        if (!folderId || dismissedIds.has(String(folderId)) || !displayName || !normalizedTitle || knownTitles.has(normalizedTitle) || seenTitles.has(normalizedTitle)) continue;
-        seenTitles.add(normalizedTitle);
-        const id = stableRemoteDraftLedgerId(normalizedTitle);
+        if (!folderId || dismissedIds.has(String(folderId)) || knownRemoteFolderIds.has(String(folderId)) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
+        const id = stableRemoteDraftLedgerId(folderId);
+        knownRemoteFolderIds.add(String(folderId));
         nextLedgers.push({
           id,
           displayName,
@@ -299,6 +305,25 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         };
       }
 
+      // An explicit folder ID remains bound across either side renaming. On a
+      // later backup, Bilimi's saved name is the deliberate source of truth.
+      for (let index = 0; index < nextLedgers.length; index += 1) {
+        const ledger = nextLedgers[index];
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
+        const body = new URLSearchParams();
+        body.set('csrf', csrf);
+        body.set('media_id', String(ledger.bilibiliFolderId));
+        body.set('title', ledger.displayName);
+        body.set('privacy', '0');
+        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/edit', {
+          method: 'POST', credentials: 'include',
+          headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body
+        });
+        await ensureApiOk(response, 'favorite ledger rename');
+        nextLedgers[index] = { ...ledger, bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
+        steps.push('api:ledger:rename:' + ledger.id);
+      }
+
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
         if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
@@ -336,7 +361,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
-          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
         }
         steps.push('api:ledger:create:' + ledger.id);
       }
@@ -412,6 +437,25 @@ export function buildSaveFavoriteLedgersScript(
         };
       }
 
+      // An explicit folder ID remains bound across either side renaming. On a
+      // later backup, Bilimi's saved name is the deliberate source of truth.
+      for (let index = 0; index < nextLedgers.length; index += 1) {
+        const ledger = nextLedgers[index];
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
+        const body = new URLSearchParams();
+        body.set('csrf', csrf);
+        body.set('media_id', String(ledger.bilibiliFolderId));
+        body.set('title', ledger.displayName);
+        body.set('privacy', '0');
+        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/edit', {
+          method: 'POST', credentials: 'include',
+          headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body
+        });
+        await ensureApiOk(response, 'favorite ledger rename');
+        nextLedgers[index] = { ...ledger, bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
+        steps.push('api:ledger:rename:' + ledger.id);
+      }
+
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
         if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
@@ -433,7 +477,7 @@ export function buildSaveFavoriteLedgersScript(
         const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
-          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bindingState: 'bound' };
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
         }
         steps.push('api:ledger:create:' + ledger.id);
       }

@@ -52,6 +52,8 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
+  /** Last title observed for the explicit Bilibili folder binding. */
+  bilibiliFolderTitle?: string
   /** Remote folder binding is explicit; same names are only rebind candidates. */
   bindingState?: FavoriteLedgerBindingState
   /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */

@@ -30,7 +30,7 @@ function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): 
 }
 
 describe('account favorite repository contracts', () => {
-  it('restores migrated managed bindings as pending until a live remote inventory verifies them', () => {
+  it('preserves migrated managed binding identity for live inventory verification', () => {
     const now = '2026-07-24T00:00:00.000Z'
     const base = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })
     const snapshot = applyFavoriteRepositoryCommand(base, {
@@ -42,13 +42,13 @@ describe('account favorite repository contracts', () => {
     expect(restored.recovery?.folders).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'bilimi-logical:music', syncState: 'pending-reconcile' })
     ]))
-    expect(restored.recovery?.folders).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'bilibili', remoteFolderId: 'remote-music' })
+    expect(restored.recovery?.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', syncState: 'pending-reconcile', remoteFolderId: 'remote-music' })
     ]))
     expect(restored.recovery?.physicalShards).toEqual(expect.arrayContaining([
       expect.objectContaining({ logicalLedgerId: 'music', bindingState: 'pending-reconcile' })
     ]))
-    expect(restored.recovery?.physicalShards[0]).not.toHaveProperty('remoteFolderId')
+    expect(restored.recovery?.physicalShards[0]).toHaveProperty('remoteFolderId', 'remote-music')
     expect(() => validateFavoriteRepositoryArchiveExport(restored)).not.toThrow()
   })
 

@@ -8,7 +8,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
   it('remeasures sidebar guide help after the hidden tooltip becomes visible', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/OldFavoriteGuide.tsx'), 'utf8')
 
-    expect(source).toContain('}, [guideHintExpanded, guideHintVisible])')
+    expect(source).toContain('}, [guideHintVisible])')
     expect(source).toContain('resizeObserver?.observe(guideHintPanelRef.current)')
   })
 
@@ -34,7 +34,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    const toggle = screen.getByRole('button', { name: '展开整理收藏' })
+    const toggle = screen.getByRole('button', { name: '固定显示整理收藏说明' })
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-organization-help-tooltip')
     expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
@@ -43,13 +43,10 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
 
     fireEvent.click(toggle)
 
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-    expect(screen.getByText('④ 确认执行：')).toHaveProperty('tagName', 'STRONG')
-    expect(screen.getByText('前面三步都是打草稿，最后一步来执行')).not.toHaveClass('favorite-ledger-panel__guide-hint-body')
-    expect(screen.getByText(/适合视频较多的情况，建议先保存在收藏库/)).not.toHaveClass('favorite-ledger-panel__guide-hint-body')
-    expect(screen.getByText(/收藏库可以批量转写视频音频，非常方便。/)).toBeInTheDocument()
-    expect(screen.getByText(/整理收藏会把视频复制添加到 bilimi 收藏夹/)).toBeInTheDocument()
-    expect(screen.getByText(/可以选择先保留整理草稿，或者删除草稿结束本轮整理。/)).toBeInTheDocument()
+    expect(screen.getByRole('tooltip')).toBeVisible()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('keeps an incomplete scan in the four-metric whole-run view', () => {

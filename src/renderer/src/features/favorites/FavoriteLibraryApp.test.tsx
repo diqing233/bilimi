@@ -596,6 +596,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     expect(dialog).toHaveTextContent('已检测到 1 个未绑定的 bilimi 收藏夹')
     expect(screen.queryByRole('button', { name: '同步删除 B 站' })).not.toBeInTheDocument()
     const remove = screen.getByRole('button', { name: '删除' })
@@ -634,6 +635,7 @@ describe('FavoriteLibraryApp', () => {
     expect(dialog).toHaveTextContent('Ideas')
     expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['music', 'ideas'], { music: 'Music', ideas: 'Ideas' })
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '\u6211\u5df2\u786e\u8ba4' }))
     fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
 
@@ -644,7 +646,7 @@ describe('FavoriteLibraryApp', () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'ideas', title: 'Ideas', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
     ])
-    const deleteManagedFavoriteFolders = vi.fn().mockResolvedValue([])
+    const deleteFavoriteLibraryManagedFolderLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-09T00:00:00.000Z', videoCount: 0, folderCount: 1,
@@ -652,7 +654,8 @@ describe('FavoriteLibraryApp', () => {
         syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
       previewManagedFavoriteFolderDeletion,
-      deleteManagedFavoriteFolders,
+      previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'ideas-local' }),
+      deleteFavoriteLibraryManagedFolderLocal,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -665,7 +668,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '\u6211\u5df2\u786e\u8ba4' }))
     fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
 
-    await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['ideas'], false, { ideas: 'Ideas' }, { ideas: [] }))
+    await waitFor(() => expect(deleteFavoriteLibraryManagedFolderLocal).toHaveBeenCalledWith('100', 'ideas-local'))
   })
 
   it.skip('deletes only remotely eligible work folders after the group confirmation', async () => {

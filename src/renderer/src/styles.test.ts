@@ -864,7 +864,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: #365b83; font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; font-weight: 500; line-height: 1.62;')
     expectStyleSnippet('.favorite-ledger-panel__section-title { display: inline-flex; align-items: center; gap: 5px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__chevron { width: 16px; height: 16px; flex: 0 0 16px; transition: transform 180ms ease-out;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron { transform: rotate(180deg);')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron { transform: rotate(90deg);')
     expectStyleSnippet('.disclosure-arrow { display: inline-block; transition: transform 180ms ease-out;')
     expectStyleSnippet('.video-notes__copy-main[aria-expanded="true"] .disclosure-arrow, .video-note-archive__version-picker > button[aria-expanded="true"] .disclosure-arrow, .favorite-ledger-panel__deepseek-archive-scope > button[aria-expanded="true"] .disclosure-arrow, .favorite-ledger-panel__target-toggle[aria-expanded="true"] .disclosure-arrow { transform: rotate(180deg);')
     expectStyleSnippet('.video-notes__queue-selector[aria-expanded="true"] .video-notes__queue-arrow { transform: rotate(225deg);')

@@ -91,6 +91,7 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 ]
 
 const wholeRunSelectValue = '__whole-run__'
+const FIXED_ASSISTANT_HELP_EVENT = 'bilimi:fixed-assistant-help'
 
 const ORGANIZING_GUIDE_HINTS: OrganizingGuideHint[] = [
   { label: '小咪提醒：', detail: [{ text: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' }] },
@@ -173,18 +174,27 @@ export function OldFavoriteGuide({
   onStopSyncAndFinish = () => undefined,
   onReconcile
 }: OldFavoriteGuideProps) {
-  const [guideHintExpanded, setGuideHintExpanded] = useState(() => window.localStorage.getItem('bilimi:old-favorite-hint-open') === 'true')
+  const [guideHintExpanded, setGuideHintExpanded] = useState(false)
   const [guideHintVisible, setGuideHintVisible] = useState(false)
   const [guideHintPosition, setGuideHintPosition] = useState({ top: 0, left: 0 })
   const guideHintPanelRef = useRef<HTMLElement>(null)
   const guideHintTriggerRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const closeWhenAnotherHelpIsFixed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'organization') {
+        setGuideHintExpanded(false)
+        setGuideHintVisible(false)
+      }
+    }
+    window.addEventListener(FIXED_ASSISTANT_HELP_EVENT, closeWhenAnotherHelpIsFixed)
+    return () => window.removeEventListener(FIXED_ASSISTANT_HELP_EVENT, closeWhenAnotherHelpIsFixed)
+  }, [])
   const guideHintTooltipRef = useRef<HTMLDivElement>(null)
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   const [viewedSegmentId, setViewedSegmentId] = useState<string | null>(null)
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
-  useEffect(() => { window.localStorage.setItem('bilimi:old-favorite-hint-open', String(guideHintExpanded)) }, [guideHintExpanded])
   useLayoutEffect(() => {
-    if (guideHintExpanded || !guideHintVisible) return
+    if (!guideHintVisible) return
     const updatePosition = () => {
       const anchorRect = guideHintTriggerRef.current?.getBoundingClientRect()
       if (!anchorRect) return
@@ -214,7 +224,7 @@ export function OldFavoriteGuide({
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [guideHintExpanded, guideHintVisible])
+  }, [guideHintVisible])
   const recovery = snapshot && 'recovery' in snapshot
   const deepSeekBusy = deepSeekFeedback?.status === 'running' || deepSeekFeedback?.status === 'waiting' || deepSeekCancelRequested
   const readOnlyBrowsing = mutationLocked || deepSeekBusy
@@ -248,12 +258,12 @@ export function OldFavoriteGuide({
     <div className="favorite-ledger-panel__guide-header">
       <div className="favorite-ledger-panel__guide-title-row">
           <button ref={guideHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title favorite-ledger-panel__guide-title-toggle"
-            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理收藏`}
+            aria-label={`${guideHintExpanded ? '收起' : '固定显示'}整理收藏说明`}
             aria-expanded={guideHintExpanded}
-            aria-describedby={guideHintExpanded ? undefined : 'favorite-organization-help-tooltip'}
-            onMouseEnter={() => setGuideHintVisible(true)} onMouseLeave={() => setGuideHintVisible(false)}
-            onFocus={() => setGuideHintVisible(true)} onBlur={() => setGuideHintVisible(false)}
-            onClick={() => setGuideHintExpanded((expanded) => !expanded)}><h3>整理收藏</h3><Chevron /></button>
+            aria-describedby="favorite-organization-help-tooltip"
+            onMouseEnter={() => setGuideHintVisible(true)} onMouseLeave={() => { if (!guideHintExpanded) setGuideHintVisible(false) }}
+            onFocus={() => setGuideHintVisible(true)} onBlur={() => { if (!guideHintExpanded) setGuideHintVisible(false) }}
+            onClick={() => setGuideHintExpanded((expanded) => { const next = !expanded; setGuideHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'organization' })); return next })}><h3>整理收藏</h3><Chevron /></button>
       </div>
       {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">
         <span>整理批次</span>
@@ -276,8 +286,7 @@ export function OldFavoriteGuide({
           </option>)}
         </select>
       </label> : null}
-      {!guideHintExpanded ? createPortal(<div ref={guideHintTooltipRef} id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={guideHintVisible || undefined} style={guideHintPosition}>{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint.label ?? hint.detail.map((part) => part.text).join('')}><GuideHintContent hint={hint} tooltip /></p>)}</div>, document.body) : null}
-      {guideHintExpanded ? <div className="favorite-ledger-panel__guide-hint">{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint.label ?? hint.detail.map((part) => part.text).join('')}><GuideHintContent hint={hint} /></p>)}</div> : null}
+      {createPortal(<div ref={guideHintTooltipRef} id="favorite-organization-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={guideHintVisible || undefined} style={guideHintPosition}>{ORGANIZING_GUIDE_HINTS.map((hint) => <p key={hint.label ?? hint.detail.map((part) => part.text).join('')}><GuideHintContent hint={hint} tooltip /></p>)}</div>, document.body)}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理收藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => {
