@@ -419,8 +419,8 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: var(--porcelain-deep); font-size: 12px; font-weight: 700; line-height: 18px; background: rgba(247, 251, 255, 0.98);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: #f8fbff; font-size: 12px; font-weight: 700; line-height: 18px; background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; width: 16px; height: 16px; margin: 0 auto; transition: transform 180ms ease-out;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-toggle[aria-expanded="true"] .floating-assistant-global-status__feedback-chevron { transform: rotate(180deg);')
@@ -1183,11 +1183,17 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('renders feedback continuation as a seamless second line instead of a separate card', () => {
-    expectStyleSnippet('.floating-assistant-global-status__feedback-continuation { position: absolute; z-index: 4; top: 100%; right: 0; left: 0; box-sizing: border-box; padding: 0 10px 6px; background: rgba(247, 251, 255, 0.98);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-continuation { position: absolute; z-index: 4; top: 100%; right: 0; left: 0; box-sizing: border-box; padding: 0 10px 6px; background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);')
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  border-top:')
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  box-shadow:')
-    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"], .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation { background: rgba(247, 251, 255, 0.98);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"], .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation { background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);')
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message { text-overflow: clip;')
+  })
+
+  it('keeps the global feedback blue and wraps its full message without truncating it', () => {
+    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: #f8fbff; font-size: 12px; font-weight: 700; line-height: 18px; background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"], .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation { background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);')
   })
 
   it('keeps each Bilibili connection option radio beside one readable text column', () => {
