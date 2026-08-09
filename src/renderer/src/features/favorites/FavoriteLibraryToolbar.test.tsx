@@ -154,7 +154,7 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
   it('uses favorite-library context styles for both video-summary triggers', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
-    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger')
+    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }')
     expect(styles).toContain('.favorite-library__detail-action-row .video-summary-menu__trigger')
   })
 

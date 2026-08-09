@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryFooter } from './FavoriteLibraryFooter'
@@ -44,5 +46,11 @@ describe('FavoriteLibraryFooter', () => {
     expect(screen.getByTestId('favorite-library-footer-middle')).toHaveTextContent(`${chinese(0x7b2c)} 2 ${chinese(0x9875)}`)
     expect(screen.getByRole('combobox', { name: '每页数量' })).toHaveValue('50')
     expect(screen.getByRole('button', { name: previousPage })).not.toBeDisabled()
+  })
+
+  it('uses a compact font for the pagination summary and current page label', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('.favorite-library__footer-pagination { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; padding: 7px 12px; font-size: 14px; }')
   })
 })

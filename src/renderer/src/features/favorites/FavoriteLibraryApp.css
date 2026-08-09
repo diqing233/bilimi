@@ -25,7 +25,7 @@
 .favorite-library__workspace { border: 0; }
 .favorite-library__layout > .favorite-library__footer { grid-column: 2; grid-row: 2; min-width: 0; min-height: 42px; background: #fff; }
 .favorite-library__footer-region { min-width: 0; border: 1px solid #c9dcf5; border-top: 1px solid #c9dcf5; border-radius: 0 0 12px 12px; background: #fff; box-shadow: 0 8px 16px -8px rgb(45 91 140 / .10); }
-.favorite-library__footer-pagination { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; padding: 7px 12px; }
+.favorite-library__footer-pagination { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; padding: 7px 12px; font-size: 14px; }
 .favorite-library__page-controls { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
 .favorite-library__footer-pagination button { padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; }
 .favorite-library__topbar { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px; border-bottom: 1px solid #d6e4fb; }
@@ -107,7 +107,7 @@
 .favorite-library__batch-actions { flex-wrap: wrap; overflow: visible; padding-top: 6px; border-top: 1px solid #dbe7f7; }
 .favorite-library__batch-actions > button, .favorite-library__batch-actions > .favorite-library__batch-split { flex: 0 0 auto; min-height: 30px; white-space: nowrap; }
 .favorite-library__batch-actions .video-summary-menu { flex: 0 0 auto; }
-.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }
 .favorite-library__batch-split { display: inline-flex; flex: 0 0 auto; }
 .favorite-library__batch-destination-trigger { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px !important; }
 .favorite-library__batch-destination-trigger .favorite-library__chevron { width: 14px; height: 14px; }
