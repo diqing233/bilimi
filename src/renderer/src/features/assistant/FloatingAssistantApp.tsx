@@ -2860,18 +2860,12 @@ export function FloatingAssistantApp({
     })
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }, [snapshot?.accountMid])
-  const dismissAllRemoteDraftReminders = useCallback((ledgerId: string) => {
+  const dismissRemoteDraftReminderFromStatus = useCallback((ledgerId: string) => {
     const accountMid = snapshot?.accountMid ?? ''
     const ledgers = preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers
-    const ids = favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.length
-      ? favoriteLedgerStatus.remoteOnlyDraftLedgerIds
-      : [ledgerId]
-    const requests = ids.flatMap((id) => {
-      const ledger = ledgers.find((item) => item.id === id)
-      return ledger?.bilibiliFolderId ? [dismissRemoteDraftReminder(id, ledger.bilibiliFolderId)] : []
-    })
-    void Promise.all(requests)
-  }, [dismissRemoteDraftReminder, favoriteLedgerStatus?.remoteOnlyDraftLedgerIds, preferences.favoriteAccountPreferences, preferences.favoriteLedgers, snapshot?.accountMid])
+    const ledger = ledgers.find((item) => item.id === ledgerId)
+    if (ledger?.bilibiliFolderId) void dismissRemoteDraftReminder(ledgerId, ledger.bilibiliFolderId)
+  }, [dismissRemoteDraftReminder, preferences.favoriteAccountPreferences, preferences.favoriteLedgers, snapshot?.accountMid])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
     const accountMid = snapshot?.accountMid ?? ''
@@ -2881,7 +2875,7 @@ export function FloatingAssistantApp({
       defaultFavoriteSystemEnabled,
       ledgers: preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers,
       favoriteLedgerStatus,
-      onDismissRemoteDraftReminder: dismissAllRemoteDraftReminders
+      onDismissRemoteDraftReminder: dismissRemoteDraftReminderFromStatus
     })
   }, [
     favoriteLedgerStatus,
@@ -2890,7 +2884,7 @@ export function FloatingAssistantApp({
     snapshot?.accountMid,
     defaultFavoriteSystemEnabled,
     preferences.favoriteLedgers,
-    dismissAllRemoteDraftReminders
+    dismissRemoteDraftReminderFromStatus
   ])
 
   const acknowledgeFavoriteOrganizationCompletion = useCallback((accountMid: string, workspaceId: string) => {

@@ -799,6 +799,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello')
   })
 
+  it('wires the status-light dismissal to only the currently displayed remote draft', () => {
+    const source = readFloatingAssistantAppRootSource()
+    const globalLamp = source.slice(
+      source.indexOf('const globalLedgerStatus'),
+      source.indexOf('const globalStatusItems')
+    )
+
+    expect(globalLamp).toContain('onDismissRemoteDraftReminder: dismissRemoteDraftReminderFromStatus')
+    expect(source).not.toContain('const dismissAllRemoteDraftReminders')
+  })
+
   it.each([
     ['previewing', '\u7b49\u5f85\u786e\u8ba4'],
     ['frozen', '\u7b49\u5f85\u6267\u884c'],
