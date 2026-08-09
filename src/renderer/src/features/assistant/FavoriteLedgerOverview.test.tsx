@@ -263,7 +263,8 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
-  it('uses one bulk toggle only for the isolated deletion selection', () => {
+  it('uses one bulk toggle for normal and isolated deletion selections', async () => {
+    vi.useFakeTimers()
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: false, bilibiliFolderId: 'remote-music' },
@@ -272,20 +273,28 @@ describe('FavoriteLedgerOverview', () => {
 
     const toggle = screen.getByTestId('favorite-ledger-cancel-all')
     expect(toggle).toHaveTextContent('全选')
-    expect(toggle).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
     expect(toggle).toBeEnabled()
     fireEvent.click(toggle)
-    expect(save).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(250) })
+    expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'music', enabled: true }),
+      expect.objectContaining({ id: 'custom-tech', enabled: true })
+    ]), { deleteDisabled: false })
+    const normalSaveCount = save.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    expect(toggle).toBeEnabled()
+    expect(toggle).toHaveTextContent('全选')
+    fireEvent.click(toggle)
+    expect(save).toHaveBeenCalledTimes(normalSaveCount)
     expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('取消全选')
     expect(screen.getByRole('button', { name: '取消删除 bilimi·音乐' })).toBeEnabled()
     fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
     expect(screen.getByTestId('favorite-ledger-cancel-all')).toHaveTextContent('全选')
     expect(screen.getByRole('button', { name: '加入删除 bilimi·音乐' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
-    expect(toggle).toBeDisabled()
-    expect(screen.getByRole('button', { name: '加入同步 bilimi·音乐' })).toBeEnabled()
-    expect(save).not.toHaveBeenCalled()
+    expect(toggle).toHaveTextContent('取消全选')
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeEnabled()
+    expect(save).toHaveBeenCalledTimes(normalSaveCount)
   })
 
   it('keeps default ledgers checked and non-cancelable while the default system is enabled', () => {
