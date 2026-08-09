@@ -7191,7 +7191,7 @@ body[data-floating-window="true"],
 }
 .assistant-settings__favorites-help {
   margin: 0;
-  color: var(--porcelain-muted);
+  color: var(--porcelain-text);
   font-size: 12px;
   line-height: 1.5;
 }
