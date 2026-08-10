@@ -715,6 +715,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(matching.detail).toContain('视频转写模型：faster-whisper large-v3 · GPU 已就绪')
+    expect(matching.detail).toContain('转写结果：本次已完成 1 个视频，文稿已保存到档案库。')
     expect(mismatched.detail).toContain('视频转写模型：Whisper small')
     expect(mismatched.detail).not.toContain('GPU 已就绪')
   })

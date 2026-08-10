@@ -369,6 +369,7 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
   '当前视频：',
   '视频转写模型：',
   '当前转写视频：',
+  '转写结果：',
   '执行任务：',
   '正在执行：',
   'DeepSeek 已连接。',
@@ -1157,7 +1158,7 @@ export function resolveGlobalTranscriptionStatus(
   if (transcriptionQueue.sessionCompletedCount > 0) {
     return {
       label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
-      detail: `${modelDetail()}\n当前转写视频：本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
+      detail: `${modelDetail()}\n转写结果：本次已完成 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
       tone: 'ok'
     }
   }
