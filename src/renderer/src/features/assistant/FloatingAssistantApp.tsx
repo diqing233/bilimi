@@ -446,7 +446,7 @@ function favoriteLedgerStatusSummary(
 
 function favoriteBackupDetail(summary: FavoriteLedgerStatusSummary): string {
   const detail = summary.enabledCount === 0
-    ? '当前没有启用的收藏夹。'
+    ? '当前没有已备册的收藏夹。'
     : summary.backedCount === summary.enabledCount
       ? '当前启用收藏夹全部已备册。'
       : `当前启用 ${summary.enabledCount} 个收藏夹：${summary.backedCount} 个已备册、${summary.unbackedCount} 个未备册、${summary.unboundCount} 个未绑定。`

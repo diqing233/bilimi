@@ -929,6 +929,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })).toMatchObject({ label: '\u6574\u7406\u626b\u63cf\u4e2d', tone: 'running' })
   })
 
+  it('describes an empty backup state as having no backed-up ledgers, not no enabled ledgers', () => {
+    const status = resolveFavoriteOrganizationLamp({
+      snapshot: null,
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [],
+      favoriteLedgerStatus: null
+    })
+
+    expect(status.detail).toContain('备册：当前没有已备册的收藏夹。')
+    expect(status.detail).toContain('请尽快勾选启用收藏夹并备册哦～')
+  })
+
   it('separates favorite backup, enabled ledgers, and idle organization details', () => {
     const backed: FavoriteLedger = {
       ...defaultLedger,
