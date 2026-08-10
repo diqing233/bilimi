@@ -772,6 +772,7 @@ export default function App() {
     checkedAt: number
     status: FavoriteLedgerStatus
   } | null>(null)
+  const favoriteLedgerPreflightPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus>>())
   const favoriteLedgerEnsurePromisesRef = useRef(new Map<string, Promise<AssistantAutomationResult>>())
   const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
@@ -1642,6 +1643,24 @@ export default function App() {
     return fallbackStatus
   }
 
+  async function preflightFavoriteLedgerStatus(accountMid: string): Promise<FavoriteLedgerStatus> {
+    const existing = favoriteLedgerPreflightPromisesRef.current.get(accountMid)
+    if (existing) return existing
+
+    const pending = readFavoriteLedgerStatus(accountMid, { force: true }).catch(() => ({
+      ok: false,
+      ledgers: favoriteLedgersForActiveAccount(accountMid),
+      missingLedgerIds: [],
+      unboundLedgerIds: [],
+      backupConflictLedgerIds: [],
+      message: '收藏夹状态核验失败，本次不执行 B 站收藏写入。'
+    } satisfies FavoriteLedgerStatus)).finally(() => {
+      favoriteLedgerPreflightPromisesRef.current.delete(accountMid)
+    })
+    favoriteLedgerPreflightPromisesRef.current.set(accountMid, pending)
+    return pending
+  }
+
   async function ensureFavoriteLedgersForAccount(accountMid: string): Promise<AssistantAutomationResult> {
     const favoriteLedgers = accountMid
       ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
@@ -2147,10 +2166,10 @@ export default function App() {
     }
 
     const actionAccountMid = assistantSnapshotCacheRef.current.accountMid || await readBilibiliAccountMid()
-    const actionFavoriteLedgers = actionAccountMid
+    let actionFavoriteLedgers = actionAccountMid
       ? effectiveFavoriteLedgersForAccount(preferences, actionAccountMid)
       : preferences.favoriteLedgers
-    const favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
+    let favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
     const videoContentContext = await readVideoContentContext()
     const archiveTargets = planFavoriteArchiveTargets({
       context: videoContentContext,
@@ -2256,6 +2275,14 @@ export default function App() {
             })
           }
         }
+      }
+    }
+    if (actionUsesFavorite(action)) {
+      favoriteLedgerStatus = actionAccountMid
+        ? await preflightFavoriteLedgerStatus(actionAccountMid)
+        : null
+      if (actionAccountMid) {
+        actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
       }
     }
     const favoriteProvisioned = Boolean(
@@ -2457,11 +2484,27 @@ export default function App() {
             return
           }
 
+          const delayedFavoriteLedgerStatus = actionAccountMid
+            ? await preflightFavoriteLedgerStatus(actionAccountMid)
+            : null
+          if (actionAccountMid) {
+            actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(
+              preferencesRef.current,
+              actionAccountMid
+            )
+          }
           const targetNames = correction.targetLedgerIds
             .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
             .join('、')
+          const delayedFavoriteProvisioned = Boolean(
+            delayedFavoriteLedgerStatus?.ok &&
+            delayedFavoriteLedgerStatus.missingLedgerIds.length === 0 &&
+            !(delayedFavoriteLedgerStatus.backupConflictLedgerIds?.length) &&
+            !(delayedFavoriteLedgerStatus.unboundLedgerIds?.length) &&
+            areFavoriteTargetsBound(correction.targetLedgerIds)
+          )
 
-          if (!favoriteProvisioned || !areFavoriteTargetsBound(correction.targetLedgerIds)) {
+          if (!favoriteProvisioned || !delayedFavoriteProvisioned) {
             publishRuntimeFeedback(
               `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」；当前收藏夹尚未备册或未绑定，本次仅更新预分类，请先去掌库收藏夹备册或重新绑定。`
             )

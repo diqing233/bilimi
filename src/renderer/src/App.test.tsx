@@ -1049,6 +1049,89 @@ describe('App runtime integration', () => {
     ).toBe(false)
   })
 
+  it('preflights the current favorite bindings before a review writes to Bilibili', async () => {
+    const provisionedLedgers = createDefaultFavoriteLedgers().map((ledger, index) =>
+      ledger.id === 'knowledge'
+        ? { ...ledger, keywords: ['国际尬聊'], bilibiliFolderId: String(9_100 + index), bindingState: 'bound' as const }
+        : { ...ledger, bilibiliFolderId: String(9_100 + index), bindingState: 'bound' as const }
+    )
+    const unboundLedgers = provisionedLedgers.map((ledger) =>
+      ledger.id === 'knowledge'
+        ? { ...ledger, bindingState: 'unbound' as const }
+        : ledger
+    )
+    const preferences = createAppPreferences({ favoriteLedgers: provisionedLedgers })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    let statusReadCount = 0
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        statusReadCount += 1
+        return statusReadCount === 1
+          ? {
+              ok: true,
+              ledgers: provisionedLedgers,
+              missingLedgerIds: [],
+              backupConflictLedgerIds: [],
+              unboundLedgerIds: [],
+              message: '首次快照仍显示已备册。'
+            }
+          : {
+              ok: false,
+              ledgers: unboundLedgers,
+              missingLedgerIds: ['knowledge'],
+              backupConflictLedgerIds: [],
+              unboundLedgerIds: ['knowledge'],
+              message: '动作预检发现知识学习尚未绑定。'
+            }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 710,
+          bvid: 'BV1review710',
+          title: '国际尬聊观察',
+          pageText: '国际尬聊',
+          tags: ['国际尬聊']
+        }
+      }
+      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          steps: ['unexpected:favorite-write'],
+          missingTargets: [],
+          message: '不应执行收藏写入。'
+        }
+      }
+      return { ok: true, steps: [], missingTargets: [], message: '操作完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'preflight-initial-snapshot', type: 'snapshot' })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review710' }
+      }))
+    })
+
+    await expect(
+      requestRuntime({ id: 'preflight-unbound-review', type: 'run-action', action: '藏' })
+    ).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining('当前收藏夹尚未备册或未绑定，本次仅完成预分类')
+    })
+    expect(statusReadCount).toBe(2)
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
+      )
+    ).toBe(false)
+  })
+
   it('keeps a delayed DeepSeek review as preclassification until the favorite ledgers are provisioned', async () => {
     const generateDeepSeek = vi.fn<
       (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
@@ -3091,6 +3174,110 @@ describe('App runtime integration', () => {
       )
     ).toBe(false)
     await expect(requestRuntime({ id: 'delayed-unbound-target-feedback', type: 'snapshot' })).resolves.toEqual(
+      expect.objectContaining({
+        runtimeFeedback: expect.stringContaining('掌库收藏夹备册或重新绑定')
+      })
+    )
+  })
+
+  it('rechecks favorite bindings before a delayed DeepSeek adjustment writes to Bilibili', async () => {
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(() => new Promise((resolve) => {
+      setTimeout(() => resolve({
+        kind: 'favorite-daily-classify-review',
+        targetLedgerIds: ['game'],
+        corrected: true,
+        reason: 'DeepSeek 建议归入游戏专区。',
+        confidence: 0.8,
+        keywordSuggestions: []
+      }), 5)
+    }))
+    const provisionedLedgers = createDefaultFavoriteLedgers().map((ledger, index) => {
+      if (ledger.id === 'game') return { ...ledger, keywords: ['游戏专用'], bilibiliFolderId: String(9_200 + index), bindingState: 'bound' as const }
+      if (ledger.id === 'life-interest') return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: String(9_200 + index), bindingState: 'bound' as const }
+      return { ...ledger, bilibiliFolderId: String(9_200 + index), bindingState: 'bound' as const }
+    })
+    const unboundLedgers = provisionedLedgers.map((ledger) =>
+      ledger.id === 'game' ? { ...ledger, bindingState: 'unbound' as const } : ledger
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: provisionedLedgers
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    let statusReadCount = 0
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        statusReadCount += 1
+        return statusReadCount < 3
+          ? {
+              ok: true,
+              ledgers: provisionedLedgers,
+              missingLedgerIds: [],
+              backupConflictLedgerIds: [],
+              unboundLedgerIds: [],
+              message: '收藏夹已可用。'
+            }
+          : {
+              ok: false,
+              ledgers: unboundLedgers,
+              missingLedgerIds: ['game'],
+              backupConflictLedgerIds: [],
+              unboundLedgerIds: ['game'],
+              message: '延迟调整预检发现游戏专区尚未绑定。'
+            }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 712,
+          bvid: 'BV1review712',
+          title: '大阪地铁换乘攻略',
+          pageText: '大阪生活',
+          tags: ['大阪生活']
+        }
+      }
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          message: '已归类到生活日常。'
+        }
+      }
+      return { ok: true, steps: [], missingTargets: [], message: '操作完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'delayed-preflight-snapshot', type: 'snapshot' })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review712' }
+      }))
+    })
+    await requestRuntime({ id: 'delayed-preflight-review', type: 'run-action', action: '藏' })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(statusReadCount).toBe(3)
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('"addLedgerIds":["game"]')
+      )
+    ).toBe(false)
+    await expect(requestRuntime({ id: 'delayed-preflight-feedback', type: 'snapshot' })).resolves.toEqual(
       expect.objectContaining({
         runtimeFeedback: expect.stringContaining('掌库收藏夹备册或重新绑定')
       })
