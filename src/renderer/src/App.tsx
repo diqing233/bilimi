@@ -2449,6 +2449,21 @@ export default function App() {
             return
           }
 
+          const targetNames = correction.targetLedgerIds
+            .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
+            .join('、')
+
+          if (!favoriteProvisioned) {
+            publishRuntimeFeedback(
+              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」；当前收藏夹尚未备册，本次仅更新预分类，请先去掌库收藏夹备册。`
+            )
+            window.bilimiDesktop?.setAssistantPetHint?.({
+              tone: 'hint',
+              message: `主人，DeepSeek建议归到「${targetNames}」。当前收藏夹还没备册，本次只更新预分类；先去掌库收藏夹备册后再归类吧。`
+            })
+            return
+          }
+
           const removeLedgerIds = localTargetLedgerIds.filter(
             (ledgerId) => !correction.targetLedgerIds.includes(ledgerId)
           )
@@ -2481,10 +2496,6 @@ export default function App() {
                 (error instanceof Error ? error.message : String(error || '未知错误'))
             }
           }
-          const targetNames = correction.targetLedgerIds
-            .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
-            .join('、')
-
           if (!adjustmentResult.ok) {
             publishRuntimeFeedback(
               `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，但后台调整失败。`

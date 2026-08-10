@@ -540,6 +540,15 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('font-weight: 700')
   })
 
+  it('keeps DeepSeek tooltip labels at the same emphasis as their explanations', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+    expect(source).toContain('data-status-light={id}')
+    expect(styles).toContain(".floating-assistant-global-status__light-tooltip[data-status-light='deepseek'] .floating-assistant-global-status__light-tooltip-label")
+    expect(styles).toContain('font-weight: inherit')
+  })
+
   it('labels the current transcription model and video independently', () => {
     const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
       { items: [], sessionCompletedCount: 0 },

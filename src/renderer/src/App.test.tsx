@@ -982,6 +982,96 @@ describe('App runtime integration', () => {
     ).toBe(false)
   })
 
+  it('keeps a delayed DeepSeek review as preclassification until the favorite ledgers are provisioned', async () => {
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(() => new Promise((resolve) => {
+      setTimeout(() => resolve({
+        kind: 'favorite-daily-classify-review',
+        targetLedgerIds: ['game'],
+        corrected: true,
+        reason: 'DeepSeek 建议归入游戏专区。',
+        confidence: 0.8,
+        keywordSuggestions: []
+      }), 5)
+    }))
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') return { ...ledger, keywords: ['地铁攻略'] }
+        if (ledger.id === 'life-interest') return { ...ledger, keywords: ['大阪生活'] }
+        return ledger
+      })
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      generateDeepSeek
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: false,
+          ledgers: preferences.favoriteLedgers,
+          missingLedgerIds: ['game'],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          message: '尚未备册。'
+        }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 708,
+          bvid: 'BV1review708',
+          title: '大阪地铁换乘攻略',
+          pageText: '大阪生活',
+          tags: ['地铁攻略']
+        }
+      }
+      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          steps: ['unexpected:favorite-write'],
+          missingTargets: [],
+          message: '不应执行收藏写入。'
+        }
+      }
+      return { ok: true, steps: ['like'], missingTargets: [], message: '点赞已完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'unprovisioned-deepseek-snapshot', type: 'snapshot' })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review708' }
+      }))
+    })
+
+    await expect(
+      requestRuntime({ id: 'unprovisioned-delayed-review', type: 'run-action', action: '赏' })
+    ).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining('当前收藏夹尚未备册，本次仅完成预分类')
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(generateDeepSeek).toHaveBeenCalledOnce()
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
+      )
+    ).toBe(false)
+  })
+
   it('persists confirmed review favorites with the stable ledger identity after its display name is edited', async () => {
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
     const preferences = createAppPreferences({
@@ -2921,6 +3011,7 @@ describe('App runtime integration', () => {
       return { ok: true, steps: ['favorite'], missingTargets: [], message: 'Favorite completed.' }
     })
     Object.assign(webview, { executeJavaScript })
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
     act(() => {
       webview.dispatchEvent(
         new CustomEvent('did-navigate-in-page', {
@@ -3168,6 +3259,7 @@ describe('App runtime integration', () => {
       return { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
     })
     Object.assign(webview, { executeJavaScript })
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
     act(() => {
       webview.dispatchEvent(
         new CustomEvent('did-navigate-in-page', {

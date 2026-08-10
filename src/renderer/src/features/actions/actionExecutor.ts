@@ -52,7 +52,13 @@ function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   const targetLabel = favoriteTargetLabel(args)
 
   if (args.favoriteProvisioned === false) {
-    return `已完成本次操作；备册后可归类到 ${targetLabel}。`
+    const completedAction =
+      args.action === '赏'
+        ? '已点赞'
+        : args.action === '赐'
+          ? '已一键三连'
+          : '本次操作未写入收藏夹'
+    return `${completedAction}；当前收藏夹尚未备册，本次仅完成预分类，未创建或写入 B 站收藏夹；请先去掌库收藏夹备册，备册后可归类到 ${targetLabel}。`
   }
 
   if (args.action === '赏') {
