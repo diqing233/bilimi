@@ -367,6 +367,7 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
   '转写结果：',
   '执行任务：',
   '正在执行：',
+  'DeepSeek 已连接，当前模型：',
   'DeepSeek 已连接。',
   'DeepSeek 未连接。',
   'DeepSeek 验证中',
@@ -1101,11 +1102,8 @@ export function formatDeepSeekRuntimeHoverDetail(
 function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
   return [
     preferences.deepseekEnabled && preferences.deepseekApiKeyStored
-      ? 'DeepSeek 已连接。'
+      ? `DeepSeek 已连接，当前模型：${preferences.deepseekModel || '未配置'}`
       : 'DeepSeek 未连接。',
-    ...(preferences.deepseekEnabled && preferences.deepseekApiKeyStored
-      ? [`当前模型：${preferences.deepseekModel || '未配置'}`]
-      : []),
     ...formatDeepSeekFeatureLines(preferences)
   ].join('\n')
 }

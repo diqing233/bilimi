@@ -555,6 +555,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('floating-assistant-global-status__light-tooltip-title-line')
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;/)
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*color: #1d4f83;/)
   })
 
   it('labels the current transcription model and video independently', () => {
@@ -593,6 +594,22 @@ describe('resolveFavoriteOrganizationLamp', () => {
       '批阅辅助：',
       '收藏整理：'
     ])
+  })
+
+  it('parses the combined DeepSeek connection and model line as one label', () => {
+    const parts = statusLightTooltipParts({
+      label: 'DeepSeek 已连接',
+      detail: [
+        'DeepSeek 已连接，当前模型：deepseek-v4-flash',
+        '趣味评论：已开启。'
+      ].join('\n'),
+      tone: 'ok'
+    })
+
+    expect(parts[0]).toEqual({
+      label: 'DeepSeek 已连接，当前模型：',
+      text: 'deepseek-v4-flash'
+    })
   })
 
   it('keeps the wait-confirmation detail concise across the status light and task menu', () => {
