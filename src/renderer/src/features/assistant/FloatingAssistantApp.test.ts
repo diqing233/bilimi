@@ -68,6 +68,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('自动总结：已开启')
     expect(source).toContain('宠物对话：已开启')
     expect(source).toContain('批阅辅助：已开启')
+    expect(source).toContain('复核全部分类')
+    expect(source).toContain('仅复核不太稳的分类')
     expect(source).toContain('收藏整理：已开启')
     expect(source).toContain('createPortal(<div')
   })

@@ -1026,8 +1026,8 @@ function formatDeepSeekFeatureSummary(preferences: AssistantPreferences): string
 function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[] {
   const reviewMode =
     preferences.deepseekDailyClassificationMode === 'low-confidence-only'
-      ? '仅不太稳'
-      : '全部归类'
+      ? '仅复核不太稳的分类'
+      : '复核全部分类'
 
   return [
     preferences.deepseekCommentEnabled
@@ -2036,8 +2036,8 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                         )
                       }
                     >
-                      <option value="all">全部归类</option>
-                      <option value="low-confidence-only">仅不太稳</option>
+                      <option value="all">复核全部分类</option>
+                      <option value="low-confidence-only">仅复核不太稳的分类</option>
                     </select>
                   </div>
                   <p className="assistant-settings__deepseek-official-link">
