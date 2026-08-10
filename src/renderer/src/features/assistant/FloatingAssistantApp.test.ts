@@ -580,10 +580,13 @@ describe('resolveFavoriteOrganizationLamp', () => {
       'whisper-small'
     )
 
-    expect(statusLightTooltipParts(status).filter((part) => part.label).map((part) => part.label)).toEqual([
+    const parts = statusLightTooltipParts(status)
+    expect(parts.filter((part) => part.label).map((part) => part.label)).toEqual([
       '视频转写模型：',
       '当前转写视频：'
     ])
+    expect(parts[0]).toMatchObject({ emphasized: true })
+    expect(parts[1]).not.toHaveProperty('emphasized')
   })
 
   it('labels DeepSeek connection and feature status independently', () => {
@@ -624,7 +627,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(parts[0]).toEqual({
       label: 'DeepSeek 已连接，当前模型：',
-      text: 'deepseek-v4-flash'
+      text: 'deepseek-v4-flash',
+      emphasized: true
     })
   })
 

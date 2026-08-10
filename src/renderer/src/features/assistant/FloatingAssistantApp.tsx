@@ -379,14 +379,19 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
   '收藏整理：'
 ] as const
 
+const STATUS_LIGHT_EMPHASIZED_LINE_PREFIXES = [
+  'DeepSeek 已连接，当前模型：',
+  '视频转写模型：'
+] as const
+
 export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTooltipPart[] {
   return statusLightTooltip(item).split('\n').map((line) => {
     const label = STATUS_LIGHT_TOOLTIP_LABELS.find((candidate) => line.startsWith(candidate))
-    if (label) return { label, text: line.slice(label.length).trimStart() }
-    return {
-      text: line,
-      emphasized: line === '默认收藏夹体系已开启。' || line === '默认收藏夹体系已关闭。'
-    }
+    const emphasized = line === '默认收藏夹体系已开启。' ||
+      line === '默认收藏夹体系已关闭。' ||
+      STATUS_LIGHT_EMPHASIZED_LINE_PREFIXES.some((prefix) => line.startsWith(prefix))
+    if (label) return { label, text: line.slice(label.length).trimStart(), ...(emphasized ? { emphasized: true } : {}) }
+    return emphasized ? { text: line, emphasized: true } : { text: line }
   })
 }
 
