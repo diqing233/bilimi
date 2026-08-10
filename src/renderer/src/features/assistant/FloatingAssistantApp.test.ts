@@ -554,6 +554,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
     expect(source).toContain('floating-assistant-global-status__light-tooltip-title-line')
+    expect(source).toContain("id === 'deepseek' && index === 0")
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;/)
     expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*color: #1d4f83;/)
   })
