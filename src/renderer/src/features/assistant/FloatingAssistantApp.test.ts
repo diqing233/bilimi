@@ -979,8 +979,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(status.detail.split('\n')).toEqual([
       '默认收藏夹体系已开启。',
       '',
-      '备册：当前启用 3 个收藏夹：1 个已备册、1 个未备册、1 个未绑定。',
-      '收藏夹：当前启用 3 个 bilimi 收藏夹。还有 1 个未保存。已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。',
+      '备册：当前启用 3 个 bilimi 收藏夹，其中 1 个已备册、1 个未备册、1 个未绑定。',
+      '收藏夹：当前共有 3 个收藏夹，其中 3 个已启用、1 个未保存。已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。',
       '整理收藏：当前未整理。整理收藏会把原有收藏夹的视频复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
     ])
   })
@@ -1007,7 +1007,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })
 
     expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
-    expect(status.detail).toContain('还有 1 个未保存。')
+    expect(status.detail).toContain('其中 1 个未启用、1 个未保存。')
     expect(status.detail).not.toContain('发现几个 B 站疑似 bilimi 收藏夹')
     expect(status.detailAction).toBeUndefined()
     expect(onDismiss).not.toHaveBeenCalled()

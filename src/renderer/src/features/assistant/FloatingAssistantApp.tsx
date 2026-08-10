@@ -398,7 +398,9 @@ export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTool
 const FAVORITE_ORGANIZATION_REMINDER = '整理收藏会把原有收藏夹的视频复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
 
 type FavoriteLedgerStatusSummary = {
+  totalCount: number
   enabledCount: number
+  disabledCount: number
   backedCount: number
   unbackedCount: number
   unboundCount: number
@@ -441,26 +443,42 @@ function favoriteLedgerStatusSummary(
     backedCount += 1
   }
 
-  return { enabledCount, backedCount, unbackedCount, unboundCount, localDraftCount }
+  return {
+    totalCount: ledgers.length,
+    enabledCount,
+    disabledCount: ledgers.length - enabledCount,
+    backedCount,
+    unbackedCount,
+    unboundCount,
+    localDraftCount
+  }
 }
 
 function favoriteBackupDetail(summary: FavoriteLedgerStatusSummary): string {
   const detail = summary.enabledCount === 0
     ? '当前没有已备册的收藏夹。'
     : summary.backedCount === summary.enabledCount
-      ? '当前启用收藏夹全部已备册。'
-      : `当前启用 ${summary.enabledCount} 个收藏夹：${summary.backedCount} 个已备册、${summary.unbackedCount} 个未备册、${summary.unboundCount} 个未绑定。`
+      ? `当前启用的 bilimi 收藏夹全部已备册。`
+      : `当前启用 ${summary.enabledCount} 个 bilimi 收藏夹，其中 ${[
+        summary.backedCount > 0 ? `${summary.backedCount} 个已备册` : '',
+        summary.unbackedCount > 0 ? `${summary.unbackedCount} 个未备册` : '',
+        summary.unboundCount > 0 ? `${summary.unboundCount} 个未绑定` : ''
+      ].filter(Boolean).join('、')}。`
   return summary.backedCount === 0
     ? `${detail}备册是批阅分类和同步 B 站收藏的核心，请尽快勾选启用收藏夹并备册哦～`
     : detail
 }
 
 function favoriteLedgerDetail(summary: FavoriteLedgerStatusSummary): string {
-  const enabledDetail = summary.enabledCount === 0
-    ? '当前没有启用的 bilimi 收藏夹。'
-    : `当前启用 ${summary.enabledCount} 个 bilimi 收藏夹。`
-  const localDraftDetail = summary.localDraftCount > 0 ? `还有 ${summary.localDraftCount} 个未保存。` : ''
-  return `${enabledDetail}${localDraftDetail}已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。`
+  if (summary.totalCount === 0) {
+    return '当前没有收藏夹。已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。'
+  }
+  const counts = [
+    summary.enabledCount > 0 ? `${summary.enabledCount} 个已启用` : '',
+    summary.disabledCount > 0 ? `${summary.disabledCount} 个未启用` : '',
+    summary.localDraftCount > 0 ? `${summary.localDraftCount} 个未保存` : ''
+  ].filter(Boolean).join('、')
+  return `当前共有 ${summary.totalCount} 个收藏夹，其中 ${counts}。已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。`
 }
 
 function favoriteOrganizationDetail(
