@@ -549,6 +549,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('font-weight: inherit')
   })
 
+  it('uses the title font for the DeepSeek connection and model header lines', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+    expect(source).toContain('floating-assistant-global-status__light-tooltip-title-line')
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;/)
+  })
+
   it('labels the current transcription model and video independently', () => {
     const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
       { items: [], sessionCompletedCount: 0 },
@@ -729,6 +737,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(matching.detail).toContain('转写结果：本次已完成 1 个视频，文稿已保存到档案库。')
     expect(mismatched.detail).toContain('视频转写模型：Whisper small')
     expect(mismatched.detail).not.toContain('GPU 已就绪')
+  })
+
+  it('uses the concise empty transcription wording when no video is available', () => {
+    const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      { items: [], sessionCompletedCount: 0 },
+      'whisper-small'
+    )
+
+    expect(status.detail).toContain('当前转写视频：暂无视频转写')
+    expect(status.detail).not.toContain('暂无可用转写')
   })
 
   it('does not treat a completed transcription for another part as the current video', () => {
