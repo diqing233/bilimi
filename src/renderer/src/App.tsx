@@ -1492,7 +1492,13 @@ export default function App() {
           return { ...ledger, bilibiliFolderId: trustedRemoteFolderId, bindingState: 'bound' as const }
         }
         // Settings carry user preference only. Remote writes require the repository's formal binding.
-        const { bilibiliFolderId: _bilibiliFolderId, bindingState: _bindingState, ...unboundLedger } = ledger
+        const {
+          bilibiliFolderId: _bilibiliFolderId,
+          bilibiliFolderTitle: _bilibiliFolderTitle,
+          bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+          bindingState: _bindingState,
+          ...unboundLedger
+        } = ledger
         return unboundLedger
       })
     }

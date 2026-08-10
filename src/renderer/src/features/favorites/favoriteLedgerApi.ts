@@ -153,7 +153,7 @@ function sharedScriptHelpers(): string {
           : null;
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
           normalizeFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
-          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bindingState: 'bound' };
+          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
         // A persisted binding is keyed by the remote folder ID. Bilibili users
         // may rename a bound folder, so a title mismatch must not silently
@@ -164,10 +164,10 @@ function sharedScriptHelpers(): string {
         const folder = storedFolder || null;
         const folderId = findFolderId(folder);
         if (folderId) {
-          return { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: String(folder.title || ledger.displayName), bindingState: 'bound' };
+          return { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: String(folder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), bindingState: 'bound' };
         }
 
-        const { bilibiliFolderId, bilibiliFolderTitle, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
+        const { bilibiliFolderId, bilibiliFolderTitle, bilibiliFolderVideoCount, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
         return {
           ...ledgerWithoutStaleFolderId,
           bindingState: candidates.length > 0 ? 'unbound' : 'unbacked'
@@ -235,6 +235,7 @@ function sharedScriptHelpers(): string {
           enabled: false,
           priority: priority++,
           bilibiliFolderId: String(folderId),
+          bilibiliFolderVideoCount: Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0),
           bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false

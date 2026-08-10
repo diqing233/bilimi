@@ -38,7 +38,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('starts with the favorite card list expanded and folds it to fifteen cards', () => {
+  it('starts with the favorite card list expanded and folds it to three rows', () => {
     render(<FavoriteLedgerOverview ledgers={Array.from({ length: 16 }, (_, index) => ({
       id: `ledger-${index}`, displayName: `bilimi·收藏夹${index}`, keywords: [], enabled: true, priority: index, isDefault: false
     }))} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
@@ -47,7 +47,27 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(16)
     fireEvent.click(screen.getByRole('button', { name: '折叠' }))
     expect(screen.getByRole('button', { name: '展开' })).toBeInTheDocument()
-    expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(15)
+    expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(9)
+  })
+
+  it('keeps same-named folders saveable and labels each copy with its sequence and video count', () => {
+    render(<FavoriteLedgerOverview ledgers={[
+      {
+        id: 'same-1', displayName: 'bilimi·Same', keywords: [], enabled: false, priority: 10,
+        bilibiliFolderVideoCount: 12, isDefault: false
+      },
+      {
+        id: 'same-2', displayName: 'bilimi·Same', keywords: [], enabled: false, priority: 20,
+        bilibiliFolderVideoCount: 4, isDefault: false
+      }
+    ]} missingLedgerIds={[]} openLedgerId="same-1" onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByTestId('favorite-ledger-chip-same-1')).toHaveTextContent('Same①')
+    expect(screen.getByTestId('favorite-ledger-chip-same-1')).toHaveTextContent('12 个视频')
+    expect(screen.getByTestId('favorite-ledger-chip-same-2')).toHaveTextContent('Same②')
+    expect(screen.getByTestId('favorite-ledger-chip-same-2')).toHaveTextContent('4 个视频')
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+    expect(screen.queryByText('收藏夹名称不能重复')).not.toBeInTheDocument()
   })
 
   it('uses a darker semantic title for each favorite help paragraph', () => {

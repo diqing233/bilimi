@@ -80,7 +80,7 @@ const TYPES: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
   { value: 'tag', label: '标签收藏夹' },
   { value: 'deepseek', label: 'DeepSeek约束收藏夹' }
 ]
-const COLLAPSED_LEDGER_COUNT = 15
+const COLLAPSED_LEDGER_COUNT = 9
 const LEDGER_EAGER_RENDER_LIMIT = 500
 const LEDGER_TOGGLE_SAVE_DELAY_MS = 250
 const FIXED_ASSISTANT_HELP_EVENT = 'bilimi:fixed-assistant-help'
@@ -321,9 +321,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
   const title = active ? displayTitle(active.displayName) : ''
   const validation = favoriteLedgerNameValidation(active?.displayName ?? '')
-  const duplicate = active && draftLedgers.some((ledger) => ledger.id !== active.id &&
-    displayTitle(ledger.displayName).toLocaleLowerCase() === title.trim().toLocaleLowerCase())
-  const valid = Boolean(active && title.trim() && validation.valid && !duplicate)
+  const valid = Boolean(active && title.trim() && validation.valid)
   const canToggleLedgerList = draftLedgers.length > COLLAPSED_LEDGER_COUNT
   const fullLedgerListVisible = ledgerListExpanded && draftLedgers.length <= LEDGER_EAGER_RENDER_LIMIT
   const ledgersToDisplay = fullLedgerListVisible ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
@@ -692,6 +690,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           duplicateLedgerTitleIndexes.set(baseLedgerTitle, duplicateIndex)
           const duplicateSuffix = (duplicateLedgerTitleCounts.get(baseLedgerTitle) ?? 0) > 1 ? String.fromCharCode(9311 + duplicateIndex) : ''
           const ledgerLabel = `${disabledBySystem ? '（已停用）' : unsaved ? '（未保存）' : ''}${baseLedgerTitle}${duplicateSuffix}`
+          const videoCount = typeof ledger.bilibiliFolderVideoCount === 'number' && Number.isFinite(ledger.bilibiliFolderVideoCount)
+            ? Math.max(0, Math.round(ledger.bilibiliFolderVideoCount))
+            : undefined
           const dropPosition = dragTarget === ledger.id ? 'before' : undefined
           return <div key={ledger.id} data-testid={`favorite-ledger-chip-${ledger.id}`} className="favorite-ledger-panel__chip-item"
             data-dragging={draggedLedgerId === ledger.id ? 'true' : undefined} data-drop-position={dropPosition}
@@ -700,7 +701,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             <FavoriteLedgerEnableButton store={deletionModeActive ? deletionStore : enableStore} id={ledger.id} onToggle={() => toggle(ledger.id)}>{({ enabled, toggle: toggleEnabled }) => {
               const ledgerDisplayName = ledger.displayName
               return <>
-              <button type="button" draggable={!draftMutationLocked} aria-label={ledgerLabel} title={`${ledgerDisplayName}${bindingLabel ? `（${bindingLabel}）` : ''}`} aria-pressed={enabled && !disabledBySystem}
+              <button type="button" draggable={!draftMutationLocked} aria-label={`${ledgerLabel}${videoCount === undefined ? '' : `，${videoCount} 个视频`}`} title={`${ledgerDisplayName}${bindingLabel ? `（${bindingLabel}）` : ''}`} aria-pressed={enabled && !disabledBySystem}
                 onDragStart={(event) => beginDrag(ledger.id, event)} onDragEnd={() => { setDraggedLedgerId(null); setDragTarget(null) }} onClick={() => {
                 if (activeLedgerId === ledger.id) {
                   if (draftMutationLocked) return
@@ -710,7 +711,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                 }
                 setActiveLedgerId(ledger.id)
                 setNewLedger(false)
-              }}>{ledgerLabel}{bindingLabel ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(ledger, bindingLabel)}>{bindingLabel}</small> : null}</button>
+              }}><span className="favorite-ledger-panel__chip-label">{ledgerLabel}</span>{videoCount === undefined ? null : <small className="favorite-ledger-panel__video-count">{videoCount} 个视频</small>}{bindingLabel ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(ledger, bindingLabel)}>{bindingLabel}</small> : null}</button>
               <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? (deletionModeActive ? '取消删除' : '移出同步') : (deletionModeActive ? '加入删除' : '加入同步')} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || (deletionModeActive ? isRecoveredRemoteDraft(ledger) : !isOperable(ledger))} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
             </>
             }}</FavoriteLedgerEnableButton>
@@ -731,7 +732,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             aria-valuemin={0} aria-valuenow={draftRuleAnalysis.completedItemCount} aria-valuemax={Math.max(1, draftRuleAnalysis.totalItemCount)} />
           <button type="button" disabled={draftRuleAnalysis.status === 'canceling'} onClick={onCancelDraftRuleAnalysis}>取消分析</button>
         </div> : draftRuleAnalysisError ? <p className="favorite-ledger-panel__notice" role="alert">{draftRuleAnalysisError}</p> : null}
-        <label><span className="favorite-ledger-panel__ledger-name-label"><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span>{bindingLabelForLedger(active) ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(active, bindingLabelForLedger(active))}>{bindingLabelForLedger(active)}</small> : null}</span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" disabled={draftMutationLocked} value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : duplicate ? <small role="alert">收藏夹名称不能重复</small> : active.bilibiliFolderId && active.bilibiliFolderTitle && active.bilibiliFolderTitle !== active.displayName ? <small className="favorite-ledger-panel__name-sync-status">册名不同步；下次备册会按 bilimi 册名更新 B 站。</small> : null}</label>
+        <label><span className="favorite-ledger-panel__ledger-name-label"><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span>{bindingLabelForLedger(active) ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(active, bindingLabelForLedger(active))}>{bindingLabelForLedger(active)}</small> : null}</span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" disabled={draftMutationLocked} value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : active.bilibiliFolderId && active.bilibiliFolderTitle && active.bilibiliFolderTitle !== active.displayName ? <small className="favorite-ledger-panel__name-sync-status">册名不同步；下次备册会按 bilimi 册名更新 B 站。</small> : null}</label>
         <label>收藏夹种类<select aria-label="收藏夹种类" disabled={draftMutationLocked || active.isDefault} value={active.ruleType ?? 'keyword'} onChange={(event) => update({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType, keywords: [] })}>{TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
         <label>{ruleLabel(active.ruleType)}<textarea aria-label={ruleLabel(active.ruleType)}
           disabled={draftMutationLocked}
