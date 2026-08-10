@@ -1137,7 +1137,82 @@ describe('App runtime integration', () => {
     ).toBe(false)
   })
 
-  it('keeps a delayed DeepSeek review as preclassification until the favorite ledgers are provisioned', async () => {
+  it('skips DeepSeek daily review when the target favorite is not provisioned', async () => {
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['knowledge'],
+      corrected: false,
+      confidence: 0.9,
+      keywordSuggestions: []
+    })
+    const provisionedLedgers = createDefaultFavoriteLedgers().map((ledger, index) =>
+      ledger.id === 'knowledge'
+        ? { ...ledger, keywords: ['预检知识'], bilibiliFolderId: String(9_150 + index), bindingState: 'bound' as const }
+        : { ...ledger, bilibiliFolderId: String(9_150 + index), bindingState: 'bound' as const }
+    )
+    const localDraftLedgers = provisionedLedgers.map((ledger) =>
+      ledger.id === 'knowledge'
+        ? {
+            ...ledger,
+            bilibiliFolderId: undefined,
+            bindingState: 'unbacked' as const,
+            syncState: 'local-draft' as const
+          }
+        : ledger
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'all',
+      favoriteLedgers: provisionedLedgers
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: true,
+          ledgers: localDraftLedgers,
+          missingLedgerIds: [],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          message: '预检保留本地草稿状态。'
+        }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 715,
+          bvid: 'BV1review715',
+          title: '预检知识视频',
+          pageText: '预检知识',
+          tags: ['预检知识']
+        }
+      }
+      return { ok: true, steps: ['like'], missingTargets: [], message: '点赞已完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'deepseek-unprovisioned-snapshot', type: 'snapshot' })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review715' }
+      }))
+    })
+
+    await requestRuntime({ id: 'deepseek-unprovisioned-review', type: 'run-action', action: '赏' })
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+  })
+
+  it('skips a delayed DeepSeek review until the favorite ledgers are provisioned', async () => {
     const generateDeepSeek = vi.fn<
       (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
     >(() => new Promise((resolve) => {
@@ -1219,7 +1294,7 @@ describe('App runtime integration', () => {
       await new Promise((resolve) => setTimeout(resolve, 25))
     })
 
-    expect(generateDeepSeek).toHaveBeenCalledOnce()
+    expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(
       executeJavaScript.mock.calls.some(([script]) =>
         String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
@@ -3787,7 +3862,15 @@ describe('App runtime integration', () => {
       executeJavaScript: vi.fn(async (script: string) =>
         script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)
           ? { aid: 709, title: '大阪生活记录', pageText: '大阪生活记录', tags: ['大阪生活'] }
-          : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
+          : isLedgerStatusScript(script)
+            ? {
+                ok: true,
+                ledgers: preferences.favoriteLedgers,
+                missingLedgerIds: [],
+                backupConflictLedgerIds: [],
+                unboundLedgerIds: []
+              }
+            : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
       )
     })
     act(() => {
@@ -3841,7 +3924,15 @@ describe('App runtime integration', () => {
       executeJavaScript: vi.fn(async (script: string) =>
         script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)
           ? { aid: 710, title: '大陸生活記錄', pageText: '大陸生活記錄', tags: ['大陸生活'] }
-          : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
+          : isLedgerStatusScript(script)
+            ? {
+                ok: true,
+                ledgers: preferences.favoriteLedgers,
+                missingLedgerIds: [],
+                backupConflictLedgerIds: [],
+                unboundLedgerIds: []
+              }
+            : { ok: true, steps: ['favorite'], missingTargets: [], message: '已完成收藏。' }
       )
     })
     act(() => {

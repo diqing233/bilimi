@@ -2203,15 +2203,38 @@ export default function App() {
             Boolean(ledger.bilibiliFolderId?.trim())
         )
       )
-
-    if (
+    const isFavoriteWriteProvisioned = (
+      status: FavoriteLedgerStatus | null | undefined,
+      ledgerIds: string[]
+    ) => Boolean(
+      status?.ok &&
+      status.missingLedgerIds.length === 0 &&
+      !(status.backupConflictLedgerIds?.length) &&
+      !(status.unboundLedgerIds?.length) &&
+      areFavoriteTargetsWriteAuthorized(ledgerIds)
+    )
+    const dailyDeepSeekReviewRequested =
       actionUsesFavorite(action) &&
       preferences.deepseekEnabled &&
       preferences.deepseekApiKeyStored &&
       preferences.deepseekDailyClassificationEnabled &&
-      window.bilimiDesktop?.generateDeepSeek &&
+      Boolean(window.bilimiDesktop?.generateDeepSeek) &&
       shouldReviewDailyClassification(preferences.deepseekDailyClassificationMode, localDiagnostics)
-    ) {
+    let dailyDeepSeekReviewAllowed = false
+    if (dailyDeepSeekReviewRequested) {
+      favoriteLedgerStatus = actionAccountMid
+        ? await preflightFavoriteLedgerStatus(actionAccountMid)
+        : null
+      if (actionAccountMid) {
+        actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
+      }
+      dailyDeepSeekReviewAllowed = isFavoriteWriteProvisioned(
+        favoriteLedgerStatus,
+        localTargetLedgerIds
+      )
+    }
+
+    if (dailyDeepSeekReviewRequested && dailyDeepSeekReviewAllowed) {
       const reviewRequest: DeepSeekGenerateRequest = {
         kind: 'favorite-daily-classify-review',
         video: videoContentContext,
@@ -2283,7 +2306,7 @@ export default function App() {
         }
       }
     }
-    if (actionUsesFavorite(action)) {
+    if (actionUsesFavorite(action) && !dailyDeepSeekReviewRequested) {
       favoriteLedgerStatus = actionAccountMid
         ? await preflightFavoriteLedgerStatus(actionAccountMid)
         : null
@@ -2291,13 +2314,7 @@ export default function App() {
         actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
       }
     }
-    const favoriteProvisioned = Boolean(
-      favoriteLedgerStatus?.ok &&
-      favoriteLedgerStatus.missingLedgerIds.length === 0 &&
-      !(favoriteLedgerStatus.backupConflictLedgerIds?.length) &&
-      !(favoriteLedgerStatus.unboundLedgerIds?.length) &&
-      areFavoriteTargetsWriteAuthorized(targetLedgerIds)
-    )
+    const favoriteProvisioned = isFavoriteWriteProvisioned(favoriteLedgerStatus, targetLedgerIds)
     const commentDraft =
       action === '表' &&
       (options?.submitComment ?? preferences.commentSubmitMode === 'random') &&
@@ -2502,12 +2519,9 @@ export default function App() {
           const targetNames = correction.targetLedgerIds
             .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
             .join('、')
-          const delayedFavoriteProvisioned = Boolean(
-            delayedFavoriteLedgerStatus?.ok &&
-            delayedFavoriteLedgerStatus.missingLedgerIds.length === 0 &&
-            !(delayedFavoriteLedgerStatus.backupConflictLedgerIds?.length) &&
-            !(delayedFavoriteLedgerStatus.unboundLedgerIds?.length) &&
-            areFavoriteTargetsWriteAuthorized(correction.targetLedgerIds)
+          const delayedFavoriteProvisioned = isFavoriteWriteProvisioned(
+            delayedFavoriteLedgerStatus,
+            correction.targetLedgerIds
           )
 
           if (!favoriteProvisioned || !delayedFavoriteProvisioned) {
