@@ -368,7 +368,16 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
   '当前模型：',
   '当前视频：',
   '执行任务：',
-  '正在执行：'
+  '正在执行：',
+  'DeepSeek 已连接。',
+  'DeepSeek 未连接。',
+  'DeepSeek 验证中',
+  'DeepSeek 工作中',
+  '趣味评论：',
+  '自动总结：',
+  '宠物对话：',
+  '批阅辅助：',
+  '收藏整理：'
 ] as const
 
 export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTooltipPart[] {

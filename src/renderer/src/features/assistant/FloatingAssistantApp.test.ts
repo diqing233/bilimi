@@ -550,6 +550,32 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ])
   })
 
+  it('labels DeepSeek connection and feature status independently', () => {
+    const parts = statusLightTooltipParts({
+      label: 'DeepSeek 已连接',
+      detail: [
+        'DeepSeek 已连接。',
+        '当前模型：deepseek-v4-flash',
+        '趣味评论：已开启，会生成候选弹幕。',
+        '自动总结：已开启，会生成文稿总结。',
+        '宠物对话：已开启，小咪会调用 DeepSeek 对话。',
+        '批阅辅助：已开启，会复核批阅分类。',
+        '收藏整理：已开启，可执行 DeepSeek 整理。'
+      ].join('\n'),
+      tone: 'ok'
+    })
+
+    expect(parts.filter((part) => part.label).map((part) => part.label)).toEqual([
+      'DeepSeek 已连接。',
+      '当前模型：',
+      '趣味评论：',
+      '自动总结：',
+      '宠物对话：',
+      '批阅辅助：',
+      '收藏整理：'
+    ])
+  })
+
   it('keeps the wait-confirmation detail concise across the status light and task menu', () => {
     expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).not.toContain('小咪提醒')
   })
