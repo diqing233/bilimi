@@ -531,6 +531,21 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(parts.find((part) => part.label === '备册：')?.text).toBe('发现疑似 bilimi 收藏夹。')
   })
 
+  it('emphasizes the standalone default favorite-system status line', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+    const parts = statusLightTooltipParts({
+      label: '未备册',
+      detail: '默认收藏夹体系已开启。\n\n备册：当前没有启用的收藏夹。',
+      tone: 'error'
+    })
+
+    expect(parts[0]).toMatchObject({ text: '默认收藏夹体系已开启。', emphasized: true })
+    expect(parts[2]).not.toHaveProperty('emphasized')
+    expect(source).toContain("part.emphasized ? ' floating-assistant-global-status__light-tooltip-line--emphasis'")
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip-line--emphasis \{[^}]*color: #1d4f83;[^}]*font-weight: 700;/)
+  })
+
   it('uses a dedicated deep-blue bold style for status tooltip labels', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
@@ -845,7 +860,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
       favoriteLedgerStatus: null
     })
     expect(status).toMatchObject({ label: '\u6574\u7406\u7a7a\u95f2', tone: 'idle' })
-    expect(status.detail.split('\n')[0]).toMatch(/^备册：默认收藏夹体系已关闭/)
+    expect(status.detail.split('\n')[0]).toBe('默认收藏夹体系已关闭。')
   })
 
   it('\u7ed9\u540c\u540d\u8fdc\u7a0b\u6536\u85cf\u5939\u51b2\u7a81\u663e\u793a\u5907\u518c\u5f02\u5e38', () => {
@@ -871,18 +886,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
       favoriteLedgerStatus: null
     })
     expect(status).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
-    expect(status.detail.split('\n')[0]).toMatch(/^备册：默认收藏夹体系已开启/)
+    expect(status.detail.split('\n')[0]).toBe('默认收藏夹体系已开启。')
     expect(status.detail.split('\n')).toEqual(expect.arrayContaining([
       expect.stringMatching(/^备册：/),
       expect.stringMatching(/^收藏夹：/),
       expect.stringMatching(/^整理收藏：/)
     ]))
-    expect(status.detail).toContain('使用 bilimi 与 B 站联动的第一步')
-    expect(status.detail).toContain('不会移动已有视频')
-    expect(status.detail).toContain('同一个视频可以保存在多个收藏夹里')
-    expect(status.detail).toContain('会复制到 bilimi 收藏夹，不会移出原有普通收藏夹')
+    expect(status.detail).toContain('备册是批阅分类和同步 B 站收藏的核心')
+    expect(status.detail).toContain('已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类')
+    expect(status.detail).toContain('整理收藏会把原有收藏夹的视频复制到 bilimi 收藏夹，不会移出原有普通收藏夹')
 
-    expect(status.detail.split('\n')).toHaveLength(3)
+    expect(status.detail.split('\n')).toHaveLength(5)
     expect(status.detail).not.toContain('小咪提醒')
 
     expect(resolveFavoriteOrganizationLamp({
@@ -893,7 +907,51 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })).toMatchObject({ label: '\u6574\u7406\u626b\u63cf\u4e2d', tone: 'running' })
   })
 
-  it('keeps remote-only draft dismissal out of the global status light', () => {
+  it('separates favorite backup, enabled ledgers, and idle organization details', () => {
+    const backed: FavoriteLedger = {
+      ...defaultLedger,
+      bilibiliFolderId: '101',
+      bindingState: 'bound'
+    }
+    const unbacked: FavoriteLedger = {
+      ...defaultLedger,
+      id: 'custom-draft',
+      displayName: 'bilimi·草稿',
+      isDefault: false,
+      syncState: 'local-draft'
+    }
+    const unbound: FavoriteLedger = {
+      ...defaultLedger,
+      id: 'custom-unbound',
+      displayName: 'bilimi·未绑定',
+      isDefault: false,
+      bilibiliFolderId: '102',
+      bindingState: 'unbound'
+    }
+
+    const status = resolveFavoriteOrganizationLamp({
+      snapshot: null,
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [backed, unbacked, unbound],
+      favoriteLedgerStatus: {
+        ok: false,
+        ledgers: [backed, unbacked, unbound],
+        missingLedgerIds: ['custom-draft'],
+        unboundLedgerIds: ['custom-unbound'],
+        backupConflictLedgerIds: []
+      }
+    })
+
+    expect(status.detail.split('\n')).toEqual([
+      '默认收藏夹体系已开启。',
+      '',
+      '备册：当前启用 3 个收藏夹：1 个已备册、1 个未备册、1 个未绑定。',
+      '收藏夹：当前启用 3 个 bilimi 收藏夹。还有 1 个未保存。已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。',
+      '整理收藏：当前未整理。整理收藏会把原有收藏夹的视频复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
+    ])
+  })
+
+  it('keeps remote-only draft dismissal out of the global status light while summarizing its local draft', () => {
     const onDismiss = vi.fn()
     const draft: FavoriteLedger = {
       id: 'custom-remote-hello', displayName: 'bilimi\u00b7\u4f60\u597d', keywords: [], enabled: false,
@@ -915,7 +973,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })
 
     expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
-    expect(status.detail).toContain('\u53d1\u73b0\u51e0\u4e2a B \u7ad9\u7591\u4f3c bilimi \u6536\u85cf\u5939')
+    expect(status.detail).toContain('还有 1 个未保存。')
+    expect(status.detail).not.toContain('发现几个 B 站疑似 bilimi 收藏夹')
     expect(status.detailAction).toBeUndefined()
     expect(onDismiss).not.toHaveBeenCalled()
   })

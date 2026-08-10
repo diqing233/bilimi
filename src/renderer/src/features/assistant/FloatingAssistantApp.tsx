@@ -353,7 +353,7 @@ export function statusLightTooltip(item: GlobalStatusItem): string {
   return item.detail
 }
 
-export type StatusLightTooltipPart = { label?: string; text: string }
+export type StatusLightTooltipPart = { label?: string; text: string; emphasized?: boolean }
 
 const STATUS_LIGHT_TOOLTIP_LABELS = [
   '备册：',
@@ -382,27 +382,96 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
 export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTooltipPart[] {
   return statusLightTooltip(item).split('\n').map((line) => {
     const label = STATUS_LIGHT_TOOLTIP_LABELS.find((candidate) => line.startsWith(candidate))
-    return label ? { label, text: line.slice(label.length).trimStart() } : { text: line }
+    if (label) return { label, text: line.slice(label.length).trimStart() }
+    return {
+      text: line,
+      emphasized: line === '默认收藏夹体系已开启。' || line === '默认收藏夹体系已关闭。'
+    }
   })
 }
 
-const FAVORITE_BACKUP_REMINDER = '使用 bilimi 与 B 站联动的第一步；备册只建立绑定，不会移动已有视频。'
-const FAVORITE_COLLECTION_REMINDER = '同一个视频可以保存在多个收藏夹里。'
-const FAVORITE_ORGANIZATION_REMINDER = '整理会复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
+const FAVORITE_ORGANIZATION_REMINDER = '整理收藏会把原有收藏夹的视频复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
+
+type FavoriteLedgerStatusSummary = {
+  enabledCount: number
+  backedCount: number
+  unbackedCount: number
+  unboundCount: number
+  localDraftCount: number
+}
+
+function favoriteLedgerStatusSummary(
+  ledgers: FavoriteLedger[],
+  favoriteLedgerStatus: FavoriteLedgerStatus | null
+): FavoriteLedgerStatusSummary {
+  const missingLedgerIds = new Set(favoriteLedgerStatus?.missingLedgerIds ?? [])
+  const unboundLedgerIds = new Set(favoriteLedgerStatus?.unboundLedgerIds ?? [])
+  let enabledCount = 0
+  let backedCount = 0
+  let unbackedCount = 0
+  let unboundCount = 0
+  let localDraftCount = 0
+
+  for (const ledger of ledgers) {
+    const isLocalDraft = ledger.syncState === 'local-draft'
+    if (isLocalDraft) localDraftCount += 1
+    if (!ledger.enabled) continue
+
+    enabledCount += 1
+    const isUnbound = ledger.bindingState === 'unbound' || unboundLedgerIds.has(ledger.id)
+    if (isUnbound) {
+      unboundCount += 1
+      continue
+    }
+
+    const isUnbacked = isLocalDraft ||
+      ledger.bindingState === 'unbacked' ||
+      missingLedgerIds.has(ledger.id) ||
+      !ledger.bilibiliFolderId?.trim()
+    if (isUnbacked) {
+      unbackedCount += 1
+      continue
+    }
+
+    backedCount += 1
+  }
+
+  return { enabledCount, backedCount, unbackedCount, unboundCount, localDraftCount }
+}
+
+function favoriteBackupDetail(summary: FavoriteLedgerStatusSummary): string {
+  const detail = summary.enabledCount === 0
+    ? '当前没有启用的收藏夹。'
+    : summary.backedCount === summary.enabledCount
+      ? '当前启用收藏夹全部已备册。'
+      : `当前启用 ${summary.enabledCount} 个收藏夹：${summary.backedCount} 个已备册、${summary.unbackedCount} 个未备册、${summary.unboundCount} 个未绑定。`
+  return summary.backedCount === 0
+    ? `${detail}备册是批阅分类和同步 B 站收藏的核心，请尽快勾选启用收藏夹并备册哦～`
+    : detail
+}
+
+function favoriteLedgerDetail(summary: FavoriteLedgerStatusSummary): string {
+  const enabledDetail = summary.enabledCount === 0
+    ? '当前没有启用的 bilimi 收藏夹。'
+    : `当前启用 ${summary.enabledCount} 个 bilimi 收藏夹。`
+  const localDraftDetail = summary.localDraftCount > 0 ? `还有 ${summary.localDraftCount} 个未保存。` : ''
+  return `${enabledDetail}${localDraftDetail}已勾选启用的 bilimi 收藏夹会参与批阅分类和整理收藏分类。`
+}
 
 function favoriteOrganizationDetail(
   organization: string,
-  favorite = '保持当前收藏夹状态。',
-  backup?: string,
+  summary: FavoriteLedgerStatusSummary,
   defaultFavoriteSystemEnabled = true
 ): string {
   const defaultSystemDetail = defaultFavoriteSystemEnabled
     ? '默认收藏夹体系已开启。'
-    : '默认收藏夹体系已关闭；备册不会创建远端收藏夹。'
+    : '默认收藏夹体系已关闭。'
   return [
-    `备册：${defaultSystemDetail}${backup ?? '请在收藏夹配置中确认备册状态。'} ${FAVORITE_BACKUP_REMINDER}`,
-    `收藏夹：${favorite} ${FAVORITE_COLLECTION_REMINDER}`,
-    `整理收藏：${organization} ${FAVORITE_ORGANIZATION_REMINDER}`
+    defaultSystemDetail,
+    '',
+    `备册：${favoriteBackupDetail(summary)}`,
+    `收藏夹：${favoriteLedgerDetail(summary)}`,
+    `整理收藏：${organization}${FAVORITE_ORGANIZATION_REMINDER}`
   ].join('\n')
 }
 
@@ -495,7 +564,7 @@ function GlobalStatusLight({
     </button>
     {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" data-status-light={id} role="tooltip" style={position} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
       <span className="floating-assistant-global-status__light-tooltip-copy">{statusLightTooltipParts(item).map((part, index) => {
-        const lineClass = 'floating-assistant-global-status__light-tooltip-line'
+        const lineClass = `floating-assistant-global-status__light-tooltip-line${part.emphasized ? ' floating-assistant-global-status__light-tooltip-line--emphasis' : ''}`
         return part.label ? <span key={`${part.label}-${index}`} className={lineClass}><span className="floating-assistant-global-status__light-tooltip-label">{part.label}</span>{part.text}</span> : part.text ? <span key={`line-${index}`} className={lineClass}>{part.text}</span> : <span key={`blank-${index}`} className="floating-assistant-global-status__light-tooltip-break" aria-hidden="true" />
       })}</span>
       {item.detailAction ? <button type="button" className="floating-assistant-global-status__light-tooltip-action" onClick={item.detailAction.onClick}>{item.detailAction.label}</button> : null}
@@ -560,13 +629,13 @@ export function favoriteWorkspaceReadinessMessage(args: {
 
 export function favoriteOrganizationStatus(
   snapshot: OldFavoriteWorkspaceSnapshot | null,
-  defaultFavoriteSystemEnabled = true
+  defaultFavoriteSystemEnabled = true,
+  summary = favoriteLedgerStatusSummary([], null)
 ): GlobalStatusItem | null {
   if (!snapshot) return null
-  const detail = (organization: string, favorite?: string, backup?: string) => favoriteOrganizationDetail(
+  const detail = (organization: string) => favoriteOrganizationDetail(
     organization,
-    favorite,
-    backup,
+    summary,
     defaultFavoriteSystemEnabled
   )
 
@@ -692,10 +761,10 @@ export function resolveFavoriteOrganizationLamp(args: {
   favoriteLedgerStatus: FavoriteLedgerStatus | null
   onDismissRemoteDraftReminder?: (ledgerId: string) => void
 }): GlobalStatusItem {
-  const detail = (organization: string, favorite?: string, backup?: string) => favoriteOrganizationDetail(
+  const summary = favoriteLedgerStatusSummary(args.ledgers, args.favoriteLedgerStatus)
+  const detail = (organization: string) => favoriteOrganizationDetail(
     organization,
-    favorite,
-    backup,
+    summary,
     args.defaultFavoriteSystemEnabled
   )
   if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
@@ -705,37 +774,36 @@ export function resolveFavoriteOrganizationLamp(args: {
       tone: 'idle'
     }
   }
-  const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled)
+  const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled, summary)
   if (organizationStatus) return organizationStatus
 
   if (!args.defaultFavoriteSystemEnabled) {
     return {
       label: '整理空闲',
-      detail: detail('暂存和已启用的自建收藏夹仍可用于本地归档预览。'),
+      detail: detail('当前未整理。'),
       tone: 'idle'
     }
   }
 
   const backupGap = favoriteLedgerBackupGap(args.ledgers)
   if (args.favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.length) {
-    const draftIds = args.favoriteLedgerStatus.remoteOnlyDraftLedgerIds
     return {
       label: '未绑定',
-      detail: detail(`还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`, '收藏夹状态需要确认。', '发现几个 B 站疑似 bilimi 收藏夹，已创建本地草稿，可编辑保存好之后备册来绑定；更换电脑时建议迁移数据。'),
+      detail: detail('当前未整理。'),
       tone: 'warn'
     }
   }
   if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
     return {
       label: '未绑定',
-      detail: detail('发现未绑定的 bilimi 收藏夹；预分类仍可使用，确认重新绑定后才能同步分类结果到 B 站。', '当前收藏夹需要重新绑定。', `还有 ${args.favoriteLedgerStatus.unboundLedgerIds.length} 个收藏夹等待重新绑定。`),
+      detail: detail('当前未整理。'),
       tone: 'error'
     }
   }
   if (args.favoriteLedgerStatus?.missingLedgerIds.length) {
     return {
       label: '未备册',
-      detail: detail('完成备册后可开始。', '当前启用的 bilimi 收藏夹需要备册。', `还有 ${args.favoriteLedgerStatus.missingLedgerIds.length} 个收藏夹未备册。`),
+      detail: detail('当前未整理。'),
       tone: 'error'
     }
   }
@@ -743,7 +811,7 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (backupGap.enabledCount === 0) {
     return {
       label: '未备册',
-      detail: detail('启用并备册收藏夹后可开始。', '当前没有启用的 bilimi 收藏夹。', '请先启用至少一个 bilimi 收藏夹并完成备册。'),
+      detail: detail('当前未整理。'),
       tone: 'error'
     }
   }
@@ -751,7 +819,7 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (backupGap.enabledWithoutFolderCount > 0) {
     return {
       label: '未备册',
-      detail: detail('完成备册后可开始。', `还有 ${backupGap.enabledWithoutFolderCount} 个已启用收藏夹未备册。`, `还有 ${backupGap.enabledWithoutFolderCount} 个已启用收藏夹未备册。`),
+      detail: detail('当前未整理。'),
       tone: 'error'
     }
   }
@@ -759,14 +827,14 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (args.favoriteLedgerStatus?.ok) {
     return {
       label: '整理空闲',
-      detail: detail('收藏夹已备齐，可以开始。', 'bilimi 收藏夹已备齐。', '已完成备册。'),
+      detail: detail('当前未整理。'),
       tone: 'ok'
     }
   }
 
   return {
     label: '整理空闲',
-    detail: detail('暂未检查备册状态。'),
+    detail: detail('当前未整理。'),
     tone: 'idle'
   }
 }

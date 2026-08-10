@@ -2065,6 +2065,10 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__light-tooltip-line {
   display: block;
 }
+.floating-assistant-global-status__light-tooltip-line--emphasis {
+  color: #1d4f83;
+  font-weight: 700;
+}
 .floating-assistant-global-status__light-tooltip-break {
   display: block;
   height: .55em;
