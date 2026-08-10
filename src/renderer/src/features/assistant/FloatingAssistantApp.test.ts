@@ -538,15 +538,15 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('font-weight: 700')
   })
 
-  it('labels the transcription model and current-video status independently', () => {
+  it('labels the current transcription model and video independently', () => {
     const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
       { items: [], sessionCompletedCount: 0 },
       'whisper-small'
     )
 
     expect(statusLightTooltipParts(status).filter((part) => part.label).map((part) => part.label)).toEqual([
-      '模型：',
-      '当前视频：'
+      '当前转写模型：',
+      '当前转写视频：'
     ])
   })
 
@@ -679,8 +679,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
       'whisper-small'
     )
 
-    expect(status.detail).toBe('模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前视频：测试视频 正在转写')
-    expect(statusLightTooltip(status)).toContain('模型：faster-whisper large-v3-turbo · GPU 已就绪')
+    expect(status.detail).toBe('当前转写模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前转写视频：测试视频 正在转写')
+    expect(statusLightTooltip(status)).toContain('当前转写模型：faster-whisper large-v3-turbo · GPU 已就绪')
   })
 
   it('shows the selected transcription model and only a matching available GPU probe as ready', () => {
@@ -714,8 +714,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
       }
     )
 
-    expect(matching.detail).toContain('模型：faster-whisper large-v3 · GPU 已就绪')
-    expect(mismatched.detail).toContain('模型：Whisper small')
+    expect(matching.detail).toContain('当前转写模型：faster-whisper large-v3 · GPU 已就绪')
+    expect(mismatched.detail).toContain('当前转写模型：Whisper small')
     expect(mismatched.detail).not.toContain('GPU 已就绪')
   })
 
