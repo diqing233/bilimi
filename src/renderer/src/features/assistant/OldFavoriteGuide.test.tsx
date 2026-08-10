@@ -49,7 +49,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('keeps an incomplete scan in the four-metric whole-run view', () => {
+  it('uses round-level metrics while scanning basic video information', () => {
     const snapshot = {
       version: 1 as const,
       accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const, mode: 'incremental' as const,
@@ -76,9 +76,9 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
       onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    const metrics = screen.getByLabelText('本批整理统计')
-    expect(metrics).toHaveTextContent('本批视频140')
-    expect(screen.getByLabelText('本批待整理')).toBeInTheDocument()
+    const metrics = screen.getByLabelText('本轮整理统计')
+    expect(metrics).toHaveTextContent('本轮视频140')
+    expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('待确认')
     expect(screen.queryByText('已扫描 140 条视频，待获取标签')).not.toBeInTheDocument()
   })
 
