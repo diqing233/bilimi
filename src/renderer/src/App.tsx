@@ -2151,11 +2151,6 @@ export default function App() {
       ? effectiveFavoriteLedgersForAccount(preferences, actionAccountMid)
       : preferences.favoriteLedgers
     const favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
-    const favoriteProvisioned = Boolean(
-      favoriteLedgerStatus?.ok &&
-      favoriteLedgerStatus.missingLedgerIds.length === 0 &&
-      !(favoriteLedgerStatus.backupConflictLedgerIds?.length)
-    )
     const videoContentContext = await readVideoContentContext()
     const archiveTargets = planFavoriteArchiveTargets({
       context: videoContentContext,
@@ -2177,6 +2172,12 @@ export default function App() {
     let preActionCorrectionTargets: string[] | undefined
     let deepSeekCorrection: DailyDeepSeekCorrection | undefined
     let postActionDailyReviewPromise: Promise<DailyClassificationReviewResult | undefined> | undefined
+    const areFavoriteTargetsBound = (ledgerIds: string[]) =>
+      ledgerIds.every((ledgerId) =>
+        actionFavoriteLedgers.some(
+          (ledger) => ledger.id === ledgerId && ledger.bindingState !== 'unbound'
+        )
+      )
 
     if (
       actionUsesFavorite(action) &&
@@ -2257,6 +2258,13 @@ export default function App() {
         }
       }
     }
+    const favoriteProvisioned = Boolean(
+      favoriteLedgerStatus?.ok &&
+      favoriteLedgerStatus.missingLedgerIds.length === 0 &&
+      !(favoriteLedgerStatus.backupConflictLedgerIds?.length) &&
+      !(favoriteLedgerStatus.unboundLedgerIds?.length) &&
+      areFavoriteTargetsBound(targetLedgerIds)
+    )
     const commentDraft =
       action === '表' &&
       (options?.submitComment ?? preferences.commentSubmitMode === 'random') &&
@@ -2453,13 +2461,13 @@ export default function App() {
             .map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
             .join('、')
 
-          if (!favoriteProvisioned) {
+          if (!favoriteProvisioned || !areFavoriteTargetsBound(correction.targetLedgerIds)) {
             publishRuntimeFeedback(
-              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」；当前收藏夹尚未备册，本次仅更新预分类，请先去掌库收藏夹备册。`
+              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」；当前收藏夹尚未备册或未绑定，本次仅更新预分类，请先去掌库收藏夹备册或重新绑定。`
             )
             window.bilimiDesktop?.setAssistantPetHint?.({
               tone: 'hint',
-              message: `主人，DeepSeek建议归到「${targetNames}」。当前收藏夹还没备册，本次只更新预分类；先去掌库收藏夹备册后再归类吧。`
+              message: `主人，DeepSeek建议归到「${targetNames}」。当前收藏夹还没备册或未绑定，本次只更新预分类；先去掌库收藏夹备册或重新绑定后再归类吧。`
             })
             return
           }

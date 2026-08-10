@@ -78,7 +78,7 @@ describe('executeAssistantAction', () => {
     expect(runScript).toHaveBeenCalledTimes(1)
     expect(runScript.mock.calls[0][0]).toContain('"skipFavorite":true')
     expect(runScript.mock.calls[0][0]).not.toContain('/x/v3/fav/resource/deal')
-    expect(result.message).toContain('备册后可归类到')
+    expect(result.message).toContain('备册或重新绑定')
   })
 
   it('runs favorite-only automation for 藏', async () => {

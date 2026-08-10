@@ -982,6 +982,73 @@ describe('App runtime integration', () => {
     ).toBe(false)
   })
 
+  it('keeps a locally unbound target out of Bilibili even when the cached status was provisioned', async () => {
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'knowledge'
+          ? { ...ledger, keywords: ['国际尬聊'], bilibiliFolderId: '91000001', bindingState: 'unbound' }
+          : ledger
+      )
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: true,
+          ledgers: preferences.favoriteLedgers,
+          missingLedgerIds: [],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          message: '缓存状态仍显示已备册。'
+        }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 709,
+          bvid: 'BV1review709',
+          title: '国际尬聊观察',
+          pageText: '国际尬聊',
+          tags: ['国际尬聊']
+        }
+      }
+      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          steps: ['unexpected:favorite-write'],
+          missingTargets: [],
+          message: '不应执行收藏写入。'
+        }
+      }
+      return { ok: true, steps: ['like'], missingTargets: [], message: '点赞已完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'stale-provisioned-snapshot', type: 'snapshot' })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review709' }
+      }))
+    })
+
+    await expect(
+      requestRuntime({ id: 'unbound-target-review', type: 'run-action', action: '赏' })
+    ).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining('当前收藏夹尚未备册或未绑定，本次仅完成预分类')
+    })
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
+      )
+    ).toBe(false)
+  })
+
   it('keeps a delayed DeepSeek review as preclassification until the favorite ledgers are provisioned', async () => {
     const generateDeepSeek = vi.fn<
       (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
@@ -1058,7 +1125,7 @@ describe('App runtime integration', () => {
       requestRuntime({ id: 'unprovisioned-delayed-review', type: 'run-action', action: '赏' })
     ).resolves.toMatchObject({
       ok: true,
-      message: expect.stringContaining('当前收藏夹尚未备册，本次仅完成预分类')
+      message: expect.stringContaining('当前收藏夹尚未备册或未绑定，本次仅完成预分类')
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 25))
@@ -2936,6 +3003,96 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         runtimeFeedback:
           'DeepSeek 二判完成：建议从「bilimi·生活日常」改归「bilimi·游戏专区」，已完成调整。'
+      })
+    )
+  })
+
+  it('does not adjust a delayed DeepSeek review into a locally unbound target', async () => {
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(() => new Promise((resolve) => {
+      setTimeout(() => resolve({
+        kind: 'favorite-daily-classify-review',
+        targetLedgerIds: ['game'],
+        corrected: true,
+        reason: 'DeepSeek 建议归入游戏专区。',
+        confidence: 0.8,
+        keywordSuggestions: []
+      }), 5)
+    }))
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') return { ...ledger, keywords: ['游戏专用'], bindingState: 'unbound' }
+        if (ledger.id === 'life-interest') return { ...ledger, keywords: ['大阪生活'] }
+        return ledger
+      })
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 711,
+          bvid: 'BV1review711',
+          title: '大阪地铁换乘攻略',
+          pageText: '大阪生活 地铁攻略',
+          tags: ['地铁攻略']
+        }
+      }
+      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          steps: ['unexpected:favorite-write'],
+          missingTargets: [],
+          message: '不应执行收藏写入。'
+        }
+      }
+      return { ok: true, steps: ['like'], missingTargets: [], message: '点赞已完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
+    await expect(requestRuntime({ id: 'delayed-unbound-target-snapshot', type: 'snapshot' })).resolves.toMatchObject({
+      preferences: {
+        favoriteAccountPreferences: {
+          '100': {
+            favoriteLedgers: expect.arrayContaining([
+              expect.objectContaining({ id: 'game', bindingState: 'unbound' })
+            ])
+          }
+        }
+      }
+    })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review711' }
+      }))
+    })
+    await requestRuntime({ id: 'delayed-unbound-target-review', type: 'run-action', action: '赏' })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(generateDeepSeek).toHaveBeenCalledOnce()
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        String(script).includes('"addLedgerIds":["game"]')
+      )
+    ).toBe(false)
+    await expect(requestRuntime({ id: 'delayed-unbound-target-feedback', type: 'snapshot' })).resolves.toEqual(
+      expect.objectContaining({
+        runtimeFeedback: expect.stringContaining('掌库收藏夹备册或重新绑定')
       })
     )
   })
