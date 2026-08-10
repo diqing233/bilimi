@@ -847,7 +847,14 @@ export default function App() {
 
         if (!cancelled) {
           if (next) {
-            setPreferences(createInitialAssistantPreferences(next))
+            const normalized = createInitialAssistantPreferences(next)
+            const favoriteLedgersChanged =
+              JSON.stringify(next.favoriteLedgers) !== JSON.stringify(normalized.favoriteLedgers) ||
+              JSON.stringify(next.favoriteAccountPreferences) !== JSON.stringify(normalized.favoriteAccountPreferences)
+            const saved = favoriteLedgersChanged && window.bilimiDesktop.savePreferences
+              ? await window.bilimiDesktop.savePreferences(normalized)
+              : normalized
+            setPreferences(createInitialAssistantPreferences(saved))
           } else {
             setPreferences(
               createInitialAssistantPreferences({ permissionOnboardingCompleted: true })

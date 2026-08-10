@@ -194,6 +194,33 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('persists normalized preferences after removing orphaned remote drafts at startup', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const orphanedRemoteDraft = {
+      id: 'custom-remote-orphan',
+      displayName: 'bilimi·历史残留',
+      keywords: [],
+      enabled: false,
+      priority: 90,
+      bindingState: 'unbacked' as const,
+      syncState: 'local-draft' as const,
+      isDefault: false
+    }
+    const loadedPreferences = createAppPreferences({
+      favoriteLedgers: [...createDefaultFavoriteLedgers(), orphanedRemoteDraft]
+    })
+
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(loadedPreferences),
+      savePreferences
+    })
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalled())
+    expect(savePreferences.mock.calls[0]?.[0].favoriteLedgers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: orphanedRemoteDraft.id })])
+    )
+  })
+
   it('handles ledger-enabled broadcasts through the prebuilt index without invalidating remote status', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
     const effect = source.slice(

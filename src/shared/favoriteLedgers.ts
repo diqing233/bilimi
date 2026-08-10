@@ -518,6 +518,12 @@ function hasLocalLedgerRule(ledger: FavoriteLedger) {
     (!ledger.bilibiliFolderId && ledger.syncState !== 'local-draft')
 }
 
+function isOrphanedRemoteDraft(ledger: FavoriteLedger) {
+  return ledger.id.startsWith('custom-remote-') &&
+    ledger.syncState === 'local-draft' &&
+    !ledger.bilibiliFolderId?.trim()
+}
+
 function deduplicateLedgerIds(ledgers: FavoriteLedger[]): FavoriteLedger[] {
   const grouped = new Map<string, FavoriteLedger[]>()
   for (const ledger of ledgers) {
@@ -548,7 +554,9 @@ export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
 export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[] | unknown): FavoriteLedger[] {
   const normalized = deduplicateLedgerIds((Array.isArray(ledgers) ? ledgers : [])
     .filter(
-      (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
+      (ledger) =>
+        (!ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)) &&
+        !isOrphanedRemoteDraft(ledger)
     )
     .map(cloneLedger))
   const existingLedgerIds = new Set(normalized.map((ledger) => ledger.id))

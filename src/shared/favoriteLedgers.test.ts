@@ -288,6 +288,21 @@ describe('favorite ledger model', () => {
     }])
   })
 
+  it('removes a persisted remote draft after its remote folder id is lost', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-remote-orphan',
+      displayName: 'bilimi·历史残留',
+      keywords: [],
+      enabled: false,
+      priority: 90,
+      bindingState: 'unbacked',
+      syncState: 'local-draft',
+      isDefault: false
+    }])
+
+    expect(ledgers.map((ledger) => ledger.id)).not.toContain('custom-remote-orphan')
+  })
+
   it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {
     const ledgers = normalizeFavoriteLedgers([
       {
