@@ -3261,6 +3261,8 @@ body[data-floating-window="true"],
 .video-summary-menu { position: relative; display: inline-flex; }
 .video-summary-menu__trigger,
 .video-summary-menu__options button { font: inherit; }
+.video-summary-menu__trigger { display: inline-flex; align-items: center; gap: 3px; }
+.video-summary-menu__chevron { width: 14px; height: 14px; flex: 0 0 14px; }
 .video-summary-menu__options { position: absolute; z-index: 110; top: calc(100% + 4px); left: 0; display: grid; min-width: 132px; padding: 4px; border: 1px solid rgba(31, 99, 181, .25); border-radius: 6px; background: #fff; box-shadow: 0 8px 18px rgba(30, 58, 138, .14); }
 .video-summary-menu__options button { border: 0; border-radius: 4px; background: transparent; padding: 5px 7px; color: var(--porcelain-text); font-size: 12px; line-height: 1.45; text-align: left; white-space: nowrap; }
 .video-summary-menu__options button:hover:not(:disabled), .video-summary-menu__options button:focus-visible:not(:disabled) { background: rgba(31, 99, 181, .1); }

@@ -509,26 +509,26 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(openSettings).toContain("behavior: 'auto'")
   })
 
-  it('puts the copy-preserving reminder after the organizing status detail', () => {
-    expect(statusLightTooltip({ label: '未备册', detail: '收藏夹：未备册。\n整理收藏：完成备册后可开始。', tone: 'error' })).toBe(
-      '收藏夹：未备册。\n整理收藏：完成备册后可开始。\n\n小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
-    )
+  it('keeps the three favorite status sections together without a separate pet reminder', () => {
+    const detail = '备册：请先完成备册。\n收藏夹：当前启用 1 个。\n整理收藏：等待开始。'
+
+    expect(statusLightTooltip({ label: '未备册', detail, tone: 'error' })).toBe(detail)
+    expect(statusLightTooltip({ label: '未备册', detail, tone: 'error' })).not.toContain('小咪提醒')
   })
 
   it('keeps status tooltip labels separate from their explanations', () => {
     const parts = statusLightTooltipParts({
       label: '未备册',
-      detail: '收藏夹：未备册。\n待设置：发现疑似 bilimi 收藏夹。\n整理收藏：完成备册后可开始。',
+      detail: '备册：发现疑似 bilimi 收藏夹。\n收藏夹：当前状态需要确认。\n整理收藏：完成备册后可开始。',
       tone: 'error'
     })
 
     expect(parts.filter((part) => part.label).map((part) => part.label)).toEqual([
+      '备册：',
       '收藏夹：',
-      '待设置：',
       '整理收藏：',
-      '小咪提醒：'
     ])
-    expect(parts.find((part) => part.label === '待设置：')?.text).toBe('发现疑似 bilimi 收藏夹。')
+    expect(parts.find((part) => part.label === '备册：')?.text).toBe('发现疑似 bilimi 收藏夹。')
   })
 
   it('uses a dedicated deep-blue bold style for status tooltip labels', () => {
@@ -802,12 +802,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
   })
 
   it('keeps a default-system-disabled account idle instead of reporting a backup gap', () => {
-    expect(resolveFavoriteOrganizationLamp({
+    const status = resolveFavoriteOrganizationLamp({
       snapshot: null,
       defaultFavoriteSystemEnabled: false,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '\u6574\u7406\u7a7a\u95f2', tone: 'idle' })
+    })
+    expect(status).toMatchObject({ label: '\u6574\u7406\u7a7a\u95f2', tone: 'idle' })
+    expect(status.detail.split('\n')[0]).toMatch(/^备册：默认收藏夹体系已关闭/)
   })
 
   it('\u7ed9\u540c\u540d\u8fdc\u7a0b\u6536\u85cf\u5939\u51b2\u7a81\u663e\u793a\u5907\u518c\u5f02\u5e38', () => {
@@ -833,10 +835,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
       favoriteLedgerStatus: null
     })
     expect(status).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
+    expect(status.detail.split('\n')[0]).toMatch(/^备册：默认收藏夹体系已开启/)
     expect(status.detail.split('\n')).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^备册：/),
       expect.stringMatching(/^收藏夹：/),
       expect.stringMatching(/^整理收藏：/)
     ]))
+    expect(status.detail).toContain('使用 bilimi 与 B 站联动的第一步')
+    expect(status.detail).toContain('不会移动已有视频')
+    expect(status.detail).toContain('同一个视频可以保存在多个收藏夹里')
+    expect(status.detail).toContain('会复制到 bilimi 收藏夹，不会移出原有普通收藏夹')
+
+    expect(status.detail.split('\n')).toHaveLength(3)
+    expect(status.detail).not.toContain('小咪提醒')
 
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace('scanning'),

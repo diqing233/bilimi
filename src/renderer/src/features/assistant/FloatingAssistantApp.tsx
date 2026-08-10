@@ -349,21 +349,16 @@ type GlobalStatusItem = {
   detailAction?: { label: string; onClick: () => void }
 }
 
-const ORGANIZATION_COPY_REMINDER = '小咪提醒：同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）'
-
 export function statusLightTooltip(item: GlobalStatusItem): string {
-  return item.detail.startsWith('收藏夹：')
-    ? `${item.detail}\n\n${ORGANIZATION_COPY_REMINDER}`
-    : item.detail
+  return item.detail
 }
 
 export type StatusLightTooltipPart = { label?: string; text: string }
 
 const STATUS_LIGHT_TOOLTIP_LABELS = [
+  '备册：',
   '收藏夹：',
-  '待设置：',
   '整理收藏：',
-  '小咪提醒：',
   '模型：',
   '当前模型：',
   '当前视频：',
@@ -390,12 +385,24 @@ export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTool
   })
 }
 
-function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。', pending?: string): string {
+const FAVORITE_BACKUP_REMINDER = '使用 bilimi 与 B 站联动的第一步；备册只建立绑定，不会移动已有视频。'
+const FAVORITE_COLLECTION_REMINDER = '同一个视频可以保存在多个收藏夹里。'
+const FAVORITE_ORGANIZATION_REMINDER = '整理会复制到 bilimi 收藏夹，不会移出原有普通收藏夹。'
+
+function favoriteOrganizationDetail(
+  organization: string,
+  favorite = '保持当前收藏夹状态。',
+  backup?: string,
+  defaultFavoriteSystemEnabled = true
+): string {
+  const defaultSystemDetail = defaultFavoriteSystemEnabled
+    ? '默认收藏夹体系已开启。'
+    : '默认收藏夹体系已关闭；备册不会创建远端收藏夹。'
   return [
-    `收藏夹：${favorite}`,
-    pending ? `待设置：${pending}` : null,
-    `整理收藏：${organization}`
-  ].filter((line): line is string => Boolean(line)).join('\n')
+    `备册：${defaultSystemDetail}${backup ?? '请在收藏夹配置中确认备册状态。'} ${FAVORITE_BACKUP_REMINDER}`,
+    `收藏夹：${favorite} ${FAVORITE_COLLECTION_REMINDER}`,
+    `整理收藏：${organization} ${FAVORITE_ORGANIZATION_REMINDER}`
+  ].join('\n')
 }
 
 function GlobalStatusLight({
@@ -548,14 +555,21 @@ export function favoriteWorkspaceReadinessMessage(args: {
 }
 
 export function favoriteOrganizationStatus(
-  snapshot: OldFavoriteWorkspaceSnapshot | null
+  snapshot: OldFavoriteWorkspaceSnapshot | null,
+  defaultFavoriteSystemEnabled = true
 ): GlobalStatusItem | null {
   if (!snapshot) return null
+  const detail = (organization: string, favorite?: string, backup?: string) => favoriteOrganizationDetail(
+    organization,
+    favorite,
+    backup,
+    defaultFavoriteSystemEnabled
+  )
 
   if (snapshot.scan.phase === 'failed') {
     return {
       label: '整理异常',
-      detail: favoriteOrganizationDetail(snapshot.scan.reason?.trim() || '扫描未完成，请打开收藏整理后重试。'),
+      detail: detail(snapshot.scan.reason?.trim() || '扫描未完成，请打开收藏整理后重试。'),
       tone: 'error'
     }
   }
@@ -563,7 +577,7 @@ export function favoriteOrganizationStatus(
   if (snapshot.tagEnrichment?.status === 'running') {
     return {
       label: '整理扫描中',
-      detail: favoriteOrganizationDetail('正在补取视频标签，请勿重复启动。'),
+      detail: detail('正在补取视频标签，请勿重复启动。'),
       tone: 'running'
     }
   }
@@ -571,7 +585,7 @@ export function favoriteOrganizationStatus(
   if (snapshot.status === 'scanning') {
     return {
       label: '整理扫描中',
-      detail: favoriteOrganizationDetail(`正在${snapshot.scan.phase === 'tags' ? '补充视频标签' : '扫描已有收藏'}，请勿重复启动。`),
+      detail: detail(`正在${snapshot.scan.phase === 'tags' ? '补充视频标签' : '扫描已有收藏'}，请勿重复启动。`),
       tone: 'running'
     }
   }
@@ -581,7 +595,7 @@ export function favoriteOrganizationStatus(
     const total = snapshot.executionProgress?.totalOperationCount ?? 0
     return {
       label: '整理执行中',
-      detail: favoriteOrganizationDetail(total > 0 ? `正在同步到 B 站：${completed} / ${total}。` : '正在同步到 B 站。'),
+      detail: detail(total > 0 ? `正在同步到 B 站：${completed} / ${total}。` : '正在同步到 B 站。'),
       tone: 'running'
     }
   }
@@ -589,7 +603,7 @@ export function favoriteOrganizationStatus(
   if (snapshot.status === 'reconciling') {
     return {
       label: '同步待检查',
-      detail: favoriteOrganizationDetail('上次提交结果需要核实；请在收藏整理中重新连接并检查，系统不会重复提交未知结果。'),
+      detail: detail('上次提交结果需要核实；请在收藏整理中重新连接并检查，系统不会重复提交未知结果。'),
       tone: 'warn'
     }
   }
@@ -597,8 +611,8 @@ export function favoriteOrganizationStatus(
   const unclassifiedCount = snapshot.planReadiness?.unclassifiedAidCount ?? 0
   if (snapshot.status === 'completed') {
     return unclassifiedCount > 0
-      ? { label: '整理完成，仍有待处理', detail: favoriteOrganizationDetail(`本轮完成，仍有 ${unclassifiedCount} 条待处理。`), tone: 'warn' }
-      : { label: '整理完成', detail: favoriteOrganizationDetail('本轮已完成；可以继续扫描新增收藏。'), tone: 'ok' }
+      ? { label: '整理完成，仍有待处理', detail: detail(`本轮完成，仍有 ${unclassifiedCount} 条待处理。`), tone: 'warn' }
+      : { label: '整理完成', detail: detail('本轮已完成；可以继续扫描新增收藏。'), tone: 'ok' }
   }
 
   if (snapshot.status === 'frozen') {
@@ -607,18 +621,18 @@ export function favoriteOrganizationStatus(
       const total = snapshot.executionProgress.totalOperationCount
       return {
         label: '同步已暂停',
-        detail: favoriteOrganizationDetail(total > 0
+        detail: detail(total > 0
           ? `B 站同步已暂停：${completed} / ${total}；继续时只处理剩余项目。`
           : 'B 站同步已暂停；请打开收藏整理查看原因。'),
         tone: 'warn'
       }
     }
-    return { label: '等待执行', detail: favoriteOrganizationDetail('分类计划已确认，等待同步到 B 站。'), tone: 'warn' }
+    return { label: '等待执行', detail: detail('分类计划已确认，等待同步到 B 站。'), tone: 'warn' }
   }
 
   return {
     label: '等待确认',
-    detail: favoriteOrganizationDetail(unclassifiedCount > 0
+    detail: detail(unclassifiedCount > 0
       ? `归档预览中，仍有 ${unclassifiedCount} 条待处理。`
       : '归档预览已就绪，等待确认执行。'),
     tone: 'warn'
@@ -674,20 +688,26 @@ export function resolveFavoriteOrganizationLamp(args: {
   favoriteLedgerStatus: FavoriteLedgerStatus | null
   onDismissRemoteDraftReminder?: (ledgerId: string) => void
 }): GlobalStatusItem {
+  const detail = (organization: string, favorite?: string, backup?: string) => favoriteOrganizationDetail(
+    organization,
+    favorite,
+    backup,
+    args.defaultFavoriteSystemEnabled
+  )
   if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
     return {
       label: '整理空闲',
-      detail: favoriteOrganizationDetail('本轮整理结果已确认；工作区、扫描基线和处理记录均已保留。'),
+      detail: detail('本轮整理结果已确认；工作区、扫描基线和处理记录均已保留。'),
       tone: 'idle'
     }
   }
-  const organizationStatus = favoriteOrganizationStatus(args.snapshot)
+  const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled)
   if (organizationStatus) return organizationStatus
 
   if (!args.defaultFavoriteSystemEnabled) {
     return {
       label: '整理空闲',
-      detail: favoriteOrganizationDetail('默认收藏夹体系已关闭；暂存和已启用的自建收藏夹仍可用于本地归档预览。'),
+      detail: detail('暂存和已启用的自建收藏夹仍可用于本地归档预览。'),
       tone: 'idle'
     }
   }
@@ -697,21 +717,21 @@ export function resolveFavoriteOrganizationLamp(args: {
     const draftIds = args.favoriteLedgerStatus.remoteOnlyDraftLedgerIds
     return {
       label: '未绑定',
-      detail: favoriteOrganizationDetail(`还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`, '收藏夹状态需要确认。', '发现几个 B 站疑似 bilimi 收藏夹，已创建本地草稿，可编辑保存好之后备册来绑定；更换电脑时建议迁移数据。'),
+      detail: detail(`还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`, '收藏夹状态需要确认。', '发现几个 B 站疑似 bilimi 收藏夹，已创建本地草稿，可编辑保存好之后备册来绑定；更换电脑时建议迁移数据。'),
       tone: 'warn'
     }
   }
   if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
     return {
       label: '未绑定',
-      detail: favoriteOrganizationDetail('发现未绑定的 bilimi 收藏夹；预分类仍可使用，确认重新绑定后才能同步分类结果到 B 站。', `还有 ${args.favoriteLedgerStatus.unboundLedgerIds.length} 个收藏夹等待重新绑定。`),
+      detail: detail('发现未绑定的 bilimi 收藏夹；预分类仍可使用，确认重新绑定后才能同步分类结果到 B 站。', '当前收藏夹需要重新绑定。', `还有 ${args.favoriteLedgerStatus.unboundLedgerIds.length} 个收藏夹等待重新绑定。`),
       tone: 'error'
     }
   }
   if (args.favoriteLedgerStatus?.missingLedgerIds.length) {
     return {
       label: '未备册',
-      detail: favoriteOrganizationDetail('完成备册后可开始。', `还有 ${args.favoriteLedgerStatus.missingLedgerIds.length} 个收藏夹未备册。`),
+      detail: detail('完成备册后可开始。', '当前启用的 bilimi 收藏夹需要备册。', `还有 ${args.favoriteLedgerStatus.missingLedgerIds.length} 个收藏夹未备册。`),
       tone: 'error'
     }
   }
@@ -719,7 +739,7 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (backupGap.enabledCount === 0) {
     return {
       label: '未备册',
-      detail: favoriteOrganizationDetail('启用并备册收藏夹后可开始。', '当前没有启用的 bilimi 收藏夹。'),
+      detail: detail('启用并备册收藏夹后可开始。', '当前没有启用的 bilimi 收藏夹。', '请先启用至少一个 bilimi 收藏夹并完成备册。'),
       tone: 'error'
     }
   }
@@ -727,7 +747,7 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (backupGap.enabledWithoutFolderCount > 0) {
     return {
       label: '未备册',
-      detail: favoriteOrganizationDetail('完成备册后可开始。', `还有 ${backupGap.enabledWithoutFolderCount} 个已启用收藏夹未备册。`),
+      detail: detail('完成备册后可开始。', `还有 ${backupGap.enabledWithoutFolderCount} 个已启用收藏夹未备册。`, `还有 ${backupGap.enabledWithoutFolderCount} 个已启用收藏夹未备册。`),
       tone: 'error'
     }
   }
@@ -735,14 +755,14 @@ export function resolveFavoriteOrganizationLamp(args: {
   if (args.favoriteLedgerStatus?.ok) {
     return {
       label: '整理空闲',
-      detail: favoriteOrganizationDetail('收藏夹已备齐，可以开始。', 'bilimi 收藏夹已备齐。'),
+      detail: detail('收藏夹已备齐，可以开始。', 'bilimi 收藏夹已备齐。', '已完成备册。'),
       tone: 'ok'
     }
   }
 
   return {
     label: '整理空闲',
-    detail: favoriteOrganizationDetail('暂未检查备册状态。'),
+    detail: detail('暂未检查备册状态。'),
     tone: 'idle'
   }
 }
