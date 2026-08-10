@@ -2191,10 +2191,16 @@ export default function App() {
     let preActionCorrectionTargets: string[] | undefined
     let deepSeekCorrection: DailyDeepSeekCorrection | undefined
     let postActionDailyReviewPromise: Promise<DailyClassificationReviewResult | undefined> | undefined
-    const areFavoriteTargetsBound = (ledgerIds: string[]) =>
+    const areFavoriteTargetsWriteAuthorized = (ledgerIds: string[]) =>
       ledgerIds.every((ledgerId) =>
         actionFavoriteLedgers.some(
-          (ledger) => ledger.id === ledgerId && ledger.bindingState !== 'unbound'
+          (ledger) =>
+            ledger.id === ledgerId &&
+            ledger.enabled &&
+            ledger.syncState !== 'local-draft' &&
+            (ledger.bindingState === 'bound' ||
+              (ledger.bindingState === undefined && Boolean(ledger.bilibiliFolderId?.trim()))) &&
+            Boolean(ledger.bilibiliFolderId?.trim())
         )
       )
 
@@ -2290,7 +2296,7 @@ export default function App() {
       favoriteLedgerStatus.missingLedgerIds.length === 0 &&
       !(favoriteLedgerStatus.backupConflictLedgerIds?.length) &&
       !(favoriteLedgerStatus.unboundLedgerIds?.length) &&
-      areFavoriteTargetsBound(targetLedgerIds)
+      areFavoriteTargetsWriteAuthorized(targetLedgerIds)
     )
     const commentDraft =
       action === '表' &&
@@ -2501,7 +2507,7 @@ export default function App() {
             delayedFavoriteLedgerStatus.missingLedgerIds.length === 0 &&
             !(delayedFavoriteLedgerStatus.backupConflictLedgerIds?.length) &&
             !(delayedFavoriteLedgerStatus.unboundLedgerIds?.length) &&
-            areFavoriteTargetsBound(correction.targetLedgerIds)
+            areFavoriteTargetsWriteAuthorized(correction.targetLedgerIds)
           )
 
           if (!favoriteProvisioned || !delayedFavoriteProvisioned) {

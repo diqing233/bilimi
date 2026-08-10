@@ -1055,9 +1055,14 @@ describe('App runtime integration', () => {
         ? { ...ledger, keywords: ['国际尬聊'], bilibiliFolderId: String(9_100 + index), bindingState: 'bound' as const }
         : { ...ledger, bilibiliFolderId: String(9_100 + index), bindingState: 'bound' as const }
     )
-    const unboundLedgers = provisionedLedgers.map((ledger) =>
+    const localDraftLedgers = provisionedLedgers.map((ledger) =>
       ledger.id === 'knowledge'
-        ? { ...ledger, bindingState: 'unbound' as const }
+        ? {
+            ...ledger,
+            bilibiliFolderId: undefined,
+            bindingState: 'unbacked' as const,
+            syncState: 'local-draft' as const
+          }
         : ledger
     )
     const preferences = createAppPreferences({ favoriteLedgers: provisionedLedgers })
@@ -1082,11 +1087,11 @@ describe('App runtime integration', () => {
               message: '首次快照仍显示已备册。'
             }
           : {
-              ok: false,
-              ledgers: unboundLedgers,
-              missingLedgerIds: ['knowledge'],
+              ok: true,
+              ledgers: localDraftLedgers,
+              missingLedgerIds: [],
               backupConflictLedgerIds: [],
-              unboundLedgerIds: ['knowledge'],
+              unboundLedgerIds: [],
               message: '动作预检发现知识学习尚未绑定。'
             }
       }
@@ -3198,8 +3203,15 @@ describe('App runtime integration', () => {
       if (ledger.id === 'life-interest') return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: String(9_200 + index), bindingState: 'bound' as const }
       return { ...ledger, bilibiliFolderId: String(9_200 + index), bindingState: 'bound' as const }
     })
-    const unboundLedgers = provisionedLedgers.map((ledger) =>
-      ledger.id === 'game' ? { ...ledger, bindingState: 'unbound' as const } : ledger
+    const localDraftLedgers = provisionedLedgers.map((ledger) =>
+      ledger.id === 'game'
+        ? {
+            ...ledger,
+            bilibiliFolderId: undefined,
+            bindingState: 'unbacked' as const,
+            syncState: 'local-draft' as const
+          }
+        : ledger
     )
     const preferences = createAppPreferences({
       deepseekEnabled: true,
@@ -3231,11 +3243,11 @@ describe('App runtime integration', () => {
               message: '收藏夹已可用。'
             }
           : {
-              ok: false,
-              ledgers: unboundLedgers,
-              missingLedgerIds: ['game'],
+              ok: true,
+              ledgers: localDraftLedgers,
+              missingLedgerIds: [],
               backupConflictLedgerIds: [],
-              unboundLedgerIds: ['game'],
+              unboundLedgerIds: [],
               message: '延迟调整预检发现游戏专区尚未绑定。'
             }
       }
