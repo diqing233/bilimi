@@ -1190,6 +1190,13 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message { text-overflow: clip;')
   })
 
+  it('uses distinct compact colors for saved, draft, unbacked, and unbound folder states', () => {
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="bound"] { color: #2d6a4f; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="local-draft"] { color: #b56f1d; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="unbacked"] { color: #c45454; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="unbound"] { color: #9f3d3d; }')
+  })
+
   it('reserves two lines for the global feedback and keeps its chevron out of the text column', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px;')
     expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')

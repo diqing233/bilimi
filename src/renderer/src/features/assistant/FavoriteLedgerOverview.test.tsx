@@ -50,7 +50,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(9)
   })
 
-  it('keeps same-named folders saveable and labels each copy with its sequence and video count', () => {
+  it('keeps same-named folders saveable, labels each copy, and shows the video count only while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       {
         id: 'same-1', displayName: 'bilimi·Same', keywords: [], enabled: false, priority: 10,
@@ -63,9 +63,10 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} openLedgerId="same-1" onSaveLedgers={vi.fn()} />)
 
     expect(screen.getByTestId('favorite-ledger-chip-same-1')).toHaveTextContent('Same①')
-    expect(screen.getByTestId('favorite-ledger-chip-same-1')).toHaveTextContent('12 个视频')
+    expect(screen.getByTestId('favorite-ledger-chip-same-1')).not.toHaveTextContent('12 个视频')
     expect(screen.getByTestId('favorite-ledger-chip-same-2')).toHaveTextContent('Same②')
-    expect(screen.getByTestId('favorite-ledger-chip-same-2')).toHaveTextContent('4 个视频')
+    expect(screen.getByTestId('favorite-ledger-chip-same-2')).not.toHaveTextContent('4 个视频')
+    expect(screen.getByRole('region', { name: '当前收藏夹' }).querySelector('.favorite-ledger-panel__ledger-name-label')).toHaveTextContent('12 个视频')
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
     expect(screen.queryByText('收藏夹名称不能重复')).not.toBeInTheDocument()
   })
@@ -85,7 +86,7 @@ describe('FavoriteLedgerOverview', () => {
       bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
     }]} missingLedgerIds={[]} remoteOnlyDraftLedgerIds={['custom-remote-hello']} onDismissRemoteDraftReminder={onDismiss} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '（未保存）你好' }))
+    fireEvent.click(screen.getByRole('button', { name: '你好' }))
     expect(screen.getByText(/\u53d1\u73b0 B \u7ad9\u7591\u4f3c.*\u672c\u5730\u5c1a\u672a\u5efa\u7acb\u7ed1\u5b9a/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '\u4e0d\u518d\u63d0\u9192' }))
     expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello', '88')
@@ -165,8 +166,8 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '删除' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '新建收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '备册收藏夹' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '（未保存）音乐' })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: '（未保存）音乐' }))
+    expect(screen.getByRole('button', { name: '音乐' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '取消分析' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '取消分析' }))
@@ -590,7 +591,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '移出同步 bilimi·知识学习' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
-    expect(screen.getByRole('button', { name: /^（未保存）/ })).toBeInTheDocument()
+    expect(screen.getAllByTestId(/favorite-ledger-chip-/).at(-1)).toHaveTextContent('未保存')
   })
 
   it('does not add a pending-sync label to a local recommendation', () => {
@@ -617,10 +618,10 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.getByText(/识别到 1 个可启用的 bilimi 工作夹/)).toBeInTheDocument()
     expect(screen.getByText(/更换设备.*本地数据迁移/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '（未保存）原神' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '原神' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '加入同步 原神' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: '（未保存）原神' }))
+    fireEvent.click(screen.getByRole('button', { name: '原神' }))
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '原神 攻略' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
@@ -664,7 +665,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '摇滚' } })
     fireEvent.click(screen.getByRole('button', { name: '知识' }))
 
-    expect(screen.getByRole('button', { name: '（未保存）音乐' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '音乐' })).toBeInTheDocument()
     expect(screen.getByText('正在编辑：bilimi·知识')).toBeInTheDocument()
   })
 
@@ -677,7 +678,7 @@ describe('FavoriteLedgerOverview', () => {
     view.rerender(<FavoriteLedgerOverview ledgers={ledgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))}
       missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: '（未保存）临时草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '临时草稿' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toHaveTextContent('新建收藏夹bilimi·临时草稿')
   })
 
@@ -697,13 +698,14 @@ describe('FavoriteLedgerOverview', () => {
 
   it('shows the current backup state at the right of the folder-name label while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
-      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, bilibiliFolderVideoCount: 0, isDefault: false }
     ]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
 
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title .favorite-ledger-panel__binding-status')).toBeNull()
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__ledger-video-count')).toHaveTextContent('0 个视频')
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
@@ -713,7 +715,7 @@ describe('FavoriteLedgerOverview', () => {
       bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
     }]} missingLedgerIds={[]} unboundLedgerIds={['custom-remote-hello']} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '（未保存）你好' }))
+    fireEvent.click(screen.getByRole('button', { name: '你好' }))
 
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
@@ -726,7 +728,7 @@ describe('FavoriteLedgerOverview', () => {
       bilibiliFolderId: '88', bindingState: 'bound', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: '音乐' })).toHaveAttribute('title', 'bilimi·音乐（已备册）')
+    expect(screen.getByRole('button', { name: '音乐' })).toHaveAttribute('title', 'bilimi·音乐 · 已备册')
   })
 
   it('persists a cross-row drag reorder as soon as the item is dropped', () => {
