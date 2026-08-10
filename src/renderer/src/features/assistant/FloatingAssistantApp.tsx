@@ -357,8 +357,23 @@ export function statusLightTooltip(item: GlobalStatusItem): string {
     : item.detail
 }
 
-function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。'): string {
-  return `收藏夹：${favorite}\n整理收藏：${organization}`
+export type StatusLightTooltipPart = { label?: string; text: string }
+
+const STATUS_LIGHT_TOOLTIP_LABELS = ['收藏夹：', '待设置：', '整理收藏：', '小咪提醒：'] as const
+
+export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTooltipPart[] {
+  return statusLightTooltip(item).split('\n').map((line) => {
+    const label = STATUS_LIGHT_TOOLTIP_LABELS.find((candidate) => line.startsWith(candidate))
+    return label ? { label, text: line.slice(label.length).trimStart() } : { text: line }
+  })
+}
+
+function favoriteOrganizationDetail(organization: string, favorite = '保持当前收藏夹状态。', pending?: string): string {
+  return [
+    `收藏夹：${favorite}`,
+    pending ? `待设置：${pending}` : null,
+    `整理收藏：${organization}`
+  ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
 function GlobalStatusLight({
@@ -449,7 +464,7 @@ function GlobalStatusLight({
       <span className="floating-assistant-global-status__light-label">{item.label}</span>
     </button>
     {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" role="tooltip" style={position} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
-      <span className="floating-assistant-global-status__light-tooltip-copy">{statusLightTooltip(item)}</span>
+      <span className="floating-assistant-global-status__light-tooltip-copy">{statusLightTooltipParts(item).map((part, index) => part.label ? <span key={`${part.label}-${index}`} className="floating-assistant-global-status__light-tooltip-line"><span className="floating-assistant-global-status__light-tooltip-label">{part.label}</span>{part.text}</span> : part.text ? <span key={`line-${index}`} className="floating-assistant-global-status__light-tooltip-line">{part.text}</span> : <span key={`blank-${index}`} className="floating-assistant-global-status__light-tooltip-break" aria-hidden="true" />)}</span>
       {item.detailAction ? <button type="button" className="floating-assistant-global-status__light-tooltip-action" onClick={item.detailAction.onClick}>{item.detailAction.label}</button> : null}
     </div>, document.body) : null}
   </>
@@ -660,7 +675,7 @@ export function resolveFavoriteOrganizationLamp(args: {
     const draftIds = args.favoriteLedgerStatus.remoteOnlyDraftLedgerIds
     return {
       label: '未绑定',
-      detail: favoriteOrganizationDetail('发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。', `还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`),
+      detail: favoriteOrganizationDetail(`还有 ${draftIds.length} 个 B 站收藏夹等待补充设置。`, '收藏夹状态需要确认。', '发现几个 B 站疑似 bilimi 收藏夹，已创建本地草稿，可编辑保存好之后备册来绑定；更换电脑时建议迁移数据。'),
       tone: 'warn'
     }
   }

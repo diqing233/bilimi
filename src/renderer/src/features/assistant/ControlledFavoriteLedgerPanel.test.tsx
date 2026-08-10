@@ -721,7 +721,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'keyword' } })
 
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '音乐' } })
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '一二三四五六七八九十一二三四五六七八九十一' } })
     expect(screen.getByRole('alert')).toHaveTextContent('最多20个字')
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()

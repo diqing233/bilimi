@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, suppressRemoteDraftReminder } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, statusLightTooltipParts, suppressRemoteDraftReminder } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -513,6 +513,31 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
   })
 
+  it('keeps status tooltip labels separate from their explanations', () => {
+    const parts = statusLightTooltipParts({
+      label: '未备册',
+      detail: '收藏夹：未备册。\n待设置：发现疑似 bilimi 收藏夹。\n整理收藏：完成备册后可开始。',
+      tone: 'error'
+    })
+
+    expect(parts.filter((part) => part.label).map((part) => part.label)).toEqual([
+      '收藏夹：',
+      '待设置：',
+      '整理收藏：',
+      '小咪提醒：'
+    ])
+    expect(parts.find((part) => part.label === '待设置：')?.text).toBe('发现疑似 bilimi 收藏夹。')
+  })
+
+  it('uses a dedicated deep-blue bold style for status tooltip labels', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+    expect(source).toContain('floating-assistant-global-status__light-tooltip-label')
+    expect(styles).toContain('.floating-assistant-global-status__light-tooltip-label')
+    expect(styles).toContain('font-weight: 700')
+  })
+
   it('keeps the wait-confirmation detail concise across the status light and task menu', () => {
     expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).not.toContain('小咪提醒')
   })
@@ -793,7 +818,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     })
 
     expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
-    expect(status.detail).toContain('\u53d1\u73b0 B \u7ad9\u7591\u4f3c bilimi \u6536\u85cf\u5939')
+    expect(status.detail).toContain('\u53d1\u73b0\u51e0\u4e2a B \u7ad9\u7591\u4f3c bilimi \u6536\u85cf\u5939')
     expect(status.detailAction).toBeUndefined()
     expect(onDismiss).not.toHaveBeenCalled()
   })
