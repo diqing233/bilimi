@@ -545,7 +545,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(statusLightTooltipParts(status).filter((part) => part.label).map((part) => part.label)).toEqual([
-      '当前转写模型：',
+      '视频转写模型：',
       '当前转写视频：'
     ])
   })
@@ -679,8 +679,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
       'whisper-small'
     )
 
-    expect(status.detail).toBe('当前转写模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前转写视频：测试视频 正在转写')
-    expect(statusLightTooltip(status)).toContain('当前转写模型：faster-whisper large-v3-turbo · GPU 已就绪')
+    expect(status.detail).toBe('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前转写视频：测试视频 正在转写')
+    expect(statusLightTooltip(status)).toContain('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪')
   })
 
   it('shows the selected transcription model and only a matching available GPU probe as ready', () => {
@@ -714,8 +714,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
       }
     )
 
-    expect(matching.detail).toContain('当前转写模型：faster-whisper large-v3 · GPU 已就绪')
-    expect(mismatched.detail).toContain('当前转写模型：Whisper small')
+    expect(matching.detail).toContain('视频转写模型：faster-whisper large-v3 · GPU 已就绪')
+    expect(mismatched.detail).toContain('视频转写模型：Whisper small')
     expect(mismatched.detail).not.toContain('GPU 已就绪')
   })
 

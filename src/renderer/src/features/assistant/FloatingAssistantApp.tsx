@@ -367,7 +367,7 @@ const STATUS_LIGHT_TOOLTIP_LABELS = [
   '模型：',
   '当前模型：',
   '当前视频：',
-  '当前转写模型：',
+  '视频转写模型：',
   '当前转写视频：',
   '执行任务：',
   '正在执行：',
@@ -1100,7 +1100,7 @@ function formatTranscriptionModelStatus(
   modelId: TranscriptionModelId,
   gpuReady: boolean
 ): string {
-  return `当前转写模型：${transcriptionModelLabel(modelId)}${gpuReady ? ' · GPU 已就绪' : ''}`
+  return `视频转写模型：${transcriptionModelLabel(modelId)}${gpuReady ? ' · GPU 已就绪' : ''}`
 }
 
 export function resolveGlobalTranscriptionStatus(
