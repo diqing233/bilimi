@@ -31,7 +31,7 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
     expect(screen.getByText('2 条适合')).toBeInTheDocument()
     expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
       'title',
-      '收藏夹：当前标签\n推荐来源：高频标签推荐\ncurrent\n当前匹配：2 条视频'
+      '高频标签收藏夹：当前标签（标签）\n本轮总共匹配：12 条\n当前批次匹配：2 条'
     )
     expect(screen.queryByRole('checkbox', { name: '其他批标签' })).not.toBeInTheDocument()
 
@@ -40,5 +40,9 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '其他批标签' })).toBeInTheDocument()
     expect(screen.getByText('10 条适合')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
+      'title',
+      '高频标签收藏夹：当前标签（标签）\n本轮总共匹配：12 条'
+    )
   })
 })

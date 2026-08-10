@@ -184,6 +184,9 @@ describe('FavoriteLibraryDetail', () => {
 
     expect(styles).toContain('.favorite-library__detail-heading h2 { margin: 0; font-size: 18px; line-height: 1.35; }')
     expect(styles).toContain('.favorite-library__detail section p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.45; }')
+    expect(styles).toContain('.favorite-library__dialog p { margin: 0; color: #475569; font-size: 13px; line-height: 1.55; }')
+    expect(styles).toContain('.favorite-library__dialog p + p { margin-top: 6px; }')
+    expect(styles).toContain('.favorite-library__dialog label { line-height: 1.55; }')
   })
 
   it('uses a quieter secondary elevation around the detail card', () => {

@@ -35,22 +35,26 @@ function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) 
   return stripBilimiLedgerPrefix(candidate.displayName)
 }
 
-function candidateSourceLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
-  if (candidate.kind === 'author') return 'UP 主推荐'
-  if (candidate.kind === 'tag') return '高频标签推荐'
-  return '系列推荐'
-}
-
 function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate, count: number) {
   return `${count} 条适合`
 }
 
-function candidateTooltip(candidate: OldFavoriteWorkspaceRecommendationCandidate, count: number) {
+function candidateTooltip(
+  candidate: OldFavoriteWorkspaceRecommendationCandidate,
+  wholeRunCount: number,
+  currentBatchCount: number,
+  viewScope: OldFavoriteViewScope
+) {
+  const prefix = candidate.kind === 'author'
+    ? '专属 UP 追更收藏夹'
+    : candidate.kind === 'tag'
+      ? '高频标签收藏夹'
+      : '系列收藏夹'
+  const suffix = candidate.kind === 'author' ? 'UP' : candidate.kind === 'tag' ? '标签' : '系列'
   return [
-    `收藏夹：${candidateLabel(candidate)}`,
-    `推荐来源：${candidateSourceLabel(candidate)}`,
-    candidate.reason,
-    `当前匹配：${count} 条视频`
+    `${prefix}：${candidateLabel(candidate)}（${suffix}）`,
+    `本轮总共匹配：${wholeRunCount} 条`,
+    ...(viewScope === 'all' ? [] : [`当前批次匹配：${currentBatchCount} 条`])
   ].join('\n')
 }
 
@@ -177,7 +181,9 @@ export function OldFavoriteRecommendationStep({
           {group.candidates.map((candidate) => {
             const adopted = adoptedCandidateIds.has(candidate.id)
             const count = countForCandidate(candidate)
-            return <article key={candidate.id} aria-label={candidateLabel(candidate)} title={candidateTooltip(candidate, count)}>
+            const wholeRunCount = overviewCounts.get(candidate.id) ?? candidate.count
+            const currentBatchCount = candidate.currentSegmentCount ?? candidate.count
+            return <article key={candidate.id} aria-label={candidateLabel(candidate)} title={candidateTooltip(candidate, wholeRunCount, currentBatchCount, viewScope)}>
               <label>
                 <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading}
                   onChange={(event) => {

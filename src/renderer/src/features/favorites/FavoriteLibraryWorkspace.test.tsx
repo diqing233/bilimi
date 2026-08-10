@@ -139,7 +139,7 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '移出 bilimi 工作夹' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toBeInTheDocument()
   })
 
   it('keeps more batch actions fixed while its detached popup is outside the toolbar', () => {
@@ -154,7 +154,7 @@ describe('Favorite Library workspace components', () => {
     const menu = screen.getByRole('menu', { name: '更多批量操作菜单' })
     expect(container.querySelector('[data-testid="favorite-library-toolbar"]')).not.toContainElement(menu)
     expect(screen.getByRole('button', { name: '从收藏库删除' })).toHaveClass('favorite-library__danger-action')
-    expect(screen.getByRole('button', { name: '移出 bilimi 工作夹' })).toHaveClass('favorite-library__danger-action')
+    expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toHaveClass('favorite-library__danger-action')
   })
 
   it('can disable only cancel-waiting transcription when no selected item is pending', () => {

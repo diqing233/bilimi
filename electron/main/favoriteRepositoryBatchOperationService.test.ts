@@ -16,6 +16,7 @@ function snapshot(): AccountFavoriteRepositorySnapshot {
     positions: {
       '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:source'], remoteObservedPhysicalFolderIds: ['bilibili:1'], remoteObservedLogicalFolderIds: ['bilimi-logical:source'], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z', revision: 7 },
       '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:source', 'bilimi-logical:target'], remoteObservedPhysicalFolderIds: ['bilibili:1'], remoteObservedLogicalFolderIds: ['bilimi-logical:source'], positionState: 'local-only-change', updatedAt: '2026-07-24T00:00:00.000Z', revision: 7 }
+      , '100:3': { accountMid: '100', aid: 3, localDesiredFolderIds: ['bilimi-logical:source'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-24T00:00:00.000Z', revision: 7 }
     }
   }
 }
@@ -95,6 +96,15 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(current.memberships['bilibili:ordinary']).toEqual([1])
     expect(current.positions['100:1'].localDesiredFolderIds).toEqual([])
     expect(commands).not.toContainEqual(expect.objectContaining({ type: 'delete-favorite-from-library' }))
+  })
+
+  it('skips locally staged bilimi placements that have no observed Bilibili membership', async () => {
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repository(snapshot()), placementSync: { synchronizePlacements: vi.fn() } })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [1, 3], ['bilimi-logical:source'], 7)
+
+    expect(preview.aids).toEqual([1])
+    expect(preview.skippedUnsyncedAids).toEqual([3])
   })
 
   it('recycles only after a managed placement removal is confirmed aligned and preserves local evidence', async () => {

@@ -222,6 +222,7 @@
 .favorite-library__detail section:last-child { border-bottom: 0; }
 .favorite-library__detail section h3 { margin: 0 0 6px; color: #1e3a8a; font-size: 13px; }
 .favorite-library__detail section p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.45; }
+.favorite-library__detail .favorite-library__danger-note { line-height: 1.55; }
 .favorite-library__more-information { padding-top: 10px; border-top: var(--favorite-divider); }
 .favorite-library__more-information > div { margin-top: 7px; }
 .favorite-library__detail .favorite-library__open-video { float: none; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; }
@@ -232,7 +233,9 @@
 .favorite-library__detail-more-information-action { order: 3; font-size: 12px; }
 .favorite-library__detail-collapse-action, .favorite-library__detail-heading-primary-actions > .favorite-library__inline-action { border: 0; border-radius: 0; background: transparent; color: #2563eb; }
 .favorite-library__detail-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.favorite-library__detail-action-row .video-summary-menu__trigger { min-height: 26px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.favorite-library__detail-action-row .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.favorite-library__batch-actions .video-summary-menu__trigger,
+.favorite-library__detail-action-row .video-summary-menu__trigger { font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.35; }
 .favorite-library__detail-heading-actions button { white-space: nowrap; }
 .favorite-library__detail-danger { padding: 12px !important; border: 0 !important; border-top: var(--favorite-divider) !important; border-radius: 0; background: transparent; }
 .favorite-library__detail-danger .favorite-library__danger-action:hover, .favorite-library__detail-danger .favorite-library__danger-action:focus-visible { background: #fff4f3; color: #9d2e2e; outline: none; }
@@ -258,7 +261,9 @@
 .favorite-library__conflict-list ul { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
 .favorite-library__conflict-list li { display: flex; justify-content: space-between; gap: 12px; }
 .favorite-library__conflict-list code { color: #64748b; font-size: 12px; }
-.favorite-library__dialog p { margin: 0; color: #475569; font-size: 13px; }
+.favorite-library__dialog p { margin: 0; color: #475569; font-size: 13px; line-height: 1.55; }
+.favorite-library__dialog p + p { margin-top: 6px; }
+.favorite-library__dialog label { line-height: 1.55; }
 .favorite-library__dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),

@@ -156,6 +156,7 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
 
     expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }')
     expect(styles).toContain('.favorite-library__detail-action-row .video-summary-menu__trigger')
+    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger,\n.favorite-library__detail-action-row .video-summary-menu__trigger { font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.35; }')
   })
 
   it('uses a rotating disclosure chevron for the video-name and status column menus', () => {

@@ -55,6 +55,7 @@ export type FavoriteManagedPlacementRemovalPreview = {
   removablePhysicalFolderIds: string[]
   preservedOrdinarySources: Array<{ id: string; title: string }>
   recycleAids: number[]
+  skippedUnsyncedAids: number[]
   baselineRevision: number
   executionToken: string
 }
@@ -156,11 +157,25 @@ export class FavoriteRepositoryBatchOperationService {
       return { id: folder.id, title: folder.title }
     })
     const selectedFolderSet = new Set(selectedLogicalFolderIds)
-    const changedAids = selected.filter((aid) => {
+    const candidateAids = selected.filter((aid) => {
       const desired = snapshot.positions[`${normalizedAccount}:${aid}`]?.localDesiredFolderIds ?? []
       return desired.some((folderId) => selectedFolderSet.has(folderId))
     })
-    if (!changedAids.length) throw new Error('Favorite managed placement removal has no matching placements.')
+    const hasObservedManagedPlacement = (aid: number) => {
+      const position = snapshot.positions[`${normalizedAccount}:${aid}`]
+      if (!position) return false
+      if (position.remoteObservedLogicalFolderIds.some((folderId) => selectedFolderSet.has(folderId))) return true
+      return position.remoteObservedPhysicalFolderIds.some((observedFolderId) => snapshot.physicalShards.some((shard) =>
+        selectedFolderSet.has(`bilimi-logical:${shard.logicalLedgerId}`) && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) &&
+        (shard.remoteFolderId === observedFolderId || `bilibili:${shard.remoteFolderId}` === observedFolderId || shard.folderId === observedFolderId)
+      ))
+    }
+    const changedAids = candidateAids.filter(hasObservedManagedPlacement)
+    const skippedUnsyncedAids = candidateAids.filter((aid) => !hasObservedManagedPlacement(aid))
+    if (!changedAids.length) {
+      if (skippedUnsyncedAids.length) throw new Error('收藏未同步。')
+      throw new Error('Favorite managed placement removal has no matching placements.')
+    }
     const ordinaryFolders = snapshot.folders.filter((folder) => folder.kind === 'bilibili')
     const preservedOrdinarySources = ordinaryFolders
       .filter((folder) => changedAids.some((aid) => snapshot.memberships[folder.id]?.includes(aid)))
@@ -180,7 +195,7 @@ export class FavoriteRepositoryBatchOperationService {
     })
     const operation: PendingManagedPlacementRemoval = {
       operationId: randomUUID(), accountMid: normalizedAccount, aids: changedAids, selectedLogicalFolderIds,
-      affectedLogicalFolders, removablePhysicalFolderIds, preservedOrdinarySources, recycleAids,
+      affectedLogicalFolders, removablePhysicalFolderIds, preservedOrdinarySources, recycleAids, skippedUnsyncedAids,
       baselineRevision: snapshot.revision, executionToken: randomUUID(), status: 'previewed'
     }
     this.managedPlacementRemovalOperations.set(operation.operationId, operation)
@@ -488,6 +503,7 @@ export class FavoriteRepositoryBatchOperationService {
       preservedOrdinarySources: ordinaryFolders
         .filter((folder) => record.affectedAids.some((aid) => snapshot.memberships[folder.id]?.includes(aid)))
         .map((folder) => ({ id: folder.id, title: folder.title })),
+      skippedUnsyncedAids: [],
       recycleAids: record.affectedAids.filter((aid) =>
         !(snapshot.positions[`${accountMid}:${aid}`]?.localDesiredFolderIds.length) &&
         !ordinaryFolders.some((folder) => snapshot.memberships[folder.id]?.includes(aid))),

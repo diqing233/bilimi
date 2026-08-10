@@ -353,7 +353,7 @@ function BatchActions({
     closeMenu()
   }
   const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息'], ['reorganize', '重新整理']]
-  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['remove-managed-placement', '移出 bilimi 工作夹']]
+  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['remove-managed-placement', '从 B 站 bilimi 收藏夹删除']]
   const hasMoreActions = allowed('sync') || dangerActions.some(([action]) => allowed(action))
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div {...menuScope} ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
