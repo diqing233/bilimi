@@ -587,6 +587,24 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ])
     expect(parts[0]).toMatchObject({ emphasized: true })
     expect(parts[1]).not.toHaveProperty('emphasized')
+    expect(status.detail).toBe('视频转写模型：Whisper small\n\n当前转写视频：暂无视频转写')
+  })
+
+  it('leaves an empty line below the connected DeepSeek model before feature details', () => {
+    const preferences = createInitialAssistantPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true
+    })
+    const formatFeatureList = (FloatingAssistantAppModule as unknown as {
+      formatDeepSeekFeatureList: (preferences: typeof preferences) => string
+    }).formatDeepSeekFeatureList
+
+    expect(formatFeatureList(preferences)).toContain(
+      'DeepSeek 已连接，当前模型：deepseek-v4-flash\n\n趣味评论：已开启'
+    )
   })
 
   it('labels DeepSeek connection and feature status independently', () => {
@@ -735,7 +753,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
       'whisper-small'
     )
 
-    expect(status.detail).toBe('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前转写视频：测试视频 正在转写')
+    expect(status.detail).toBe('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪\n\n当前转写视频：测试视频 正在转写')
     expect(statusLightTooltip(status)).toContain('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪')
   })
 

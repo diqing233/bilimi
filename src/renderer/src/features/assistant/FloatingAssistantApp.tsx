@@ -1171,11 +1171,12 @@ export function formatDeepSeekRuntimeHoverDetail(
   ].join('\n')
 }
 
-function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
+export function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
   return [
     preferences.deepseekEnabled && preferences.deepseekApiKeyStored
       ? `DeepSeek 已连接，当前模型：${preferences.deepseekModel || '未配置'}`
       : 'DeepSeek 未连接。',
+    '',
     ...formatDeepSeekFeatureLines(preferences)
   ].join('\n')
 }
@@ -1207,6 +1208,7 @@ export function resolveGlobalTranscriptionStatus(
     const modelId = item?.transcriptionModelId ?? selectedModelId
     return formatTranscriptionModelStatus(modelId, transcriptionGpuReady(modelId, item, gpuProbe))
   }
+  const detailWithModel = (detail: string, item?: VideoAudioTranscriptionQueueItem) => `${modelDetail(item)}\n\n${detail}`
   const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
   if (runningItem) {
     const canceling = Boolean(runningItem.cancelRequested || runningItem.progress?.step.startsWith('canceling'))
@@ -1214,7 +1216,7 @@ export function resolveGlobalTranscriptionStatus(
       const cancelingSummary = runningItem.progress?.step === 'canceling-summary'
       return {
         label: cancelingSummary ? '取消总结中' : '取消中',
-        detail: `${modelDetail(runningItem)}\n当前转写视频：${runningItem.title} 正在${cancelingSummary ? '取消 DeepSeek 总结' : '取消转写'}。`,
+        detail: detailWithModel(`当前转写视频：${runningItem.title} 正在${cancelingSummary ? '取消 DeepSeek 总结' : '取消转写'}。`, runningItem),
         tone: 'running'
       }
     }
@@ -1225,7 +1227,7 @@ export function resolveGlobalTranscriptionStatus(
     const activeLabel = summarizingWithDeepSeek ? `${progressLabel} · DeepSeek 总结中` : progressLabel
     return {
       label: pendingCount > 0 ? `${activeLabel} · 排队 ${pendingCount}` : activeLabel,
-      detail: `${modelDetail(runningItem)}\n当前转写视频：${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
+      detail: detailWithModel(`当前转写视频：${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`, runningItem),
       tone: 'running'
     }
   }
@@ -1234,7 +1236,7 @@ export function resolveGlobalTranscriptionStatus(
   if (pendingItems.length > 0) {
     return {
       label: `转写排队 ${pendingItems.length}`,
-      detail: `${modelDetail(pendingItems[0])}\n当前转写视频：还有 ${pendingItems.length} 个转写任务等待处理。`,
+      detail: detailWithModel(`当前转写视频：还有 ${pendingItems.length} 个转写任务等待处理。`, pendingItems[0]),
       tone: 'warn'
     }
   }
@@ -1244,7 +1246,7 @@ export function resolveGlobalTranscriptionStatus(
     const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
     return {
       label: '转写失败',
-      detail: `${modelDetail(failedItem)}\n当前转写视频：${failedItem.title}：${failureReason} 打开札记可重试。`,
+      detail: detailWithModel(`当前转写视频：${failedItem.title}：${failureReason} 打开札记可重试。`, failedItem),
       tone: 'error'
     }
   }
@@ -1252,14 +1254,14 @@ export function resolveGlobalTranscriptionStatus(
   if (transcriptionQueue.sessionCompletedCount > 0) {
     return {
       label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
-      detail: `${modelDetail()}\n转写结果：本次已完成 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
+      detail: detailWithModel(`转写结果：本次已完成 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`),
       tone: 'ok'
     }
   }
 
   return {
     label: '暂无转写',
-    detail: `${modelDetail()}\n当前转写视频：暂无视频转写`,
+    detail: detailWithModel('当前转写视频：暂无视频转写'),
     tone: 'idle'
   }
 }
