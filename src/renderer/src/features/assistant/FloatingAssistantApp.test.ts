@@ -538,6 +538,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('font-weight: 700')
   })
 
+  it('labels the transcription model and current-video status independently', () => {
+    const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      { items: [], sessionCompletedCount: 0 },
+      'whisper-small'
+    )
+
+    expect(statusLightTooltipParts(status).filter((part) => part.label).map((part) => part.label)).toEqual([
+      '模型：',
+      '当前视频：'
+    ])
+  })
+
   it('keeps the wait-confirmation detail concise across the status light and task menu', () => {
     expect(favoriteOrganizationStatus(workspace('previewing'))?.detail).not.toContain('小咪提醒')
   })
@@ -641,7 +653,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
       'whisper-small'
     )
 
-    expect(status.detail).toBe('模型：faster-whisper large-v3-turbo · GPU 已就绪\n测试视频 正在转写')
+    expect(status.detail).toBe('模型：faster-whisper large-v3-turbo · GPU 已就绪\n当前视频：测试视频 正在转写')
     expect(statusLightTooltip(status)).toContain('模型：faster-whisper large-v3-turbo · GPU 已就绪')
   })
 

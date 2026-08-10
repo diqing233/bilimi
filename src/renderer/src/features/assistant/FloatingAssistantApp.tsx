@@ -359,7 +359,17 @@ export function statusLightTooltip(item: GlobalStatusItem): string {
 
 export type StatusLightTooltipPart = { label?: string; text: string }
 
-const STATUS_LIGHT_TOOLTIP_LABELS = ['收藏夹：', '待设置：', '整理收藏：', '小咪提醒：'] as const
+const STATUS_LIGHT_TOOLTIP_LABELS = [
+  '收藏夹：',
+  '待设置：',
+  '整理收藏：',
+  '小咪提醒：',
+  '模型：',
+  '当前模型：',
+  '当前视频：',
+  '执行任务：',
+  '正在执行：'
+] as const
 
 export function statusLightTooltipParts(item: GlobalStatusItem): StatusLightTooltipPart[] {
   return statusLightTooltip(item).split('\n').map((line) => {
@@ -1098,7 +1108,7 @@ export function resolveGlobalTranscriptionStatus(
       const cancelingSummary = runningItem.progress?.step === 'canceling-summary'
       return {
         label: cancelingSummary ? '取消总结中' : '取消中',
-        detail: `${modelDetail(runningItem)}\n${runningItem.title} 正在${cancelingSummary ? '取消 DeepSeek 总结' : '取消转写'}。`,
+        detail: `${modelDetail(runningItem)}\n当前视频：${runningItem.title} 正在${cancelingSummary ? '取消 DeepSeek 总结' : '取消转写'}。`,
         tone: 'running'
       }
     }
@@ -1109,7 +1119,7 @@ export function resolveGlobalTranscriptionStatus(
     const activeLabel = summarizingWithDeepSeek ? `${progressLabel} · DeepSeek 总结中` : progressLabel
     return {
       label: pendingCount > 0 ? `${activeLabel} · 排队 ${pendingCount}` : activeLabel,
-      detail: `${modelDetail(runningItem)}\n${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
+      detail: `${modelDetail(runningItem)}\n当前视频：${runningItem.title} ${summarizingWithDeepSeek ? '正在进行 DeepSeek 总结' : '正在转写'}${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
       tone: 'running'
     }
   }
@@ -1118,7 +1128,7 @@ export function resolveGlobalTranscriptionStatus(
   if (pendingItems.length > 0) {
     return {
       label: `转写排队 ${pendingItems.length}`,
-      detail: `${modelDetail(pendingItems[0])}\n还有 ${pendingItems.length} 个转写任务等待处理。`,
+      detail: `${modelDetail(pendingItems[0])}\n当前视频：还有 ${pendingItems.length} 个转写任务等待处理。`,
       tone: 'warn'
     }
   }
@@ -1128,7 +1138,7 @@ export function resolveGlobalTranscriptionStatus(
     const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
     return {
       label: '转写失败',
-      detail: `${modelDetail(failedItem)}\n${failedItem.title}：${failureReason} 打开札记可重试。`,
+      detail: `${modelDetail(failedItem)}\n当前视频：${failedItem.title}：${failureReason} 打开札记可重试。`,
       tone: 'error'
     }
   }
@@ -1136,14 +1146,14 @@ export function resolveGlobalTranscriptionStatus(
   if (transcriptionQueue.sessionCompletedCount > 0) {
     return {
       label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
-      detail: `${modelDetail()}\n本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
+      detail: `${modelDetail()}\n当前视频：本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
       tone: 'ok'
     }
   }
 
   return {
     label: '暂无转写',
-    detail: `${modelDetail()}\n当前视频暂无可用转写。`,
+    detail: `${modelDetail()}\n当前视频：暂无可用转写。`,
     tone: 'idle'
   }
 }
