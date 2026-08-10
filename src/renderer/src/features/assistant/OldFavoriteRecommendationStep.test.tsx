@@ -29,6 +29,10 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
     expect(screen.getByRole('group', { name: '推荐收藏夹视图' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('2 条适合')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
+      'title',
+      '收藏夹：当前标签\n推荐来源：高频标签推荐\ncurrent\n当前匹配：2 条视频'
+    )
     expect(screen.queryByRole('checkbox', { name: '其他批标签' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))

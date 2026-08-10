@@ -35,8 +35,23 @@ function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) 
   return stripBilimiLedgerPrefix(candidate.displayName)
 }
 
+function candidateSourceLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
+  if (candidate.kind === 'author') return 'UP 主推荐'
+  if (candidate.kind === 'tag') return '高频标签推荐'
+  return '系列推荐'
+}
+
 function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate, count: number) {
   return `${count} 条适合`
+}
+
+function candidateTooltip(candidate: OldFavoriteWorkspaceRecommendationCandidate, count: number) {
+  return [
+    `收藏夹：${candidateLabel(candidate)}`,
+    `推荐来源：${candidateSourceLabel(candidate)}`,
+    candidate.reason,
+    `当前匹配：${count} 条视频`
+  ].join('\n')
 }
 
 export function OldFavoriteRecommendationStep({
@@ -161,7 +176,8 @@ export function OldFavoriteRecommendationStep({
         <div className="favorite-ledger-panel__candidate-list">
           {group.candidates.map((candidate) => {
             const adopted = adoptedCandidateIds.has(candidate.id)
-            return <article key={candidate.id} title={candidate.reason}>
+            const count = countForCandidate(candidate)
+            return <article key={candidate.id} aria-label={candidateLabel(candidate)} title={candidateTooltip(candidate, count)}>
               <label>
                 <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading}
                   onChange={(event) => {
@@ -180,7 +196,7 @@ export function OldFavoriteRecommendationStep({
                     else next.delete(candidate.id)
                     onSetRecommendedCandidates([...next])
                   }} />
-                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate, countForCandidate(candidate))}</small></span>
+                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate, count)}</small></span>
               </label>
             </article>
           })}
