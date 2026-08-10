@@ -495,8 +495,7 @@ function GlobalStatusLight({
     </button>
     {visible && !suppressed ? createPortal(<div ref={tooltipRef} id={tooltipId} className="floating-assistant-global-status__light-tooltip" data-status-light={id} role="tooltip" style={position} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
       <span className="floating-assistant-global-status__light-tooltip-copy">{statusLightTooltipParts(item).map((part, index) => {
-        const titleLineClass = id === 'deepseek' && index === 0 ? ' floating-assistant-global-status__light-tooltip-title-line' : ''
-        const lineClass = `floating-assistant-global-status__light-tooltip-line${titleLineClass}`
+        const lineClass = 'floating-assistant-global-status__light-tooltip-line'
         return part.label ? <span key={`${part.label}-${index}`} className={lineClass}><span className="floating-assistant-global-status__light-tooltip-label">{part.label}</span>{part.text}</span> : part.text ? <span key={`line-${index}`} className={lineClass}>{part.text}</span> : <span key={`blank-${index}`} className="floating-assistant-global-status__light-tooltip-break" aria-hidden="true" />
       })}</span>
       {item.detailAction ? <button type="button" className="floating-assistant-global-status__light-tooltip-action" onClick={item.detailAction.onClick}>{item.detailAction.label}</button> : null}

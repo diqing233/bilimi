@@ -2073,14 +2073,6 @@ body[data-floating-window="true"],
   color: #1d4f83;
   font-weight: 700;
 }
-.floating-assistant-global-status__light-tooltip[data-status-light='deepseek'] .floating-assistant-global-status__light-tooltip-title-line {
-  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
-  color: #1d4f83;
-}
-.floating-assistant-global-status__light-tooltip[data-status-light='deepseek'] .floating-assistant-global-status__light-tooltip-label {
-  color: inherit;
-  font-weight: inherit;
-}
 .floating-assistant-global-status__light-tooltip-action {
   display: inline-flex;
   align-items: center;

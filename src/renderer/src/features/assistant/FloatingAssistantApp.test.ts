@@ -540,23 +540,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(styles).toContain('font-weight: 700')
   })
 
-  it('keeps DeepSeek tooltip labels at the same emphasis as their explanations', () => {
+  it('uses the shared deep-blue tooltip labels for DeepSeek details', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
     expect(source).toContain('data-status-light={id}')
-    expect(styles).toContain(".floating-assistant-global-status__light-tooltip[data-status-light='deepseek'] .floating-assistant-global-status__light-tooltip-label")
-    expect(styles).toContain('font-weight: inherit')
+    expect(styles).not.toContain(".floating-assistant-global-status__light-tooltip[data-status-light='deepseek']")
+    expect(styles).toContain('.floating-assistant-global-status__light-tooltip-label')
+    expect(styles).toContain('font-weight: 700')
   })
 
-  it('uses the title font for the DeepSeek connection and model header lines', () => {
+  it('uses the shared status-label styling for the DeepSeek connection and model line', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
-    expect(source).toContain('floating-assistant-global-status__light-tooltip-title-line')
-    expect(source).toContain("id === 'deepseek' && index === 0")
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;/)
-    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip\[data-status-light='deepseek'\] \.floating-assistant-global-status__light-tooltip-title-line \{[^}]*color: #1d4f83;/)
+    expect(source).not.toContain('floating-assistant-global-status__light-tooltip-title-line')
+    expect(styles).not.toContain(".floating-assistant-global-status__light-tooltip[data-status-light='deepseek']")
+    expect(styles).toMatch(/\.floating-assistant-global-status__light-tooltip-label \{[^}]*color: #1d4f83;[^}]*font-weight: 700;/)
   })
 
   it('labels the current transcription model and video independently', () => {
