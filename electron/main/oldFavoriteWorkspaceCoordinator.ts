@@ -693,6 +693,13 @@ function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'],
   })
 }
 
+function uniquelyRecoveredRemoteFolderId(candidate: RecoverableManagedFolder) {
+  const remoteFolderIds = [...new Set(candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId])]
+    .map((folderId) => folderId.trim())
+    .filter(Boolean)
+  return remoteFolderIds.length === 1 ? remoteFolderIds[0] : undefined
+}
+
 /**
  * Owns the main-process old-favorite mirror while keeping its large baseline
  * and high-frequency edits in OldFavoriteWorkspaceStore. The repository only
@@ -853,6 +860,9 @@ export class OldFavoriteWorkspaceCoordinator {
           ruleType: 'keyword',
           enabled: false,
           priority: 20_000 + index,
+          ...(uniquelyRecoveredRemoteFolderId(candidate)
+            ? { bilibiliFolderId: uniquelyRecoveredRemoteFolderId(candidate) }
+            : {}),
           bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false
@@ -2424,6 +2434,9 @@ export class OldFavoriteWorkspaceCoordinator {
           ruleType: 'keyword',
           enabled: false,
           priority: 20_000 + index,
+          ...(uniquelyRecoveredRemoteFolderId(binding)
+            ? { bilibiliFolderId: uniquelyRecoveredRemoteFolderId(binding) }
+            : {}),
           bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false

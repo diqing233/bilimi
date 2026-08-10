@@ -513,16 +513,44 @@ function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
   }
 }
 
+function hasLocalLedgerRule(ledger: FavoriteLedger) {
+  return ledger.enabled || ledger.keywords.some((keyword) => keyword.trim()) ||
+    (!ledger.bilibiliFolderId && ledger.syncState !== 'local-draft')
+}
+
+function deduplicateLedgerIds(ledgers: FavoriteLedger[]): FavoriteLedger[] {
+  const grouped = new Map<string, FavoriteLedger[]>()
+  for (const ledger of ledgers) {
+    grouped.set(ledger.id, [...(grouped.get(ledger.id) ?? []), ledger])
+  }
+
+  return [...grouped.values()].map((duplicates) => {
+    if (duplicates.length === 1) return duplicates[0]!
+
+    const localRule = duplicates.find(hasLocalLedgerRule)
+    const remoteCopy = duplicates.find((ledger) => ledger.bilibiliFolderId)
+    const primary = localRule ?? remoteCopy ?? duplicates[0]!
+    if (!remoteCopy || primary.bilibiliFolderId) return primary
+
+    return {
+      ...primary,
+      bilibiliFolderId: remoteCopy.bilibiliFolderId,
+      ...(remoteCopy.bilibiliFolderTitle ? { bilibiliFolderTitle: remoteCopy.bilibiliFolderTitle } : {}),
+      ...(remoteCopy.bindingState ? { bindingState: remoteCopy.bindingState } : {})
+    }
+  })
+}
+
 export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
   return DEFAULT_FAVORITE_LEDGERS.map(cloneLedger)
 }
 
 export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[] | unknown): FavoriteLedger[] {
-  const normalized = (Array.isArray(ledgers) ? ledgers : [])
+  const normalized = deduplicateLedgerIds((Array.isArray(ledgers) ? ledgers : [])
     .filter(
       (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
     )
-    .map(cloneLedger)
+    .map(cloneLedger))
   const existingLedgerIds = new Set(normalized.map((ledger) => ledger.id))
 
   for (const defaultLedger of DEFAULT_FAVORITE_LEDGERS) {

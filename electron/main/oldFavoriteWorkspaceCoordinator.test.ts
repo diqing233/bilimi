@@ -3616,7 +3616,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).toHaveBeenCalledOnce()
     expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
       id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
-      bindingState: 'unbound', syncState: 'local-draft'
+      bilibiliFolderId: 'genshin-remote', bindingState: 'unbound', syncState: 'local-draft'
     })])
   })
 

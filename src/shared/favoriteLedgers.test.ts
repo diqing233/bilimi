@@ -250,6 +250,44 @@ describe('favorite ledger model', () => {
     expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('bilimi·暂存')
   })
 
+  it('repairs repeated remote-draft records by retaining the copy with its remote folder id', () => {
+    const ledgers = normalizeFavoriteLedgers([
+      {
+        id: 'custom-remote-demo',
+        displayName: 'bilimi·示例',
+        keywords: [],
+        enabled: false,
+        priority: 90,
+        bindingState: 'unbound',
+        syncState: 'local-draft',
+        isDefault: false
+      },
+      {
+        id: 'custom-remote-demo',
+        displayName: 'bilimi·示例',
+        keywords: [],
+        enabled: false,
+        priority: 100,
+        bilibiliFolderId: '42',
+        bindingState: 'unbound',
+        syncState: 'local-draft',
+        isDefault: false
+      }
+    ])
+
+    expect(ledgers.filter((ledger) => ledger.id === 'custom-remote-demo')).toEqual([{
+      id: 'custom-remote-demo',
+      displayName: 'bilimi·示例',
+      keywords: [],
+      enabled: false,
+      priority: 100,
+      bilibiliFolderId: '42',
+      bindingState: 'unbound',
+      syncState: 'local-draft',
+      isDefault: false
+    }])
+  })
+
   it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {
     const ledgers = normalizeFavoriteLedgers([
       {

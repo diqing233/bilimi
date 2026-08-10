@@ -186,7 +186,20 @@ function sharedScriptHelpers(): string {
       return 'custom-remote-' + (hash >>> 0).toString(36);
     };
     const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
-      const nextLedgers = [...ledgers];
+      const nextLedgers = [];
+      const ledgerIndexById = new Map();
+      for (const ledger of ledgers) {
+        const existingIndex = ledgerIndexById.get(ledger.id);
+        if (existingIndex === undefined) {
+          ledgerIndexById.set(ledger.id, nextLedgers.length);
+          nextLedgers.push(ledger);
+          continue;
+        }
+        const existing = nextLedgers[existingIndex];
+        if (!existing.bilibiliFolderId && ledger.bilibiliFolderId) {
+          nextLedgers[existingIndex] = ledger;
+        }
+      }
       const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
       const knownRemoteFolderIds = new Set(nextLedgers.map((ledger) => String(ledger.bilibiliFolderId || '').trim()).filter(Boolean));
       // A normal local rule with the same title is an explicit rebind
@@ -203,7 +216,17 @@ function sharedScriptHelpers(): string {
         const normalizedTitle = normalizeFolderTitle(displayName);
         if (!folderId || dismissedIds.has(String(folderId)) || knownRemoteFolderIds.has(String(folderId)) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
         const id = stableRemoteDraftLedgerId(folderId);
+        const existingIndex = ledgerIndexById.get(id);
+        if (existingIndex !== undefined) {
+          const existing = nextLedgers[existingIndex];
+          if (existing.syncState === 'local-draft' && existing.bindingState === 'unbound' && !existing.bilibiliFolderId) {
+            nextLedgers[existingIndex] = { ...existing, bilibiliFolderId: String(folderId) };
+            knownRemoteFolderIds.add(String(folderId));
+          }
+          continue;
+        }
         knownRemoteFolderIds.add(String(folderId));
+        ledgerIndexById.set(id, nextLedgers.length);
         nextLedgers.push({
           id,
           displayName,
