@@ -552,8 +552,8 @@ export function favoriteWorkspaceReadinessMessage(args: {
   if (!args.hasBilibiliPageOpen) return '请先登录 B 站。'
   if (args.hasMissingFavoriteLedgers) {
     return args.activeTab === 'ledger'
-      ? '当前只有本地默认收藏夹模板，请点击“备册”创建并绑定 bilimi 收藏夹。'
-      : '请到掌库备册后再开始整理。'
+      ? '当前收藏夹只保存在 bilimi 本地。点击“备册”后，会在 B 站创建对应收藏夹，之后才能同步批阅和整理结果。'
+      : '请先到掌库点击“备册”，完成后即可开始批阅和其他整理操作。'
   }
   return '准备就绪。'
 }

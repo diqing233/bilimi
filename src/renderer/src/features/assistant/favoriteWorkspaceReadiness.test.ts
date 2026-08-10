@@ -8,7 +8,15 @@ describe('favoriteWorkspaceReadinessMessage', () => {
       hasBilibiliPageOpen: true,
       hasMissingFavoriteLedgers: true,
       activeTab: 'ledger'
-    })).toBe('当前只有本地默认收藏夹模板，请点击“备册”创建并绑定 bilimi 收藏夹。')
+    })).toBe('当前收藏夹只保存在 bilimi 本地。点击“备册”后，会在 B 站创建对应收藏夹，之后才能同步批阅和整理结果。')
+  })
+
+  it('directs non-ledger workspaces to complete backup before reviewing or organizing', () => {
+    expect(favoriteWorkspaceReadinessMessage({
+      hasBilibiliPageOpen: true,
+      hasMissingFavoriteLedgers: true,
+      activeTab: 'review'
+    })).toBe('请先到掌库点击“备册”，完成后即可开始批阅和其他整理操作。')
   })
 
   it('uses the active account bindings instead of the global default template', () => {
