@@ -8165,9 +8165,6 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__sync-summary p {
   margin: 0;
-  color: var(--porcelain-muted);
-  font-size: 12px;
-  line-height: 1.5;
 }
 .old-favorite-modal__dialog {
   width: min(420px, calc(100vw - 32px));

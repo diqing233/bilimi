@@ -1,9 +1,19 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
 
 describe('OldFavoriteConfirmationStep', () => {
+  it('lets the sync confirmation summary inherit normal modal typography', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+    const summaryRule = styles.match(/\.favorite-ledger-panel__sync-summary p\s*\{([\s\S]*?)\n\}/)?.[1]
+
+    expect(summaryRule).toBeDefined()
+    expect(summaryRule).not.toMatch(/(?:color|font-size|line-height)\s*:/)
+  })
+
   it('keeps current-batch confirmation separate from the whole-run overview', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
