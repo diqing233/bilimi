@@ -607,8 +607,33 @@ describe('OldFavoriteConfirmationStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
     expect(screen.getByRole('dialog', { name: '同步选项' })).toBeInTheDocument()
+    expect(screen.queryByText('本次没有需要备册的收藏夹。')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
     expect(screen.queryByRole('dialog', { name: '同步选项' })).not.toBeInTheDocument()
+  })
+
+  it('summarizes videos and ledgers that will be backed up before syncing', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 4, classifiedAidCount: 3, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 1, sourceFolders: [], unavailableItemCount: 0,
+        processedItemCount: 4, classifiedItemCount: 3, unmatchedItemCount: 1, waitingItemCount: 0, recommendationCounts: [],
+        archiveTargets: [{ ledgerId: 'knowledge', itemCount: 3, segmentCounts: [] }, { ledgerId: 'inbox', itemCount: 1, segmentCounts: [] }]
+      }
+    }
+    const ledgers = [{ id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 0, bindingState: 'unbacked' as const, isDefault: true }]
+
+    render(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} loading={false}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    const dialog = screen.getByRole('dialog', { name: '同步选项' })
+    expect(within(dialog).getByText('本次将整理 4 条视频。')).toBeInTheDocument()
+    expect(within(dialog).getByText('同步前将备册：bilimi·知识学习（3 条）')).toBeInTheDocument()
+    expect(within(dialog).getByText('其中 1 条未匹配到合适分类，会先保存到收藏库的 bilimi·暂存；如需一并同步到 B 站，请勾选下方选项。')).toBeInTheDocument()
   })
 
   it('shows the exact failed DeepSeek count, blocks execution, and requires explicit fallback confirmation', () => {

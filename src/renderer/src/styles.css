@@ -8158,6 +8158,17 @@ body[data-floating-window="true"],
   gap: 0.5rem;
   align-items: center;
 }
+.favorite-ledger-panel__sync-summary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.favorite-ledger-panel__sync-summary p {
+  margin: 0;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .old-favorite-modal__dialog {
   width: min(420px, calc(100vw - 32px));
 }

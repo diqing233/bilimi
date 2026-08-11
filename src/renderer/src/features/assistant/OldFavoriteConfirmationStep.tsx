@@ -230,6 +230,19 @@ export function OldFavoriteConfirmationStep({
     : unclassifiedCount
   const wholeRunUnmatchedCount = isMultiSegment ? snapshot.overview?.unmatchedItemCount ?? 0 : unclassifiedCount
   const unmatchedCount = isMultiSegment && viewScope === 'current' ? currentSegmentUnmatchedCount : wholeRunUnmatchedCount
+  const pendingBackupTargets = (snapshot.overview?.archiveTargets ?? [])
+    .map((target) => {
+      const ledger = ledgers.find((candidate) => candidate.id === target.ledgerId)
+      const count = isMultiSegment && viewScope === 'current' && currentSegmentSummary
+        ? target.segmentCounts.find((segment) => segment.segmentId === currentSegmentSummary.id)?.count ?? 0
+        : target.itemCount
+      const explicitlyUnbound = ledger?.bindingState === 'unbound' || ledger?.bindingState === 'unbacked'
+      const alreadyBacked = Boolean(ledger && !explicitlyUnbound && (ledger.bindingState === 'bound' || ledger.bilibiliFolderId))
+      return { ledger, count, alreadyBacked }
+    })
+    .filter(({ ledger, count, alreadyBacked }) => Boolean(ledger) && ledger?.id !== 'inbox' && count > 0 && !alreadyBacked)
+    .map(({ ledger, count }) => ({ name: ledger!.displayName, count }))
+  const totalVideosToOrganize = readiness?.selectedAidCount ?? 0
   const blockedMessage = unmatchedCount
     ? `${isMultiSegment && viewScope === 'current' ? '本批' : '本轮'}未匹配到合适分类 ${unmatchedCount} 条，将保存到 bilimi·暂存；同步时默认不上传 B 站。`
     : !canSaveLocally
@@ -284,6 +297,13 @@ export function OldFavoriteConfirmationStep({
     {syncDialogOpen ? <BilimiModal title="同步选项" className="favorite-ledger-panel__sync-dialog" onClose={() => setSyncDialogOpen(false)} actions={<>
       <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
     </>}>
+      <div className="favorite-ledger-panel__sync-summary">
+        <p>本次将整理 {totalVideosToOrganize} 条视频。</p>
+        {pendingBackupTargets.length > 0
+          ? <p>同步前将备册：{pendingBackupTargets.map(({ name, count }) => `${name}（${count} 条）`).join('、')}</p>
+          : null}
+        <p>其中 {unmatchedCount} 条未匹配到合适分类，会先保存到收藏库的 bilimi·暂存；如需一并同步到 B 站，请勾选下方选项。</p>
+      </div>
       <label>
         <input type="checkbox" checked={includeInbox} onChange={(event) => setIncludeInbox(event.currentTarget.checked)} />
         同步 bilimi·暂存（{unmatchedCount} 条）
