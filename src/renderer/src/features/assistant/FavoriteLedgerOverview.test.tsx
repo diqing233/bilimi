@@ -79,7 +79,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__help-tooltip-title')
   })
 
-  it('uses the lightweight draft explanation instead of the normal missing-backup warning while organizing', () => {
+  it('hides the missing-backup warning while organizing and restores it afterward', () => {
     const props = {
       ledgers: [{ id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 10, isDefault: false }],
       missingLedgerIds: ['music'],
@@ -87,7 +87,7 @@ describe('FavoriteLedgerOverview', () => {
     }
     const view = render(<FavoriteLedgerOverview {...props} organizationActive />)
 
-    expect(screen.getByText('本轮已勾选的收藏夹会参与整理分类；暂未备册不影响草稿，可在整理结束后再备册并同步到 B 站。')).toBeInTheDocument()
+    expect(screen.queryByText('本轮已勾选的收藏夹会参与整理分类；暂未备册不影响草稿，可在整理结束后再备册并同步到 B 站。')).not.toBeInTheDocument()
     expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
 
     view.rerender(<FavoriteLedgerOverview {...props} organizationActive={false} />)
