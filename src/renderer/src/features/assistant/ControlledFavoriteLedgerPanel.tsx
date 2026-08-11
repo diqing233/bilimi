@@ -86,7 +86,6 @@ function projectRecommendedLedgerDrafts(
         ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
         enabled: true,
         priority: 10_000 + index,
-        syncState: 'local-draft' as const,
         isDefault: false
       }))
   ]

@@ -938,6 +938,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.28);')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__whole-run-targets {\n  border-bottom: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article { display: grid; gap: 5px; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 7px 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-target-title { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article:last-child { padding-bottom: 0; }')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')

@@ -31,7 +31,7 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
     expect(screen.getByText('2 条适合')).toBeInTheDocument()
     expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
       'title',
-      '高频标签收藏夹：当前标签（标签）\n本轮总共匹配：12 条\n当前批次匹配：2 条'
+      '高频标签收藏夹：当前标签\n本轮总共匹配：12 条\n当前批次匹配：2 条'
     )
     expect(screen.queryByRole('checkbox', { name: '其他批标签' })).not.toBeInTheDocument()
 
@@ -42,7 +42,39 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
     expect(screen.getByText('10 条适合')).toBeInTheDocument()
     expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
       'title',
-      '高频标签收藏夹：当前标签（标签）\n本轮总共匹配：12 条'
+      '高频标签收藏夹：当前标签\n本轮总共匹配：12 条'
+    )
+  })
+
+  it('keeps data-layer source suffixes only when same-name recommendations were already disambiguated', () => {
+    render(<OldFavoriteRecommendationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 8, readiness: 'ready', completedTagItemCount: 8, pendingTagItemCount: 0 }
+        ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: {
+          candidates: [
+            { id: 'author-arknights', displayName: '明日方舟（UP）', kind: 'author', count: 5, currentSegmentCount: 5, reason: 'current' },
+            { id: 'tag-arknights', displayName: '明日方舟（标签）', kind: 'tag', count: 3, currentSegmentCount: 3, reason: 'current' }
+          ], adoptedCandidateIds: []
+        }, history: { cursor: 0, length: 0, entries: [] },
+        overview: {
+          available: true, completedSegmentCount: 1, totalSegmentCount: 1, unavailableItemCount: 0, sourceFolders: [], archiveTargets: [],
+          recommendationCounts: [{ id: 'author-arknights', count: 5 }, { id: 'tag-arknights', count: 3 }]
+        }
+      }}
+      loading={false} onSetRecommendedCandidates={vi.fn()}
+    />)
+
+    expect(screen.getByRole('article', { name: '明日方舟（UP）' })).toHaveAttribute(
+      'title',
+      '专属 UP 追更收藏夹：明日方舟（UP）\n本轮总共匹配：5 条\n当前批次匹配：5 条'
+    )
+    expect(screen.getByRole('article', { name: '明日方舟（标签）' })).toHaveAttribute(
+      'title',
+      '高频标签收藏夹：明日方舟（标签）\n本轮总共匹配：3 条\n当前批次匹配：3 条'
     )
   })
 })

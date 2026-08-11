@@ -1029,7 +1029,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ['frozen', '\u7b49\u5f85\u6267\u884c'],
     ['executing', '\u6574\u7406\u6267\u884c\u4e2d'],
     ['reconciling', '\u540c\u6b65\u5f85\u68c0\u67e5'],
-    ['completed', '\u6574\u7406\u5b8c\u6210']
+    ['completed', '\u6574\u7406\u5b8c\u6210\uff0c\u5f85\u5907\u518c']
   ] as const)('prioritizes the %s workspace state over backup status', (status, label) => {
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace(status),
@@ -1039,14 +1039,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
     }).label).toBe(label)
   })
 
-  it('returns to idle only for the completed workspace the user acknowledged', () => {
+  it('keeps the backup reminder after the completed workspace is acknowledged', () => {
     expect(resolveFavoriteOrganizationLamp({
       snapshot: workspace('completed'),
       acknowledgedWorkspaceId: 'workspace',
       defaultFavoriteSystemEnabled: true,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '整理空闲', tone: 'idle' })
+    })).toMatchObject({ label: '整理完成，待备册', tone: 'warn' })
 
     expect(resolveFavoriteOrganizationLamp({
       snapshot: { ...workspace('completed'), workspaceId: 'workspace-next' },
@@ -1054,7 +1054,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
       defaultFavoriteSystemEnabled: true,
       ledgers: [defaultLedger],
       favoriteLedgerStatus: null
-    })).toMatchObject({ label: '整理完成' })
+    })).toMatchObject({ label: '整理完成，待备册', tone: 'warn' })
   })
 })
 

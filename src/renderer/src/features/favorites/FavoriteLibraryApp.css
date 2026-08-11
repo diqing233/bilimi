@@ -264,6 +264,10 @@
 .favorite-library__dialog p { margin: 0; color: #475569; font-size: 13px; line-height: 1.55; }
 .favorite-library__dialog p + p { margin-top: 6px; }
 .favorite-library__dialog label { line-height: 1.55; }
+.favorite-library__managed-folder-delete-scope { display: grid; gap: 8px; }
+.favorite-library__managed-folder-delete-scope-option { display: flex; align-items: flex-start; gap: 6px; }
+.favorite-library__managed-folder-delete-scope-option input { flex: 0 0 auto; margin-top: 0.35em; }
+.favorite-library__managed-folder-delete-scope-option span { min-width: 0; }
 .favorite-library__dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),

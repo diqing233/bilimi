@@ -4781,7 +4781,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('keeps an adopted recommendation in the workspace draft until local save', async () => {
+  it('persists an adopted recommendation immediately as an enabled local rule without creating a Bilibili folder', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(true)
     const published = vi.fn()
@@ -4808,8 +4808,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
-    expect(saved).not.toHaveBeenCalled()
-    expect(published).not.toHaveBeenCalled()
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(saved).toHaveBeenCalledWith(
+      '100',
+      [expect.objectContaining({
+        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
+        ruleType: 'author', enabled: true, isDefault: false
+      })],
+      ['custom-author-up-alpha']
+    )
+    expect(saved.mock.calls[0]?.[1][0]?.bilibiliFolderId).toBeUndefined()
+    expect(saved.mock.calls[0]?.[1][0]?.syncState).toBeUndefined()
+    expect(published).toHaveBeenCalledTimes(1)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
     })
@@ -4817,8 +4827,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    expect(published).toHaveBeenCalledTimes(1)
-    expect(saved).toHaveBeenCalledTimes(1)
+    expect(published).toHaveBeenCalledTimes(2)
+    expect(saved).toHaveBeenCalledTimes(2)
     expect(saved).toHaveBeenCalledWith(
       '100',
       [expect.objectContaining({
@@ -4829,7 +4839,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     )
   })
 
-  it('repairs recommendation preferences when the process reopens after a post-commit save failure', async () => {
+  it('repairs recommendation preferences when immediate local persistence fails and the process reopens', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
@@ -4851,10 +4861,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await first.finishScan('100')
     await first.acceptCurrentTags('100')
-    await first.setRecommendedCandidates('100', ['custom-author-up-alpha'])
-    await first.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
-
-    await expect(first.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('preferences unavailable')
+    await expect(first.setRecommendedCandidates('100', ['custom-author-up-alpha'])).rejects.toThrow('preferences unavailable')
 
     const repaired = vi.fn().mockResolvedValue(true)
     const published = vi.fn()
@@ -4872,7 +4879,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(published).toHaveBeenCalledTimes(1)
   })
 
-  it('does not touch account preferences when a recommendation is selected and cleared in the draft', async () => {
+  it('keeps the saved local recommendation when it is deselected from the current round', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(false)
     const published = vi.fn()
@@ -4902,12 +4909,17 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', [])
     await coordinator.prepareRecommendationPreview('100', [])
 
-    expect(saved).not.toHaveBeenCalled()
+    expect(saved).toHaveBeenCalledTimes(2)
+    expect(saved).toHaveBeenLastCalledWith(
+      '100',
+      [expect.objectContaining({ id: 'custom-author-up-alpha', enabled: true })],
+      []
+    )
     expect(published).not.toHaveBeenCalled()
 
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    expect(saved).toHaveBeenCalledWith(
+    expect(saved).toHaveBeenLastCalledWith(
       '100',
       [expect.objectContaining({ id: 'custom-author-up-alpha' })],
       []
@@ -4915,7 +4927,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(published).not.toHaveBeenCalled()
   })
 
-  it('persists adopted recommendations once after a Bilibili plan freezes successfully', async () => {
+  it('retains an already-saved recommendation after a Bilibili plan freezes successfully', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(true)
     const published = vi.fn()
@@ -4959,15 +4971,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
 
-    expect(saved).not.toHaveBeenCalled()
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
     expect(saved).toHaveBeenCalledTimes(1)
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
+    expect(saved).toHaveBeenCalledTimes(2)
     expect(saved).toHaveBeenCalledWith(
       '100',
       [expect.objectContaining({ id: 'custom-author-up-alpha', ruleType: 'author' })],
       ['custom-author-up-alpha']
     )
-    expect(published).toHaveBeenCalledTimes(1)
+    expect(published).toHaveBeenCalledTimes(2)
   })
 
   it('creates a local logical ledger and applies its later classification to the round', async () => {

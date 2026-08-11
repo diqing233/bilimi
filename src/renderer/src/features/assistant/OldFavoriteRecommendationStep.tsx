@@ -50,9 +50,8 @@ function candidateTooltip(
     : candidate.kind === 'tag'
       ? '高频标签收藏夹'
       : '系列收藏夹'
-  const suffix = candidate.kind === 'author' ? 'UP' : candidate.kind === 'tag' ? '标签' : '系列'
   return [
-    `${prefix}：${candidateLabel(candidate)}（${suffix}）`,
+    `${prefix}：${candidateLabel(candidate)}`,
     `本轮总共匹配：${wholeRunCount} 条`,
     ...(viewScope === 'all' ? [] : [`当前批次匹配：${currentBatchCount} 条`])
   ].join('\n')

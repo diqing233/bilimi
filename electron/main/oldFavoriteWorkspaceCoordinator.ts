@@ -1743,6 +1743,7 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
       })
       this.recommendations.set(workspace.accountMid, next)
+      await this.persistRecommendedLedgersUnsafe(workspace, next)
       return updated
     })
   }
@@ -4656,7 +4657,7 @@ export class OldFavoriteWorkspaceCoordinator {
       unavailableAids
     )
     this.recommendations.set(marker.accountMid, clone(recommendations))
-    if (marker.status === 'completed' || marker.status === 'frozen' || frozenIds.size > 0) {
+    if (recommendations.adoptedCandidateIds.length > 0 || marker.status === 'completed' || marker.status === 'frozen' || frozenIds.size > 0) {
       await this.persistRecommendedLedgersUnsafe(workspace, recommendations)
     }
     const repairedReadiness = this.calculatePlanReadinessFromClassifications(

@@ -104,7 +104,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     const targets = screen.getByLabelText('本轮归档目标总览')
     expect(targets).toHaveTextContent('知识学习预计归档 1 条')
-    expect(targets).toHaveTextContent('bilimi·暂存（未分类）预计归档 1 条')
+    expect(targets).toHaveTextContent('bilimi·暂存未分类预计归档 1 条')
     expect(targets).toHaveTextContent('空收藏夹预计归档 0 条')
   })
 

@@ -6139,10 +6139,16 @@ body[data-floating-window="true"],
   gap: 8px;
 }
 .favorite-ledger-panel__whole-run-target-subtitle {
-  margin-left: 3px;
   color: var(--porcelain-muted);
   font-size: 11px;
   font-weight: 400;
+}
+.favorite-ledger-panel__whole-run-target-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+  min-width: 0;
 }
 .favorite-ledger-panel__whole-run-targets ul {
   display: flex;

@@ -16,19 +16,13 @@ describe('old favorite workspace recommendation persistence', () => {
     enabled: true, priority: 10_000, isDefault: false
   }
 
-  it('adds adopted recommendations as local drafts without disturbing existing rules', () => {
-    expect(applyRecommendedLedgers(defaults, [recommendation])).toEqual([...defaults, {
-      ...recommendation,
-      syncState: 'local-draft'
-    }])
+  it('adds adopted recommendations as saved local rules without disturbing existing rules', () => {
+    expect(applyRecommendedLedgers(defaults, [recommendation])).toEqual([...defaults, recommendation])
   })
 
   it('replaces an adopted rule by id and removes only a cleared recommendation', () => {
     const changed = { ...recommendation, keywords: ['Alice', 'Alice Channel'] }
-    expect(applyRecommendedLedgers([...defaults, recommendation], [changed])).toEqual([...defaults, {
-      ...changed,
-      syncState: 'local-draft'
-    }])
+    expect(applyRecommendedLedgers([...defaults, recommendation], [changed])).toEqual([...defaults, changed])
     expect(removeRecommendedLedgers([...defaults, changed], ['custom-author-alice'])).toEqual(defaults)
   })
 
@@ -61,7 +55,7 @@ describe('old favorite workspace recommendation persistence', () => {
       ...defaults,
       edited,
       bound,
-      { ...added, syncState: 'local-draft' }
+      added
     ])
   })
 

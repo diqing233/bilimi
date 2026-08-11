@@ -93,7 +93,7 @@ export function OldFavoriteWholeRunOverview({
         const localOnly = target.ledgerId === 'inbox'
         const targetName = localOnly ? 'bilimi·暂存' : ledgerNames.get(target.ledgerId) ?? target.ledgerId
         return <article key={target.ledgerId} className="favorite-ledger-panel__whole-run-target-row" title={localOnly ? BILIMI_STAGING_TOOLTIP : undefined}>
-        <div><strong>{targetName}{localOnly ? <small className="favorite-ledger-panel__whole-run-target-subtitle">（未分类）</small> : null}</strong><span>预计归档 {target.itemCount} 条</span></div>
+        <div><span className="favorite-ledger-panel__whole-run-target-title"><strong>{targetName}</strong>{localOnly ? <small className="favorite-ledger-panel__whole-run-target-subtitle">未分类</small> : null}</span><span>预计归档 {target.itemCount} 条</span></div>
         <ul>
           {target.segmentCounts.map((segment) => {
             const descriptor = snapshot.segments.find((item) => item.id === segment.segmentId)

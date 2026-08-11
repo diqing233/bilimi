@@ -1,10 +1,7 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 
 export function applyRecommendedLedgers(current: FavoriteLedger[], recommendations: FavoriteLedger[]) {
-  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, {
-    ...ledger,
-    syncState: 'local-draft' as const
-  }]))
+  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
   return [
     ...current.filter((ledger) => !recommendedById.has(ledger.id)),
     ...recommendedById.values()
@@ -67,9 +64,7 @@ export function reconcileRecommendedLedgers(
     ...retained,
     ...resolvedRecommendations
       .filter((ledger) => !retainedIds.has(ledger.id))
-      .map((ledger) => ledger.bilibiliFolderId
-        ? ledger
-        : { ...ledger, syncState: 'local-draft' as const })
+      .map((ledger) => ledger)
   ]
 }
 

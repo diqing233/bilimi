@@ -29,6 +29,16 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('lays each managed-folder deletion scope choice on its own readable row', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),
+      'utf8'
+    )
+
+    expect(source).toContain('favorite-library__managed-folder-delete-scope-option')
+    expect(favoriteLibraryStyles).toMatch(/\.favorite-library__managed-folder-delete-scope-option\s*\{\s*display: flex;\s*align-items: flex-start;/)
+  })
+
   it('pauses repository and transcription work while inactive, then validates once when reopened', async () => {
     const unsubscribeRepository = vi.fn()
     const unsubscribeTranscription = vi.fn()

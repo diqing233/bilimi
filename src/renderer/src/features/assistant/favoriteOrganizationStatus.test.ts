@@ -41,7 +41,7 @@ describe('favoriteOrganizationStatus', () => {
       status: 'completed',
       completionMode: 'bilibili',
       planReadiness: { selectedAidCount: 4, classifiedAidCount: 2, unclassifiedAidCount: 2 }
-    }))).toMatchObject({ label: '整理完成，仍有待处理', tone: 'warn' })
+    }))).toMatchObject({ label: '整理完成，待备册', tone: 'warn' })
   })
 
   it('reports a stopped frozen sync as paused with durable progress', () => {

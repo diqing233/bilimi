@@ -706,6 +706,14 @@ export function favoriteOrganizationStatus(
 
   const unclassifiedCount = snapshot.planReadiness?.unclassifiedAidCount ?? 0
   if (snapshot.status === 'completed') {
+    const needsBackup = summary.enabledCount === 0 || summary.unbackedCount > 0 || summary.unboundCount > 0
+    if (needsBackup) {
+      return {
+        label: '整理完成，待备册',
+        detail: detail('本轮整理已结束；仍有启用的收藏夹未备册，请到掌库备册后再同步到 B 站。'),
+        tone: 'warn'
+      }
+    }
     return unclassifiedCount > 0
       ? { label: '整理完成，仍有待处理', detail: detail(`本轮完成，仍有 ${unclassifiedCount} 条待处理。`), tone: 'warn' }
       : { label: '整理完成', detail: detail('本轮已完成；可以继续扫描新增收藏。'), tone: 'ok' }
@@ -790,14 +798,15 @@ export function resolveFavoriteOrganizationLamp(args: {
     summary,
     args.defaultFavoriteSystemEnabled
   )
+  const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled, summary)
   if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
+    if (organizationStatus?.label === '整理完成，待备册') return organizationStatus
     return {
       label: '整理空闲',
       detail: detail('本轮整理结果已确认；工作区、扫描基线和处理记录均已保留。'),
       tone: 'idle'
     }
   }
-  const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled, summary)
   if (organizationStatus) return organizationStatus
 
   if (!args.defaultFavoriteSystemEnabled) {
