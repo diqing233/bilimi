@@ -778,6 +778,10 @@ export class OldFavoriteWorkspaceCoordinator {
     prepareForOrganization?: (accountMid: string) => Promise<void>
     refreshSelectedVideoMetadata?: (accountMid: string, aid: number) => Promise<FavoriteRepositoryVideo>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
+    resolveLedgerBinding?: (accountMid: string, logicalLedgerId: string) => Promise<{
+      remoteFolderId: string
+      remoteDisplayTitle?: string
+    } | undefined>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
     onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
@@ -3732,9 +3736,14 @@ export class OldFavoriteWorkspaceCoordinator {
             boundTitles.get(logicalLedgerId) ?? recommendationTitles.get(logicalLedgerId) ??
               await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ?? defaultTitles.get(logicalLedgerId)
         ] as const)))
+        const savedBindings = new Map(await Promise.all(Object.keys(assignmentAids).map(async (logicalLedgerId) => [
+          logicalLedgerId,
+          await this.options.resolveLedgerBinding?.(workspace.accountMid, logicalLedgerId)
+        ] as const)))
         return {
           accountMid: workspace.accountMid,
           logicalTitles,
+          savedBindings,
           assignmentAids
         }
       })
@@ -3767,11 +3776,15 @@ export class OldFavoriteWorkspaceCoordinator {
             throw new Error(`Old favorite workspace cannot freeze: remote-target-unbound:${logicalLedgerId}`)
           }
           const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
+          const savedBinding = preparation.savedBindings.get(logicalLedgerId)
           for (let offset = 0; offset < shardCount; offset += 1) {
             await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
               logicalLedgerId,
               logicalTitle,
-              remoteDisplayTitle: logicalTitle,
+              remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
+              ...(existing.length === 0 && offset === 0 && savedBinding?.remoteFolderId
+                ? { preferredRemoteFolderId: savedBinding.remoteFolderId }
+                : {}),
               shardNumber: nextShardNumber + offset,
               memberAids: []
             })

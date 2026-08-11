@@ -6190,6 +6190,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       bindingService: bindings,
+      resolveLedgerBinding: vi.fn().mockResolvedValue({
+        remoteFolderId: 'remote-music', remoteDisplayTitle: 'bilimi·音乐舞台'
+      }),
       now: () => '2026-07-20T00:00:00.000Z'
     })
 
@@ -6209,7 +6212,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen',
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music'] }] }
+    })
     expect(createFolder).not.toHaveBeenCalled()
   })
 
@@ -6999,8 +7005,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen',
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
     expect(createFolder).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: [expect.objectContaining({
+        logicalLedgerId: 'music', remoteFolderId: 'saved-music-folder', bindingState: 'bound'
+      })]
+    })
   })
 
   it('freezes a saved remote target when a prior reset left only its binding command result', async () => {
@@ -7041,7 +7055,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen',
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
   })
 
   it('binds classifications that arrive while confirmation is preparing', async () => {
@@ -7140,8 +7157,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       now: () => '2026-07-20T00:00:01.000Z'
     })
 
-    await expect(recovered.freezeForBilibiliExecution('100')).rejects.toThrow('requires explicit rebinding')
-    await expect(bindings.getBindings('100')).resolves.toMatchObject({ shards: [] })
+    await expect(recovered.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen',
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['saved-music-folder'] }] }
+    })
+    await expect(bindings.getBindings('100')).resolves.toMatchObject({
+      shards: [expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'saved-music-folder' })]
+    })
   })
 
   it('reclaims an unresolved prior target from the remote inventory before freezing a retry', async () => {

@@ -2101,6 +2101,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
         logicalLedgerId
       ),
+    resolveLedgerBinding: async (accountMid, logicalLedgerId) => {
+      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+        .find((candidate) => candidate.id === logicalLedgerId)
+      const remoteFolderId = ledger?.bilibiliFolderId?.trim()
+      if (ledger?.bindingState !== 'bound' || !remoteFolderId) return undefined
+      return {
+        remoteFolderId,
+        ...(ledger.bilibiliFolderTitle?.trim() ? { remoteDisplayTitle: ledger.bilibiliFolderTitle.trim() } : {})
+      }
+    },
     resolveRecoveryConfiguration: (accountMid) => {
       const preferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       const ledgers = classifierLedgersForAccount(
