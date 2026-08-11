@@ -17,7 +17,8 @@ describe('OldFavoriteRecommendationStep multi-batch views', () => {
       onSetRecommendedCandidates={vi.fn()}
     />)
 
-    expect(screen.getByText('已勾选的推荐收藏夹会参与本轮整理分类。暂未备册不影响本轮草稿；整理结束后可再备册并同步到 B 站。')).toBeInTheDocument()
+    expect(screen.getByText('勾选后的推荐收藏夹可参与本轮整理；未备册不影响本轮草稿，整理结束后可再备册并同步到 B 站。')).toBeInTheDocument()
+    expect(screen.queryByText('全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。')).not.toBeInTheDocument()
   })
 
   it('defaults to current-batch candidates and switches to completed whole-run counts without recomputing', () => {

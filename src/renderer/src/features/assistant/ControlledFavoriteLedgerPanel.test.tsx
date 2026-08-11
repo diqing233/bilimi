@@ -1027,7 +1027,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
-    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.getByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
 
     await act(async () => { resolveScan?.(scanningSnapshot) })
   })
@@ -1567,7 +1567,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '全部重新整理' }))
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
 
-    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.getByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
@@ -1612,7 +1612,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'start-scan', mode: 'incremental'
     }))
-    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'bilimi 工作夹' })).getByText('Bilimi Inbox')).toBeInTheDocument()
   })
 
@@ -1702,7 +1702,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     expect(open).toHaveBeenCalledTimes(2)
   })
 
@@ -1944,7 +1944,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
-    expect(screen.queryByText('扫描概览：扫描中')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).not.toBeInTheDocument()
     expect(onTransientFeedback).toHaveBeenCalledWith('current Bilibili account is unavailable')
 
     fireEvent.click(screen.getByRole('button', { name: '重新扫描' }))
@@ -2361,7 +2361,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     await act(async () => { rejectScan?.(new Error('unavailable')) })
 
     expect(screen.queryByText('扫描启动失败，请重新扫描。')).not.toBeInTheDocument()
@@ -2431,7 +2431,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认重置' }))
 
     expect(screen.getByRole('region', { name: '整理收藏向导' })).toBeInTheDocument()
-    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.getByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
@@ -2472,7 +2472,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     expect(await screen.findByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
-    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.getByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
   })
 

@@ -20,11 +20,12 @@ describe('OldFavoriteScanOverviewStep', () => {
         recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
-      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
-      onPauseScan={pause} onResumeScan={vi.fn()} onFinishScan={finish}
-    />)
+       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+       onPauseScan={pause} onResumeScan={vi.fn()} onFinishScan={finish}
+     />)
 
+    expect(screen.getByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '暂停扫描' }))
     fireEvent.click(screen.getByRole('button', { name: '结束整理' }))
     expect(pause).toHaveBeenCalledOnce()
@@ -329,6 +330,8 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
+    expect(screen.getByText('本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '扫描概览' }).querySelector('.favorite-ledger-panel__scan-source-divider')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 3 条已保护视频')
   })
 

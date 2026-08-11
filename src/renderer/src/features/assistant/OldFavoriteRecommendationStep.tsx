@@ -149,9 +149,7 @@ export function OldFavoriteRecommendationStep({
       {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="推荐收藏夹视图" value={viewScope} onChange={setViewScope} /> : null}
     </div>
     {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} /> : null}
-    <p className="favorite-ledger-panel__step-note">勾选想要的候选收藏夹；确认执行时再按所选方式保存或同步。</p>
-    <p className="favorite-ledger-panel__action-explanation">已勾选的推荐收藏夹会参与本轮整理分类。暂未备册不影响本轮草稿；整理结束后可再备册并同步到 B 站。</p>
-    <p className="favorite-ledger-panel__action-explanation">全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。</p>
+    <p className="favorite-ledger-panel__action-explanation">勾选后的推荐收藏夹可参与本轮整理；未备册不影响本轮草稿，整理结束后可再备册并同步到 B 站。</p>
     {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
     {recommendationSaving ? <p className="favorite-ledger-panel__recommendation-saving" role="status">正在更新归档预览…</p> : null}
     {previewPreparationRunning ? <div className="favorite-ledger-panel__preview-preparation" role="status">

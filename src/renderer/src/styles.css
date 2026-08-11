@@ -6064,6 +6064,13 @@ body[data-floating-window="true"],
   font-weight: 650;
   line-height: 1.55;
 }
+.favorite-ledger-panel__scan-source-divider {
+  width: 100%;
+  height: 0;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px dashed rgba(31, 99, 181, 0.32);
+}
 .favorite-ledger-panel__scan-metrics,
 .favorite-ledger-panel__tag-result-metrics {
   display: grid;
@@ -6615,6 +6622,7 @@ body[data-floating-window="true"],
   --old-favorite-preview-card-height: 160px;
   display: grid;
   gap: 8px;
+  margin-top: 0;
 }
 .favorite-ledger-panel__archive-preview > p {
   margin: 0;

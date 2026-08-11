@@ -188,8 +188,8 @@ export function OldFavoriteScanOverviewStep({
         : scanPaused
           ? '扫描已暂停，已保存的进度不会丢失。'
           : scanning
-            ? '扫描概览：扫描中'
-          : '扫描概览已完成，请从左向右依次完成本轮整理。'
+            ? '正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。'
+          : '本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。'
 
   const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview
 
@@ -286,6 +286,7 @@ export function OldFavoriteScanOverviewStep({
         ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后{resumableFailedScan ? '继续扫描' : '重新扫描'}</button>
         : null}
     </> : null}
+    <hr className="favorite-ledger-panel__scan-source-divider" aria-hidden="true" />
     <p className="favorite-ledger-panel__scan-discovery">已发现 {folders.length} 个 B站收藏夹。</p>
     {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
       ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
