@@ -487,7 +487,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(help.querySelector('.favorite-ledger-panel__chevron')).not.toBeNull()
     fireEvent.click(help)
     expect(within(guide).getByRole('button', { name: '收起整理收藏说明' })).toHaveAttribute('aria-expanded', 'true')
-    expect(document.getElementById('favorite-organization-help-tooltip')).toHaveTextContent('① 扫描概览：扫描所有收藏的视频基本信息和标签。标签是分类的重要依据')
+    expect(document.getElementById('favorite-organization-help-tooltip')).toHaveTextContent('① 扫描概览：扫描所有视频收藏的基本信息。扫描完成后会补取标签，标签是分类的重要依据')
     expect(document.getElementById('favorite-organization-help-tooltip')).toHaveTextContent('④ 确认执行：前面三步都是打草稿，最后一步来执行')
   })
 

@@ -38,7 +38,10 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-organization-help-tooltip')
     expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
-    expect(screen.getByRole('tooltip')).toHaveTextContent('默认全部参与分类整理，可以取消不想整理的非 bilimi 收藏夹。')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('扫描所有视频收藏的基本信息。扫描完成后会补取标签，标签是分类的重要依据，建议耐心等待，不要提前采用；默认扫描到的全部收藏夹参与分类整理，可以取消不想整理的非bilimi收藏夹。')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('勾选后的收藏夹会参与整理收藏分类；也可以自建收藏夹，保存并勾选即可参与分类。未备册不影响本轮草稿，整理结束后可再备册并同步到 B 站。')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('检查分类结果，由于本地分类能力有限，建议用DeepSeek辅助整理未匹配到合适分类和把握不太稳的视频，也可手动调整转移。在上方收藏夹区域编辑或者新增bilimi收藏夹，归档预览会重新计算。')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('可以选择先保留整理草稿，或者删除草稿结束本轮整理。')
     expect(screen.getByRole('tooltip').parentElement).toBe(document.body)
 
     fireEvent.click(toggle)
