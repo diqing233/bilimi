@@ -60,7 +60,6 @@ export function FavoriteLibraryDialogs({ managedFolder, onManagedFolderChoice, o
     onClose={requestClose}
     className="favorite-library__dialog favorite-library__dialog-overlay"
     actions={<>
-      <button type="button" disabled={executing} onClick={requestClose}>取消</button>
       <button type="button" className="favorite-library__danger-action" data-variant="danger" disabled={executing} onClick={() => void executeChoice('local')}>仅从收藏库删除</button>
       {managedFolder.canDeleteRemotely ? <button type="button" className="favorite-library__dialog-remote-action" data-variant="danger" disabled={executing} onClick={() => setRemoteConfirmationOpen(true)}>删除并同步到B站</button> : null}
     </>}

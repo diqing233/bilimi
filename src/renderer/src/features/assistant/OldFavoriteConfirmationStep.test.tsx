@@ -593,6 +593,24 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('无法确认当前 B 站页面')
   })
 
+  it('uses the shared modal close control for sync options', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    expect(screen.getByRole('dialog', { name: '同步选项' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
+    expect(screen.queryByRole('dialog', { name: '同步选项' })).not.toBeInTheDocument()
+  })
+
   it('shows the exact failed DeepSeek count, blocks execution, and requires explicit fallback confirmation', () => {
     const fallback = vi.fn()
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)

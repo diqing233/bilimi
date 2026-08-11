@@ -25,7 +25,7 @@ describe('BilimiModal', () => {
     expect(dialog).toHaveClass('bilimi-modal__dialog')
     expect(dialog.parentElement).toBe(document.body.lastElementChild)
     expect(dialog).toHaveAttribute('data-tone', 'danger')
-    expect(screen.getByRole('button', { name: '取消' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '关闭弹窗' })).toHaveFocus()
     expect(document.documentElement.style.overflow).toBe('hidden')
 
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
@@ -52,6 +52,32 @@ describe('BilimiModal', () => {
 
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: '正在处理' })).toHaveAttribute('aria-busy', 'true')
+  })
+
+  it('uses the header close button for the same cancellable close path', () => {
+    const onClose = vi.fn()
+    render(
+      <BilimiModal title="确认操作" onClose={onClose} actions={<button type="button">确认</button>}>
+        <p>内容</p>
+      </BilimiModal>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('disables the header close button while busy', () => {
+    const onClose = vi.fn()
+    render(
+      <BilimiModal title="正在处理" busy onClose={onClose} actions={<button type="button">确认</button>}>
+        <p>内容</p>
+      </BilimiModal>
+    )
+
+    const close = screen.getByRole('button', { name: '关闭弹窗' })
+    expect(close).toBeDisabled()
+    fireEvent.click(close)
+    expect(onClose).not.toHaveBeenCalled()
   })
 
 })

@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
 
 describe('OldFavoriteRecommendationStep multi-batch views', () => {
+  it('explains that adopted recommendations participate in the draft before later backup', () => {
+    render(<OldFavoriteRecommendationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2_000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 2, readiness: 'ready' }],
+        currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [{ id: 'author-1', displayName: 'bilimi\u00b7UP', kind: 'author', count: 2, reason: 'current' }], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false}
+      onSetRecommendedCandidates={vi.fn()}
+    />)
+
+    expect(screen.getByText('已勾选的推荐收藏夹会参与本轮整理分类。暂未备册不影响本轮草稿；整理结束后可再备册并同步到 B 站。')).toBeInTheDocument()
+  })
+
   it('defaults to current-batch candidates and switches to completed whole-run counts without recomputing', () => {
     render(<OldFavoriteRecommendationStep
       snapshot={{

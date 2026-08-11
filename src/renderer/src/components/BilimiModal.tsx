@@ -76,7 +76,7 @@ export function BilimiModal({
       type="button"
       className="bilimi-modal__scrim"
       data-testid="bilimi-modal-scrim"
-      aria-label="关闭弹窗"
+      aria-label="关闭弹窗遮罩"
       tabIndex={-1}
       onPointerDown={() => { if (!busy) onCloseRef.current?.() }}
     />
@@ -91,6 +91,13 @@ export function BilimiModal({
     >
       <header className="bilimi-modal__header">
         <h2 id={titleId}>{title}</h2>
+        {onClose ? <button
+          type="button"
+          className="bilimi-modal__close"
+          aria-label="关闭弹窗"
+          disabled={busy}
+          onClick={() => { if (!busy) onCloseRef.current?.() }}
+        >×</button> : null}
       </header>
       <div className="bilimi-modal__body">{children}</div>
       {actions ? <div className="bilimi-modal__actions" role={actionsLabel ? 'group' : undefined} aria-label={actionsLabel}>{actions}</div> : null}

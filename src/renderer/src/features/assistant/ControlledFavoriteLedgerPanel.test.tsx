@@ -560,7 +560,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
-    fireEvent.click(await screen.findByRole('button', { name: '取消' }))
+    fireEvent.click(await screen.findByRole('button', { name: '关闭弹窗' }))
 
     expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
@@ -583,7 +583,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
-    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭弹窗' }))
 
     expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument()
   })
@@ -1347,6 +1347,79 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByText('尚未开始扫描，请点击“整理收藏”后扫描。')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '按原草稿继续' })).toBeEnabled()
     expect(screen.getByRole('alert')).toHaveTextContent('恢复整理草稿失败，请重试。')
+  })
+
+  it('guides the user to merge latest changes when continuing the original draft cannot reload it', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn().mockResolvedValueOnce(preview).mockRejectedValueOnce(new Error('reload failed'))
+    const getRecoverySummary = vi.fn().mockResolvedValue({
+      accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', currentStep: 'previewing',
+      plannedCount: 25, classifiedCount: 2, unclassifiedCount: 23,
+      baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 2, changed: true, direction: 'advanced', manualClassificationsRemainAuthoritative: true, changedDimensions: ['aid-revisions'] },
+      recoveryChoices: ['view', 'continue-original', 'merge-latest']
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled())
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      getOldFavoriteWorkspaceRecoverySummaryV1: getRecoverySummary,
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', choice: 'continue-original',
+        manualClassificationsRemainAuthoritative: true, requiresFullWorkspaceLoad: true, requiresExplicitScan: false
+      })
+    } as unknown as typeof window.bilimiDesktop
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '按原草稿继续' }))
+
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('alert')).toHaveTextContent('按原草稿继续失败，草稿不会丢失。检测到收藏夹、备册状态或扫描资料可能已有变化，可尝试点击上方“合并最新变化”继续。已选推荐收藏夹和人工调整会保留。')
+  })
+
+  it('restores an enabled recommendation ledger as selected when reopening an organization draft', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [{ id: 'segment-1', index: 0, itemCount: 2, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1, 2], items: [] }, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'custom-author-up', displayName: 'bilimi·UP', kind: 'author' as const, count: 2, reason: 'saved' }],
+        adoptedCandidateIds: []
+      },
+      history: { cursor: 0, length: 0, entries: [] }
+    }
+    const command = vi.fn().mockResolvedValue({
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: ['custom-author-up'] }
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'custom-author-up', displayName: 'bilimi·UP', keywords: ['UP'], ruleType: 'author', enabled: true, priority: 10_000, isDefault: false }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(await screen.findByRole('checkbox', { name: 'UP' })).toBeChecked()
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['custom-author-up']
+    }))
   })
 
   it('does not show a recovery summary after the active account changes', async () => {
@@ -2255,7 +2328,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('正在同步目标收藏夹')
+    expect((await screen.findAllByRole('status')).find((element) => element.textContent?.includes('正在同步目标收藏夹'))).toHaveTextContent('正在同步目标收藏夹')
     await act(async () => { completeBackup?.({ ok: true }) })
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
   })

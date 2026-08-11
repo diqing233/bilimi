@@ -5,7 +5,6 @@ type OldFavoriteModalProps = {
   title: string
   children: ReactNode
   danger?: boolean
-  cancelLabel?: string
   confirmLabel?: string
   confirmDisabled?: boolean
   extraActions?: ReactNode
@@ -17,7 +16,6 @@ export function OldFavoriteModal({
   title,
   children,
   danger = false,
-  cancelLabel = '取消',
   confirmLabel = '确认',
   confirmDisabled = false,
   extraActions,
@@ -31,7 +29,6 @@ export function OldFavoriteModal({
     onClose={onCancel}
     actions={<>
       {extraActions}
-      <button type="button" onClick={onCancel}>{cancelLabel}</button>
       {onConfirm ? <button
         type="button"
         data-variant={danger ? 'danger' : 'primary'}

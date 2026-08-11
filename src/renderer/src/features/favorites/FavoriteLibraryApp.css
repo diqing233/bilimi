@@ -107,7 +107,7 @@
 .favorite-library__batch-actions { flex-wrap: wrap; overflow: visible; padding-top: 6px; border-top: 1px solid #dbe7f7; }
 .favorite-library__batch-actions > button, .favorite-library__batch-actions > .favorite-library__batch-split { flex: 0 0 auto; min-height: 30px; white-space: nowrap; }
 .favorite-library__batch-actions .video-summary-menu { flex: 0 0 auto; }
-.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }
+.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 30px; padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }
 .favorite-library__batch-split { display: inline-flex; flex: 0 0 auto; }
 .favorite-library__batch-destination-trigger { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px !important; }
 .favorite-library__batch-destination-trigger .favorite-library__chevron { width: 14px; height: 14px; }
@@ -234,8 +234,6 @@
 .favorite-library__detail-collapse-action, .favorite-library__detail-heading-primary-actions > .favorite-library__inline-action { border: 0; border-radius: 0; background: transparent; color: #2563eb; }
 .favorite-library__detail-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .favorite-library__detail-action-row .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; font-size: 12px; white-space: nowrap; }
-.favorite-library__batch-actions .video-summary-menu__trigger,
-.favorite-library__detail-action-row .video-summary-menu__trigger { font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.35; }
 .favorite-library__detail-heading-actions button { white-space: nowrap; }
 .favorite-library__detail-danger { padding: 12px !important; border: 0 !important; border-top: var(--favorite-divider) !important; border-radius: 0; background: transparent; }
 .favorite-library__detail-danger .favorite-library__danger-action:hover, .favorite-library__detail-danger .favorite-library__danger-action:focus-visible { background: #fff4f3; color: #9d2e2e; outline: none; }

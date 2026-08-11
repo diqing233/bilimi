@@ -204,6 +204,10 @@ body,
   box-shadow: 0 24px 64px rgba(69, 25, 27, 0.28);
 }
 .bilimi-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 14px 16px 10px;
   border-bottom: var(--bilimi-divider);
 }
@@ -216,6 +220,27 @@ body,
 .bilimi-modal__dialog[data-tone="danger"] .bilimi-modal__header h2 {
   color: var(--porcelain-error);
 }
+.bilimi-modal__close {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -3px -5px -3px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--porcelain-radius-control);
+  background: transparent;
+  color: var(--porcelain-deep);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bilimi-modal__dialog[data-tone="danger"] .bilimi-modal__close { color: var(--porcelain-error); }
+.bilimi-modal__close:hover:not(:disabled), .bilimi-modal__close:focus-visible:not(:disabled) { background: rgba(31, 99, 181, 0.1); outline: none; }
+.bilimi-modal__close:focus-visible:not(:disabled) { box-shadow: 0 0 0 2px rgba(45, 134, 199, 0.42); }
+.bilimi-modal__close:disabled { cursor: not-allowed; opacity: 0.5; }
 .bilimi-modal__body {
   display: grid;
   gap: 8px;
@@ -4632,6 +4657,13 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__notice {
   margin: 8px 0;
 }
+.favorite-ledger-panel__notice--draft {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  line-height: 1.55;
+}
 .favorite-ledger-panel__remote-draft-notice {
   display: flex;
   align-items: flex-start;
@@ -8038,28 +8070,12 @@ body[data-floating-window="true"],
   color: #2563a8;
 }
 .favorite-ledger-panel__sync-dialog {
-  position: fixed;
-  inset: 50% auto auto 50%;
-  z-index: 20;
   width: min(360px, calc(100vw - 32px));
-  transform: translate(-50%, -50%);
-  padding: 1rem;
-  border: 1px solid var(--border-subtle, #cfd6df);
-  border-radius: 8px;
-  background: var(--surface-elevated, #fff);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 18%);
-}
-.favorite-ledger-panel__sync-dialog h5 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
 }
 .favorite-ledger-panel__sync-dialog label {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-}
-.favorite-ledger-panel__sync-dialog .favorite-ledger-panel__confirm-actions {
-  margin-top: 1rem;
 }
 .old-favorite-modal__dialog {
   width: min(420px, calc(100vw - 32px));

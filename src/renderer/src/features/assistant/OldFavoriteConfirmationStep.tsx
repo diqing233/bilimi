@@ -1,6 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useState } from 'react'
+import { BilimiModal } from '../../components/BilimiModal'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
@@ -164,7 +165,6 @@ export function OldFavoriteConfirmationStep({
       <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '停止同步并结束本轮整理'}</button>
       {stopSyncDialogOpen ? <OldFavoriteModal
         title="停止同步并结束本轮整理"
-        cancelLabel="继续同步"
         confirmLabel="确认停止并结束本轮"
         confirmDisabled={stopRequested}
         onCancel={() => setStopSyncDialogOpen(false)}
@@ -281,17 +281,14 @@ export function OldFavoriteConfirmationStep({
         </div>
       </section> : null}
     </div>
-    {syncDialogOpen ? <div className="favorite-ledger-panel__sync-dialog" role="dialog" aria-modal="true" aria-label="同步选项">
-      <h5>同步选项</h5>
+    {syncDialogOpen ? <BilimiModal title="同步选项" className="favorite-ledger-panel__sync-dialog" onClose={() => setSyncDialogOpen(false)} actions={<>
+      <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
+    </>}>
       <label>
         <input type="checkbox" checked={includeInbox} onChange={(event) => setIncludeInbox(event.currentTarget.checked)} />
         同步 bilimi·暂存（{unmatchedCount} 条）
       </label>
-      <div className="favorite-ledger-panel__confirm-actions">
-        <button type="button" onClick={() => setSyncDialogOpen(false)}>取消</button>
-        <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
-      </div>
-    </div> : null}
+    </BilimiModal> : null}
     {endDialogOpen ? <OldFavoriteModal title="结束本轮整理？" onCancel={() => setEndDialogOpen(false)} extraActions={<>
       <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理，保留草稿</button>
       <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>清空并放弃</button>

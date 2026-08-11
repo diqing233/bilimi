@@ -64,6 +64,11 @@ function waitForVisiblePaint() {
   })
 }
 
+function enabledMapsMatch(left: ReadonlyMap<string, boolean>, right: ReadonlyMap<string, boolean>) {
+  if (left.size !== right.size) return false
+  return [...left].every(([id, enabled]) => right.get(id) === enabled)
+}
+
 function projectRecommendedLedgerDrafts(
   ledgers: FavoriteLedger[],
   snapshot: ReturnType<typeof useOldFavoriteWorkspace>['snapshot'],
@@ -143,19 +148,60 @@ export function ControlledFavoriteLedgerPanel({
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [ledgerEnabledById, setLedgerEnabledById] = useState<ReadonlyMap<string, boolean>>(() =>
     new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
+  const ledgerEnabledByIdRef = useRef(ledgerEnabledById)
   const accountKey = normalizeAccountMid(currentAccountMid)
   const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
+  const recommendationLedgerSyncWorkspaceIdRef = useRef<string | null>(null)
+  const updateLedgerEnabledById = useCallback((next: ReadonlyMap<string, boolean>) => {
+    const normalized = new Map(next)
+    if (enabledMapsMatch(ledgerEnabledByIdRef.current, normalized)) return
+    ledgerEnabledByIdRef.current = normalized
+    setLedgerEnabledById(normalized)
+  }, [])
   const effectiveLedgerEnabledById = enabledStateAccountKey === accountKey
     ? ledgerEnabledById
     : new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled]))
   useEffect(() => {
     if (enabledStateAccountKey === accountKey) return
-    setLedgerEnabledById(new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
+    updateLedgerEnabledById(new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
     setEnabledStateAccountKey(accountKey)
-  }, [accountKey, enabledStateAccountKey, ledgers])
+    recommendationLedgerSyncWorkspaceIdRef.current = null
+  }, [accountKey, enabledStateAccountKey, ledgers, updateLedgerEnabledById])
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>) => {
-    setLedgerEnabledById(new Map(next))
-  }, [])
+    const previousEnabledById = ledgerEnabledByIdRef.current
+    updateLedgerEnabledById(next)
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
+    const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+    const isInitialWorkspaceSync = recommendationLedgerSyncWorkspaceIdRef.current !== snapshot.workspaceId
+    const hasUpperEnabledChange = snapshot.recommendations.candidates.some((candidate) => {
+      const ledger = ledgerById.get(candidate.id)
+      if (!ledger) return false
+      const previousEnabled = previousEnabledById.get(candidate.id) ?? ledger.enabled
+      const nextEnabled = next.get(candidate.id) ?? ledger.enabled
+      return previousEnabled !== nextEnabled
+    })
+    if (!isInitialWorkspaceSync && !hasUpperEnabledChange) return
+    recommendationLedgerSyncWorkspaceIdRef.current = snapshot.workspaceId
+    // On the first restored render, the hook copies adopted ids into local state in a later effect.
+    // Read the snapshot directly so we only repair a real mismatch instead of overwriting an existing choice.
+    const selectedIds = new Set(isInitialWorkspaceSync
+      ? snapshot.recommendations.adoptedCandidateIds
+      : workspace.recommendedCandidateIds)
+    let changed = false
+    for (const candidate of snapshot.recommendations.candidates) {
+      const ledger = ledgerById.get(candidate.id)
+      if (!ledger) continue
+      const enabled = next.get(candidate.id) ?? ledger.enabled
+      if (enabled && !selectedIds.has(candidate.id)) {
+        selectedIds.add(candidate.id)
+        changed = true
+      } else if (!enabled && selectedIds.delete(candidate.id)) {
+        changed = true
+      }
+    }
+    if (changed) workspace.setRecommendedCandidates([...selectedIds])
+  }, [ledgers, updateLedgerEnabledById, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot])
   const handleDeleteLedger = useCallback((ledgerId: string) => {
     if (workspace.recommendedCandidateIds.includes(ledgerId)) {
       workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== ledgerId))
@@ -378,11 +424,14 @@ export function ControlledFavoriteLedgerPanel({
       activeAccountMid.current === requestedAccountMid
     setRecoveryDecisionPending(choice)
     setRecoveryDecisionError(null)
+    const recoveryFailureMessage = choice === 'continue-original' && recoverySummary.recoveryChoices.includes('merge-latest')
+      ? '按原草稿继续失败，草稿不会丢失。检测到收藏夹、备册状态或扫描资料可能已有变化，可尝试点击上方“合并最新变化”继续。已选推荐收藏夹和人工调整会保留。'
+      : '恢复整理草稿失败，请重试。'
     try {
       const result = await workspace.sendRecoveryDecision?.(recoverySummary, choice)
       if (!isCurrentRequest()) return
       if (!result) {
-        setRecoveryDecisionError('恢复整理草稿失败，请重试。')
+        setRecoveryDecisionError(recoveryFailureMessage)
         return
       }
       if (choice === 'rescan') {
@@ -394,7 +443,7 @@ export function ControlledFavoriteLedgerPanel({
       const restored = await workspace.refresh(true)
       if (!isCurrentRequest()) return
       if (!restored || 'recovery' in restored) {
-        setRecoveryDecisionError('恢复整理草稿失败，请重试。')
+        setRecoveryDecisionError(recoveryFailureMessage)
         return
       }
       setRecoverySummary(null)

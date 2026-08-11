@@ -486,6 +486,39 @@ function tagRecommendation(index: RecommendationIndex, sourceName: string, aids:
   }
 }
 
+export function mergeGeneratedRecommendations(
+  generatedCandidates: StoredRecommendation[],
+  adoptedCandidateIds: string[] = [],
+  priorCandidates: StoredRecommendation[] = []
+): RecommendationState {
+  const adoptedPriorCandidates = priorCandidates
+    .filter((candidate) => adoptedCandidateIds.includes(candidate.id))
+  const priorIdCounts = adoptedPriorCandidates.reduce((counts, candidate) =>
+    counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1), new Map<string, number>())
+  const uniqueAdoptedPriorByLogicalKey = new Map(adoptedPriorCandidates
+    .filter((candidate) => priorIdCounts.get(candidate.id) === 1)
+    .map((candidate) => [`${candidate.kind}:${candidate.sourceName}`, candidate] as const))
+  const candidates = generatedCandidates.map((candidate) => {
+    const prior = uniqueAdoptedPriorByLogicalKey.get(`${candidate.kind}:${candidate.sourceName}`)
+    return prior ? { ...candidate, id: prior.id } : candidate
+  })
+  const generatedLogicalKeys = new Set(candidates.map((candidate) => `${candidate.kind}:${candidate.sourceName}`))
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id))
+  for (const candidate of adoptedPriorCandidates) {
+    if (generatedLogicalKeys.has(`${candidate.kind}:${candidate.sourceName}`) || candidateIds.has(candidate.id)) continue
+    candidates.push(candidate)
+    candidateIds.add(candidate.id)
+  }
+  return {
+    candidates,
+    initialized: true,
+    adoptedCandidateIds: candidates
+      .filter((candidate) => adoptedCandidateIds.includes(candidate.id) ||
+        uniqueAdoptedPriorByLogicalKey.has(`${candidate.kind}:${candidate.sourceName}`))
+      .map((candidate) => candidate.id)
+  }
+}
+
 function recommendationsFromIndex(
   index: RecommendationIndex,
   adoptedCandidateIds: string[] = [],
@@ -519,29 +552,7 @@ function recommendationsFromIndex(
     .slice(0, 24)
     .map(([sourceName, aids]) => tagRecommendation(index, sourceName, aids))
   const generatedCandidates = allocateRecommendationNames([...authors, ...tags])
-  const adoptedPriorCandidates = priorCandidates
-    .filter((candidate) => adoptedCandidateIds.includes(candidate.id))
-  const priorIdCounts = adoptedPriorCandidates.reduce((counts, candidate) =>
-    counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1), new Map<string, number>())
-  const uniqueAdoptedPriorByLogicalKey = new Map(adoptedPriorCandidates
-    .filter((candidate) => priorIdCounts.get(candidate.id) === 1)
-    .map((candidate) => [`${candidate.kind}:${candidate.sourceName}`, candidate] as const))
-  const candidates = generatedCandidates.map((candidate) => {
-    const prior = uniqueAdoptedPriorByLogicalKey.get(`${candidate.kind}:${candidate.sourceName}`)
-    return prior ? { ...candidate, id: prior.id } : candidate
-  })
-  const adoptedLogicalKeys = new Set(adoptedPriorCandidates
-    .map((candidate) => `${candidate.kind}:${candidate.sourceName}`))
-  return {
-    candidates,
-    initialized: true,
-    adoptedCandidateIds: candidates
-      .filter((candidate) => (
-        adoptedCandidateIds.includes(candidate.id) ||
-        adoptedLogicalKeys.has(`${candidate.kind}:${candidate.sourceName}`)
-      ))
-      .map((candidate) => candidate.id)
-  }
+  return mergeGeneratedRecommendations(generatedCandidates, adoptedCandidateIds, priorCandidates)
 }
 
 function buildAuthorRecommendations(

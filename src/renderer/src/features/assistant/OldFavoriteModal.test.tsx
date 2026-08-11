@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteModal } from './OldFavoriteModal'
 
 describe('OldFavoriteModal', () => {
-  it('portals to the app viewport, focuses cancel, locks scroll, and restores focus and scroll', () => {
+  it('portals to the app viewport, focuses the header close control, locks scroll, and restores focus and scroll', () => {
     const onCancel = vi.fn()
     const opener = document.createElement('button')
     opener.textContent = 'open'
@@ -24,7 +24,8 @@ describe('OldFavoriteModal', () => {
     expect(dialog).toHaveClass('bilimi-modal__dialog', 'old-favorite-modal__dialog')
     expect(dialog.parentElement).toHaveClass('bilimi-modal__viewport')
     expect(dialog.closest('[data-testid="nested-host"]')).toBeNull()
-    expect(screen.getByRole('button', { name: '取消' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '关闭弹窗' })).toHaveFocus()
+    expect(screen.queryByRole('button', { name: '取消' })).not.toBeInTheDocument()
     expect(document.documentElement.style.overflow).toBe('hidden')
 
     fireEvent.keyDown(document, { key: 'Escape' })

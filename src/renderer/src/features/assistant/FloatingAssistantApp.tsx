@@ -2630,21 +2630,18 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
             </fieldset>
             </div>
             {settingsResetConfirmation === 'deepseek' ? <BilimiModal title="重置 DeepSeek？" tone="danger" onClose={() => actions.current.setSettingsResetConfirmation(null)} actions={<>
-              <button type="button" onClick={() => actions.current.setSettingsResetConfirmation(null)}>取消</button>
               <button type="button" data-variant="danger" onClick={() => { actions.current.setSettingsResetConfirmation(null); void actions.current.resetDeepSeekSettings() }}>确认重置</button>
             </>}>
               <p>重置会关闭 DeepSeek，并删除已保存的 API 密钥。</p>
               <p>视频札记、档案和收藏整理记录不会删除。</p>
             </BilimiModal> : null}
             {settingsResetConfirmation === 'all' ? <BilimiModal title="确认重置全部设置？" tone="danger" className="assistant-settings__reset-confirmation" onClose={() => actions.current.setSettingsResetConfirmation(null)} actions={<>
-              <button type="button" onClick={() => actions.current.setSettingsResetConfirmation(null)}>取消</button>
               <button type="button" data-variant="danger" onClick={() => { actions.current.setSettingsResetConfirmation(null); void actions.current.resetAssistantSettings() }}>确认重置</button>
             </>}>
               <p>将恢复默认设置，并清除已保存的 DeepSeek API 密钥。</p>
               <p>视频札记、档案、收藏夹册目和已整理记录不会删除。</p>
             </BilimiModal> : null}
             {unlimitedOldFavoriteBatchConfirmationOpen ? <BilimiModal title="启用无限制批次？" onClose={() => setUnlimitedOldFavoriteBatchConfirmationOpen(false)} actions={<>
-              <button type="button" onClick={() => setUnlimitedOldFavoriteBatchConfirmationOpen(false)}>取消</button>
               <button type="button" onClick={() => {
                 setUnlimitedOldFavoriteBatchConfirmationOpen(false)
                 setCustomOldFavoriteBatchSizeSelected(false)

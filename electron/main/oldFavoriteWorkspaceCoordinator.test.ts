@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
 import { FavoriteRepositorySyncService, type FavoriteRepositoryPageBridge } from './favoriteRepositorySyncService'
-import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
+import { mergeGeneratedRecommendations, OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { classifyOldFavoriteItemsCooperatively } from './oldFavoriteWorkspaceClassification'
 import {
@@ -102,6 +102,20 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('keeps an adopted recommendation when a later scan no longer regenerates it', () => {
+    const adopted = {
+      id: 'custom-author-alice', displayName: 'bilimi\u00b7Alice', kind: 'author' as const,
+      sourceName: 'Alice', keywords: ['Alice'], count: 2,
+      matchedAidsBySegment: { 'segment-1': [1, 2] }, reason: 'Alice appeared twice.'
+    }
+
+    expect(mergeGeneratedRecommendations([], [adopted.id], [adopted])).toEqual({
+      initialized: true,
+      candidates: [adopted],
+      adoptedCandidateIds: [adopted.id]
+    })
+  })
+
   it('clears matching ledger rules only after managed folder deletion succeeds', async () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)

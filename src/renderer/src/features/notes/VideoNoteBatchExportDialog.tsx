@@ -170,7 +170,6 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
   return <BilimiModal title="导出文稿" busy={exporting} onClose={onClose} className="video-note-export-dialog" actionsLabel="导出操作" actions={<>
       <button type="button" data-variant="primary" disabled={exporting || Boolean(result) || !formats.length || !summary?.exportableCount} onClick={begin}>开始导出</button>
       <button type="button" disabled={!exporting || cancelling} onClick={requestCancel}>取消</button>
-      <button type="button" disabled={exporting} onClick={onClose}>关闭</button>
     </>}>
     <p className="video-note-export-dialog__summary">{`已选 ${((summary?.selectedCount ?? selections.length) + initialSkippedCount)} 项，可导出 ${summary?.exportableCount ?? 0} 项，跳过 ${(summary?.skippedCount ?? 0) + initialSkippedCount} 项`}</p>
     <section className="video-note-export-dialog__section" aria-labelledby="video-note-export-scope-title">

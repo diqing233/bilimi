@@ -151,12 +151,13 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
     expect(items[2]).toBeEnabled()
   })
 
-  it('uses favorite-library context styles for both video-summary triggers', () => {
+  it('keeps the batch transcription trigger visually aligned with the neighboring batch actions', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
-    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }')
+    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger { min-height: 30px; padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }')
     expect(styles).toContain('.favorite-library__detail-action-row .video-summary-menu__trigger')
-    expect(styles).toContain('.favorite-library__batch-actions .video-summary-menu__trigger,\n.favorite-library__detail-action-row .video-summary-menu__trigger { font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.35; }')
+    expect(styles).toContain('.favorite-library__detail-action-row .video-summary-menu__trigger { min-height: 28px; padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; font-size: 12px; white-space: nowrap; }')
+    expect(styles).not.toContain('.favorite-library__batch-actions .video-summary-menu__trigger,\n.favorite-library__detail-action-row .video-summary-menu__trigger')
   })
 
   it('uses a rotating disclosure chevron for the video-name and status column menus', () => {
