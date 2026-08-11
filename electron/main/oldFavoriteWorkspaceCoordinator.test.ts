@@ -5092,6 +5092,56 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).folders.find((folder) => folder.id === 'local:local-alpha')).toBeUndefined()
   })
 
+  it('stores an analyzed but unselected local rule without adding it to archive preview', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: [], confidence: 'low' as const
+    })))
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      classifyCurrentItems,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Alpha series', author: 'UP Alpha', sourceFolderIds: ['source'] }]
+    })
+    const workspace = await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    classifyCurrentItems.mockClear()
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-unselected-alpha',
+      title: 'Alpha',
+      keywords: ['Alpha'],
+      ruleType: 'keyword',
+      adopt: false
+    })
+
+    expect(classifyCurrentItems).not.toHaveBeenCalled()
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'local-alpha', count: 1 })],
+        adoptedCandidateIds: []
+      },
+      classifications: {}
+    })
+    await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'local-alpha', count: 1 })],
+        adoptedCandidateIds: []
+      },
+      classifications: {}
+    })
+  })
+
   it('cancels draft rule analysis out of band without committing partial rules or classifications', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

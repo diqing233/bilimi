@@ -76,12 +76,12 @@ function projectRecommendedLedgerDrafts(
 ) {
   if (!snapshot || 'recovery' in snapshot || !snapshot.recommendations?.candidates) return ledgers
   const selectedIds = new Set(candidateIds)
-  const recommendationIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
-  const projectedLedgers = ledgers.filter((ledger) =>
-    !recommendationIds.has(ledger.id) || ledger.syncState !== 'local-draft' || selectedIds.has(ledger.id))
-  const existingIds = new Set(projectedLedgers.map((ledger) => ledger.id))
+  // Keep the persisted ledger array intact. Selection changes only the enabled
+  // state; filtering unselected drafts and appending selected candidates made
+  // the grid reorder and visibly jump after a checkbox click.
+  const existingIds = new Set(ledgers.map((ledger) => ledger.id))
   return [
-    ...projectedLedgers,
+    ...ledgers,
     ...snapshot.recommendations.candidates
       .filter((candidate) => selectedIds.has(candidate.id) && !existingIds.has(candidate.id))
       .map((candidate, index) => ({
@@ -629,7 +629,8 @@ export function ControlledFavoriteLedgerPanel({
             ledgerId: ledger.id,
             title: stripBilimiLedgerPrefix(ledger.displayName),
             keywords: rules.localKeywords,
-            ruleType
+            ruleType,
+            ...(ledger.enabled ? {} : { adopt: false })
           })
           return Boolean(result)
         }}

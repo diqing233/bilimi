@@ -515,6 +515,21 @@ describe('old favorite workspace coordinator IPC', () => {
       keywords: ['音乐', 'Music'],
       ruleType: 'keyword'
     }, expect.any(Function))
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-draft-ledger-rule',
+      analysisId: 'analysis-local-music',
+      title: 'Music',
+      keywords: ['Music'],
+      ruleType: 'keyword',
+      adopt: false
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.saveDraftLedgerRule).toHaveBeenCalledWith('100', {
+      analysisId: 'analysis-local-music',
+      title: 'Music',
+      keywords: ['Music'],
+      ruleType: 'keyword',
+      adopt: false
+    }, expect.any(Function))
     expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:rule-analysis-progress', {
       accountMid: '100',
       workspaceId: 'workspace-1',

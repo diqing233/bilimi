@@ -1962,6 +1962,7 @@ export class OldFavoriteWorkspaceCoordinator {
     title: string
     keywords: string[]
     ruleType: 'keyword' | 'author' | 'tag'
+    adopt?: boolean
   }, onProgress?: (progress: {
     workspaceId: string
     analysisId: string
@@ -2091,10 +2092,30 @@ export class OldFavoriteWorkspaceCoordinator {
       const candidates = existingCandidate
         ? state.candidates.map((item) => item.id === id ? candidate : item)
         : [...state.candidates, candidate]
+      const shouldAdopt = input.adopt !== false
       const next: RecommendationState = {
         initialized: true,
         candidates,
-        adoptedCandidateIds: [...new Set([...state.adoptedCandidateIds, id])].sort()
+        adoptedCandidateIds: shouldAdopt
+          ? [...new Set([...state.adoptedCandidateIds, id])].sort()
+          : state.adoptedCandidateIds.filter((candidateId) => candidateId !== id)
+      }
+      if (!shouldAdopt && !state.adoptedCandidateIds.includes(id)) {
+        this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: this.currentSegment(workspace),
+          classifications: [],
+          history: [],
+          recommendations: next,
+          ruleAnalysisCheckpoint: null
+        })
+        const visibleUpdated: OldFavoriteWorkspace = {
+          ...workspace,
+          recommendations: clone(next)
+        }
+        this.recommendations.set(workspace.accountMid, clone(next))
+        this.workspaces.set(workspace.accountMid, visibleUpdated)
+        return clone(visibleUpdated)
       }
       const affectedAids = new Set([
         ...Object.values(existingCandidate?.matchedAidsBySegment ?? {}).flat(),

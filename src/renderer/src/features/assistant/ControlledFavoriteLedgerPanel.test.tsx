@@ -3025,7 +3025,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
   })
 
-  it('removes a deselected recommendation draft from the visible folder list without waiting for preferences', async () => {
+  it('keeps a deselected recommendation draft in the visible folder list without changing its position', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -3053,7 +3053,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const checkbox = await screen.findByRole('checkbox', { name: 'A', checked: true })
     fireEvent.click(checkbox)
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'A' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'A' })).toBeInTheDocument())
   })
 
   it('shows archive preview without starting background preparation', async () => {

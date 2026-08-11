@@ -63,6 +63,7 @@ type WorkspaceCommand =
       title: string
       keywords: string[]
       ruleType: 'keyword' | 'author' | 'tag'
+      adopt?: boolean
     }
   | { type: 'cancel-draft-ledger-rule-analysis'; analysisId: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
@@ -221,14 +222,16 @@ function command(value: unknown): WorkspaceCommand {
     Array.isArray(candidate.keywords) && candidate.keywords.length > 0 && candidate.keywords.length <= 64 &&
     candidate.keywords.every((keyword) => typeof keyword === 'string' && keyword.trim().length > 0 && keyword.trim().length <= 128) &&
     (candidate.ruleType === 'keyword' || candidate.ruleType === 'author' || candidate.ruleType === 'tag') &&
-    Object.keys(candidate).every((key) => ['type', 'analysisId', 'ledgerId', 'title', 'keywords', 'ruleType'].includes(key))) {
+    (typeof candidate.adopt === 'undefined' || typeof candidate.adopt === 'boolean') &&
+    Object.keys(candidate).every((key) => ['type', 'analysisId', 'ledgerId', 'title', 'keywords', 'ruleType', 'adopt'].includes(key))) {
     return {
       type: 'save-draft-ledger-rule',
       analysisId: candidate.analysisId,
       ...(candidate.ledgerId ? { ledgerId: candidate.ledgerId.trim() } : {}),
       title: candidate.title.trim(),
       keywords: [...new Set(candidate.keywords.map((keyword) => keyword.trim()))],
-      ruleType: candidate.ruleType
+      ruleType: candidate.ruleType,
+      ...(typeof candidate.adopt === 'boolean' ? { adopt: candidate.adopt } : {})
     }
   }
   if (candidate.type === 'cancel-draft-ledger-rule-analysis' && typeof candidate.analysisId === 'string' &&
@@ -463,7 +466,8 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
         ...(requested.ledgerId ? { ledgerId: requested.ledgerId } : {}),
         title: requested.title,
         keywords: requested.keywords,
-        ruleType: requested.ruleType
+        ruleType: requested.ruleType,
+        ...(typeof requested.adopt === 'boolean' ? { adopt: requested.adopt } : {})
       }, (progress) => {
         event.sender.send('old-favorite-workspace-v1:rule-analysis-progress', {
           accountMid,

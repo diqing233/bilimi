@@ -63,6 +63,7 @@ type DraftLedgerRuleInput = {
   title: string
   keywords: string[]
   ruleType: 'keyword' | 'author' | 'tag'
+  adopt?: boolean
 }
 
 type ActiveDraftLedgerRuleAnalysis = DraftLedgerRuleAnalysis & {
@@ -817,7 +818,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         ledgerId,
         title,
         keywords,
-        ruleType: input.ruleType
+        ruleType: input.ruleType,
+        ...(input.adopt === false ? { adopt: false } : {})
       })
       if (activeDraftRuleAnalysisRef.current !== active || !next || 'recovery' in next ||
         next.workspaceId !== workspaceId || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
