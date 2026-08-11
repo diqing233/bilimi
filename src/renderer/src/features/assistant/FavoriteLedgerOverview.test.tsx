@@ -683,6 +683,21 @@ describe('FavoriteLedgerOverview', () => {
     expect(saveEnabled).toHaveBeenLastCalledWith('custom-genshin', true)
   })
 
+  it('does not repeat the unsaved state in an editor heading', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'remote-draft', displayName: 'bilimi路草稿', keywords: [], enabled: false, priority: 10,
+        syncState: 'local-draft', bilibiliFolderId: '42', isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '草稿' }))
+
+    const editorTitle = screen.getByRole('region', { name: '当前收藏夹' }).querySelector('.favorite-ledger-panel__editor-title')
+    expect(editorTitle).toHaveTextContent('正在编辑：bilimi路草稿')
+    expect(editorTitle).not.toHaveTextContent('（未保存）')
+  })
+
   it('restores the last saved rule when an explicit local save fails', async () => {
     let rejectSave!: (reason?: unknown) => void
     const save = vi.fn(() => new Promise((_resolve, reject) => { rejectSave = reject }))

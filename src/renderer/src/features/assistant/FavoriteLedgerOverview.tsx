@@ -349,7 +349,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     : bindingLabelForLedger(ledger) || (ledgerHasUnsavedChanges(ledger) ? '未保存' : '')
   const editorStatusLabelForLedger = (ledger: FavoriteLedger) =>
     bindingLabelForLedger(ledger) || (ledgerHasUnsavedChanges(ledger) ? '未保存' : '')
-  const activeHasUnsavedChanges = Boolean(active && ledgerHasUnsavedChanges(active))
   const activeVideoCount = active ? videoCountForLedger(active) : undefined
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
   const title = active ? displayTitle(active.displayName) : ''
@@ -750,7 +749,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{activeHasUnsavedChanges ? '（未保存）' : ''}{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid || draftMutationLocked} onClick={() => void save()}>保存</button><button type="button" disabled={draftMutationLocked} onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={draftMutationLocked} onClick={() => { void requestManagedDeletion([active.id]); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
+      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid || draftMutationLocked} onClick={() => void save()}>保存</button><button type="button" disabled={draftMutationLocked} onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={draftMutationLocked} onClick={() => { void requestManagedDeletion([active.id]); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, active.bilibiliFolderId!)}>不再提醒</button> : null}
