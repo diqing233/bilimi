@@ -23,7 +23,7 @@ describe('createFloatingSealMouseRecoveryController', () => {
     controller.setTransparent(true)
     poll?.()
 
-    expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(1, true)
+    expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(1, true, { forward: true })
     expect(window.setIgnoreMouseEvents).toHaveBeenNthCalledWith(2, false)
   })
 
@@ -49,7 +49,7 @@ describe('createFloatingSealMouseRecoveryController', () => {
     poll?.()
 
     expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(1)
-    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true)
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true })
   })
 
   it('stops native polling when the window becomes interactive or is disposed', () => {

@@ -7,7 +7,7 @@ export function setFloatingSealMouseTransparency(
   transparent: boolean
 ) {
   if (transparent) {
-    window.setIgnoreMouseEvents(true)
+    window.setIgnoreMouseEvents(true, { forward: true })
     return
   }
 
