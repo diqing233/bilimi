@@ -465,11 +465,24 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
   failed?: boolean
 }
 
+export type OldFavoriteWorkspaceExecutionFailureCode =
+  | 'deepseek-unresolved'
+  | 'remote-inventory-unavailable'
+  | 'saved-binding-absent'
+  | 'saved-binding-title-mismatch'
+  | 'binding-requires-rebind'
+  | 'remote-account-mismatch'
+  | 'remote-folder-limit'
+  | 'remote-shard-capacity'
+  | 'bilibili-sync-prepare-failed'
+
 export type OldFavoriteWorkspaceExecutionIntent = {
   workspaceId: string
   mode: 'local' | 'bilibili'
   includeInbox?: boolean
   status: 'waiting' | 'running' | 'blocked'
+  /** A durable, user-safe explanation for an automatic whole-run failure. */
+  failureCode?: OldFavoriteWorkspaceExecutionFailureCode
 }
 
 export type OldFavoriteWorkspaceDeepSeekResult = {

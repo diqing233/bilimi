@@ -15,6 +15,7 @@ import {
   type OldFavoriteWorkspaceClassificationSource,
   type OldFavoriteWorkspaceDeepSeekProcessedItem,
   type OldFavoriteWorkspaceDeepSeekProcessedItem,
+  type OldFavoriteWorkspaceExecutionFailureCode,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
   type OldFavoriteWorkspaceHistoryEntry,
@@ -139,6 +140,18 @@ type OverviewRuntime = {
   selectedItemCountsBySegment: Map<string, number>
   classificationsBySegment: Map<string, Map<number, OldFavoriteWorkspace['classifications'][string]>>
   unavailableItemCount: number
+}
+
+function executionIntentFailureCode(error: unknown): OldFavoriteWorkspaceExecutionFailureCode {
+  const detail = error instanceof Error ? error.message : String(error ?? '')
+  if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) return 'remote-inventory-unavailable'
+  if (/remote shard is absent from inventory/i.test(detail)) return 'saved-binding-absent'
+  if (/remote shard title is invalid/i.test(detail)) return 'saved-binding-title-mismatch'
+  if (/requires explicit rebinding|remote shard title is ambiguous/i.test(detail)) return 'binding-requires-rebind'
+  if (/remote account mismatch/i.test(detail)) return 'remote-account-mismatch'
+  if (/folder limit/i.test(detail)) return 'remote-folder-limit'
+  if (/shard capacity is exceeded|physical-shard-capacity-exceeded/i.test(detail)) return 'remote-shard-capacity'
+  return 'bilibili-sync-prepare-failed'
 }
 
 function isUnavailableScanItem(item: Pick<CurrentSegmentItem, 'title' | 'author' | 'unavailable'>) {
@@ -1251,7 +1264,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const waitingForSegments = snapshot.segments.some((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting')
       const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
       if (checkpoint?.workspaceId === workspace.id && (checkpoint.canceled || checkpoint.failed)) {
-        const blocked = { ...intent, status: 'blocked' as const }
+        const blocked = { ...intent, status: 'blocked' as const, failureCode: 'deepseek-unresolved' as const }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: blocked
         })
@@ -1282,7 +1295,11 @@ export class OldFavoriteWorkspaceCoordinator {
         const workspace = await this.requireWorkspace(accountMid)
         const intent = this.executionIntents.get(workspace.accountMid)
         if (workspace.status !== 'previewing' || intent?.workspaceId !== workspace.id || intent.status !== 'running') return
-        const blocked = { ...intent, status: 'blocked' as const }
+        const blocked = {
+          ...intent,
+          status: 'blocked' as const,
+          failureCode: executionIntentFailureCode(error)
+        }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: blocked
         })
@@ -5826,6 +5843,7 @@ export class OldFavoriteWorkspaceCoordinator {
           mode: executionIntent.mode,
           ...(executionIntent.includeInbox ? { includeInbox: true } : {}),
           status: executionIntent.status,
+          ...(executionIntent.failureCode ? { failureCode: executionIntent.failureCode } : {}),
           waitingSegmentCount: projectedSegments.filter((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting').length,
           waitingForDeepSeek: Boolean(deepSeekRunCheckpoint && !deepSeekRunCheckpoint.canceled && !deepSeekRunCheckpoint.failed)
         }

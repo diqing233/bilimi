@@ -129,6 +129,26 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.queryByRole('button', { name: '取消等待执行' })).not.toBeInTheDocument()
   })
 
+  it('explains a blocked Bilibili binding instead of blaming DeepSeek', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 },
+        executionIntent: {
+          mode: 'bilibili', status: 'blocked', waitingSegmentCount: 0, waitingForDeepSeek: false,
+          failureCode: 'saved-binding-absent'
+        } as never
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('已保存的 B 站收藏夹不存在或已被删除')
+    expect(screen.getByRole('status')).not.toHaveTextContent('DeepSeek 整理被取消')
+  })
+
   it('uses the current batch unmatched count and blue informational copy', () => {
     const save = vi.fn()
     const sync = vi.fn()

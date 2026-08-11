@@ -1,5 +1,5 @@
 import type { FavoriteLedger } from '@shared/types'
-import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceExecutionFailureCode, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useState } from 'react'
 import { BilimiModal } from '../../components/BilimiModal'
 import { OldFavoriteModal } from './OldFavoriteModal'
@@ -44,6 +44,36 @@ function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
 function retryWaitLabel(remainingMs: number) {
   const seconds = Math.max(1, Math.ceil(remainingMs / 1_000))
   return seconds < 60 ? `${seconds} 秒` : `${Math.ceil(seconds / 60)} 分钟`
+}
+
+function blockedExecutionIntentMessage(
+  code: OldFavoriteWorkspaceExecutionFailureCode | undefined,
+  waitingForDeepSeek: boolean
+) {
+  switch (code) {
+    case 'deepseek-unresolved':
+      return '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+    case 'remote-inventory-unavailable':
+      return '自动执行已停止：暂时无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
+    case 'saved-binding-absent':
+      return '自动执行已停止：已保存的 B 站收藏夹不存在或已被删除，请在收藏夹详情中重新备册后重试。'
+    case 'saved-binding-title-mismatch':
+      return '自动执行已停止：已保存的 B 站收藏夹名称已变化，请在收藏夹详情中确认后重新备册。'
+    case 'binding-requires-rebind':
+      return '自动执行已停止：发现同名 B 站收藏夹但尚未建立安全绑定，请在收藏夹详情中选择后重新备册。'
+    case 'remote-account-mismatch':
+      return '自动执行已停止：当前 B 站登录账号与整理草稿不一致，请切换回原账号后重试。'
+    case 'remote-folder-limit':
+      return '自动执行已停止：B 站收藏夹数量已达上限，请整理现有收藏夹后重试。'
+    case 'remote-shard-capacity':
+      return '自动执行已停止：目标收藏夹容量不足，请调整归类后重试。'
+    case 'bilibili-sync-prepare-failed':
+      return '自动执行已停止：无法生成本轮 B 站同步计划，请检查目标收藏夹后重试。'
+    default:
+      return waitingForDeepSeek
+        ? '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+        : '自动执行已停止：无法生成本轮 B 站同步计划，请检查目标收藏夹后重试。'
+  }
 }
 
 const FAVORITE_LIBRARY_HELP = '收藏库用于保存和管理本地整理结果，可继续查看、调整和重新归类；只有点击“同步到 B 站”后才会上传。'
@@ -206,7 +236,7 @@ export function OldFavoriteConfirmationStep({
       <h4>确认执行</h4>
       <div className="favorite-ledger-panel__old-favorite-progress" role="status">
         <p>{waiting.status === 'blocked'
-          ? '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+          ? blockedExecutionIntentMessage(waiting.failureCode, waiting.waitingForDeepSeek)
           : waiting.status === 'running'
             ? '全部条件已满足，正在执行本轮保存计划。'
           : waiting.waitingSegmentCount

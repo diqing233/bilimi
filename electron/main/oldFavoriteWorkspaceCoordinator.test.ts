@@ -1537,6 +1537,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(requireSnapshot(await restarted.getSnapshot('100')).executionIntent).toBeUndefined()
   })
 
+  it('persists the Bilibili binding failure reason instead of marking it as a DeepSeek failure', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.setExecutionIntent('100', 'bilibili')
+    vi.spyOn(coordinator, 'beginBilibiliExecution').mockRejectedValue(
+      new Error('Favorite repository remote shard is absent from inventory.')
+    )
+
+    await expect(coordinator.continueExecutionIntent('100')).rejects.toThrow('remote shard is absent')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      executionIntent: {
+        mode: 'bilibili', status: 'blocked', failureCode: 'saved-binding-absent'
+      }
+    })
+  })
+
   it('publishes a compact whole-run overview before the first batch is ready and restores it after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
