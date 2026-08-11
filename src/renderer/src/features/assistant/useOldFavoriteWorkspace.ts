@@ -118,6 +118,9 @@ function executionFailureMessage(error: unknown) {
   if (/remote shard title is ambiguous/i.test(detail)) {
     return 'B 站中存在多个同名目标收藏夹，请整理重名收藏夹后重试。'
   }
+  if (/remote shard title requires explicit rebinding/i.test(detail)) {
+    return 'B 站已发现同名 bilimi 收藏夹，但尚未建立绑定。请先在收藏夹中完成备册并选择要绑定的收藏夹后重试。'
+  }
   if (/remote-target-unbound/i.test(detail)) {
     return '本轮目标收藏夹尚未同步到 B 站，请确认同步后重试。'
   }

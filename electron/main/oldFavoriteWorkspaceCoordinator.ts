@@ -3693,6 +3693,13 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string, options: { includeInbox?: boolean } = {}): Promise<FavoriteRepositoryWorkspace> {
     await this.assertDeepSeekExecutionReadyForAccount(accountMid)
+    // A recovered draft may retain adopted recommendations after a previous
+    // preference write failed. Repair that local configuration before either
+    // committing the local result or asking Bilibili to bind a target.
+    await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      await this.persistRecommendedLedgersUnsafe(workspace, await this.ensureRecommendations(workspace))
+    })
     // Establish the local archive boundary before provisioning or inspecting
     // any remote target.  The commit is idempotent, so callers that already
     // performed the local-first save simply take the fast path.
@@ -3819,7 +3826,6 @@ export class OldFavoriteWorkspaceCoordinator {
           new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
         const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
         if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
-        await this.persistRecommendedLedgersUnsafe(workspace, await this.ensureRecommendations(workspace))
         return clone(persisted.workspace)
       })
       if (frozen) return frozen

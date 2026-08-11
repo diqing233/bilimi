@@ -4853,6 +4853,39 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     )
   })
 
+  it('repairs an adopted recommendation before attempting its Bilibili binding', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(false)
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      saveRecommendedLedgers: saved,
+      bindingService: { ensurePhysicalShard },
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', tags: [], category: '', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', tags: [], category: '', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+
+    expect(saved).toHaveBeenCalledTimes(2)
+    expect(saved.mock.invocationCallOrder[1]).toBeLessThan(ensurePhysicalShard.mock.invocationCallOrder[0])
+  })
+
   it('repairs recommendation preferences when immediate local persistence fails and the process reopens', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

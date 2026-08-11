@@ -1124,6 +1124,16 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.executionError).toBe('B 站中存在多个同名目标收藏夹，请整理重名收藏夹后重试。')
   })
 
+  it('asks for explicit rebinding when a draft target already exists on Bilibili', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote shard title requires explicit rebinding.'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
+
+    expect(result.current.executionError).toBe('B 站已发现同名 bilimi 收藏夹，但尚未建立绑定。请先在收藏夹中完成备册并选择要绑定的收藏夹后重试。')
+  })
+
   it('starts only the already frozen Bilibili plan through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
