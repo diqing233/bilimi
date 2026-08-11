@@ -50,6 +50,22 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(9)
   })
 
+  it('keeps existing folder positions when an external update appends a recommendation', async () => {
+    const baseLedgers = ['A', 'B', 'C'].map((name, index) => ({
+      id: name.toLowerCase(), displayName: `bilimi路${name}`, keywords: [], enabled: true,
+      priority: (index + 1) * 10, isDefault: false
+    }))
+    const view = render(<FavoriteLedgerOverview ledgers={baseLedgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    view.rerender(<FavoriteLedgerOverview ledgers={[
+      baseLedgers[0]!, baseLedgers[2]!, baseLedgers[1]!,
+      { id: 'recommended', displayName: 'bilimi路Recommended', keywords: [], enabled: true, priority: 10_000, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getAllByTestId(/favorite-ledger-chip-/).map((node) => node.dataset.testid))
+      .toEqual(['favorite-ledger-chip-a', 'favorite-ledger-chip-b', 'favorite-ledger-chip-c', 'favorite-ledger-chip-recommended']))
+  })
+
   it('keeps same-named folders saveable, labels each copy, and shows the video count only while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       {

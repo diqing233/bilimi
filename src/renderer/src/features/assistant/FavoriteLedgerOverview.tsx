@@ -126,6 +126,22 @@ function videoCountForLedger(ledger: FavoriteLedger) {
     : undefined
 }
 
+/** External refreshes may rebuild their array; existing cards must not jump. */
+export function preserveFavoriteLedgerOrder(
+  currentLedgers: readonly FavoriteLedger[],
+  incomingLedgers: readonly FavoriteLedger[]
+): FavoriteLedger[] {
+  const incomingById = new Map(incomingLedgers.map((ledger) => [ledger.id, ledger]))
+  const currentIds = new Set(currentLedgers.map((ledger) => ledger.id))
+  return [
+    ...currentLedgers.flatMap((ledger) => {
+      const incoming = incomingById.get(ledger.id)
+      return incoming ? [incoming] : []
+    }),
+    ...incomingLedgers.filter((ledger) => !currentIds.has(ledger.id))
+  ]
+}
+
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
 export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
@@ -160,6 +176,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgerHintTriggerRef = useRef<HTMLButtonElement>(null)
   const ledgerHintTooltipRef = useRef<HTMLDivElement>(null)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
+  const draftLedgersRef = useRef(draftLedgers)
   const [enableStore] = useState(() => new FavoriteLedgerEnableStore(enableEntries(ledgers)))
   const [deletionStore] = useState(() => new FavoriteLedgerEnableStore(enableEntries(ledgers, true)))
   const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
@@ -199,15 +216,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const createLedgerRequest = createLedger ? `new:${createLedgerRequestVersion}` : null
   onSaveLedgersRef.current = onSaveLedgers
   onSaveLedgerEnabledRef.current = onSaveLedgerEnabled
+  useLayoutEffect(() => {
+    draftLedgersRef.current = draftLedgers
+  }, [draftLedgers])
   useEffect(() => {
     if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)
     toggleSaveTimerRef.current = null
     pendingToggleSaveRef.current.clear()
     pendingBulkSaveRef.current = null
-    enableStore.reset(enableEntries(ledgers, false))
-    deletionStore.reset(enableEntries(ledgers, true))
-    setDraftLedgers(ledgers)
-    setSavedLedgerSnapshots(Object.fromEntries(ledgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+    const nextLedgers = preserveFavoriteLedgerOrder(draftLedgersRef.current, ledgers)
+    enableStore.reset(enableEntries(nextLedgers, false))
+    deletionStore.reset(enableEntries(nextLedgers, true))
+    setDraftLedgers(nextLedgers)
+    setSavedLedgerSnapshots(Object.fromEntries(nextLedgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     setActiveLedgerId(null)
     setNewLedger(false)
     setDeletionModeActive(false)
