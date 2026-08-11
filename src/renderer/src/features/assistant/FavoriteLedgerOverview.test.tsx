@@ -150,6 +150,8 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(onDeleteLedger).not.toHaveBeenCalled()
+    const deletionScope = screen.getByRole('group', { name: '删除范围' })
+    expect(deletionScope.querySelectorAll('.favorite-ledger-panel__deletion-scope-option')).toHaveLength(2)
     fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))

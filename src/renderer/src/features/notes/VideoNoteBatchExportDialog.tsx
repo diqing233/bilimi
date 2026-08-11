@@ -199,7 +199,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
       {exporting ? <p>{cancelling ? '正在取消…' : `正在处理 ${completedCount} 项`}</p> : null}
     </> : <>
       <p>{`${result.canceled ? '已取消；' : ''}成功 ${result.succeededCount}，跳过 ${result.skippedCount}，失败 ${result.failedCount}`}</p>
-      {result.items?.map((item) => <p key={`${item.archiveId}:${item.versionId}`}>{`${item.status === 'succeeded' ? '成功' : item.status === 'skipped' ? '跳过' : item.status === 'canceled' ? '已取消' : '失败'}：${item.title ?? item.archiveId}${item.error ? ` - ${item.error}` : ''}`}</p>)}
+      {result.items?.length ? <div className="video-note-export-dialog__result-list">{result.items.map((item) => <p key={`${item.archiveId}:${item.versionId}`}>{`${item.status === 'succeeded' ? '成功' : item.status === 'skipped' ? '跳过' : item.status === 'canceled' ? '已取消' : '失败'}：${item.title ?? item.archiveId}${item.error ? ` - ${item.error}` : ''}`}</p>)}</div> : null}
       {result.batchId && result.folderPath ? <button type="button" className="video-note-export-dialog__open-folder" onClick={() => void openFolder({ batchId: result.batchId!, accountMid })}>打开文件夹</button> : null}
     </>}
   </BilimiModal>

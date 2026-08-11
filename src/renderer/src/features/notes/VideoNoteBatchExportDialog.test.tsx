@@ -55,11 +55,12 @@ describe('VideoNoteBatchExportDialog', () => {
     await act(async () => { finish?.({ batchId: 'batch-1', folderPath: 'C:\\exports', succeededCount: 1, skippedCount: 0, failedCount: 0, items: [{ archiveId: 'a', versionId: 'v', title: 'Export', status: 'succeeded', files: ['C:\\exports\\Export.md'] }] } as never) })
     await screen.findByText('成功 1，跳过 0，失败 0')
     expect(screen.getByText('成功：Export')).toBeInTheDocument()
+    expect(document.querySelector('.video-note-export-dialog__result-list')).toBeInTheDocument()
     const openFolderButton = screen.getByRole('button', { name: '打开文件夹' })
     expect(openFolderButton).toHaveClass('video-note-export-dialog__open-folder')
     fireEvent.click(openFolderButton)
     expect(openFolder).toHaveBeenCalledWith({ batchId: 'batch-1', accountMid: '100' })
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
     expect(onClose).toHaveBeenCalledTimes(1)
     await act(async () => { view.rerender(<VideoNoteBatchExportDialog open={false} accountMid="100" selections={[{ archiveId: 'a', versionId: 'v' }]} preview={preview} start={start} cancel={vi.fn()} openFolder={vi.fn()} onProgress={(callback) => { reportProgress = callback; return () => undefined }} />) })
     await act(async () => { view.rerender(<VideoNoteBatchExportDialog open accountMid="100" selections={[{ archiveId: 'a', versionId: 'v' }]} preview={preview} start={start} cancel={vi.fn()} openFolder={vi.fn()} onProgress={(callback) => { reportProgress = callback; return () => undefined }} />) })
@@ -127,7 +128,6 @@ describe('VideoNoteBatchExportDialog', () => {
     const actions = screen.getByRole('group', { name: '导出操作' })
     expect(actions).toContainElement(screen.getByRole('button', { name: '开始导出' }))
     expect(actions).toContainElement(screen.getByRole('button', { name: '取消' }))
-    expect(actions).toContainElement(screen.getByRole('button', { name: '关闭' }))
   })
 
   it('keeps one output format selected and clears preview errors when another format is chosen', async () => {

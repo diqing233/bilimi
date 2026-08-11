@@ -3632,6 +3632,31 @@ body[data-floating-window="true"],
 .video-note-export-dialog__disabled-option {
   color: var(--porcelain-muted);
 }
+.video-note-export-dialog__result-list {
+  display: grid;
+  max-height: min(42vh, 360px);
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #7ea8d8 rgb(226 238 255 / .58);
+}
+.video-note-export-dialog__result-list::-webkit-scrollbar {
+  width: 8px;
+}
+.video-note-export-dialog__result-list::-webkit-scrollbar-track {
+  background: rgb(226 238 255 / .58);
+}
+.video-note-export-dialog__result-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #7ea8d8;
+  background-clip: padding-box;
+}
+.video-note-export-dialog__result-list::-webkit-scrollbar-thumb:hover {
+  background-color: #5d8fc8;
+}
 .video-note-export-dialog__open-folder {
   justify-self: start;
   min-height: 32px;
@@ -4663,6 +4688,48 @@ body[data-floating-window="true"],
   background: transparent;
   color: #2563eb;
   line-height: 1.55;
+}
+.favorite-ledger-panel__deletion-list {
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #7ea8d8 rgb(226 238 255 / .58);
+}
+.favorite-ledger-panel__deletion-list::-webkit-scrollbar {
+  width: 8px;
+}
+.favorite-ledger-panel__deletion-list::-webkit-scrollbar-track {
+  background: rgb(226 238 255 / .58);
+}
+.favorite-ledger-panel__deletion-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #7ea8d8;
+  background-clip: padding-box;
+}
+.favorite-ledger-panel__deletion-list::-webkit-scrollbar-thumb:hover {
+  background-color: #5d8fc8;
+}
+.favorite-ledger-panel__deletion-scope {
+  display: grid;
+  gap: 10px;
+}
+.favorite-ledger-panel__deletion-scope-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  width: 100%;
+}
+.favorite-ledger-panel__deletion-scope-option input {
+  grid-column: 1;
+  margin: 0.35em 0 0;
+}
+.favorite-ledger-panel__deletion-scope-option span {
+  grid-column: 2;
+  min-width: 0;
 }
 .favorite-ledger-panel__remote-draft-notice {
   display: flex;
