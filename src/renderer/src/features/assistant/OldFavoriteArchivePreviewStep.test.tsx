@@ -83,8 +83,9 @@ describe('OldFavoriteArchivePreviewStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
     const target = screen.getByText('bilimi·暂存').closest('article')
-    expect(screen.getByText('未分类')).toBeInTheDocument()
-    expect(target).toContainElement(screen.getByText('未分类'))
+    const unmatchedLabel = screen.getByText('（未分类）')
+    expect(unmatchedLabel).toBeInTheDocument()
+    expect(target).toContainElement(unmatchedLabel)
     expect(screen.getByText('预计归档 108 条')).toBeInTheDocument()
     expect(target).toHaveAttribute('title', expect.stringContaining('保存到本地收藏库时会存入 bilimi·暂存'))
     expect(screen.queryByText('默认不同步到 B 站')).not.toBeInTheDocument()

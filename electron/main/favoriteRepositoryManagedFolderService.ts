@@ -78,7 +78,17 @@ export class FavoriteRepositoryManagedFolderService {
 
   private previewFromSnapshot(normalizedAccount: string, logicalFolderId: string, snapshot: Awaited<ReturnType<Repository['getSnapshot']>>): ManagedFolderDeletionPreview {
     const folderId = logicalFolderId.trim()
-    if (folderId === 'local:inbox') throw new Error('The unmatched safety folder cannot be deleted.')
+    if (folderId === 'local:inbox') {
+      const members = new Set(snapshot.memberships['local:inbox'] ?? [])
+      const operation: PendingDeletion = {
+        operationId: randomUUID(), accountMid: normalizedAccount, logicalFolderId: folderId,
+        localMemberCount: members.size, unmatchedFallbackCount: 0, remoteOnlyMemberCount: 0,
+        extraRemoteMemberCount: 0, currentRevision: snapshot.revision, executionToken: randomUUID(),
+        status: 'previewed', localDismissRemoteFolderIds: []
+      }
+      this.operations.set(operation.operationId, operation)
+      return { ...operation }
+    }
     if (!/^bilimi-logical:\S+$/.test(folderId)) throw new Error('Managed folder is invalid.')
     const logical = snapshot.folders.find((folder) => folder.id === folderId && folder.kind === 'bilimi-logical')
     if (!logical?.logicalLedgerId) throw new Error('Managed folder was not found.')
@@ -167,7 +177,9 @@ export class FavoriteRepositoryManagedFolderService {
     const timestamp = this.now()
     const command: FavoriteRepositoryCommand = {
       id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
-      type: 'delete-local-managed-folder', payload: { logicalFolderId: operation.logicalFolderId }
+      ...(operation.logicalFolderId === 'local:inbox'
+        ? { type: 'clear-local-inbox' as const, payload: {} }
+        : { type: 'delete-local-managed-folder' as const, payload: { logicalFolderId: operation.logicalFolderId } })
     }
     const auditEvents = this.events(auditAids, 'managed-folder-delete-local', timestamp)
     if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)

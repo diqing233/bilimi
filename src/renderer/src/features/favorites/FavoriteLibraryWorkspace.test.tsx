@@ -106,7 +106,26 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹' }))
     expect(onSelect).toHaveBeenCalledWith('folder:managed')
     expect(screen.getByRole('button', { name: 'bilimi 工作夹 菜单' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '暂存 菜单' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '暂存 菜单' })).toBeInTheDocument()
+  })
+
+  it('offers the same three-dot menu for every bilimi workspace folder state', () => {
+    render(<FavoriteLibraryNavigation
+      uid="100"
+      collapsedGroups={{ workspace: false }}
+      selectedId="folder:bound"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+      groups={[{ id: 'workspace', label: 'bilimi 工作夹', items: [
+        { id: 'folder:bound', label: '已备册工作夹', count: 2, managed: true },
+        { id: 'folder:draft', label: '本地草稿工作夹', count: 1, managed: false },
+        { id: 'folder:inbox', label: 'bilimi·暂存', count: 3, managed: true, protected: true }
+      ] }]}
+    />)
+
+    expect(screen.getByRole('button', { name: '已备册工作夹 菜单' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '本地草稿工作夹 菜单' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'bilimi·暂存 菜单' })).toBeInTheDocument()
   })
 
   it('offers the separate bilimi workspace group menu actions', () => {
@@ -339,6 +358,13 @@ describe('Favorite Library workspace components', () => {
     fireEvent.click(screen.getByRole('button', { name: '仅从收藏库删除' }))
     await waitFor(() => expect(onChoose).toHaveBeenCalledWith('local'))
     expect(screen.getByRole('button', { name: '删除并同步到B站' })).toBeInTheDocument()
+  })
+
+  it('lays out each managed-folder delete range on its own aligned row', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('.favorite-library__managed-folder-delete-scope-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start;')
+    expect(styles).toContain('.favorite-library__managed-folder-delete-scope-option span { grid-column: 2; min-width: 0;')
   })
 
   it('treats managed-folder deletion as a closable modal before execution starts', () => {

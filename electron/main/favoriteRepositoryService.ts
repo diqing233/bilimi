@@ -455,7 +455,6 @@ export class FavoriteRepositoryService {
     }
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
-    const countFor = (folderId: string) => index.folderAidsByFolderId.get(folderId)?.length ?? 0
     const localDraftLedgerIds = new Set((options?.localDraftLedgerIds ?? []).map((id) => id.trim()).filter(Boolean))
     const trustedRemoteFolderIdByLedger = new Map<string, string>()
     for (const shard of snapshot.physicalShards) {
@@ -464,7 +463,14 @@ export class FavoriteRepositoryService {
       if (existing && existing !== shard.remoteFolderId) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, '')
       else if (existing === undefined) trustedRemoteFolderIdByLedger.set(shard.logicalLedgerId, shard.remoteFolderId)
     }
-    const projectedFolders = index.folders.map((folder) => {
+    const hasLogicalInbox = index.folders.some((folder) => folder.id === 'bilimi-logical:inbox' && folder.kind === 'bilimi-logical')
+    const stagingAids = new Set([
+      ...(index.folderAidsByFolderId.get('local:inbox') ?? []),
+      ...(index.folderAidsByFolderId.get('bilimi-logical:inbox') ?? [])
+    ])
+    const projectedFolders = index.folders
+      .filter((folder) => !(hasLogicalInbox && folder.id === 'local:inbox'))
+      .map((folder) => {
       if (folder.kind === 'bilimi-logical' && folder.logicalLedgerId) {
         const remoteFolderId = trustedRemoteFolderIdByLedger.get(folder.logicalLedgerId)
         return remoteFolderId ? { ...folder, remoteFolderId } : folder
@@ -475,18 +481,21 @@ export class FavoriteRepositoryService {
       return logicalLedgerId && (localDraftLedgerIds.has(logicalLedgerId) || orphanedCustomDraft)
         ? { ...folder, logicalLedgerId }
         : folder
-    })
+      })
+    const projectedFolderAids = (folderId: string) => folderId === 'bilimi-logical:inbox' && hasLogicalInbox
+      ? [...stagingAids]
+      : index.folderAidsByFolderId.get(folderId) ?? []
     const isWorkspaceFolder = (folder: typeof projectedFolders[number]) =>
       folder.kind === 'bilimi-logical' || (folder.kind === 'local' && Boolean(folder.logicalLedgerId))
     const workspaceVideoCount = new Set(
       projectedFolders
         .filter(isWorkspaceFolder)
-        .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
+        .flatMap((folder) => projectedFolderAids(folder.id))
     ).size
     const otherFavoriteVideoCount = new Set(
       projectedFolders
         .filter((folder) => !isWorkspaceFolder(folder) && folder.id !== 'local:inbox')
-        .flatMap((folder) => index.folderAidsByFolderId.get(folder.id) ?? [])
+        .flatMap((folder) => projectedFolderAids(folder.id))
     ).size
     const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
       [...index.pendingStatesByAid].filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(state)).length
@@ -496,9 +505,9 @@ export class FavoriteRepositoryService {
       revision: snapshot.revision,
       updatedAt: snapshot.updatedAt,
       videoCount: index.allAids.length,
-      folderCount: index.folders.length,
+      folderCount: projectedFolders.length,
       folders: projectedFolders.map((folder) => ({ ...folder })),
-      folderCounts: Object.fromEntries(index.folders.map((folder) => [folder.id, countFor(folder.id)])),
+      folderCounts: Object.fromEntries(projectedFolders.map((folder) => [folder.id, projectedFolderAids(folder.id).length])),
       workspaceVideoCount,
       otherFavoriteVideoCount,
       scopeCounts: {
@@ -1481,6 +1490,12 @@ export class FavoriteRepositoryService {
   ) {
     if (scope.kind === 'recycle') return index.recycledAids
     if (scope.kind === 'folder') {
+      if (scope.folderId === 'bilimi-logical:inbox') {
+        return [...new Set([
+          ...(index.folderAidsByFolderId.get('bilimi-logical:inbox') ?? []),
+          ...(index.folderAidsByFolderId.get('local:inbox') ?? [])
+        ])].sort((left, right) => left - right)
+      }
       return index.folderAidsByFolderId.get(scope.folderId) ?? []
     }
     if (scope.kind === 'pending') {

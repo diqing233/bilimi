@@ -301,6 +301,46 @@ describe('account favorite repository contracts', () => {
     expect(deleted.affectedFolderIds).toContain('local:inbox')
   })
 
+  it('clears a standalone local inbox while retaining its durable safety container', () => {
+    const now = '2026-08-11T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      memberships: { 'local:inbox': [1, 2] }
+    }
+
+    const cleared = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'clear-local-inbox', accountMid: '100', issuedAt: now, type: 'clear-local-inbox', payload: {}
+    }, now)
+
+    expect(cleared.memberships['local:inbox']).toEqual([])
+    expect(cleared.folders.some((folder) => folder.id === 'local:inbox')).toBe(true)
+    expect(cleared.affectedFolderIds).toEqual(['local:inbox'])
+    expect(cleared.affectedAids).toEqual([1, 2])
+  })
+
+  it('clears both staging memberships instead of falling back when deleting the bilimi inbox', () => {
+    const now = '2026-08-11T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'local:inbox', title: 'bilimi·暂存', kind: 'local' as const, syncState: 'local-only' as const },
+        { id: 'bilimi-logical:inbox', title: 'bilimi·暂存', kind: 'bilimi-logical' as const, logicalLedgerId: 'inbox', syncState: 'bound' as const },
+        { id: 'bilimi:inbox:001', title: 'bilimi·暂存', kind: 'bilibili' as const, logicalLedgerId: 'inbox', remoteFolderId: '9', syncState: 'bound' as const }
+      ],
+      memberships: { 'local:inbox': [1], 'bilimi-logical:inbox': [2], 'bilimi:inbox:001': [2] },
+      physicalShards: [{ logicalLedgerId: 'inbox', folderId: 'bilimi:inbox:001', shardNumber: 1, remoteFolderId: '9', remoteTitle: 'bilimi·暂存', bindingState: 'bound' as const }]
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-inbox', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:inbox' }
+    }, now)
+
+    expect(deleted.folders.map((folder) => folder.id)).toEqual(['local:inbox'])
+    expect(deleted.memberships['local:inbox']).toEqual([])
+    expect(deleted.affectedAids).toEqual([1, 2])
+  })
+
   it('does not let a hard tombstone be recreated by a later Bilibili mirror scan', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-24T00:00:00.000Z' })
     const deleted = applyFavoriteRepositoryCommand(snapshot, {

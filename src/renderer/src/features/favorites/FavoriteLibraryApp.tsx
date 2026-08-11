@@ -1271,6 +1271,24 @@ export function FavoriteLibraryApp({
     setManagedFolderDeletionScope('local-only')
     setManagedFolderDeletionDialog({ candidates, ledgerTitleHints, localExecutionTokens })
   }
+  const openLocalInboxDeletion = async (folder: FavoriteRepositoryFolder) => {
+    const api = window.bilimiDesktop
+    if (!accountMid || folder.id !== 'local:inbox' || !api?.previewFavoriteLibraryManagedFolderDelete) throw new Error(text.unavailable)
+    const preview = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, folder.id) as { executionToken?: string }
+    if (!preview?.executionToken) throw new Error(text.unavailable)
+    setManagedFolderDeletionAcknowledged(false)
+    setManagedFolderDeletionAcknowledgedUnbound(false)
+    setManagedFolderDeletionScope('local-only')
+    setManagedFolderDeletionDialog({
+      candidates: [{
+        logicalLedgerId: 'inbox', title: folder.title,
+        memberCount: summary?.folderCounts?.[folder.id] ?? 0,
+        state: 'local-only', requiresUnboundAcknowledgement: false
+      }],
+      ledgerTitleHints: { inbox: folder.title },
+      localExecutionTokens: { inbox: preview.executionToken }
+    })
+  }
   const confirmManagedFolderDeletion = async () => {
     const api = window.bilimiDesktop
     if (!accountMid || !managedFolderDeletionDialog || !managedFolderDeletionAcknowledged) {
@@ -1606,7 +1624,7 @@ export function FavoriteLibraryApp({
       {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
         if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
       }}>
-        <fieldset className="favorite-library__managed-folder-delete-scope"><legend>删除范围</legend><label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'local-only'} onChange={() => setManagedFolderDeletionScope('local-only')} /><span>仅从 bilimi 删除（保留 B 站收藏夹）</span></label><label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'bilibili'} onChange={() => setManagedFolderDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹及其中分类视频</span></label></fieldset>
+        <fieldset className="favorite-library__managed-folder-delete-scope"><legend>删除范围</legend><label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'local-only'} onChange={() => setManagedFolderDeletionScope('local-only')} /><span>仅从 bilimi 删除（保留 B 站收藏夹）</span></label>{managedFolderDeletionDialog.candidates.some((candidate) => candidate.state !== 'local-only') ? <label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'bilibili'} onChange={() => setManagedFolderDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹及其中分类视频</span></label> : null}</fieldset>
         <p>{managedFolderDeletionScope === 'local-only' ? '仅从 bilimi 收藏夹和收藏库删除分类关系；视频本体、档案、转写、札记和 B 站收藏夹都会保留。' : '将删除所选 bilimi 收藏夹及其分类关系，并删除对应 B 站收藏夹；原有普通 B 站收藏夹不会删除。'}</p>
         <ul className="favorite-library__managed-folder-preview">{managedFolderDeletionDialog.candidates.map((candidate) => <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>
           {candidate.title}（{candidate.memberCount} 个视频，{candidate.state === 'bound' ? '已备册' : candidate.state === 'unbound-name-match' ? '未绑定' : candidate.state === 'missing-remote' ? '远端已不存在' : '未备册'}）
@@ -1701,6 +1719,10 @@ export function FavoriteLibraryApp({
             if (action === 'edit') {
               uiCallbacks?.onManagedFolderAction?.(id, action)
               if (!folder?.logicalLedgerId) {
+                if (folder?.id === 'local:inbox') {
+                  void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', sidebar: true })
+                  return
+                }
                 setError(text.unavailable)
                 return
               }
@@ -1708,6 +1730,10 @@ export function FavoriteLibraryApp({
               return
             }
             if (!folder || !accountMid) return
+            if (folder.id === 'local:inbox') {
+              void openLocalInboxDeletion(folder).catch(() => setError(text.actionFailed))
+              return
+            }
             if (!folder.logicalLedgerId) return
             void openManagedFolderDeletion([folder.logicalLedgerId]).catch(() => setError(text.actionFailed))
           }}

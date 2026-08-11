@@ -811,6 +811,14 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      type: 'clear-local-inbox'
+      payload: Record<string, never>
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'restore-favorite-to-library' | 'forget-favorite-tombstone'
       payload: { aid: number }
     }
@@ -1353,6 +1361,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'delete-local-managed-folder':
       if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
+      return
+    case 'clear-local-inbox':
+      if (Object.keys(payload).length) invalidCommand()
       return
     case 'restore-favorite-to-library':
     case 'forget-favorite-tombstone':
@@ -1970,10 +1981,12 @@ export function applyFavoriteRepositoryCommand(
       const logicalFolderId = command.payload.logicalFolderId.trim()
       const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
       if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
+      const deletingInbox = logicalFolder.logicalLedgerId === 'inbox'
       const removedShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalFolder.logicalLedgerId)
       const removedFolderIds = new Set([logicalFolderId, ...removedShards.map((shard) => shard.folderId)])
       const affected = new Set<number>()
       for (const folderId of removedFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
+      if (deletingInbox) for (const aid of memberships['local:inbox'] ?? []) affected.add(aid)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
       physicalShards = physicalShards.filter((shard) => shard.logicalLedgerId !== logicalFolder.logicalLedgerId)
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
@@ -1991,16 +2004,30 @@ export function applyFavoriteRepositoryCommand(
         .filter((folder) => folder.kind === 'bilimi-logical')
         .map((folder) => folder.id)
       const inbox = new Set(memberships['local:inbox'] ?? [])
-      for (const aid of affected) {
-        const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
-        const hasRemainingLogicalPlacement = position
-          ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
-          : remainingLogicalFolderIds.some((folderId) => memberships[folderId]?.includes(aid))
-        if (!hasRemainingLogicalPlacement) inbox.add(aid)
+      if (deletingInbox) {
+        inbox.clear()
+      } else {
+        for (const aid of affected) {
+          const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+          const hasRemainingLogicalPlacement = position
+            ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
+            : remainingLogicalFolderIds.some((folderId) => memberships[folderId]?.includes(aid))
+          if (!hasRemainingLogicalPlacement) inbox.add(aid)
+        }
       }
       memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
       affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
+      break
+    }
+    case 'clear-local-inbox': {
+      const affected = uniquePositiveAids(memberships['local:inbox'] ?? [])
+      if (!folders.some((folder) => folder.id === 'local:inbox')) {
+        folders = [...folders, { id: 'local:inbox', title: 'bilimi·暂存', kind: 'local', syncState: 'local-only' }]
+      }
+      memberships = { ...memberships, 'local:inbox': [] }
+      affectedFolderIds = ['local:inbox']
+      affectedAids = affected
       break
     }
     case 'restore-favorite-to-library':

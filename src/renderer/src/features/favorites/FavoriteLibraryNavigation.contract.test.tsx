@@ -392,7 +392,7 @@ describe('FavoriteLibraryNavigation contract', () => {
       onSelect={vi.fn()}
     />)
 
-    expect(screen.getByRole('button', { name: '收起bilimi 工作夹' })).toHaveAttribute('title', '共 2 个工作夹\n共 6 条收藏归属\n去重后 4 个视频')
+    expect(screen.getByRole('button', { name: '收起bilimi 工作夹' })).toHaveAttribute('title', '共 3 个工作夹\n共 8 条收藏归属\n去重后 6 个视频')
     expect(screen.getByRole('button', { name: '收起其他收藏夹' })).toHaveAttribute('title', '共 2 个收藏夹\n共 4 条收藏归属\n去重后 3 个视频')
   })
 

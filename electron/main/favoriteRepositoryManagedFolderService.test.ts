@@ -19,14 +19,21 @@ function managedSnapshot(): AccountFavoriteRepositorySnapshot {
 }
 
 describe('FavoriteRepositoryManagedFolderService', () => {
-  it('includes diagnostics in preview and never permits unmatched deletion', async () => {
+  it('includes diagnostics for managed folders and permits a local-only staging clear', async () => {
     let current = managedSnapshot()
+    const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
     const service = new FavoriteRepositoryManagedFolderService({
-      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit: vi.fn() },
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit },
       remoteObserver: { remoteFolderExists: vi.fn(async () => 'present' as const) }
     })
     await expect(service.preview('100', 'bilimi-logical:work')).resolves.toMatchObject({ localMemberCount: 2, unmatchedFallbackCount: 2, remoteBinding: { remoteFolderId: '99' }, remoteOnlyMemberCount: 1, currentRevision: 4 })
-    await expect(service.preview('100', 'local:inbox')).rejects.toThrow('unmatched')
+    const stagingPreview = await service.preview('100', 'local:inbox')
+    expect(stagingPreview).toMatchObject({ logicalFolderId: 'local:inbox', localMemberCount: 1, unmatchedFallbackCount: 0, currentRevision: 4 })
+    expect(stagingPreview.remoteBinding).toBeUndefined()
+
+    await service.deleteLocal('100', stagingPreview.executionToken)
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'clear-local-inbox' }), expect.any(Array))
   })
 
   it('previews every logical workspace except inbox and permits remote deletion for the safely bound subset', async () => {
