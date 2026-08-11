@@ -149,6 +149,30 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('DeepSeek 整理被取消')
   })
 
+  it('offers original-classification recovery when a whole-run DeepSeek task was canceled', () => {
+    const fallback = vi.fn()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 },
+        deepSeekRun: { mode: 'all', scope: 'all', status: 'canceled', completedSegmentCount: 1, waitingSegmentCount: 0, pendingVideoCount: 1 },
+        executionIntent: {
+          mode: 'bilibili', status: 'blocked', waitingSegmentCount: 0, waitingForDeepSeek: false,
+          failureCode: 'deepseek-unresolved'
+        }
+      } as never}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={vi.fn()}
+      onUseOriginalClassifications={fallback} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '沿用 1 条视频的原自动分类' }))
+    expect(fallback).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+
   it('uses the current batch unmatched count and blue informational copy', () => {
     const save = vi.fn()
     const sync = vi.fn()

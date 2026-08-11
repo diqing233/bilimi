@@ -242,6 +242,9 @@ export type OldFavoriteWorkspaceSnapshot = {
     mode: 'local' | 'bilibili'
     includeInbox?: boolean
     status: 'waiting' | 'running' | 'blocked'
+    failureCode?: OldFavoriteWorkspaceExecutionFailureCode
+    /** Development-only diagnostic retained with a blocked intent; never rendered as user-facing text. */
+    failureDetail?: string
     waitingSegmentCount: number
     waitingForDeepSeek: boolean
   }
@@ -483,6 +486,8 @@ export type OldFavoriteWorkspaceExecutionIntent = {
   status: 'waiting' | 'running' | 'blocked'
   /** A durable, user-safe explanation for an automatic whole-run failure. */
   failureCode?: OldFavoriteWorkspaceExecutionFailureCode
+  /** Development-only diagnostic retained with a blocked intent; never rendered as user-facing text. */
+  failureDetail?: string
 }
 
 export type OldFavoriteWorkspaceDeepSeekResult = {

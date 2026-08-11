@@ -147,7 +147,9 @@ function executionIntentFailureCode(error: unknown): OldFavoriteWorkspaceExecuti
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) return 'remote-inventory-unavailable'
   if (/remote shard is absent from inventory/i.test(detail)) return 'saved-binding-absent'
   if (/remote shard title is invalid/i.test(detail)) return 'saved-binding-title-mismatch'
-  if (/requires explicit rebinding|remote shard title is ambiguous/i.test(detail)) return 'binding-requires-rebind'
+  if (/requires explicit rebinding|remote shard title is ambiguous|remote shard is already bound|logical shard conflicts|remote-target-unbound/i.test(detail)) {
+    return 'binding-requires-rebind'
+  }
   if (/remote account mismatch/i.test(detail)) return 'remote-account-mismatch'
   if (/folder limit/i.test(detail)) return 'remote-folder-limit'
   if (/shard capacity is exceeded|physical-shard-capacity-exceeded/i.test(detail)) return 'remote-shard-capacity'
@@ -1170,29 +1172,40 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
-      const failedAids = [...new Set(checkpoint?.failedAids ?? [])].sort((left, right) => left - right)
-      if (!checkpoint || checkpoint.workspaceId !== workspace.id || !failedAids.length) {
-        throw new Error('DeepSeek failed classifications are unavailable for fallback.')
+      const fallbackAids = [...new Set([
+        ...(checkpoint?.failedAids ?? []),
+        ...((checkpoint?.canceled || checkpoint?.failed) ? (checkpoint?.pendingAids ?? []) : [])
+      ])].sort((left, right) => left - right)
+      if (!checkpoint || checkpoint.workspaceId !== workspace.id || !fallbackAids.length) {
+        throw new Error('DeepSeek unresolved classifications are unavailable for fallback.')
       }
-      const failedSet = new Set(failedAids)
+      const fallbackSet = new Set(fallbackAids)
       const originalTargets = new Map<number, string[]>()
-      for (const aid of failedAids) {
+      for (const aid of fallbackAids) {
         const targets = checkpoint.originalTargetLedgerIdsByAid?.[String(aid)]
         if (targets) originalTargets.set(aid, [...targets])
       }
       for (let index = workspace.historyBaselineCursor ?? 0; index < workspace.historyCursor; index += 1) {
         for (const change of workspace.history[index]?.changes ?? []) {
-          if (failedSet.has(change.aid) && !originalTargets.has(change.aid)) {
+          if (fallbackSet.has(change.aid) && !originalTargets.has(change.aid)) {
             originalTargets.set(change.aid, [...(change.before?.targetLedgerIds ?? [])])
           }
         }
       }
-      if (failedAids.some((aid) => !originalTargets.has(aid))) {
+      if (fallbackAids.some((aid) => !originalTargets.has(aid))) {
         throw new Error('DeepSeek original automatic classifications are incomplete.')
       }
+      const blockedIntent = this.executionIntents.get(workspace.accountMid)
+      const resumedIntent = blockedIntent?.workspaceId === workspace.id && blockedIntent.status === 'blocked' &&
+        blockedIntent.failureCode === 'deepseek-unresolved'
+        ? (() => {
+            const { failureCode: _failureCode, ...waiting } = blockedIntent
+            return { ...waiting, status: 'waiting' as const }
+          })()
+        : undefined
       const updated = applyWorkspaceClassificationBatch(workspace, {
         source: 'fallback',
-        assignments: failedAids.map((aid) => ({ aid, targetLedgerIds: originalTargets.get(aid)! }))
+        assignments: fallbackAids.map((aid) => ({ aid, targetLedgerIds: originalTargets.get(aid)! }))
       })
       const entry = updated.history[updated.history.length - 1]
       if (updated === workspace || !entry) throw new Error('DeepSeek fallback did not change the workspace.')
@@ -1208,10 +1221,12 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
         })],
         planReadiness: readiness,
-        deepSeekRunCheckpoint: null
+        deepSeekRunCheckpoint: null,
+        ...(resumedIntent ? { executionIntent: resumedIntent } : {})
       })
       this.planReadiness.set(workspace.accountMid, readiness)
       this.deepSeekRunCheckpoints.delete(workspace.accountMid)
+      if (resumedIntent) this.executionIntents.set(workspace.accountMid, resumedIntent)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -1291,14 +1306,18 @@ export class OldFavoriteWorkspaceCoordinator {
       this.executionIntents.delete(accountMid)
       return true
     } catch (error) {
+      // Keep the persisted failure state safe for the renderer, while retaining
+      // the concrete preparation error in the development main-process log.
+      console.error('[old-favorite-workspace] automatic Bilibili sync preparation failed:', error)
       await this.queue(async () => {
         const workspace = await this.requireWorkspace(accountMid)
         const intent = this.executionIntents.get(workspace.accountMid)
         if (workspace.status !== 'previewing' || intent?.workspaceId !== workspace.id || intent.status !== 'running') return
-        const blocked = {
-          ...intent,
-          status: 'blocked' as const,
-          failureCode: executionIntentFailureCode(error)
+      const blocked = {
+        ...intent,
+        status: 'blocked' as const,
+        failureCode: executionIntentFailureCode(error),
+        failureDetail: (error instanceof Error ? error.message : String(error ?? 'unknown failure')).slice(0, 240)
         }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: blocked
@@ -3616,7 +3635,9 @@ export class OldFavoriteWorkspaceCoordinator {
       })))
       const frozen = freezeWorkspaceSegment(workspace, currentSegmentId)
       const updated: OldFavoriteWorkspace = { ...frozen, status: 'previewing' }
-      const localCommitId = `old-favorite-workspace:local:${workspace.id}:${currentSegmentId}:${repository.revision}`
+      // The local plan contains fresh metadata timestamps on every retry. Do
+      // not reuse a revision-derived command id with a changed payload.
+      const localCommitId = `old-favorite-workspace:local:${workspace.id}:${currentSegmentId}:${randomUUID()}`
       await this.options.repository.commit(workspace.accountMid, {
         id: localCommitId,
         accountMid: workspace.accountMid,
@@ -4337,7 +4358,7 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       })
       await this.options.repository.commit(workspace.accountMid, {
-        id: `old-favorite-workspace:remote-local:${workspace.id}`,
+        id: `old-favorite-workspace:remote-local:${workspace.id}:${randomUUID()}`,
         accountMid: workspace.accountMid,
         issuedAt: this.now(),
         type: 'commit-local-plan',
@@ -5844,6 +5865,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ...(executionIntent.includeInbox ? { includeInbox: true } : {}),
           status: executionIntent.status,
           ...(executionIntent.failureCode ? { failureCode: executionIntent.failureCode } : {}),
+          ...(executionIntent.failureDetail ? { failureDetail: executionIntent.failureDetail } : {}),
           waitingSegmentCount: projectedSegments.filter((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting').length,
           waitingForDeepSeek: Boolean(deepSeekRunCheckpoint && !deepSeekRunCheckpoint.canceled && !deepSeekRunCheckpoint.failed)
         }

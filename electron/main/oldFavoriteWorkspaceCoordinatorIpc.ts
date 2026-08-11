@@ -483,7 +483,13 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'set-whole-run-execution-intent') {
       if (requested.includeInbox === true) await options.coordinator.setExecutionIntent(accountMid, requested.mode, true)
       else await options.coordinator.setExecutionIntent(accountMid, requested.mode)
-      await options.coordinator.continueExecutionIntent(accountMid)
+      try {
+        await options.coordinator.continueExecutionIntent(accountMid)
+      } catch {
+        // The coordinator has atomically recorded a blocked execution intent.
+        // Return it so the renderer can show the safe, specific failure state.
+        return options.coordinator.getSnapshot(accountMid)
+      }
     }
     if (requested.type === 'cancel-whole-run-execution-intent') await options.coordinator.setExecutionIntent(accountMid, null)
     if (requested.type === 'use-original-classifications-for-failed-deepseek') {

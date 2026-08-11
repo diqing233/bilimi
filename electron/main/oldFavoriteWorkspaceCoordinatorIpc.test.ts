@@ -817,6 +817,36 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('returns the persisted blocked intent when automatic whole-run execution stops', async () => {
+    const ipcMain = new FakeIpcMain()
+    const blockedSnapshot = {
+      ...snapshot,
+      executionIntent: {
+        mode: 'bilibili' as const,
+        status: 'blocked' as const,
+        failureCode: 'binding-requires-rebind' as const,
+        waitingSegmentCount: 0,
+        waitingForDeepSeek: false
+      }
+    }
+    const coordinator = {
+      setExecutionIntent: vi.fn().mockResolvedValue(undefined),
+      continueExecutionIntent: vi.fn().mockRejectedValue(new Error('Favorite repository remote shard requires explicit rebinding.')),
+      getSnapshot: vi.fn().mockResolvedValue(blockedSnapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-whole-run-execution-intent', mode: 'bilibili'
+    })).resolves.toEqual(blockedSnapshot)
+    expect(coordinator.setExecutionIntent).toHaveBeenCalledExactlyOnceWith('100', 'bilibili')
+    expect(coordinator.continueExecutionIntent).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.getSnapshot).toHaveBeenCalledExactlyOnceWith('100')
+  })
+
   it('keeps a persisted whole-run execution intent paused when the workspace is reopened', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

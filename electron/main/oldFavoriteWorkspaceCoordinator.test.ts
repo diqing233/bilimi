@@ -1556,6 +1556,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('persists an unbound Bilibili target as a rebinding failure', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.setExecutionIntent('100', 'bilibili')
+    vi.spyOn(coordinator, 'beginBilibiliExecution').mockRejectedValue(
+      new Error('Old favorite workspace cannot freeze: remote-target-unbound:music')
+    )
+
+    await expect(coordinator.continueExecutionIntent('100')).rejects.toThrow('remote-target-unbound')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      executionIntent: {
+        mode: 'bilibili', status: 'blocked', failureCode: 'binding-requires-rebind'
+      }
+    })
+  })
+
   it('publishes a compact whole-run overview before the first batch is ready and restores it after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -7545,6 +7564,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('retries a changed local result without reusing a prior workspace command id', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    await repository.commit('100', {
+      id: `old-favorite-workspace:remote-local:${workspaceId}`,
+      accountMid: '100',
+      issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'commit-local-plan',
+      payload: {
+        workspaceId,
+        memberAidsByFolderId: { 'local:inbox': [1] },
+        folders: [{ id: 'local:inbox', title: 'bilimi\u00b7\u6682\u5b58', kind: 'local', syncState: 'local-only' }],
+        videos: [{ aid: 1, title: 'Earlier local result', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }]
+      }
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('Old favorite workspace cannot freeze: remote-target-unbound')
+  })
+
   it('keeps the complete local result after a Bilibili write fails', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -8435,6 +8484,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     expect(resolved.history.entries[0]).toMatchObject({ source: 'fallback', summary: { reason: '沿用原自动分类' } })
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'previewing' })
+  })
+
+  it('restores canceled pending DeepSeek aids to their original automatic classifications', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems: async () => [{ targetLedgerIds: ['original-music'], confidence: 'high' as const }]
+    })
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video 1', tags: ['tag'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const before = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: before.workspaceId, mode: 'all', scope: 'all', sourceFolderRevision: 'source',
+      segmentWork: [{ segmentId: before.currentSegment!.id, index: 0, aids: [1] }], totalVideoCount: 1,
+      originalTargetLedgerIdsByAid: { '1': ['original-music'] },
+      requestGroups: [], successfulAids: [], pendingAids: [1], failedAids: [], completedSegmentIds: [], waitingSegmentIds: [],
+      canceled: true
+    })
+    await coordinator.setExecutionIntent('100', 'bilibili')
+    await expect(coordinator.continueExecutionIntent('100')).resolves.toBe(false)
+
+    await coordinator.useOriginalClassificationsForFailedDeepSeekAids('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['original-music'], source: 'fallback' } },
+      executionIntent: { mode: 'bilibili', status: 'waiting' }
+    })
+    await expect(coordinator.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
   })
 
   it('restores a provider-failed aid even when DeepSeek never changed its automatic classification', async () => {

@@ -129,7 +129,17 @@ export function OldFavoriteConfirmationStep({
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const failedDeepSeekCount = snapshot.deepSeekRun?.failedVideoCount ?? 0
+  const canceledDeepSeekPendingCount = snapshot.deepSeekRun?.status === 'canceled'
+    ? snapshot.deepSeekRun.pendingVideoCount ?? 0
+    : 0
+  const deepSeekFallbackCount = failedDeepSeekCount + canceledDeepSeekPendingCount
   const deepSeekBlocksExecution = Boolean(snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'completed')
+  const confirmOriginalClassifications = () => {
+    const statusLabel = canceledDeepSeekPendingCount ? '未完成' : '失败'
+    if (window.confirm(`确认让 ${deepSeekFallbackCount} 条 DeepSeek ${statusLabel}视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。`)) {
+      onUseOriginalClassifications()
+    }
+  }
   const isMultiSegment = snapshot.hasMultipleSegments
   const currentSegmentSummary = snapshot.currentSegment
     ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
@@ -245,6 +255,9 @@ export function OldFavoriteConfirmationStep({
         {waiting.waitingForDeepSeek ? <p>DeepSeek 全轮整理完成后会自动继续。</p> : null}
         <p>{waiting.mode === 'local' ? '完成后会保存本轮到收藏库。' : '完成后会保存暂存内容并开始同步到 B 站。'}</p>
       </div>
+      {waiting.status === 'blocked' && waiting.failureCode === 'deepseek-unresolved' && deepSeekFallbackCount > 0
+        ? <button type="button" disabled={loading} onClick={confirmOriginalClassifications}>沿用 {deepSeekFallbackCount} 条视频的原自动分类</button>
+        : null}
       {waiting.status !== 'running'
         ? <button type="button" disabled={loading} onClick={onCancelExecutionIntent}>取消等待执行</button>
         : null}
@@ -296,13 +309,11 @@ export function OldFavoriteConfirmationStep({
     {preparationStatus ? <p role="status">{preparationStatus}</p> : null}
     {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{blockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
-    {failedDeepSeekCount ? <div className="favorite-ledger-panel__confirm-warning" role="alert">
-      <p>{failedDeepSeekCount} 条视频的 DeepSeek 整理失败，重试或明确沿用原自动分类后才能保存或同步。</p>
-      <button type="button" disabled={loading} onClick={() => {
-        if (window.confirm(`确认让 ${failedDeepSeekCount} 条 DeepSeek 失败视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。`)) {
-          onUseOriginalClassifications()
-        }
-      }}>沿用 {failedDeepSeekCount} 条视频的原自动分类</button>
+    {deepSeekFallbackCount ? <div className="favorite-ledger-panel__confirm-warning" role="alert">
+      <p>{canceledDeepSeekPendingCount
+        ? `${deepSeekFallbackCount} 条视频的 DeepSeek 整理未完成，重试或明确沿用原自动分类后才能保存或同步。`
+        : `${deepSeekFallbackCount} 条视频的 DeepSeek 整理失败，重试或明确沿用原自动分类后才能保存或同步。`}</p>
+      <button type="button" disabled={loading} onClick={confirmOriginalClassifications}>沿用 {deepSeekFallbackCount} 条视频的原自动分类</button>
     </div> : null}
     <div className="favorite-ledger-panel__confirm-action-groups">
       {isMultiSegment && viewScope === 'current' ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本批操作">
