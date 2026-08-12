@@ -94,10 +94,10 @@ function ruleLabel(type: FavoriteLedgerRuleType | undefined) {
   return type === 'author' ? 'UP 名字' : type === 'tag' ? '标签' : type === 'deepseek' ? 'DeepSeek约束' : '关键词'
 }
 function ruleHint(type: FavoriteLedgerRuleType | undefined) {
-  if (type === 'author') return '填写一个或多个 UP 名，命中作者时会优先存入这个收藏夹。'
-  if (type === 'tag') return '填写一个或多个 B 站标签，命中标签时会优先存入这个收藏夹。'
+  if (type === 'author') return '多个 UP 名可用顿号、空格、逗号、斜杠或换行分隔。填写一个或多个 UP 名，命中作者时会优先存入这个收藏夹。'
+  if (type === 'tag') return '多个 B 站标签可用顿号、空格、逗号、斜杠或换行分隔。填写一个或多个 B 站标签，命中标签时会优先存入这个收藏夹。'
   if (type === 'deepseek') return '填写自然语言判断规则。此类型不参与本地自动分类，必须开启 DeepSeek 后才会用于辅助判断。'
-  return '建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。'
+  return '多个关键词可用顿号、空格、逗号、斜杠或换行分隔。建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。'
 }
 function displayTitle(name: string) {
   return stripBilimiLedgerPrefix(name).replace(/^[:：·\s]+/, '').trim()
