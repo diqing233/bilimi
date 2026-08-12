@@ -144,9 +144,6 @@ export function OldFavoriteScanOverviewStep({
   const unstarted = !snapshot && !scanStarting
   const scanningBasicInformation = scanning && activeSnapshot?.scan.phase === 'inventory'
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
-  // The inventory total is a Bilibili folder-relationship count and therefore can
-  // include the same video more than once. "本轮视频" must instead report the
-  // unique videos actually observed by this scan run.
   const scannedItemCount = Math.min(
     snapshot?.scan.scannedItemCount ?? (snapshot?.scan.phase === 'complete' ? totalItemCount : 0),
     totalItemCount
@@ -163,6 +160,7 @@ export function OldFavoriteScanOverviewStep({
   const tagTotalItemCount = scopedTagEnrichment?.totalItemCount ?? tagEnrichment?.totalItemCount ?? 0
   const tagCompletedItemCount = scopedTagEnrichment?.completedItemCount ?? tagEnrichment?.completedItemCount ?? 0
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
+  const relationshipCount = inventoryMetrics?.relationshipCount ?? totalItemCount
   const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
   const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
@@ -239,9 +237,9 @@ export function OldFavoriteScanOverviewStep({
           ? '当前本轮已完成基本信息扫描的视频数量。'
           : viewScope === 'current'
           ? '当前批次中实际进入整理流程的去重视频数量。'
-          : '本轮实际扫描到的去重视频数；同一视频出现在多个收藏夹只计一次，包含失效视频。'}>
+          : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
           <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'}</span>
-          <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : scannedItemCount}</strong>
+          <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
         </article>
         <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
           <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'}</span><strong>{scanningBasicInformation ? '待确认' : lifecycleCountsConfirmed ? viewScope === 'current' && !isSingleRound ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>
