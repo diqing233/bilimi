@@ -163,6 +163,10 @@ export function OldFavoriteScanOverviewStep({
   const relationshipCount = inventoryMetrics?.relationshipCount ?? totalItemCount
   const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
   const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
+  const relationshipMetricLabel = isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮收藏关系' : '本批视频'
+  const relationshipMetricValue = isSingleRound || scanningBasicInformation || viewScope === 'all'
+    ? relationshipCount
+    : currentSegmentPlannedAidCount
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
   const lifecycleCountsConfirmed = inventoryMetrics?.authority !== 'incomplete'
   const allUserSourcesSelected = userFolders.length > 0 && selectedSourceIds.size === userFolders.length
@@ -207,8 +211,8 @@ export function OldFavoriteScanOverviewStep({
     <div className="favorite-ledger-panel__scan-progress" aria-label="收藏扫描进度">
       <div>
         <span>扫描进度</span>
-        <progress aria-label="收藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? scannedItemCount : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
-        <span>{(scanning || scanFailed) && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
+        <progress aria-label="收藏扫描进度" max={Math.max(scannedItemCount, 1)} value={scanFailed || scanning ? scannedItemCount : 1} />
+        <span>{(scanning || scanFailed) && relationshipCount ? `已读取 ${scannedItemCount} 个去重视频 · 本轮共 ${relationshipCount} 条收藏关系` : null}</span>
         <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
       {!scanning && !tagEnrichment && scannedItemCount ? <div>
@@ -233,13 +237,11 @@ export function OldFavoriteScanOverviewStep({
     </div> : null}
     {snapshot ? <>
       <div className="favorite-ledger-panel__scan-metrics" aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮整理统计' : '本批整理统计'}>
-        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'} title={scanningBasicInformation
-          ? '当前本轮已完成基本信息扫描的视频数量。'
-          : viewScope === 'current'
+        <article aria-label={relationshipMetricLabel} title={viewScope === 'current' && !isSingleRound && !scanningBasicInformation
           ? '当前批次中实际进入整理流程的去重视频数量。'
           : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
-          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'}</span>
-          <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
+          <span>{relationshipMetricLabel}</span>
+          <strong>{relationshipMetricValue}</strong>
         </article>
         <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
           <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'}</span><strong>{scanningBasicInformation ? '待确认' : lifecycleCountsConfirmed ? viewScope === 'current' && !isSingleRound ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>

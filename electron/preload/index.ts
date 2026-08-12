@@ -298,6 +298,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:preview-managed-folder-group-delete', accountMid) as Promise<unknown>,
   deleteFavoriteLibraryManagedFolderLocal: (accountMid: string, executionToken: string) =>
     ipcRenderer.invoke('favorite-library-operations:delete-managed-folder-local', accountMid, executionToken) as Promise<unknown>,
+  deleteFavoriteLibraryManagedFolderLocalGroup: (accountMid: string, folderIds: string[]) =>
+    ipcRenderer.invoke('favorite-library-operations:delete-managed-folder-local-group', accountMid, folderIds) as Promise<unknown>,
+  clearFavoriteLibraryManagedFolderRecords: (accountMid: string, folderIds: string[]) =>
+    ipcRenderer.invoke('favorite-library-operations:clear-managed-folder-records', accountMid, folderIds) as Promise<unknown>,
   confirmFavoriteLibraryManagedFolderRemoteDelete: (accountMid: string, executionToken: string) =>
     ipcRenderer.invoke('favorite-library-operations:confirm-managed-folder-remote-delete', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
   executeFavoriteLibraryManagedFolderRemoteDelete: (accountMid: string, executionToken: string, confirmationToken: string) =>

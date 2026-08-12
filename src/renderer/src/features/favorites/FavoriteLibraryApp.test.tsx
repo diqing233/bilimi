@@ -573,8 +573,9 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '删除全部工作夹' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续删除' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(dialog.closest('.bilimi-modal__viewport')).toBeInTheDocument()
     expect(Array.from(dialog.querySelectorAll('button')).slice(0, 3).map((button) => button.textContent)).toEqual(['取消', '仅从收藏库删除全部', '同步删除 B 站'])
     fireEvent.click(screen.getByRole('button', { name: '同步删除 B 站' }))
@@ -603,7 +604,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续删除' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
@@ -638,7 +640,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5de5\u4f5c\u5939' }))
+    fireEvent.click(await screen.findByRole('button', { name: '\u7ee7\u7eed\u5220\u9664' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
     expect(dialog).toHaveTextContent('Music')
@@ -656,7 +659,7 @@ describe('FavoriteLibraryApp', () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'ideas', title: 'Ideas', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
     ])
-    const deleteFavoriteLibraryManagedFolderLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const deleteFavoriteLibraryManagedFolderLocalGroup = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-09T00:00:00.000Z', videoCount: 0, folderCount: 1,
@@ -665,20 +668,21 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
       previewManagedFavoriteFolderDeletion,
       previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'ideas-local' }),
-      deleteFavoriteLibraryManagedFolderLocal,
+      deleteFavoriteLibraryManagedFolderLocalGroup,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5de5\u4f5c\u5939' }))
+    fireEvent.click(await screen.findByRole('button', { name: '\u7ee7\u7eed\u5220\u9664' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
     expect(dialog).toHaveTextContent('Ideas')
     fireEvent.click(screen.getByRole('checkbox', { name: '\u6211\u5df2\u786e\u8ba4' }))
     fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
 
-    await waitFor(() => expect(deleteFavoriteLibraryManagedFolderLocal).toHaveBeenCalledWith('100', 'ideas-local'))
+    await waitFor(() => expect(deleteFavoriteLibraryManagedFolderLocalGroup).toHaveBeenCalledWith('100', ['bilimi-logical:ideas']))
   })
 
   it.skip('deletes only remotely eligible work folders after the group confirmation', async () => {
@@ -704,7 +708,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续删除' }))
     fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
     fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
 
@@ -740,7 +745,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续删除' }))
     fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
     fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
 
@@ -770,11 +776,41 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '同步全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步工作夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '同步所选工作夹' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步完成 1 个，跳过 1 个，失败 1 个')
     expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(1, '100', { kind: 'folder', folderId: 'bilimi-logical:inbox' })
     expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(3, '100', { kind: 'folder', folderId: 'bilimi-logical:games' })
+  })
+
+  it('keeps deselected work folders visible so they can be selected again before a top-level operation', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-13T00:00:00.000Z', videoCount: 0, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical', logicalLedgerId: 'ideas', syncState: 'bound' }
+        ], physicalShardCount: 2, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步工作夹' }))
+
+    const music = await screen.findByRole('checkbox', { name: 'Music' })
+    const ideas = screen.getByRole('checkbox', { name: 'Ideas' })
+    expect(music).toBeChecked()
+    expect(ideas).toBeChecked()
+    fireEvent.click(ideas)
+    expect(ideas).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Ideas' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Ideas' }))
+    expect(screen.getByRole('checkbox', { name: 'Ideas' })).toBeChecked()
   })
 
   it('keeps managed-folder deletion in an overlay so the three-column workspace remains intact', () => {

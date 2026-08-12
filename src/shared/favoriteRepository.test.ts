@@ -30,6 +30,28 @@ function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): 
 }
 
 describe('account favorite repository contracts', () => {
+  it('clears selected work-folder organization relationships without deleting the folders or remote bindings', () => {
+    const now = '2026-08-13T00:00:00.000Z'
+    const base = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })
+    const snapshot = applyFavoriteRepositoryCommand(applyFavoriteRepositoryCommand(base, {
+      id: 'music-binding', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [1, 2], remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'music-remote' }
+    }, now), {
+      id: 'games-binding', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'games', logicalTitle: 'bilimi·游戏', shardNumber: 1, memberAids: [2, 3], remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteFolderId: 'games-remote' }
+    }, now)
+
+    const cleared = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'clear-music-records', accountMid: '100', issuedAt: now, expectedRevision: snapshot.revision,
+      type: 'clear-local-managed-folder-records', payload: { logicalFolderIds: ['bilimi-logical:music'] }
+    }, now)
+
+    expect(cleared.folders).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'bilimi-logical:music' })]))
+    expect(cleared.physicalShards).toEqual(expect.arrayContaining([expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'music-remote' })]))
+    expect(cleared.memberships['bilimi-logical:music']).toEqual([])
+    expect(cleared.memberships['bilimi-logical:games']).toEqual([2, 3])
+    expect(cleared.memberships['local:inbox']).toEqual(expect.arrayContaining([1]))
+  })
   it('preserves migrated managed binding identity for live inventory verification', () => {
     const now = '2026-07-24T00:00:00.000Z'
     const base = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })

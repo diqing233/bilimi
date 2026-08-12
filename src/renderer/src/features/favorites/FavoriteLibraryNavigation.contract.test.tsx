@@ -263,7 +263,7 @@ describe('FavoriteLibraryNavigation contract', () => {
   it('marks workspace and individual managed-folder deletion controls as danger actions', () => {
     const label = chinese(0x5de5, 0x4f5c, 0x5939)
     const remove = chinese(0x5220, 0x9664)
-    const removeAll = chinese(0x5220, 0x9664, 0x5168, 0x90e8, 0x5de5, 0x4f5c, 0x5939)
+    const removeAll = chinese(0x5220, 0x9664, 0x5de5, 0x4f5c, 0x5939)
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'workspace', label, items: [{ id: 'folder:managed', label, count: 7, managed: true }] }]}
       collapsedGroups={{}}

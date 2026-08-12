@@ -131,7 +131,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     expect(screen.getByRole('progressbar', { name: '收藏扫描进度' })).toHaveValue(21)
-    expect(screen.getByText('21 / 40 条')).toBeInTheDocument()
+    expect(screen.getByText('已读取 21 个去重视频 · 本轮共 40 条收藏关系')).toBeInTheDocument()
     expect(screen.queryByLabelText('标签识别进度')).not.toBeInTheDocument()
   })
 
@@ -353,8 +353,8 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮视频')).toHaveTextContent('本轮视频7')
-    expect(screen.getByLabelText('本轮视频')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
+    expect(screen.getByLabelText('本轮收藏关系')).toHaveTextContent('本轮收藏关系7')
+    expect(screen.getByLabelText('本轮收藏关系')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理1')
     expect(screen.getByLabelText('本轮待整理')).toHaveAttribute('title', '已选来源中去重后，扣除失效视频和已保护视频的数量。')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过2')
@@ -385,11 +385,34 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     const metrics = screen.getByLabelText('本轮整理统计')
-    expect(metrics).toHaveTextContent('本轮视频40')
+    expect(metrics).toHaveTextContent('本轮收藏关系5193')
     expect(metrics).toHaveTextContent('本轮待整理待确认')
     expect(metrics).toHaveTextContent('已保护跳过待确认')
     expect(metrics).toHaveTextContent('失效视频待确认')
     expect(within(metrics).queryByText('本批视频')).not.toBeInTheDocument()
+  })
+
+  it('keeps deduplicated reads separate from the collection-relationship total while scanning', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'incremental',
+        segmentSize: 2_000, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0, totalItemCount: 4_949, scannedItemCount: 1_831 },
+        inventoryMetrics: {
+          authority: 'incomplete', relationshipCount: 4_949, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0,
+          sourceFolders: []
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByText('已读取 1831 个去重视频 · 本轮共 4949 条收藏关系')).toBeInTheDocument()
+    expect(screen.queryByText('1831 / 4949 条')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('本轮收藏关系')).toHaveTextContent('本轮收藏关系4949')
   })
 
   it('separates source, pending, protected, and tag-read counts without calling empty cached items confirmed untagged', () => {
@@ -409,7 +432,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮视频246')
+    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮收藏关系246')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮待整理25')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('已保护跳过221')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签0')
@@ -652,7 +675,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮视频')).toHaveTextContent('本轮视频0')
+    expect(screen.getByLabelText('本轮收藏关系')).toHaveTextContent('本轮收藏关系332')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理待确认')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过待确认')
     expect(screen.getByLabelText('失效视频')).toHaveTextContent('失效视频待确认')
