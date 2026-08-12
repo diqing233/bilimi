@@ -1510,6 +1510,9 @@ export default function App() {
         if (trustedFolderIds.length) {
           return { ...ledger, bilibiliFolderId: trustedFolderIds[0], bilibiliFolderIds: trustedFolderIds, bindingState: 'bound' as const }
         }
+        if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledger.bilibiliFolderId) {
+          return ledger
+        }
         // Settings carry user preference only. Remote writes require the repository's formal binding.
         const {
           bilibiliFolderId: _bilibiliFolderId,

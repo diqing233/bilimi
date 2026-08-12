@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, statusLightTooltipParts, suppressRemoteDraftReminder } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, ledgersForFavoriteBackup, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, statusLightTooltipParts, suppressRemoteDraftReminder } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -33,6 +33,19 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('keeps recovered remote drafts out of a bulk backup until the owner explicitly rebinds them', () => {
+    const recoveredDraft: FavoriteLedger = {
+      id: 'custom-remote-game', displayName: 'bilimi·游戏专区', keywords: [], enabled: false,
+      priority: 20_000, bilibiliFolderId: '88', bilibiliFolderIds: ['88'],
+      bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }
+
+    expect(ledgersForFavoriteBackup([recoveredDraft])).toEqual([recoveredDraft])
+    expect(ledgersForFavoriteBackup([{ ...recoveredDraft, bilibiliFolderId: undefined, bilibiliFolderIds: undefined }])).toEqual([
+      expect.objectContaining({ syncState: undefined })
+    ])
+  })
+
   it('suppresses a dismissed remote-only draft from refreshed favorite status', () => {
     const remoteDraftStatus = {
       ok: true,

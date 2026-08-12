@@ -838,7 +838,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
     expect(screen.getByTestId('favorite-ledger-chip-custom-remote-hello')).toHaveTextContent('未保存 · 待恢复')
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未保存 · 待恢复')
-    expect(screen.getByText('检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未保存待恢复。尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。')).toBeInTheDocument()
+    expect(screen.getByText((_, element) => element?.textContent === '检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未保存待恢复。请先编辑保存好收藏夹规则，再点击“备册”恢复绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。')).toBeInTheDocument()
   })
 
   it('confirms every selected recovery shard in one backup operation', async () => {

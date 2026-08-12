@@ -191,6 +191,15 @@ export function resolveWorkspaceGuidanceAnnouncement(
   return 'none'
 }
 
+/** Bulk backup must leave remote-only recovery drafts untouched until the owner explicitly rebinds them. */
+export function ledgersForFavoriteBackup(ledgers: FavoriteLedger[]): FavoriteLedger[] {
+  return ledgers.map((ledger) =>
+    ledger.syncState === 'local-draft' && !ledger.bilibiliFolderId
+      ? { ...ledger, syncState: undefined }
+      : ledger
+  )
+}
+
 export function statusLightNavigation(id: StatusLightId, _activeView: AssistantWorkspaceView) {
   if (id === 'deepseek') return { tab: 'settings' as const, section: 'deepseek' as const }
   if (id === 'transcription') return { tab: 'notes' as const, view: 'notes' as const }
@@ -4838,9 +4847,7 @@ export function FloatingAssistantApp({
     favoriteLedgers: AssistantPreferences['favoriteLedgers'],
     options?: FavoriteLedgerSaveOptions
   ) {
-    return saveFavoriteLedgers(favoriteLedgers.map((ledger) =>
-      ledger.syncState === 'local-draft' ? { ...ledger, syncState: undefined } : ledger
-    ), options)
+    return saveFavoriteLedgers(ledgersForFavoriteBackup(favoriteLedgers), options)
   }
 
   async function retryQueuedVideoAudioTranscriptionOnCpu(id: string) {
