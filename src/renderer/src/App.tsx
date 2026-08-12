@@ -1536,6 +1536,11 @@ export default function App() {
     const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
     const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
     for (const ledger of resultLedgers) {
+      // A discovered same-name candidate remains explicitly unbound until the
+      // owner confirms it in the rebind dialog. Older successful create
+      // responses may omit bindingState, so only an explicit unbound state is
+      // excluded here.
+      if (ledger.bindingState === 'unbound') continue
       const remoteFolderId = ledger.bilibiliFolderId?.trim()
       if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()

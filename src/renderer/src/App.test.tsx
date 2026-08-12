@@ -1549,6 +1549,36 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
+  it('does not adopt an unbound remote candidate before the user confirms rebinding', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: false,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bindingState: 'unbound' }],
+        steps: ['api:ledger:list'],
+        missingTargets: ['game'],
+        unboundLedgerIds: ['game'],
+        unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: '88', title: game.displayName, memberCount: 1000 }] }],
+        message: '发现未绑定的 bilimi 收藏夹。'
+      }))
+    })
+
+    await expect(requestRuntime({ id: 'unconfirmed-rebind', type: 'ensure-ledgers' })).resolves.toMatchObject({
+      ok: false,
+      unboundLedgerIds: ['game']
+    })
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+  })
+
   it('adopts every confirmed recovery shard for one logical ledger', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
