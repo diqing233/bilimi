@@ -21,13 +21,10 @@ type ProjectionRepository = {
 }
 
 function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositorySnapshot, ledgers: FavoriteLedger[]) {
-  const configuredBindings = new Set(ledgers.flatMap((ledger) => {
-    const remoteFolderId = ledger.bilibiliFolderId?.trim()
-    return remoteFolderId ? [`${ledger.id}\u0000${remoteFolderId}`] : []
-  }))
+  const configuredLedgerIds = new Set(ledgers.map((ledger) => ledger.id.trim()).filter(Boolean))
   const boundLogicalIdByRemoteId = new Map(snapshot.physicalShards
     .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId &&
-      configuredBindings.has(`${shard.logicalLedgerId}\u0000${shard.remoteFolderId}`))
+      configuredLedgerIds.has(shard.logicalLedgerId))
     .map((shard) => [shard.remoteFolderId!, shard.logicalLedgerId]))
   const pendingByLogicalId = new Map<string, typeof snapshot.physicalShards>()
   for (const shard of snapshot.physicalShards) {

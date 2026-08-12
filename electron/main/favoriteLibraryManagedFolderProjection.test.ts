@@ -179,6 +179,49 @@ describe('favorite library managed folder projection', () => {
     }))
   })
 
+  it('uses the repository binding when settings no longer retain the remote folder id', async () => {
+    const remoteFolderId = '4050295454'
+    let current = {
+      ...snapshot([{ id: remoteFolderId, title: 'bilimi\u00b7创意美学' }]),
+      folders: [
+        ...snapshot([{ id: remoteFolderId, title: 'bilimi\u00b7创意美学' }]).folders,
+        { id: 'bilimi-logical:creative-aesthetic', title: 'bilimi\u00b7创意美学', kind: 'bilimi-logical' as const, logicalLedgerId: 'creative-aesthetic', syncState: 'bound' as const },
+        { id: 'bilimi-logical:custom-stale', title: 'bilimi\u00b7创意美学', kind: 'bilimi-logical' as const, logicalLedgerId: 'custom-stale', syncState: 'pending-reconcile' as const }
+      ],
+      memberships: {
+        [`bilibili:${remoteFolderId}`]: [],
+        'bilimi:creative-aesthetic:001': [],
+        'bilimi-logical:creative-aesthetic': [],
+        'bilimi:custom-stale:001': [],
+        'bilimi-logical:custom-stale': []
+      },
+      physicalShards: [
+        { logicalLedgerId: 'creative-aesthetic', folderId: 'bilimi:creative-aesthetic:001', shardNumber: 1, remoteTitle: 'bilimi\u00b7创意美学', bindingState: 'bound' as const, remoteFolderId, remoteMemberCount: 0 },
+        { logicalLedgerId: 'custom-stale', folderId: 'bilimi:custom-stale:001', shardNumber: 1, remoteTitle: 'bilimi\u00b7创意美学', bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: [remoteFolderId] }
+      ]
+    }
+    const commit = vi.fn(async (_accountMid: string, command: import('../../src/shared/favoriteRepository').FavoriteRepositoryCommand) => {
+      if (command.type === 'delete-local-managed-folder') {
+        current = {
+          ...current,
+          folders: current.folders.filter((folder) => folder.logicalLedgerId !== command.payload.logicalFolderId.replace('bilimi-logical:', '')),
+          physicalShards: current.physicalShards.filter((shard) => shard.logicalLedgerId !== command.payload.logicalFolderId.replace('bilimi-logical:', ''))
+        }
+      }
+      return current as never
+    })
+
+    await restoreFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7创意美学')],
+      isDismissed: () => false, now: () => '2026-08-03T00:00:00.000Z'
+    })
+
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'delete-local-managed-folder', payload: { logicalFolderId: 'bilimi-logical:custom-stale' }
+    }))
+  })
+
   it.each([
     {
       label: 'ambiguous remote evidence',
