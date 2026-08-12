@@ -31,7 +31,7 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
-  it('groups numbered physical folders under one logical draft without granting a bound remote deletion', () => {
+  it('recovers numbered physical folders beneath the configured logical ledger without granting a bound remote deletion', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([
         { id: 'game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', aids: [1] },
@@ -42,8 +42,8 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toEqual([
-      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1'] }),
-      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2'] })
+      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1'] }),
+      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2'] })
     ])
     expect(result.every((candidate) => candidate.remoteFolderId === undefined)).toBe(true)
   })
@@ -65,7 +65,7 @@ describe('favorite library managed folder projection', () => {
     })
   })
 
-  it('does not bind a same-title remote folder without explicit binding evidence', () => {
+  it('recovers a same-title remote folder under its configured ledger without explicit binding evidence', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([{ id: '9', title: 'bilimi\u00b7音乐' }]),
       ledgers: [ledger('music', 'bilimi\u00b7音乐')],
@@ -73,7 +73,7 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toMatchObject([{
-      logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7音乐', bindingState: 'pending-reconcile',
+      logicalLedgerId: 'music', logicalTitle: 'bilimi\u00b7音乐', bindingState: 'pending-reconcile',
       knownRemoteFolderIds: ['9']
     }])
   })
@@ -99,7 +99,7 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toEqual([expect.objectContaining({
-      logicalLedgerId: expect.stringMatching(/^custom-/), shardNumber: 1, bindingState: 'pending-reconcile',
+      logicalLedgerId: 'music', logicalTitle: 'bilimi\u00b7音乐', shardNumber: 1, bindingState: 'pending-reconcile',
       knownRemoteFolderIds: ['duplicate-a', 'duplicate-b'], memberAids: []
     })])
   })

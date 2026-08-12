@@ -528,7 +528,9 @@ describe('favorite ledger API scripts', () => {
       ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)
     )
     expect(result.unboundLedgerIds).toEqual(['knowledge'])
-    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBeUndefined()
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')).toEqual(expect.objectContaining({
+      bilibiliFolderId: '1', bilibiliFolderIds: ['1'], bindingState: 'unbound'
+    }))
   })
 
   it('reports an existing bilimi-prefixed folder as an explicit rebind candidate instead of binding by name', async () => {
@@ -620,6 +622,35 @@ describe('favorite ledger API scripts', () => {
       bindingState: 'unbound',
       syncState: 'local-draft'
     })])
+  })
+
+  it('attaches same-title remote shards to the existing default ledger as a recovery candidate', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 88, title: 'bilimi·游戏专区', media_count: 1000 },
+          { id: 89, title: 'bilimi·游戏专区·02', media_count: 6 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const result = await window.eval(buildFavoriteLedgerStatusScript([game]))
+
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({
+        id: 'game',
+        bilibiliFolderId: '88',
+        bilibiliFolderIds: ['88', '89'],
+        bindingState: 'unbound'
+      })
+    ])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: expect.stringMatching(/^custom-remote-/) })
+    ]))
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
   })
 
   it('removes a historical remote-only draft that only repeats an already-bound logical folder', async () => {

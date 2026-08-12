@@ -79,6 +79,12 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
+  // Display-name matching is recovery projection only, never a formal binding.
+  // It restores the existing logical card after a local reset so that the user
+  // can explicitly confirm its Bilibili candidates in the backup dialog.
+  const configuredLedgersByLogicalTitle = new Map(input.ledgers
+    .map((ledger) => [normalizedLedgerDisplayTitle(ledger.displayName), ledger] as const)
+    .filter(([title]) => Boolean(title)))
   const formalBindingsByRemoteId = new Map(input.snapshot.physicalShards
     .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
     .map((shard) => [shard.remoteFolderId!, shard]))
@@ -96,9 +102,10 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // confirm the same remote ID and logical ledger before this is considered bound.
     // A saved remote ID can restore the local logical identity as an unbound
     // candidate, but only a repository shard makes it a formal binding.
-    const ledger = configuredById && normalizedLedgerDisplayTitle(configuredById.displayName) === normalizedLedgerDisplayTitle(baseTitle)
+    const logicalTitleKey = normalizedLedgerDisplayTitle(baseTitle)
+    const ledger = configuredById && normalizedLedgerDisplayTitle(configuredById.displayName) === logicalTitleKey
       ? configuredById
-      : undefined
+      : configuredLedgersByLogicalTitle.get(logicalTitleKey)
     const logicalTitle = ledger?.displayName.trim() || baseTitle
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     const bound = Boolean(ledger && formalBinding && formalBinding.logicalLedgerId === ledger.id && formalBinding.shardNumber === shardNumber)

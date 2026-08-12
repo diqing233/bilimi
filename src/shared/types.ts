@@ -69,6 +69,8 @@ export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
   /** Explicit user choices from the rebind confirmation dialog. */
   rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
+  /** All confirmed physical Bilibili folders for one recovered logical ledger. */
+  rebindRemoteFolders?: Record<FavoriteLedgerId, Array<{ id: string; title: string }>>
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'

@@ -1488,16 +1488,27 @@ export default function App() {
     const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
       ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
       : null
-    const trustedRemoteFolderIds = new Map((repositorySummary?.folders ?? [])
-      .filter((folder) => folder.kind === 'bilimi-logical' && folder.syncState === 'bound' && folder.logicalLedgerId && folder.remoteFolderId)
-      .map((folder) => [folder.logicalLedgerId!, folder.remoteFolderId!] as const))
+    const trustedRemoteFolderIds = new Map<string, string[]>()
+    const repositoryShards = repositorySummary?.physicalShards ?? []
+    for (const shard of repositoryShards) {
+      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+      const ids = trustedRemoteFolderIds.get(shard.logicalLedgerId) ?? []
+      if (!ids.includes(shard.remoteFolderId)) ids.push(shard.remoteFolderId)
+      trustedRemoteFolderIds.set(shard.logicalLedgerId, ids)
+    }
+    if (!repositoryShards.length) {
+      for (const folder of repositorySummary?.folders ?? []) {
+        if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId || !folder.remoteFolderId) continue
+        trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
+      }
+    }
 
     return {
       trustedRemoteFolderIds,
       ledgers: favoriteLedgers.map((ledger) => {
-        const trustedRemoteFolderId = trustedRemoteFolderIds.get(ledger.id)
-        if (trustedRemoteFolderId) {
-          return { ...ledger, bilibiliFolderId: trustedRemoteFolderId, bindingState: 'bound' as const }
+        const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
+        if (trustedFolderIds.length) {
+          return { ...ledger, bilibiliFolderId: trustedFolderIds[0], bilibiliFolderIds: trustedFolderIds, bindingState: 'bound' as const }
         }
         // Settings carry user preference only. Remote writes require the repository's formal binding.
         const {
@@ -1516,31 +1527,36 @@ export default function App() {
     accountMid: string,
     inputLedgers: FavoriteLedger[],
     resultLedgers: FavoriteLedger[],
-    rebindRemoteFolderIds?: Record<string, string>
+    rebindRemoteFolderIds?: Record<string, string>,
+    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string }>>
   ) {
     const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
-    const registrations = new Map<string, { ledger: FavoriteLedger; remoteFolderId: string }>()
+    const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
     for (const ledger of resultLedgers) {
       const remoteFolderId = ledger.bilibiliFolderId?.trim()
       if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
       if (explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
-        registrations.set(ledger.id, { ledger, remoteFolderId })
+        const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
+        const folders = selectedFolders.length ? selectedFolders : [{ id: remoteFolderId, title: ledger.displayName }]
+        for (const [index, folder] of folders.entries()) {
+          registrations.push({ ledger, remoteFolderId: folder.id.trim(), remoteTitle: folder.title.trim() || ledger.displayName, shardNumber: index + 1 })
+        }
       }
     }
 
     const failures: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }> = []
-    for (const { ledger, remoteFolderId } of registrations.values()) {
+    for (const { ledger, remoteFolderId, remoteTitle, shardNumber } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
         failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
         continue
       }
       try {
         await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(accountMid, {
-          logicalLedgerId: ledger.id,
+          logicalLedgerId: ledger.id, shardNumber,
           logicalTitle: ledger.displayName,
           remoteFolderId,
-          remoteTitle: ledger.displayName
+          remoteTitle
         })
       } catch {
         failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
@@ -1862,11 +1878,22 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const resultLedgers = result.ledgers.map((ledger) => {
+        const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
+        if (!confirmedFolders.length) return ledger
+        return {
+          ...ledger,
+          bilibiliFolderId: confirmedFolders[0].id,
+          bilibiliFolderIds: confirmedFolders.map((folder) => folder.id),
+          bilibiliFolderTitle: confirmedFolders[0].title
+        }
+      })
       const bindingFailures = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
-        result.ledgers,
-        options?.rebindRemoteFolderIds
+        resultLedgers,
+        options?.rebindRemoteFolderIds,
+        options?.rebindRemoteFolders
       )
       if (bindingFailures.length) {
         return {
@@ -1878,7 +1905,7 @@ export default function App() {
         }
       }
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, resultLedgers)
       })
       preferencesRef.current = nextPreferences
       setPreferences(nextPreferences)
@@ -1894,7 +1921,14 @@ export default function App() {
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
     }
 
-    return result
+    return Array.isArray(result.ledgers) && options?.rebindRemoteFolders
+      ? { ...result, ledgers: result.ledgers.map((ledger) => {
+        const confirmedFolders = options.rebindRemoteFolders?.[ledger.id] ?? []
+        return confirmedFolders.length
+          ? { ...ledger, bilibiliFolderId: confirmedFolders[0].id, bilibiliFolderIds: confirmedFolders.map((folder) => folder.id), bilibiliFolderTitle: confirmedFolders[0].title }
+          : ledger
+      }) }
+      : result
   }
 
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {

@@ -1549,6 +1549,47 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
+  it('adopts every confirmed recovery shard for one logical ledger', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '备册完成。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'recover-game', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: { game: [
+          { id: '88', title: 'bilimi·游戏专区' },
+          { id: '89', title: 'bilimi·游戏专区·02' }
+        ] }
+      }
+    })).resolves.toMatchObject({
+      ok: true,
+      ledgers: [expect.objectContaining({ bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'] })]
+    })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·游戏专区'
+    }))
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '89', remoteTitle: 'bilimi·游戏专区·02'
+    }))
+  })
+
   it('provisions one requested ledger while retaining every other account ledger', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers()

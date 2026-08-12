@@ -213,6 +213,38 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
+  it('adopts every confirmed physical shard for one logical ledger', async () => {
+    const repository = await createRepository()
+    const inventory = [
+      { id: 'game-1', title: 'bilimi·游戏专区', memberCount: 1000, memberAids: [] },
+      { id: 'game-2', title: 'bilimi·游戏专区·02', memberCount: 6, memberAids: [] }
+    ]
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: inventory }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区',
+      expectedRemoteTitle: 'bilimi·游戏专区', remoteFolderId: 'game-1', shardNumber: 1, memberAids: []
+    })
+    await service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区·02',
+      expectedRemoteTitle: 'bilimi·游戏专区·02', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
+    })
+
+    expect((await service.getBindings('100')).shards).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: 'game-1', bindingState: 'bound' }),
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: 'game-2', bindingState: 'bound' })
+    ])
+  })
+
   it('reclaims a saved remote id after a reset retained its prior binding command result', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({

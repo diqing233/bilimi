@@ -66,6 +66,11 @@ type ManagedFolderDeletionCandidate = {
 }
 type ManagedDeletionScope = 'local-only' | 'bilibili'
 
+type RebindCandidateEntry = {
+  ledgerId: string
+  candidates: Array<{ id: string; title: string; memberCount: number }>
+}
+
 const LEDGER_SYNC_HINTS = [
   { title: '小咪提醒：', detail: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' },
   { title: '自定义收藏夹：', detail: '点击收藏夹名称可以编辑；按住并拖动可调整顺序。' },
@@ -151,7 +156,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
-    ? '未绑定'
+    ? '待恢复'
     : ledger.syncState === 'local-draft'
       ? '未保存'
       : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
@@ -161,7 +166,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           : ''
   const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label === '未保存'
     ? 'local-draft'
-    : ledger.bindingState ?? (label === '已备册' ? 'bound' : label === '未绑定' ? 'unbound' : 'unbacked')
+    : ledger.bindingState ?? (label === '已备册' ? 'bound' : label === '待恢复' ? 'unbound' : 'unbacked')
   const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isDefaultSystemLocked(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
@@ -185,8 +190,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [newLedger, setNewLedger] = useState(false)
   const [deletionCandidates, setDeletionCandidates] = useState<ManagedFolderDeletionCandidate[] | null>(null)
-  const [rebindCandidates, setRebindCandidates] = useState<Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }> | null>(null)
+  const [rebindCandidates, setRebindCandidates] = useState<RebindCandidateEntry[] | null>(null)
   const [rebindSelections, setRebindSelections] = useState<Record<string, string>>({})
+  const [rebindSelectedFolderIds, setRebindSelectedFolderIds] = useState<Record<string, string[]>>({})
   const [deletionConfirmed, setDeletionConfirmed] = useState(false)
   const [deletionAcknowledgedUnbound, setDeletionAcknowledgedUnbound] = useState(false)
   const [deletionScope, setDeletionScope] = useState<ManagedDeletionScope>('local-only')
@@ -201,6 +207,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const draftMutationLocked = Boolean(draftRuleAnalysis)
   const recoveredRemoteDrafts = draftLedgers.filter((ledger) =>
     ledger.syncState === 'local-draft' && Boolean(ledger.bilibiliFolderId) && !ledger.enabled)
+  const recoveredRemoteLedgers = draftLedgers.filter((ledger) =>
+    Boolean(ledger.bilibiliFolderId) &&
+    (ledger.bindingState === 'unbound' || ledger.syncState === 'local-draft'))
   const persistVersionRef = useRef(0)
   const toggleSaveTimerRef = useRef<number | null>(null)
   const pendingToggleSaveRef = useRef(new Map<string, { previous: boolean; enabled: boolean; version: number }>())
@@ -577,8 +586,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (result?.unboundCandidates?.length) {
         setRebindCandidates(result.unboundCandidates)
         setRebindSelections(Object.fromEntries(result.unboundCandidates
-          .filter((entry) => entry.candidates.length === 1)
+          .filter((entry) => entry.candidates.length)
           .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+        setRebindSelectedFolderIds(Object.fromEntries(result.unboundCandidates
+          .map((entry) => [entry.ledgerId, entry.candidates.map((candidate) => candidate.id)])))
       }
       return result
     })()
@@ -638,13 +649,20 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (!rebindCandidates || draftMutationLocked) return
     const ledgerIds = rebindCandidates.map((entry) => entry.ledgerId)
     if (ledgerIds.some((ledgerId) => !rebindSelections[ledgerId])) return
+    const rebindRemoteFolders = Object.fromEntries(rebindCandidates.map((entry) => [
+      entry.ledgerId,
+      entry.candidates.filter((candidate) => (rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id))
+        .map(({ id, title }) => ({ id, title }))
+    ]))
     const result = await onSyncLedgers(projectEnabled(draftLedgers), {
       deleteDisabled: false,
-      rebindRemoteFolderIds: rebindSelections
+      rebindRemoteFolderIds: rebindSelections,
+      rebindRemoteFolders
     }) as { ok?: boolean; unboundCandidates?: unknown } | undefined
     if (result?.ok !== false && !result?.unboundCandidates) {
       setRebindCandidates(null)
       setRebindSelections({})
+      setRebindSelectedFolderIds({})
     }
   }
   const confirmManagedDeletion = async () => {
@@ -754,7 +772,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             }}</FavoriteLedgerEnableButton>
           </div>
         })}</div>
-        {recoveredRemoteDrafts.length ? <p className="favorite-ledger-panel__notice">识别到 {recoveredRemoteDrafts.length} 个可启用的 bilimi 工作夹。设置、保存并启用后才参与分类；更换设备整理时，建议先完成本地数据迁移。</p> : null}
+        {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹，已按名称归并为 {recoveredRemoteLedgers.length} 个待恢复的收藏夹。尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
@@ -794,16 +812,24 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title="重新绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !rebindSelections[entry.ledgerId])} onCancel={() => { setRebindCandidates(null); setRebindSelections({}) }} onConfirm={() => void confirmRebinding()}>
+      {rebindCandidates ? <OldFavoriteModal title="重新绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !rebindSelections[entry.ledgerId] || !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
         <p>检测到已有的 bilimi 收藏夹。请逐项确认要复用的远端收藏夹；系统不会按同名自动绑定。</p>
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
           return <label key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
             <span>{displayTitle(ledger?.displayName ?? entry.ledgerId)}</span>
-            <select value={rebindSelections[entry.ledgerId] ?? ''} onChange={(event) => setRebindSelections((current) => ({ ...current, [entry.ledgerId]: event.currentTarget.value }))}>
+            <select aria-label={`${displayTitle(ledger?.displayName ?? entry.ledgerId)}主收藏夹`} value={rebindSelections[entry.ledgerId] ?? ''} onChange={(event) => setRebindSelections((current) => ({ ...current, [entry.ledgerId]: event.currentTarget.value }))}>
               <option value="">请选择</option>
               {entry.candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title}（{candidate.memberCount} 个视频）</option>)}
             </select>
+            <div className="favorite-ledger-panel__rebind-candidates">
+              {entry.candidates.map((candidate) => <label key={candidate.id}><input type="checkbox" checked={(rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => ({
+                ...current,
+                [entry.ledgerId]: event.currentTarget.checked
+                  ? [...new Set([...(current[entry.ledgerId] ?? []), candidate.id])]
+                  : (current[entry.ledgerId] ?? []).filter((id) => id !== candidate.id)
+              }))} />{candidate.title}（{candidate.memberCount} 个视频）</label>)}
+            </div>
           </label>
         })}
       </OldFavoriteModal> : null}

@@ -685,8 +685,8 @@ describe('FavoriteLedgerOverview', () => {
       onSaveLedgerEnabled={saveEnabled}
     />)
 
-    expect(screen.getByText(/识别到 1 个可启用的 bilimi 工作夹/)).toBeInTheDocument()
-    expect(screen.getByText(/更换设备.*本地数据迁移/)).toBeInTheDocument()
+    expect(document.querySelector('.favorite-ledger-panel__notice')).toHaveTextContent('1')
+    expect(screen.getByText(/更换电脑.*迁移本地数据/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '原神' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '加入同步 原神' })).toBeDisabled()
 
@@ -793,7 +793,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
-  it('shows an unbound state before the unsaved marker for a recovered remote draft', () => {
+  it('shows the pending recovery state before the unsaved marker for a recovered remote draft', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
       bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
@@ -803,7 +803,34 @@ describe('FavoriteLedgerOverview', () => {
 
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
-    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未绑定')
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('待恢复')
+  })
+
+  it('confirms every selected recovery shard in one backup operation', async () => {
+    const candidates = [{ ledgerId: 'game', candidates: [
+      { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
+      { id: '89', title: 'bilimi·游戏专区·02', memberCount: 6 }
+    ] }]
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: candidates })
+      .mockResolvedValueOnce({ ok: true })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'], bindingState: 'unbound', isDefault: true
+    }]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+    expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false })
+    await screen.findByText('重新绑定 bilimi 收藏夹')
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
+      rebindRemoteFolderIds: { game: '88' },
+      rebindRemoteFolders: { game: [
+        { id: '88', title: 'bilimi·游戏专区' },
+        { id: '89', title: 'bilimi·游戏专区·02' }
+      ] }
+    })))
   })
 
   it('dismisses every physical Bilibili folder behind one recovered draft', () => {

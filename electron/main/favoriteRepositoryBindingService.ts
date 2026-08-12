@@ -453,10 +453,11 @@ export class FavoriteRepositoryBindingService {
         })
         if (normalizedAccountMid(inventory.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
         const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
+        const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*\d{2,}$/u, '').trim()
         return ledgers.map((ledger) => ({
           ledgerId: ledger.ledgerId.trim(),
           candidates: inventory.folders
-            .filter((folder) => normalize(folder.title) === normalize(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
+            .filter((folder) => normalizeLogicalTitle(folder.title) === normalizeLogicalTitle(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
             .map((folder) => ({ id: folder.id, title: folder.title, memberCount: folder.memberCount }))
         })).filter((entry) => entry.ledgerId && entry.candidates.length)
       } finally {

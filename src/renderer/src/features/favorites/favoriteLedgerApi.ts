@@ -136,12 +136,14 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
+    // A Bilibili “·02” suffix denotes a capacity shard, not another logical ledger.
+    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*\\d{2,}$/u, '').trim();
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
-      const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
+      const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
       return folders
         .filter((candidate) => isBilimiManagedFolder(candidate) &&
-          normalizeFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate))
+          normalizeLogicalFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate))
         .map((candidate) => ({
           id: String(findFolderId(candidate)),
           title: String(candidate.title || ''),
@@ -159,14 +161,14 @@ function sharedScriptHelpers(): string {
           .filter(([folderId]) => folderId)
       );
       return ledgers.map((ledger) => {
-        const normalizedLedgerTitle = normalizeFolderTitle(ledger.displayName);
+        const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
         const candidates = remoteFolderCandidates(ledger, folders);
         const selectedRemoteFolderId = String(selectedRemoteFolderIds?.[ledger.id] || '').trim();
         const selectedFolder = selectedRemoteFolderId
           ? folderById.get(selectedRemoteFolderId)
           : null;
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
-          normalizeFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
+          normalizeLogicalFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
           return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
         // A persisted binding is keyed by the remote folder ID. Bilibili users
@@ -182,6 +184,10 @@ function sharedScriptHelpers(): string {
           return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: 'bound' };
         }
 
+        if (candidates.length && (ledger.isDefault || ledger.id === 'inbox')) {
+          const folderIds = candidates.map((candidate) => candidate.id);
+          return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: candidates[0].title, bilibiliFolderVideoCount: candidates.reduce((count, candidate) => count + candidate.memberCount, 0), bindingState: 'unbound' };
+        }
         const { bilibiliFolderId, bilibiliFolderIds, bilibiliFolderTitle, bilibiliFolderVideoCount, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
         return {
           ...ledgerWithoutStaleFolderId,
@@ -205,7 +211,7 @@ function sharedScriptHelpers(): string {
       const ledgerIndexById = new Map();
       const remoteDraftIndexByTitle = new Map();
       for (const ledger of ledgers) {
-        const normalizedTitle = normalizeFolderTitle(ledger.displayName);
+        const normalizedTitle = normalizeLogicalFolderTitle(ledger.displayName);
         const isRemoteDraft = ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' &&
           isBilimiManagedFolder({ title: ledger.displayName }) && ledgerRemoteFolderIds(ledger).length > 0;
         const sameRemoteDraftIndex = isRemoteDraft ? remoteDraftIndexByTitle.get(normalizedTitle) : undefined;
@@ -239,7 +245,7 @@ function sharedScriptHelpers(): string {
       const boundFolderIdsByTitle = new Map();
       for (const ledger of nextLedgers) {
         if (ledger.syncState === 'local-draft' || ledger.bindingState !== 'bound') continue;
-        const normalizedTitle = normalizeFolderTitle(ledger.displayName);
+        const normalizedTitle = normalizeLogicalFolderTitle(ledger.displayName);
         if (!normalizedTitle) continue;
         const folderIds = boundFolderIdsByTitle.get(normalizedTitle) || new Set();
         for (const folderId of ledgerRemoteFolderIds(ledger)) folderIds.add(folderId);
@@ -248,7 +254,7 @@ function sharedScriptHelpers(): string {
       const deduplicatedLedgers = nextLedgers.filter((ledger) => {
         if (ledger.syncState !== 'local-draft' || !isBilimiManagedFolder({ title: ledger.displayName })) return true;
         const folderIds = ledgerRemoteFolderIds(ledger);
-        const boundFolderIds = boundFolderIdsByTitle.get(normalizeFolderTitle(ledger.displayName));
+        const boundFolderIds = boundFolderIdsByTitle.get(normalizeLogicalFolderTitle(ledger.displayName));
         return !folderIds.length || !boundFolderIds || !folderIds.every((folderId) => boundFolderIds.has(folderId));
       });
       ledgerIndexById.clear();
@@ -256,7 +262,7 @@ function sharedScriptHelpers(): string {
       deduplicatedLedgers.forEach((ledger, index) => {
         ledgerIndexById.set(ledger.id, index);
         if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && isBilimiManagedFolder({ title: ledger.displayName })) {
-          remoteDraftIndexByTitle.set(normalizeFolderTitle(ledger.displayName), index);
+          remoteDraftIndexByTitle.set(normalizeLogicalFolderTitle(ledger.displayName), index);
         }
       });
       const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
@@ -266,14 +272,14 @@ function sharedScriptHelpers(): string {
       // kept separate so the owner can choose which one to bind.
       const localRebindTitles = new Set(deduplicatedLedgers
         .filter((ledger) => ledger.bindingState === 'unbound' && !isBilimiManagedFolder({ title: ledger.displayName }))
-        .map((ledger) => normalizeFolderTitle(ledger.displayName)));
+        .map((ledger) => normalizeLogicalFolderTitle(ledger.displayName)));
       let priority = deduplicatedLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       const foldersByTitle = new Map();
       for (const folder of folders) {
         if (!isBilimiManagedFolder(folder)) continue;
         const folderId = String(findFolderId(folder) || '').trim();
         const displayName = String(folder.title || '').trim();
-        const normalizedTitle = normalizeFolderTitle(displayName);
+        const normalizedTitle = normalizeLogicalFolderTitle(displayName);
         if (!folderId || dismissedIds.has(folderId) || knownRemoteFolderIds.has(folderId) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
         const group = foldersByTitle.get(normalizedTitle) || [];
         group.push({ folder, folderId, displayName });

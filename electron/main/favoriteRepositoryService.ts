@@ -73,6 +73,7 @@ type FavoriteRepositoryCommandReceipt = {
 type FavoriteRepositoryLibraryIndex = {
   revision: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  physicalShards: import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard[]
   folderConflicts: Array<{ title: string; folderIds: string[]; reason: string; candidates: Array<{ id: string; title: string }> }>
   allAids: number[]
   recycledAids: number[]
@@ -507,6 +508,7 @@ export class FavoriteRepositoryService {
       videoCount: index.allAids.length,
       folderCount: projectedFolders.length,
       folders: projectedFolders.map((folder) => ({ ...folder })),
+      physicalShards: snapshot.physicalShards.map((shard) => ({ ...shard, knownRemoteFolderIds: shard.knownRemoteFolderIds ? [...shard.knownRemoteFolderIds] : undefined })),
       folderCounts: Object.fromEntries(projectedFolders.map((folder) => [folder.id, projectedFolderAids(folder.id).length])),
       workspaceVideoCount,
       otherFavoriteVideoCount,
