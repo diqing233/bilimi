@@ -176,6 +176,7 @@ function sharedScriptHelpers(): string {
           .map((folderId) => folderById.get(folderId))
           .filter(Boolean);
         if (storedFolders.length) {
+          if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound') return ledger;
           const primaryFolder = storedFolders[0];
           const folderIds = storedFolders.map((folder) => String(findFolderId(folder)));
           return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: 'bound' };
@@ -231,15 +232,42 @@ function sharedScriptHelpers(): string {
           nextLedgers[existingIndex] = ledger;
         }
       }
+      // An older discovery pass could persist a remote-only draft even though
+      // every one of its physical folder IDs already belongs to the same
+      // title's bound logical folder. This is a duplicate projection, not an
+      // ambiguous same-name Bilibili folder, so it can be safely discarded.
+      const boundFolderIdsByTitle = new Map();
+      for (const ledger of nextLedgers) {
+        if (ledger.syncState === 'local-draft' || ledger.bindingState !== 'bound') continue;
+        const normalizedTitle = normalizeFolderTitle(ledger.displayName);
+        if (!normalizedTitle) continue;
+        const folderIds = boundFolderIdsByTitle.get(normalizedTitle) || new Set();
+        for (const folderId of ledgerRemoteFolderIds(ledger)) folderIds.add(folderId);
+        boundFolderIdsByTitle.set(normalizedTitle, folderIds);
+      }
+      const deduplicatedLedgers = nextLedgers.filter((ledger) => {
+        if (ledger.syncState !== 'local-draft' || !isBilimiManagedFolder({ title: ledger.displayName })) return true;
+        const folderIds = ledgerRemoteFolderIds(ledger);
+        const boundFolderIds = boundFolderIdsByTitle.get(normalizeFolderTitle(ledger.displayName));
+        return !folderIds.length || !boundFolderIds || !folderIds.every((folderId) => boundFolderIds.has(folderId));
+      });
+      ledgerIndexById.clear();
+      remoteDraftIndexByTitle.clear();
+      deduplicatedLedgers.forEach((ledger, index) => {
+        ledgerIndexById.set(ledger.id, index);
+        if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && isBilimiManagedFolder({ title: ledger.displayName })) {
+          remoteDraftIndexByTitle.set(normalizeFolderTitle(ledger.displayName), index);
+        }
+      });
       const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-      const knownRemoteFolderIds = new Set(nextLedgers.flatMap(ledgerRemoteFolderIds));
+      const knownRemoteFolderIds = new Set(deduplicatedLedgers.flatMap(ledgerRemoteFolderIds));
       // A normal local rule with the same title is an explicit rebind
       // candidate, not a remote-only draft. A local bilimi-prefixed draft is
       // kept separate so the owner can choose which one to bind.
-      const localRebindTitles = new Set(nextLedgers
+      const localRebindTitles = new Set(deduplicatedLedgers
         .filter((ledger) => ledger.bindingState === 'unbound' && !isBilimiManagedFolder({ title: ledger.displayName }))
         .map((ledger) => normalizeFolderTitle(ledger.displayName)));
-      let priority = nextLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
+      let priority = deduplicatedLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       const foldersByTitle = new Map();
       for (const folder of folders) {
         if (!isBilimiManagedFolder(folder)) continue;
@@ -259,18 +287,18 @@ function sharedScriptHelpers(): string {
         const displayName = group[0].displayName;
         const videoCount = group.reduce((count, entry) => count + Math.max(0, Number(entry.folder.media_count ?? entry.folder.count ?? 0) || 0), 0);
         if (existingIndex !== undefined) {
-          const existing = nextLedgers[existingIndex];
+          const existing = deduplicatedLedgers[existingIndex];
           if (existing.syncState === 'local-draft' && existing.bindingState === 'unbound') {
             const allFolderIds = Array.from(new Set([...ledgerRemoteFolderIds(existing), ...folderIds]));
-            nextLedgers[existingIndex] = { ...existing, bilibiliFolderId: allFolderIds[0], bilibiliFolderIds: allFolderIds, bilibiliFolderVideoCount: Math.max(0, Number(existing.bilibiliFolderVideoCount || 0)) + videoCount };
+            deduplicatedLedgers[existingIndex] = { ...existing, bilibiliFolderId: allFolderIds[0], bilibiliFolderIds: allFolderIds, bilibiliFolderVideoCount: Math.max(0, Number(existing.bilibiliFolderVideoCount || 0)) + videoCount };
             for (const folderId of allFolderIds) knownRemoteFolderIds.add(folderId);
           }
           continue;
         }
         for (const folderId of folderIds) knownRemoteFolderIds.add(folderId);
-        ledgerIndexById.set(id, nextLedgers.length);
-        remoteDraftIndexByTitle.set(normalizedTitle, nextLedgers.length);
-        nextLedgers.push({
+        ledgerIndexById.set(id, deduplicatedLedgers.length);
+        remoteDraftIndexByTitle.set(normalizedTitle, deduplicatedLedgers.length);
+        deduplicatedLedgers.push({
           id,
           displayName,
           keywords: [],
@@ -285,7 +313,7 @@ function sharedScriptHelpers(): string {
           isDefault: false
         });
       }
-      return nextLedgers;
+      return deduplicatedLedgers;
     };
   `
 }

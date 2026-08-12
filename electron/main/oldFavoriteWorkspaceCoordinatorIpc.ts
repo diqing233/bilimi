@@ -511,7 +511,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
         ? options.coordinator.beginBilibiliExecution(accountMid, { includeInbox: true })
         : options.coordinator.beginBilibiliExecution(accountMid)
     }
-    if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)
+    if (requested.type === 'execute-frozen-bilibili-plan') return options.coordinator.beginFrozenBilibiliPlanExecution(accountMid)
     if (requested.type === 'stop-bilibili-sync-and-finish') await options.coordinator.stopBilibiliSyncAndFinish(accountMid)
     if (requested.type === 'reconcile-frozen-bilibili-plan') await options.coordinator.bindAndReconcileFrozenBilibiliPlan(accountMid)
     if (requested.type === 'resume-reconciled-bilibili-plan') await options.coordinator.resumeReconciledBilibiliPlan(accountMid)

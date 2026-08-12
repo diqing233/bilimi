@@ -622,6 +622,29 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
+  it('removes a historical remote-only draft that only repeats an already-bound logical folder', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·游戏专区', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound'
+    }, {
+      id: 'custom-remote-old', displayName: 'bilimi·游戏专区', keywords: [], enabled: false, priority: 2, isDefault: false,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
+    }]))
+
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({ id: 'game', bindingState: 'bound', bilibiliFolderIds: ['88'] })
+    ])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
   it('keeps a same-name local draft separate from the remote folder until the user rebinds it', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

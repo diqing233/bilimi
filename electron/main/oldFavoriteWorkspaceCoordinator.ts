@@ -4261,6 +4261,24 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.getSnapshot(frozen.accountMid) as Promise<OldFavoriteWorkspaceSnapshot>
   }
 
+  /** Restarts a persisted frozen plan without holding the renderer request open for every remote write. */
+  async beginFrozenBilibiliPlanExecution(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    await this.backfillCompleteLocalResultIfRecoverable(accountMid)
+    const frozen = await this.queue(async () => {
+      const snapshot = await this.options.repository.getSnapshot(accountMid)
+      const workspace = snapshot.workspace
+      if (!workspace?.frozenSyncPlan || (workspace.status !== 'frozen' && workspace.status !== 'executing')) {
+        throw new Error('Old favorite workspace is not frozen for Bilibili execution.')
+      }
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      return { accountMid: snapshot.accountMid, plan: clone(workspace.frozenSyncPlan) }
+    })
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    await this.options.syncService.claimFrozenPlan(frozen.accountMid, frozen.plan)
+    void this.executeFrozenBilibiliPlan(frozen.accountMid).catch(() => undefined)
+    return this.getSnapshot(frozen.accountMid) as Promise<OldFavoriteWorkspaceSnapshot>
+  }
+
   private async commitCompleteLocalResultForRemoteExecution(accountMid: string) {
     await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)

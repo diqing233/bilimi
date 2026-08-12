@@ -903,7 +903,7 @@ describe('old favorite workspace coordinator IPC', () => {
   it('routes execution only after the main-process frozen plan exists', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
-      executeFrozenBilibiliPlan: vi.fn().mockResolvedValue({}),
+      beginFrozenBilibiliPlanExecution: vi.fn().mockResolvedValue({ ...snapshot, status: 'executing' }),
       getSnapshot: vi.fn().mockResolvedValue({ ...snapshot, status: 'executing' })
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
@@ -914,7 +914,7 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'execute-frozen-bilibili-plan'
     })).resolves.toMatchObject({ status: 'executing' })
-    expect(coordinator.executeFrozenBilibiliPlan).toHaveBeenCalledWith('100')
+    expect(coordinator.beginFrozenBilibiliPlanExecution).toHaveBeenCalledWith('100')
   })
 
   it('routes an explicit safe stop only from the current trusted account', async () => {
