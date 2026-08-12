@@ -803,7 +803,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
-  it('shows the pending recovery state before the unsaved marker for a recovered remote draft', () => {
+  it('shows the combined unsaved and pending recovery state for a recovered remote draft', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
       bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
@@ -813,7 +813,9 @@ describe('FavoriteLedgerOverview', () => {
 
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
-    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('待恢复')
+    expect(screen.getByTestId('favorite-ledger-chip-custom-remote-hello')).toHaveTextContent('未保存 · 待恢复')
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未保存 · 待恢复')
+    expect(screen.getByText('检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未保存待恢复。尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。')).toBeInTheDocument()
   })
 
   it('confirms every selected recovery shard in one backup operation', async () => {

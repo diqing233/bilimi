@@ -170,9 +170,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         : ledger.bilibiliFolderId
           ? '已备册'
           : ''
-  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label === '未保存'
+  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存') && !label.includes('待恢复')
     ? 'local-draft'
-    : ledger.bindingState ?? (label === '已备册' ? 'bound' : label === '待恢复' ? 'unbound' : 'unbacked')
+    : ledger.bindingState ?? (label === '已备册' ? 'bound' : label.includes('待恢复') ? 'unbound' : 'unbacked')
   const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isDefaultSystemLocked(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
@@ -359,11 +359,23 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     !savedLedgerSnapshots[ledger.id] || JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedLedgerSnapshots[ledger.id])
-  const statusLabelForLedger = (ledger: FavoriteLedger) => organizationActive
-    ? ''
-    : bindingLabelForLedger(ledger) || (ledgerHasUnsavedChanges(ledger) ? '未保存' : '')
-  const editorStatusLabelForLedger = (ledger: FavoriteLedger) =>
-    bindingLabelForLedger(ledger) || (ledgerHasUnsavedChanges(ledger) ? '未保存' : '')
+  const statusLabelForLedger = (ledger: FavoriteLedger) => {
+    if (organizationActive) return ''
+    const bindingLabel = bindingLabelForLedger(ledger)
+    const unsaved = ledgerHasUnsavedChanges(ledger)
+    return bindingLabel === '待恢复' && unsaved ? '未保存 · 待恢复' : bindingLabel || (unsaved ? '未保存' : '')
+  }
+  const editorStatusLabelForLedger = (ledger: FavoriteLedger) => {
+    const bindingLabel = bindingLabelForLedger(ledger)
+    const unsaved = ledgerHasUnsavedChanges(ledger)
+    return bindingLabel === '待恢复' && unsaved ? '未保存 · 待恢复' : bindingLabel || (unsaved ? '未保存' : '')
+  }
+  const recoveredRemoteUnsavedCount = recoveredRemoteLedgers.filter((ledger) => ledgerHasUnsavedChanges(ledger)).length
+  const recoveredRemotePendingCount = recoveredRemoteLedgers.length - recoveredRemoteUnsavedCount
+  const recoveredRemoteStatusSummary = [
+    recoveredRemotePendingCount ? `${recoveredRemotePendingCount} 个待恢复` : '',
+    recoveredRemoteUnsavedCount ? `${recoveredRemoteUnsavedCount} 个未保存待恢复` : ''
+  ].filter(Boolean).join('，')
   const activeVideoCount = active ? videoCountForLedger(active) : undefined
   const activeRemoteBindingIds = active ? remoteBindingIdsForLedger(active) : []
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
@@ -779,7 +791,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             }}</FavoriteLedgerEnableButton>
           </div>
         })}</div>
-        {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹，已按名称归并为 {recoveredRemoteLedgers.length} 个待恢复的收藏夹。尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
+        {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
