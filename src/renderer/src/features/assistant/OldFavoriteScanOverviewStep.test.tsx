@@ -353,8 +353,8 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数7')
-    expect(screen.getByLabelText('扫描总数')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
+    expect(screen.getByLabelText('本轮视频')).toHaveTextContent('本轮视频7')
+    expect(screen.getByLabelText('本轮视频')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理1')
     expect(screen.getByLabelText('本轮待整理')).toHaveAttribute('title', '已选来源中去重后，扣除失效视频和已保护视频的数量。')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过2')
@@ -382,7 +382,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('扫描总数246')
+    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮视频246')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮待整理25')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('已保护跳过221')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签0')

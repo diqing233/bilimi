@@ -70,6 +70,38 @@ function normalizedLedgerDisplayTitle(title: string) {
   return title.trim().replace(/^bilimi\s*[·.\s_-]*/iu, '').trim().toLocaleLowerCase()
 }
 
+function remoteIdsForCandidate(candidate: FavoriteLibraryManagedFolderProjection) {
+  return candidate.remoteFolderId ? [candidate.remoteFolderId] : candidate.knownRemoteFolderIds ?? []
+}
+
+function assignStableShardNumbers(candidates: FavoriteLibraryManagedFolderProjection[]) {
+  const byLogicalLedger = new Map<string, FavoriteLibraryManagedFolderProjection[]>()
+  for (const candidate of candidates) {
+    byLogicalLedger.set(candidate.logicalLedgerId, [...(byLogicalLedger.get(candidate.logicalLedgerId) ?? []), candidate])
+  }
+  return [...byLogicalLedger.values()].flatMap((group) => {
+    const used = new Set<number>()
+    const assigned: FavoriteLibraryManagedFolderProjection[] = []
+    for (const candidate of group) {
+      if (candidate.bindingState !== 'bound') continue
+      used.add(candidate.shardNumber)
+      assigned.push(candidate)
+    }
+    const pending = group.filter((candidate) => candidate.bindingState !== 'bound')
+      .sort((left, right) => remoteIdsForCandidate(left).join(',').localeCompare(remoteIdsForCandidate(right).join(',')))
+    for (const candidate of pending) {
+      let shardNumber = candidate.shardNumber
+      if (used.has(shardNumber) || pending.filter((item) => item !== candidate && item.shardNumber === shardNumber).length) {
+        shardNumber = 1
+        while (used.has(shardNumber)) shardNumber += 1
+      }
+      used.add(shardNumber)
+      assigned.push({ ...candidate, shardNumber })
+    }
+    return assigned
+  })
+}
+
 export function planFavoriteLibraryManagedFolderProjection(input: {
   snapshot: AccountFavoriteRepositorySnapshot
   ledgers: FavoriteLedger[]
@@ -121,7 +153,7 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   }
 
   const byTarget = new Map<string, FavoriteLibraryManagedFolderProjection[]>()
-  for (const candidate of candidates) {
+  for (const candidate of assignStableShardNumbers(candidates)) {
     const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
     byTarget.set(target, [...(byTarget.get(target) ?? []), candidate])
   }

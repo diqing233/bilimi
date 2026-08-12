@@ -88,7 +88,7 @@ describe('favorite library managed folder projection', () => {
     expect(result).toEqual([])
   })
 
-  it('keeps a duplicate logical shard ambiguous instead of choosing one remote id', () => {
+  it('assigns stable shard numbers to duplicate same-title remote folders', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([
         { id: 'duplicate-a', title: 'bilimi\u00b7\u97f3\u4e50' },
@@ -98,10 +98,24 @@ describe('favorite library managed folder projection', () => {
       dismissedRemoteFolderIds: []
     })
 
-    expect(result).toEqual([expect.objectContaining({
-      logicalLedgerId: 'music', logicalTitle: 'bilimi\u00b7音乐', shardNumber: 1, bindingState: 'pending-reconcile',
-      knownRemoteFolderIds: ['duplicate-a', 'duplicate-b'], memberAids: []
-    })])
+    expect(result).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['duplicate-a'], memberAids: [] }),
+      expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['duplicate-b'], memberAids: [] })
+    ])
+  })
+
+  it('keeps duplicate same-title member totals under one logical ledger', () => {
+    const result = planFavoriteLibraryManagedFolderProjection({
+      snapshot: snapshot([
+        { id: 'game-1', title: 'bilimi\u00b7游戏专区', aids: Array.from({ length: 1000 }, (_, index) => index + 1) },
+        { id: 'game-2', title: 'bilimi\u00b7游戏专区', aids: Array.from({ length: 247 }, (_, index) => index + 1001) }
+      ]),
+      ledgers: [ledger('game', 'bilimi\u00b7游戏专区')],
+      dismissedRemoteFolderIds: []
+    })
+
+    expect(result.map((candidate) => candidate.shardNumber)).toEqual([1, 2])
+    expect(result.reduce((count, candidate) => count + candidate.memberAids.length, 0)).toBe(1247)
   })
 
   it('persists the planned projection without requiring a remote inventory read', async () => {

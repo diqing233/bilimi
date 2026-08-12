@@ -131,6 +131,12 @@ function videoCountForLedger(ledger: FavoriteLedger) {
     : undefined
 }
 
+function remoteBindingIdsForLedger(ledger: FavoriteLedger) {
+  return [...new Set([ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
+    .map((id) => id?.trim())
+    .filter((id): id is string => Boolean(id)))]
+}
+
 /** External refreshes may rebuild their array; existing cards must not jump. */
 export function preserveFavoriteLedgerOrder(
   currentLedgers: readonly FavoriteLedger[],
@@ -359,6 +365,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const editorStatusLabelForLedger = (ledger: FavoriteLedger) =>
     bindingLabelForLedger(ledger) || (ledgerHasUnsavedChanges(ledger) ? '未保存' : '')
   const activeVideoCount = active ? videoCountForLedger(active) : undefined
+  const activeRemoteBindingIds = active ? remoteBindingIdsForLedger(active) : []
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
   const title = active ? displayTitle(active.displayName) : ''
   const validation = favoriteLedgerNameValidation(active?.displayName ?? '')
@@ -789,7 +796,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             aria-valuemin={0} aria-valuenow={draftRuleAnalysis.completedItemCount} aria-valuemax={Math.max(1, draftRuleAnalysis.totalItemCount)} />
           <button type="button" disabled={draftRuleAnalysis.status === 'canceling'} onClick={onCancelDraftRuleAnalysis}>取消分析</button>
         </div> : draftRuleAnalysisError ? <p className="favorite-ledger-panel__notice" role="alert">{draftRuleAnalysisError}</p> : null}
-        <label><span className="favorite-ledger-panel__ledger-name-label"><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span>{activeVideoCount === undefined ? null : <small className="favorite-ledger-panel__ledger-video-count">{activeVideoCount} 个视频</small>}{editorStatusLabelForLedger(active) ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(active, editorStatusLabelForLedger(active))}>{editorStatusLabelForLedger(active)}</small> : null}</span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" disabled={draftMutationLocked} value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : active.bilibiliFolderId && active.bilibiliFolderTitle && active.bilibiliFolderTitle !== active.displayName ? <small className="favorite-ledger-panel__name-sync-status">册名不同步；下次备册会按 bilimi 册名更新 B 站。</small> : null}</label>
+        <label><span className="favorite-ledger-panel__ledger-name-label"><span>册名 <small data-invalid={!valid}>{validation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}</small></span>{activeVideoCount === undefined ? null : <small className="favorite-ledger-panel__ledger-video-count">{activeVideoCount} 个视频</small>}{editorStatusLabelForLedger(active) ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(active, editorStatusLabelForLedger(active))}>{editorStatusLabelForLedger(active)}</small> : null}</span><span className="favorite-ledger-panel__prefixed-input"><span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">{BILIMI_LEDGER_PREFIX}</span><input aria-label="册名" disabled={draftMutationLocked} value={title} onChange={(event) => update({ displayName: `${BILIMI_LEDGER_PREFIX}${event.currentTarget.value}` })} /></span>{activeRemoteBindingIds.length > 1 ? <small className="favorite-ledger-panel__binding-summary">B站绑定：{activeRemoteBindingIds.length} 个收藏夹{activeVideoCount === undefined ? '' : `，共 ${activeVideoCount} 个视频`}</small> : null}{!validation.valid ? <small role="alert">B站收藏夹名称最多20个字，当前{validation.length}个字</small> : active.bilibiliFolderId && active.bilibiliFolderTitle && active.bilibiliFolderTitle !== active.displayName ? <small className="favorite-ledger-panel__name-sync-status">册名不同步；下次备册会按 bilimi 册名更新 B 站。</small> : null}</label>
         <label>收藏夹种类<select aria-label="收藏夹种类" disabled={draftMutationLocked || active.isDefault} value={active.ruleType ?? 'keyword'} onChange={(event) => update({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType, keywords: [] })}>{TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
         <label>{ruleLabel(active.ruleType)}<textarea aria-label={ruleLabel(active.ruleType)}
           disabled={draftMutationLocked}

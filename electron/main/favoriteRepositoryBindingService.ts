@@ -386,10 +386,18 @@ export class FavoriteRepositoryBindingService {
       const exact = shard.remoteFolderId
         ? input.inventory.find((folder) => folder.id === shard.remoteFolderId && folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
         : undefined
+      // A remote ID is the only authority for recovery. A same title is merely
+      // a candidate shown to the user; accepting it here could bind an
+      // unrelated same-name Bilibili folder after a reset or migration.
       const matches = exact
         ? [exact]
-        : input.inventory.filter((folder) => folder.title === shard.remoteTitle &&
-          !known.has(folder.id) && folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
+        // Only a creation marker that has no pre-existing inventory evidence
+        // may be reconciled by its generated title. Recovered/migrated
+        // folders always retain candidate IDs and require explicit adoption.
+        : known.size === 0
+          ? input.inventory.filter((folder) => folder.title === shard.remoteTitle &&
+            folder.memberCount <= REMOTE_FAVORITE_SHARD_CAPACITY)
+          : []
       if (matches.length !== 1) continue
       const logical = snapshot.folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === shard.logicalLedgerId)
       if (!logical) continue

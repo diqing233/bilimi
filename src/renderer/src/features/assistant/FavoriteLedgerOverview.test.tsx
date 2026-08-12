@@ -87,6 +87,16 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByText('收藏夹名称不能重复')).not.toBeInTheDocument()
   })
 
+  it('summarizes every explicitly bound Bilibili folder while editing one logical ledger', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi\u00b7游戏专区', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: 'game-1', bilibiliFolderIds: ['game-1', 'game-2'], bilibiliFolderVideoCount: 1247,
+      bindingState: 'bound', isDefault: false
+    }]} missingLedgerIds={[]} openLedgerId="game" onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByText('B站绑定：2 个收藏夹，共 1247 个视频')).toBeInTheDocument()
+  })
+
   it('uses a darker semantic title for each favorite help paragraph', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 10, isDefault: false }
