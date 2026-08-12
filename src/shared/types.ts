@@ -52,6 +52,8 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
+  /** All physical Bilibili folders backing one logical bilimi folder. */
+  bilibiliFolderIds?: string[]
   /** Last title observed for the explicit Bilibili folder binding. */
   bilibiliFolderTitle?: string
   /** Last video count observed for the corresponding Bilibili folder. */

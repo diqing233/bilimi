@@ -420,7 +420,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
-  it('uses the legacy cooldown after the twenty-fifth successful remote write', async () => {
+  it('keeps every remote write interval within the normal 1.2-second minimum after the twenty-fifth write', async () => {
     const repository = await createRepository()
     const frozenPlan = planWithAppendOperations(27)
     await repository.commit('100', {
@@ -437,10 +437,11 @@ describe('FavoriteRepositorySyncService', () => {
 
     await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
 
-    expect(sleep).toHaveBeenCalledWith(15_000)
+    expect(sleep).toHaveBeenCalledWith(1_200)
+    expect(sleep).not.toHaveBeenCalledWith(15_000)
   })
 
-  it('applies the twenty-fifth-write cooldown before the first resumed remote write', async () => {
+  it('does not add a long cooldown before a resumed remote write', async () => {
     const repository = await createRepository()
     const frozenPlan = planWithAppendOperations(26)
     await repository.commit('100', {
@@ -463,7 +464,7 @@ describe('FavoriteRepositorySyncService', () => {
 
     await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
 
-    expect(events).toEqual(['sleep:15000', 'append'])
+    expect(events).toEqual(['sleep:1200', 'append'])
   })
 
   it('abandons a frozen local plan without reverting any remote operation', async () => {
@@ -1167,6 +1168,34 @@ describe('FavoriteRepositorySyncService', () => {
       lastFailureReason: expect.stringContaining('response-category=html'),
       retryAvailableAt: '2026-07-19T00:00:30.000Z'
     })
+  })
+
+  it('clears an expired risk-control warning once the frozen run is ready to resume', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    await repository.recordSyncCheckpoint('100', 'retry:append-1', {
+      id: `${frozenPlan.id}:append-1`, commandId: 'append-1', status: 'pending', affectedAids: [1],
+      updatedAt: '2026-07-19T00:00:00.000Z',
+      reason: 'reconciled-absent-ready-to-retry; prior=invalid-response; http-status=412; content-type=text/html; response-category=html',
+      runId: frozenPlan.id, operationKey: 'append-1', targetFolderIds: ['remote-a'], attempt: 1,
+      retryAvailableAt: '2026-07-19T00:10:00.000Z'
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:10:01.000Z'
+    })
+
+    await expect(service.getRun('100', frozenPlan.id)).resolves.toMatchObject({
+      status: 'ready-to-resume', completedOperationCount: 0, totalOperationCount: 1
+    })
+    const run = await service.getRun('100', frozenPlan.id)
+    expect(run).not.toHaveProperty('lastFailureReason')
+    expect(run).not.toHaveProperty('retryAvailableAt')
   })
 
   it('stops immediately and applies a long cooldown when Bilibili returns an HTML 412 response', async () => {

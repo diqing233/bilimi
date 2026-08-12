@@ -449,7 +449,7 @@ describe('VideoNotesPanel', () => {
       const panel = screen.getByRole('tabpanel')
       fireEvent.click(within(panel).getByRole('button', { name: '导出' }))
       expect(await screen.findByRole('dialog', { name: '导出文稿' })).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+      fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
       fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName) }))
     }
   })

@@ -377,7 +377,8 @@ describe('Favorite Library workspace components', () => {
 
     const dialog = screen.getByRole('dialog', { name: '删除 工作夹' })
     const actions = Array.from(dialog.querySelectorAll('button')).map((button) => button.textContent)
-    expect(actions.slice(0, 3)).toEqual(['取消', '仅从收藏库删除', '删除并同步到B站'])
+    expect(actions.slice(0, 3)).toEqual(['×', '仅从收藏库删除', '删除并同步到B站'])
+    expect(dialog.querySelector('button')).toHaveAttribute('aria-label', '关闭弹窗')
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveClass('bilimi-modal__dialog', 'favorite-library__dialog-overlay')
     expect(container.querySelector('.favorite-library__dialog-backdrop')).not.toBeInTheDocument()

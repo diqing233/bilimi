@@ -588,7 +588,7 @@ describe('favorite ledger API scripts', () => {
     }))
 
     const first = await window.eval(buildFavoriteLedgerStatusScript([])) as { ledgers: FavoriteLedger[] }
-    const recoveredWithoutRemoteId = first.ledgers.map(({ bilibiliFolderId: _bilibiliFolderId, ...ledger }) => ledger)
+    const recoveredWithoutRemoteId = first.ledgers.map(({ bilibiliFolderId: _bilibiliFolderId, bilibiliFolderIds: _bilibiliFolderIds, ...ledger }) => ledger)
     const result = await window.eval(buildFavoriteLedgerStatusScript(recoveredWithoutRemoteId))
 
     expect(result.ledgers).toEqual([expect.objectContaining({
@@ -599,7 +599,7 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('creates one remote-only draft per Bilibili folder even when titles are identical', async () => {
+  it('groups same-name Bilibili folders into one remote-only logical draft', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -613,9 +613,13 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript([]))
 
-    expect(result.ledgers).toHaveLength(2)
-    expect(result.ledgers.map((ledger: FavoriteLedger) => ledger.bilibiliFolderId)).toEqual(['88', '89'])
-    expect(new Set(result.ledgers.map((ledger: FavoriteLedger) => ledger.id)).size).toBe(2)
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      displayName: 'bilimi·同名',
+      bilibiliFolderId: '88',
+      bilibiliFolderIds: ['88', '89'],
+      bindingState: 'unbound',
+      syncState: 'local-draft'
+    })])
   })
 
   it('keeps a same-name local draft separate from the remote folder until the user rebinds it', async () => {

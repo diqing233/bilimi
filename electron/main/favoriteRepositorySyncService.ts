@@ -1083,6 +1083,9 @@ export class FavoriteRepositorySyncService {
     const completedOperationCount = plan.operations.filter((operation) => byOperation.get(operation.operationKey)?.status === 'succeeded').length
     const statuses = plan.operations.map((operation) => byOperation.get(operation.operationKey))
     const retryReadyRecord = statuses.find(isRetryReadyRecord)
+    const retryFailureIsCurrent = Boolean(retryReadyRecord?.reason) && (
+      !retryReadyRecord?.retryAvailableAt || Date.parse(this.now()) < Date.parse(retryReadyRecord.retryAvailableAt)
+    )
     const status: SyncRunStatus = completedOperationCount === plan.operations.length
       ? 'succeeded'
       : statuses.some((record) => record?.status === 'result-unknown' || (record?.status === 'pending' && !record.reason?.startsWith(retryReadyReason) &&
@@ -1100,8 +1103,8 @@ export class FavoriteRepositorySyncService {
       status,
       completedOperationCount,
       totalOperationCount: plan.operations.length,
-      ...(retryReadyRecord?.reason ? { lastFailureReason: retryReadyRecord.reason.replace(/^reconciled-absent-ready-to-retry; prior=/, '') } : {}),
-      ...(retryReadyRecord?.retryAvailableAt ? { retryAvailableAt: retryReadyRecord.retryAvailableAt } : {})
+      ...(retryFailureIsCurrent ? { lastFailureReason: retryReadyRecord!.reason!.replace(/^reconciled-absent-ready-to-retry; prior=/, '') } : {}),
+      ...(retryFailureIsCurrent && retryReadyRecord?.retryAvailableAt ? { retryAvailableAt: retryReadyRecord.retryAvailableAt } : {})
     }
   }
 
@@ -1164,13 +1167,8 @@ export class FavoriteRepositorySyncService {
     await new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
   }
 
-  private legacyPacingMilliseconds(completedCount: number) {
-    const accelerated = completedCount > 50
-    const cooldownEvery = accelerated ? 60 : 25
-    const cooldown = completedCount > 0 && completedCount % cooldownEvery === 0
-    const range = cooldown
-      ? (accelerated ? { min: 10_000, max: 20_000 } : { min: 15_000, max: 45_000 })
-      : (accelerated ? { min: 600, max: 1_400 } : { min: 1_200, max: 3_000 })
+  private legacyPacingMilliseconds(_completedCount: number) {
+    const range = { min: 1_200, max: 2_000 }
     const random = Math.max(0, Math.min(1, this.options.random?.() ?? Math.random()))
     return range.min + Math.floor(random * (range.max - range.min + 1))
   }

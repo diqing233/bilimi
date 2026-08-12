@@ -41,10 +41,20 @@ function normalizeLedgerDisplayName(displayName: string) {
 }
 
 function normalizeLedgerPayload(ledgers: FavoriteLedger[]) {
-  return ledgers.map((ledger) => ({
-    ...ledger,
-    displayName: normalizeLedgerDisplayName(ledger.displayName)
-  }))
+  return ledgers.map((ledger) => {
+    const bilibiliFolderIds = [...new Set([
+      ...(ledger.bilibiliFolderIds ?? []),
+      ...(ledger.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+    ].map((folderId) => String(folderId).trim()).filter(Boolean))]
+    return {
+      ...ledger,
+      ...(bilibiliFolderIds.length ? {
+        bilibiliFolderId: bilibiliFolderIds[0],
+        bilibiliFolderIds
+      } : {}),
+      displayName: normalizeLedgerDisplayName(ledger.displayName)
+    }
+  })
 }
 
 function sharedScriptHelpers(): string {
@@ -138,6 +148,10 @@ function sharedScriptHelpers(): string {
           memberCount: Math.max(0, Number(candidate.media_count ?? candidate.count ?? 0) || 0)
         }));
     };
+    const ledgerRemoteFolderIds = (ledger) => Array.from(new Set([
+      ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
+      ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+    ].map((folderId) => String(folderId || '').trim()).filter(Boolean)));
     const syncLedgerFolderIds = (ledgers, folders, selectedRemoteFolderIds = {}) => {
       const folderById = new Map(
         folders
@@ -153,21 +167,21 @@ function sharedScriptHelpers(): string {
           : null;
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
           normalizeFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
-          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
+          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
         // A persisted binding is keyed by the remote folder ID. Bilibili users
         // may rename a bound folder, so a title mismatch must not silently
         // discard an otherwise valid binding.
-        const storedFolder = ledger.bilibiliFolderId
-          ? folderById.get(String(ledger.bilibiliFolderId))
-          : null;
-        const folder = storedFolder || null;
-        const folderId = findFolderId(folder);
-        if (folderId) {
-          return { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: String(folder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), bindingState: 'bound' };
+        const storedFolders = ledgerRemoteFolderIds(ledger)
+          .map((folderId) => folderById.get(folderId))
+          .filter(Boolean);
+        if (storedFolders.length) {
+          const primaryFolder = storedFolders[0];
+          const folderIds = storedFolders.map((folder) => String(findFolderId(folder)));
+          return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: 'bound' };
         }
 
-        const { bilibiliFolderId, bilibiliFolderTitle, bilibiliFolderVideoCount, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
+        const { bilibiliFolderId, bilibiliFolderIds, bilibiliFolderTitle, bilibiliFolderVideoCount, bindingState: _bindingState, ...ledgerWithoutStaleFolderId } = ledger;
         return {
           ...ledgerWithoutStaleFolderId,
           bindingState: candidates.length > 0 ? 'unbound' : 'unbacked'
@@ -188,11 +202,28 @@ function sharedScriptHelpers(): string {
     const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
       const nextLedgers = [];
       const ledgerIndexById = new Map();
+      const remoteDraftIndexByTitle = new Map();
       for (const ledger of ledgers) {
+        const normalizedTitle = normalizeFolderTitle(ledger.displayName);
+        const isRemoteDraft = ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' &&
+          isBilimiManagedFolder({ title: ledger.displayName }) && ledgerRemoteFolderIds(ledger).length > 0;
+        const sameRemoteDraftIndex = isRemoteDraft ? remoteDraftIndexByTitle.get(normalizedTitle) : undefined;
+        if (sameRemoteDraftIndex !== undefined) {
+          const existing = nextLedgers[sameRemoteDraftIndex];
+          const folderIds = Array.from(new Set([...ledgerRemoteFolderIds(existing), ...ledgerRemoteFolderIds(ledger)]));
+          nextLedgers[sameRemoteDraftIndex] = {
+            ...existing,
+            bilibiliFolderId: folderIds[0],
+            bilibiliFolderIds: folderIds,
+            bilibiliFolderVideoCount: Math.max(0, Number(existing.bilibiliFolderVideoCount || 0)) + Math.max(0, Number(ledger.bilibiliFolderVideoCount || 0))
+          };
+          continue;
+        }
         const existingIndex = ledgerIndexById.get(ledger.id);
         if (existingIndex === undefined) {
           ledgerIndexById.set(ledger.id, nextLedgers.length);
           nextLedgers.push(ledger);
+          if (isRemoteDraft) remoteDraftIndexByTitle.set(normalizedTitle, nextLedgers.length - 1);
           continue;
         }
         const existing = nextLedgers[existingIndex];
@@ -201,7 +232,7 @@ function sharedScriptHelpers(): string {
         }
       }
       const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-      const knownRemoteFolderIds = new Set(nextLedgers.map((ledger) => String(ledger.bilibiliFolderId || '').trim()).filter(Boolean));
+      const knownRemoteFolderIds = new Set(nextLedgers.flatMap(ledgerRemoteFolderIds));
       // A normal local rule with the same title is an explicit rebind
       // candidate, not a remote-only draft. A local bilimi-prefixed draft is
       // kept separate so the owner can choose which one to bind.
@@ -209,24 +240,36 @@ function sharedScriptHelpers(): string {
         .filter((ledger) => ledger.bindingState === 'unbound' && !isBilimiManagedFolder({ title: ledger.displayName }))
         .map((ledger) => normalizeFolderTitle(ledger.displayName)));
       let priority = nextLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
+      const foldersByTitle = new Map();
       for (const folder of folders) {
         if (!isBilimiManagedFolder(folder)) continue;
-        const folderId = findFolderId(folder);
+        const folderId = String(findFolderId(folder) || '').trim();
         const displayName = String(folder.title || '').trim();
         const normalizedTitle = normalizeFolderTitle(displayName);
-        if (!folderId || dismissedIds.has(String(folderId)) || knownRemoteFolderIds.has(String(folderId)) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
-        const id = stableRemoteDraftLedgerId(folderId);
-        const existingIndex = ledgerIndexById.get(id);
+        if (!folderId || dismissedIds.has(folderId) || knownRemoteFolderIds.has(folderId) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
+        const group = foldersByTitle.get(normalizedTitle) || [];
+        group.push({ folder, folderId, displayName });
+        foldersByTitle.set(normalizedTitle, group);
+      }
+      for (const [normalizedTitle, group] of foldersByTitle) {
+        group.sort((left, right) => left.folderId.localeCompare(right.folderId, undefined, { numeric: true }));
+        const folderIds = group.map((entry) => entry.folderId);
+        const id = stableRemoteDraftLedgerId(normalizedTitle);
+        const existingIndex = remoteDraftIndexByTitle.get(normalizedTitle) ?? ledgerIndexById.get(id);
+        const displayName = group[0].displayName;
+        const videoCount = group.reduce((count, entry) => count + Math.max(0, Number(entry.folder.media_count ?? entry.folder.count ?? 0) || 0), 0);
         if (existingIndex !== undefined) {
           const existing = nextLedgers[existingIndex];
-          if (existing.syncState === 'local-draft' && existing.bindingState === 'unbound' && !existing.bilibiliFolderId) {
-            nextLedgers[existingIndex] = { ...existing, bilibiliFolderId: String(folderId) };
-            knownRemoteFolderIds.add(String(folderId));
+          if (existing.syncState === 'local-draft' && existing.bindingState === 'unbound') {
+            const allFolderIds = Array.from(new Set([...ledgerRemoteFolderIds(existing), ...folderIds]));
+            nextLedgers[existingIndex] = { ...existing, bilibiliFolderId: allFolderIds[0], bilibiliFolderIds: allFolderIds, bilibiliFolderVideoCount: Math.max(0, Number(existing.bilibiliFolderVideoCount || 0)) + videoCount };
+            for (const folderId of allFolderIds) knownRemoteFolderIds.add(folderId);
           }
           continue;
         }
-        knownRemoteFolderIds.add(String(folderId));
+        for (const folderId of folderIds) knownRemoteFolderIds.add(folderId);
         ledgerIndexById.set(id, nextLedgers.length);
+        remoteDraftIndexByTitle.set(normalizedTitle, nextLedgers.length);
         nextLedgers.push({
           id,
           displayName,
@@ -234,8 +277,9 @@ function sharedScriptHelpers(): string {
           ruleType: 'keyword',
           enabled: false,
           priority: priority++,
-          bilibiliFolderId: String(folderId),
-          bilibiliFolderVideoCount: Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0),
+          bilibiliFolderId: folderIds[0],
+          bilibiliFolderIds: folderIds,
+          bilibiliFolderVideoCount: videoCount,
           bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false
@@ -264,7 +308,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[], dismi
       const nextLedgers = appendRemoteOnlyDrafts(syncLedgerFolderIds(payload.ledgers, folders), folders, payload.dismissedRemoteFolderIds);
       const dismissedRemoteFolderIds = new Set((Array.isArray(payload.dismissedRemoteFolderIds) ? payload.dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
       const remoteOnlyDraftLedgerIds = nextLedgers
-        .filter((ledger) => ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledger.bilibiliFolderId && !dismissedRemoteFolderIds.has(String(ledger.bilibiliFolderId)))
+        .filter((ledger) => ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledgerRemoteFolderIds(ledger).some((folderId) => !dismissedRemoteFolderIds.has(folderId)))
         .map((ledger) => ledger.id);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
@@ -2208,9 +2252,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
     items,
     expectedAccountMid: expectedAccountMid.trim(),
     pacing: {
-      appendDelayMs: pacingOptions.appendDelayMs ?? { min: 1200, max: 3000 },
+      appendDelayMs: pacingOptions.appendDelayMs ?? { min: 1200, max: 2000 },
       cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 15000, max: 45000 },
-      cooldownEvery: pacingOptions.cooldownEvery ?? 25
+      cooldownEvery: pacingOptions.cooldownEvery ?? 0
     }
   })
 
@@ -2522,8 +2566,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
             return;
           }
 
-          const cooldownEvery = Math.max(1, Number(payload.pacing.cooldownEvery || 1));
-          const shouldCooldown = completedCount % cooldownEvery === 0;
+          const cooldownEvery = Math.max(0, Number(payload.pacing.cooldownEvery || 0));
+          const shouldCooldown = cooldownEvery > 0 && completedCount % cooldownEvery === 0;
           const delayMs = randomDelay(shouldCooldown ? payload.pacing.cooldownDelayMs : payload.pacing.appendDelayMs);
           if (delayMs <= 0) {
             return;

@@ -620,7 +620,7 @@ type LedgerWorkspacePanelProps = {
   openOrganizationSelectionAids?: number[]
   openOrganizationSelection?: FavoriteLibraryWorkspaceSelection
   remoteOnlyDraftLedgerIds?: string[]
-  onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
+  onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
 }
 
 const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel(props: LedgerWorkspacePanelProps) {
@@ -2999,10 +2999,13 @@ export function FloatingAssistantApp({
     transcriptionQueue
   ])
 
-  const dismissRemoteDraftReminder = useCallback(async (ledgerId: string, remoteFolderId: string) => {
+  const dismissRemoteDraftReminder = useCallback(async (ledgerId: string, remoteFolderIds: string[]) => {
     const accountMid = snapshot?.accountMid?.trim()
-    if (!accountMid || !remoteFolderId.trim()) return
-    await window.bilimiDesktop?.dismissFavoriteLedgerRemoteDraftReminder?.(accountMid, remoteFolderId)
+    const normalizedRemoteFolderIds = [...new Set(remoteFolderIds.map((remoteFolderId) => remoteFolderId.trim()).filter(Boolean))]
+    if (!accountMid || !normalizedRemoteFolderIds.length) return
+    await Promise.all(normalizedRemoteFolderIds.map((remoteFolderId) =>
+      window.bilimiDesktop?.dismissFavoriteLedgerRemoteDraftReminder?.(accountMid, remoteFolderId)
+    ))
     dismissedRemoteDraftReminderLedgerIdsRef.current.add(ledgerId)
     setFavoriteLedgerStatus((current) => suppressRemoteDraftReminder(current, ledgerId))
     setSnapshot((current) => {
@@ -3018,7 +3021,11 @@ export function FloatingAssistantApp({
     const accountMid = snapshot?.accountMid ?? ''
     const ledgers = preferences.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? preferences.favoriteLedgers
     const ledger = ledgers.find((item) => item.id === ledgerId)
-    if (ledger?.bilibiliFolderId) void dismissRemoteDraftReminder(ledgerId, ledger.bilibiliFolderId)
+    const remoteFolderIds = [...new Set([
+      ...(ledger?.bilibiliFolderIds ?? []),
+      ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+    ])]
+    if (remoteFolderIds.length) void dismissRemoteDraftReminder(ledgerId, remoteFolderIds)
   }, [dismissRemoteDraftReminder, preferences.favoriteAccountPreferences, preferences.favoriteLedgers, snapshot?.accountMid])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {

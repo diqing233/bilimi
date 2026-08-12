@@ -133,7 +133,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '你好' }))
     expect(screen.getByText(/\u53d1\u73b0 B \u7ad9\u7591\u4f3c.*\u672c\u5730\u5c1a\u672a\u5efa\u7acb\u7ed1\u5b9a/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '\u4e0d\u518d\u63d0\u9192' }))
-    expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello', '88')
+    expect(onDismiss).toHaveBeenCalledWith('custom-remote-hello', ['88'])
   })
 
   it('publishes live enable changes before delayed persistence completes', () => {
@@ -174,6 +174,29 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['custom-tag-game'], false, { 'custom-tag-game': 'bilimi·游戏' }, { 'custom-tag-game': ['remote-game'] }))
     expect(onDeleteLedger).toHaveBeenCalledWith('custom-tag-game')
   })
+  it('states the full Bilibili deletion scope when one logical folder has multiple physical folders', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'game', remoteFolderId: '9', title: 'bilimi\u00b7\u6e38\u620f', memberCount: 1000, state: 'bound', requiresUnboundAcknowledgement: false },
+          { logicalLedgerId: 'game', remoteFolderId: '10', title: 'bilimi\u00b7\u6e38\u620f', memberCount: 247, state: 'bound', requiresUnboundAcknowledgement: false }
+        ])
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi\u00b7\u6e38\u620f', keywords: ['\u6e38\u620f'], enabled: true, priority: 1, isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '\u6e38\u620f' }))
+    fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
+    fireEvent.click(screen.getByRole('radio', { name: '\u540c\u65f6\u4ece B \u7ad9\u5220\u9664\u6536\u85cf\u5939\u53ca\u5176\u4e2d\u5206\u7c7b\u89c6\u9891' }))
+
+    expect(dialog).toHaveTextContent('\u5220\u9664\u201c\u6e38\u620f\u201d\u65f6\uff0c\u4f1a\u540c\u65f6\u4ece B \u7ad9\u5220\u9664 2 \u4e2a\u5b9e\u9645\u6536\u85cf\u5939\u53ca\u5176\u4e2d\u5206\u7c7b\u89c6\u9891\u3002')
+  })
+
   it('waits for active-round rule analysis before persisting and locks only draft mutations', async () => {
     const analysis = deferred<boolean>()
     const analyze = vi.fn((_ledger: unknown) => analysis.promise)
@@ -781,6 +804,19 @@ describe('FavoriteLedgerOverview', () => {
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未绑定')
+  })
+
+  it('dismisses every physical Bilibili folder behind one recovered draft', () => {
+    const onDismiss = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'custom-remote-game', displayName: 'bilimi·游戏专区', keywords: [], enabled: false, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} remoteOnlyDraftLedgerIds={['custom-remote-game']} onDismissRemoteDraftReminder={onDismiss} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '游戏专区' }))
+    fireEvent.click(screen.getByRole('button', { name: '不再提醒' }))
+
+    expect(onDismiss).toHaveBeenCalledWith('custom-remote-game', ['88', '89'])
   })
 
   it('includes the backup state in the favorite folder hover title', () => {

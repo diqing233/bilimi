@@ -75,6 +75,44 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     await expect(() => service.confirm('100', preview.executionToken)).toThrow('unambiguous remote binding')
   })
 
+  it('deletes every bound remote shard for one logical folder as a single confirmed operation', async () => {
+    const current = {
+      ...managedSnapshot(),
+      folders: [
+        ...managedSnapshot().folders,
+        { id: 'bilibili:work:002', title: 'Work 2', kind: 'bilibili' as const, remoteFolderId: '100', syncState: 'bound' as const }
+      ],
+      memberships: {
+        ...managedSnapshot().memberships,
+        'bilimi:work:002': [3, 4],
+        'bilibili:work:002': [3, 4]
+      },
+      physicalShards: [
+        ...managedSnapshot().physicalShards,
+        { logicalLedgerId: 'work', folderId: 'bilimi:work:002', shardNumber: 2, remoteFolderId: '100', remoteTitle: 'Work 2', bindingState: 'bound' as const, remoteMemberCount: 2 }
+      ]
+    }
+    const removeRemoteFolder = vi.fn(async () => undefined)
+    const remoteFolderExists = vi.fn(async () => 'present' as const)
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit },
+      remote: { removeRemoteFolder }, remoteObserver: { remoteFolderExists }
+    })
+
+    const preview = await service.preview('100', 'bilimi-logical:work')
+    expect(preview).toMatchObject({ remoteBinding: { remoteFolderIds: ['99', '100'], shardCount: 2 } })
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(removeRemoteFolder.mock.calls).toEqual([['100', '99'], ['100', '100']])
+    expect(remoteFolderExists.mock.calls).toEqual([])
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work' }
+    }), expect.any(Array))
+  })
+
   it('does not offer a stale repository binding for remote deletion when the current Bilibili inventory no longer contains it', async () => {
     const current = managedSnapshot()
     const remoteFolderExists = vi.fn(async () => 'absent' as const)
