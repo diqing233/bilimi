@@ -31,7 +31,7 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
-  it('recovers numbered physical folders beneath the configured logical ledger without granting a bound remote deletion', () => {
+  it('keeps a numbered title as an independent unbound candidate until its remote id is explicitly bound', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([
         { id: 'game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', aids: [1] },
@@ -41,11 +41,36 @@ describe('favorite library managed folder projection', () => {
       dismissedRemoteFolderIds: []
     })
 
-    expect(result).toEqual([
-      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1'] }),
-      expect.objectContaining({ logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2'] })
-    ])
+    const byRemoteFolderId = new Map(result.map((candidate) => [candidate.knownRemoteFolderIds?.[0], candidate]))
+    expect(byRemoteFolderId.get('game-1')).toMatchObject({
+      logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 1,
+      bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1']
+    })
+    expect(byRemoteFolderId.get('game-2')).toMatchObject({
+      logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', shardNumber: 1,
+      bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2']
+    })
     expect(result.every((candidate) => candidate.remoteFolderId === undefined)).toBe(true)
+  })
+
+  it('preserves the stored shard number when a formally bound remote folder keeps a numbered title', () => {
+    const base = snapshot([{ id: 'game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', aids: [2] }])
+    const result = planFavoriteLibraryManagedFolderProjection({
+      snapshot: {
+        ...base,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:002', shardNumber: 2,
+          remoteTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', bindingState: 'bound', remoteFolderId: 'game-2', remoteMemberCount: 1
+        }]
+      },
+      ledgers: [ledger('game', 'bilimi\u00b7\u6e38\u620f\u4e13\u533a')],
+      dismissedRemoteFolderIds: []
+    })
+
+    expect(result).toEqual([expect.objectContaining({
+      logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2,
+      bindingState: 'bound', remoteFolderId: 'game-2', memberAids: [2]
+    })])
   })
 
   it('projects an unknown bilimi folder as a stable draft while leaving an ordinary folder untouched', () => {

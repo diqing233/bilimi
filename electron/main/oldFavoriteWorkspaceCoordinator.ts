@@ -652,9 +652,10 @@ function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'],
     let recovered = false
     for (const ledger of defaults) {
       const baseTitle = ledger.displayName.trim()
-      const suffix = title.startsWith(baseTitle) ? title.slice(baseTitle.length) : ''
-      const shardNumber = title === baseTitle ? 1 : /^·(\d+)$/u.test(suffix) ? Number(suffix.slice(1)) : 0
-      if (!shardNumber || (shardNumber === 1 && title !== baseTitle)) continue
+      // A title is discovery text, never a physical shard identity. `·02`
+      // can be user-authored, so only an exact default name is a candidate.
+      if (title !== baseTitle) continue
+      const shardNumber = 1
       candidates.push({
         logicalLedgerId: ledger.id,
         logicalTitle: baseTitle,

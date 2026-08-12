@@ -56,16 +56,6 @@ function stableCustomLedgerId(title: string) {
   return `custom-${(hash >>> 0).toString(36)}`
 }
 
-function splitShardTitle(title: string) {
-  const normalized = title.trim()
-  const match = /^(.*?)(?:\u00b7(\d+))?$/u.exec(normalized)
-  const shardNumber = match?.[2] ? Number(match[2]) : 1
-  return {
-    baseTitle: match?.[2] && Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? match[1].trim() : normalized,
-    shardNumber: Number.isSafeInteger(shardNumber) && shardNumber >= 1 ? shardNumber : 1
-  }
-}
-
 function normalizedLedgerDisplayTitle(title: string) {
   return title.trim().replace(/^bilimi\s*[·.\s_-]*/iu, '').trim().toLocaleLowerCase()
 }
@@ -127,28 +117,46 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     if (resolveFavoriteFolderCapabilities(folder).identity !== 'ambiguous-bilimi-like') continue
     const title = folder.title.trim()
     if (!isBilimiManagedLedgerName(title)) continue
-    const { baseTitle, shardNumber } = splitShardTitle(title)
     const configuredById = configuredLedgersByRemoteId.get(folder.remoteFolderId)
     const formalBinding = formalBindingsByRemoteId.get(folder.remoteFolderId)
     // Renderer settings are not binding authority. The repository shard must
     // confirm the same remote ID and logical ledger before this is considered bound.
     // A saved remote ID can restore the local logical identity as an unbound
     // candidate, but only a repository shard makes it a formal binding.
-    const logicalTitleKey = normalizedLedgerDisplayTitle(baseTitle)
-    const ledger = configuredById && normalizedLedgerDisplayTitle(configuredById.displayName) === logicalTitleKey
-      ? configuredById
-      : configuredLedgersByLogicalTitle.get(logicalTitleKey)
-    const logicalTitle = ledger?.displayName.trim() || baseTitle
+    const formallyBoundLedger = formalBinding
+      ? input.ledgers.find((candidate) => candidate.id === formalBinding.logicalLedgerId)
+      : undefined
+    if (formalBinding && formallyBoundLedger) {
+      const logicalTitle = formallyBoundLedger.displayName.trim() || title
+      const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
+      candidates.push({
+        logicalLedgerId: formalBinding.logicalLedgerId,
+        logicalTitle,
+        shardNumber: formalBinding.shardNumber,
+        remoteTitle: title,
+        memberAids,
+        bindingState: 'bound',
+        remoteFolderId: folder.remoteFolderId,
+        remoteMemberCount: memberAids.length
+      })
+      continue
+    }
+    // A configured remote ID can recover the local logical ledger as an
+    // explicitly unbound candidate. Title suffixes are ignored only in this
+    // ID-directed case; otherwise they are user-authored candidate names.
+    const ledger = configuredById ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
+    const logicalTitle = ledger?.displayName.trim() || title
+    const logicalLedgerId = ledger?.id ?? stableCustomLedgerId(title)
+    const shardNumber = 1
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
-    const bound = Boolean(ledger && formalBinding && formalBinding.logicalLedgerId === ledger.id && formalBinding.shardNumber === shardNumber)
     candidates.push({
-      logicalLedgerId: ledger?.id ?? stableCustomLedgerId(baseTitle),
+      logicalLedgerId,
       logicalTitle,
       shardNumber,
       remoteTitle: title,
       memberAids,
-      bindingState: bound ? 'bound' : 'pending-reconcile',
-      ...(bound ? { remoteFolderId: folder.remoteFolderId, remoteMemberCount: memberAids.length } : { knownRemoteFolderIds: [folder.remoteFolderId] })
+      bindingState: 'pending-reconcile',
+      knownRemoteFolderIds: [folder.remoteFolderId]
     })
   }
 

@@ -3593,6 +3593,32 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ]))
   })
 
+  it('does not treat a numbered title as a shard of a similarly named default folder during recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'remote-b', title: 'bilimi·游戏专区·02', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'remote-a', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'remote-a': [1], 'remote-b': [2] })
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    const gameShard = snapshot.physicalShards.find((shard) => shard.remoteFolderId === undefined && shard.knownRemoteFolderIds?.includes('remote-a'))!
+    const numberedShard = snapshot.physicalShards.find((shard) => shard.remoteFolderId === undefined && shard.knownRemoteFolderIds?.includes('remote-b'))!
+    expect(gameShard.logicalLedgerId).toBe('game')
+    expect(numberedShard.logicalLedgerId).not.toBe('game')
+    expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, knownRemoteFolderIds: ['remote-a'] }),
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), shardNumber: 1, knownRemoteFolderIds: ['remote-b'] })
+    ]))
+  })
+
   it('recovers the staging folder and a unique custom Bilimi workspace with stable logical identities', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
