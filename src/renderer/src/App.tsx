@@ -45,8 +45,10 @@ import {
   buildSeekVideoTimeScript
 } from './features/notes/videoNoteTimeAutomation'
 import {
+  buildCreateFavoriteLedgerPhysicalShardScript,
   buildEnsureFavoriteLedgersScript,
   buildFavoriteLedgerStatusScript,
+  buildFavoriteLedgerWriteCapacityScript,
   buildSaveFavoriteLedgersScript,
 } from './features/favorites/favoriteLedgerApi'
 import { createFavoriteRepositoryPageTarget } from './features/favorites/favoriteRepositoryPageTarget'
@@ -2202,6 +2204,7 @@ export default function App() {
       commentDraft?: string
       submitComment?: boolean
       pageClickOnly?: boolean
+      confirmNewFavoriteShards?: boolean
     }
   ): Promise<AssistantAutomationResult> {
     const actionTabSnapshot = getActiveTabSnapshot()
@@ -2364,6 +2367,93 @@ export default function App() {
       }
     }
     const favoriteProvisioned = isFavoriteWriteProvisioned(favoriteLedgerStatus, targetLedgerIds)
+    if (actionUsesFavorite(action) && favoriteProvisioned) {
+      const capacity = await runScript(
+        buildFavoriteLedgerWriteCapacityScript(actionFavoriteLedgers, targetLedgerIds)
+      ) as AssistantAutomationResult & { fullLedgerIds?: string[] }
+      const fullLedgerIds = capacity.fullLedgerIds ?? []
+      const missingBoundLedgerIds = (capacity.missingTargets ?? []).filter(
+        (target) => !target.startsWith('favorite-shard-confirmation:')
+      )
+      if (!capacity.ok && missingBoundLedgerIds.length > 0) {
+        return {
+          ok: false,
+          steps: capacity.steps ?? [],
+          missingTargets: missingBoundLedgerIds,
+          message: capacity.message || '当前收藏夹的正式绑定分区不可用，请先备册或重新绑定后再批阅。'
+        }
+      }
+      if (fullLedgerIds.length && !options?.confirmNewFavoriteShards) {
+        const fullNames = fullLedgerIds.map((ledgerId) => ledgerDisplayName(actionFavoriteLedgers, ledgerId))
+        return {
+          ok: false,
+          steps: capacity.steps ?? [],
+          missingTargets: fullLedgerIds.map((ledgerId) => `favorite-shard-confirmation:${ledgerId}`),
+          message: `「${fullNames.join('、')}」的 B 站收藏夹分区已满。确认后会备册新的分区并建立绑定，再继续本次批阅。`
+        }
+      }
+      if (fullLedgerIds.length) {
+        const createdByLedgerId = new Map<string, { id: string; title: string; shardNumber: number }>()
+        for (const ledgerId of fullLedgerIds) {
+          const ledger = actionFavoriteLedgers.find((candidate) => candidate.id === ledgerId)
+          if (!ledger) continue
+          const creation = await runScript(
+            buildCreateFavoriteLedgerPhysicalShardScript(ledger)
+          ) as AssistantAutomationResult & {
+            folder?: { id: string; title: string; shardNumber: number }
+            existingFolder?: { id: string; title: string; shardNumber: number }
+          }
+          const folder = creation.folder ?? creation.existingFolder
+          if (!creation.ok || !folder?.id || !window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
+            return {
+              ok: false,
+              steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
+              missingTargets: creation.missingTargets?.length ? creation.missingTargets : [`favorite-shard-binding:${ledgerId}`],
+              message: creation.message || '新的 B 站收藏夹分区未能完成正式绑定，本次批阅没有写入收藏夹。'
+            }
+          }
+          try {
+            await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(actionAccountMid, {
+              logicalLedgerId: ledger.id,
+              logicalTitle: ledger.displayName,
+              remoteFolderId: folder.id,
+              remoteTitle: folder.title,
+              shardNumber: folder.shardNumber
+            })
+          } catch {
+            return {
+              ok: false,
+              steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
+              missingTargets: [`favorite-shard-binding:${ledgerId}`],
+              message: '新的 B 站收藏夹分区已创建，但正式绑定没有完成。本次批阅没有写入收藏夹，请在收藏夹区域检查后重试。'
+            }
+          }
+          createdByLedgerId.set(ledgerId, folder)
+        }
+        if (createdByLedgerId.size) {
+          actionFavoriteLedgers = actionFavoriteLedgers.map((ledger) => {
+            const folder = createdByLedgerId.get(ledger.id)
+            if (!folder) return ledger
+            const bilibiliFolderIds = Array.from(new Set([
+              ...(ledger.bilibiliFolderIds ?? []),
+              ...(ledger.bilibiliFolderId ? [ledger.bilibiliFolderId] : []),
+              folder.id
+            ]))
+            return { ...ledger, bilibiliFolderId: bilibiliFolderIds[0], bilibiliFolderIds, bindingState: 'bound' as const }
+          })
+          const nextPreferences = createInitialAssistantPreferences({
+            ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, actionFavoriteLedgers)
+          })
+          const savedPreferences = window.bilimiDesktop?.savePreferences
+            ? createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(nextPreferences))
+            : nextPreferences
+          preferencesRef.current = savedPreferences
+          setPreferences(savedPreferences)
+          favoriteLedgerStatusCacheRef.current = null
+          window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+        }
+      }
+    }
     const commentDraft =
       action === '表' &&
       (options?.submitComment ?? preferences.commentSubmitMode === 'random') &&

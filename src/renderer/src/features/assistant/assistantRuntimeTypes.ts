@@ -27,6 +27,7 @@ export type FloatingAssistantActionOptions = {
   commentDraft?: string
   submitComment?: boolean
   pageClickOnly?: boolean
+  confirmNewFavoriteShards?: boolean
 }
 
 export type FloatingAssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'

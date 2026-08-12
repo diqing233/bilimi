@@ -2715,6 +2715,16 @@ export function FloatingAssistantApp({
   const [commentIntentError, setCommentIntentError] = useState('')
   const [aiCommentDrafts, setAiCommentDrafts] = useState<string[]>([])
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
+  const [pendingFavoriteShardAction, setPendingFavoriteShardAction] = useState<{
+    action: AssistantAction
+    options?: {
+      coinCount?: 1 | 2
+      commentDraft?: string
+      submitComment?: boolean
+      confirmNewFavoriteShards?: boolean
+    }
+    message: string
+  } | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
   const [videoNoteArchives, setVideoNoteArchives] = useState<VideoNoteArchiveEntry[]>([])
@@ -4401,7 +4411,12 @@ export function FloatingAssistantApp({
 
   async function runAction(
     action: AssistantAction,
-    options?: { coinCount?: 1 | 2; commentDraft?: string; submitComment?: boolean }
+    options?: {
+      coinCount?: 1 | 2
+      commentDraft?: string
+      submitComment?: boolean
+      confirmNewFavoriteShards?: boolean
+    }
   ) {
     if (runningAction) {
       return
@@ -4424,6 +4439,10 @@ export function FloatingAssistantApp({
           ...options,
           pageClickOnly: preferences.bilibiliOperationMode === 'page-visual'
         })) ?? createDefaultResult('此折已阅。')
+
+      if (!result.ok && result.missingTargets.some((target) => target.startsWith('favorite-shard-confirmation:'))) {
+        setPendingFavoriteShardAction({ action, options, message: result.message })
+      }
 
       if (result.ok && action !== '阅') {
         await persistFeedback(action, currentKind)
@@ -5514,6 +5533,23 @@ export function FloatingAssistantApp({
             }}
           />
         ) : null}
+
+        {pendingFavoriteShardAction ? <BilimiModal
+          title="备册新的收藏夹分区？"
+          onClose={() => setPendingFavoriteShardAction(null)}
+          actionsLabel="收藏夹分区操作"
+          actions={<>
+            <button type="button" onClick={() => setPendingFavoriteShardAction(null)}>取消</button>
+            <button type="button" data-variant="primary" onClick={() => {
+              const pending = pendingFavoriteShardAction
+              setPendingFavoriteShardAction(null)
+              void runAction(pending.action, { ...pending.options, confirmNewFavoriteShards: true })
+            }}>确认备册并继续批阅</button>
+          </>}
+        >
+          <p>{pendingFavoriteShardAction.message}</p>
+          <p>新分区创建成功后会先完成正式绑定，再写入当前视频；取消不会创建或写入。</p>
+        </BilimiModal> : null}
     </section>
   )
 

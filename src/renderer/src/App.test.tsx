@@ -597,7 +597,7 @@ describe('App runtime integration', () => {
   })
 
   it('hydrates an active video snapshot with its page author only until the cache is complete', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('')
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -1162,6 +1162,104 @@ describe('App runtime integration', () => {
         String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
       )
     ).toBe(false)
+  })
+
+  it('asks before creating a new physical shard and only writes after its binding succeeds', async () => {
+    const gameLedger = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      keywords: ['单机游戏'],
+      bilibiliFolderId: '9200',
+      bilibiliFolderIds: ['9200'],
+      bindingState: 'bound' as const
+    }
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? gameLedger : {
+        ...ledger,
+        bilibiliFolderId: '9300',
+        bindingState: 'bound' as const
+      }
+    )
+    const events: string[] = []
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn(async () => {
+      events.push('bind')
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({ favoriteLedgers: ledgers })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    notifyPreferencesChanged(createAppPreferences({ favoriteLedgers: ledgers }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 9200, bvid: 'BV1shard9200', title: '单机游戏 Boss 速通路线',
+            pageText: '单机游戏 Boss 速通路线', tags: ['单机游戏']
+          }
+        }
+        if (script.includes('api:favorite:capacity-list') && script.includes('fullLedgerIds')) {
+          return {
+            ok: false, fullLedgerIds: ['game'],
+            missingTargets: ['favorite-shard-confirmation:game'],
+            steps: ['api:favorite:capacity-list'],
+            message: 'The bound shard is full.'
+          }
+        }
+        if (isLedgerStatusScript(script)) {
+          return {
+            ok: true, ledgers, missingLedgerIds: [], backupConflictLedgerIds: [],
+            unboundLedgerIds: [], message: 'Favorite ledgers are bound.'
+          }
+        }
+        if (script.includes('favorite physical shard create')) {
+          events.push('create')
+          return {
+            ok: true, steps: ['api:favorite:shard-create'], missingTargets: [],
+            folder: { id: '9201', title: 'bilimi·游戏专区·2', shardNumber: 2 },
+            message: 'Created.'
+          }
+        }
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          events.push('write')
+          return { ok: true, steps: ['api:favorite:add'], missingTargets: [], message: 'Written.' }
+        }
+        return { ok: true, steps: [], missingTargets: [], message: 'Complete.' }
+      })
+    })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1shard9200' }
+      }))
+    })
+
+    await expect(
+      requestRuntime({ id: 'shard-capacity-confirmation', type: 'run-action', action: '藏' })
+    ).resolves.toMatchObject({
+      ok: false,
+      missingTargets: ['favorite-shard-confirmation:game']
+    })
+    expect(events).toEqual([])
+
+    await expect(
+      requestRuntime({
+        id: 'shard-capacity-confirmed-write',
+        type: 'run-action',
+        action: '藏',
+        options: { confirmNewFavoriteShards: true }
+      })
+    ).resolves.toMatchObject({ ok: true })
+    expect(events).toEqual(['create', 'bind', 'write'])
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(
+      '100',
+      expect.objectContaining({
+        logicalLedgerId: 'game',
+        remoteFolderId: '9201',
+        shardNumber: 2
+      })
+    )
   })
 
   it('skips DeepSeek daily review when the target favorite is not provisioned', async () => {
@@ -3456,7 +3554,8 @@ describe('App runtime integration', () => {
       await new Promise((resolve) => setTimeout(resolve, 25))
     })
 
-    expect(statusReadCount).toBe(3)
+    // The final action also reads the bound shard capacity before any write.
+    expect(statusReadCount).toBe(4)
     expect(
       executeJavaScript.mock.calls.some(([script]) =>
         String(script).includes('"addLedgerIds":["game"]')

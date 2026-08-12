@@ -200,7 +200,30 @@ export function buildFavoriteApiFallbackScript(
         steps.push('api:favorite:list');
 
         const folders = Array.isArray(listData?.list) ? listData.list : [];
+        const folderIdOf = (folder) => String(folder?.id || folder?.fid || '').trim();
+        const boundFolderIds = (ledger) => Array.from(new Set([
+          ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
+          ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+        ].map((folderId) => String(folderId || '').trim()).filter(Boolean)));
         const ensureTargetFolder = async (ledger) => {
+          const formalFolderIds = boundFolderIds(ledger);
+          if (formalFolderIds.length) {
+            const formalFolders = formalFolderIds
+              .map((folderId) => folders.find((folder) => folderIdOf(folder) === folderId))
+              .filter(Boolean);
+            const targetFolder = [...formalFolders]
+              .reverse()
+              .find((folder) => Math.max(0, Number(folder?.media_count ?? folder?.count ?? 0) || 0) < 1000);
+
+            if (targetFolder) {
+              return folderIdOf(targetFolder);
+            }
+
+            const error = new Error('The bound Bilibili favorite shards are full.');
+            error.code = 'physical-shard-capacity-exceeded';
+            throw error;
+          }
+
           let targetFolder = folders.find((folder) => folder?.title === ledger.displayName);
 
           if (!targetFolder) {
@@ -224,7 +247,7 @@ export function buildFavoriteApiFallbackScript(
             steps.push('api:favorite:create-folder');
           }
 
-          return targetFolder?.id || targetFolder?.fid || '';
+          return folderIdOf(targetFolder);
         };
         const folderIds = [];
         const favoriteFolderIdsByLedgerId = {};

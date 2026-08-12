@@ -136,8 +136,8 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
-    // A Bilibili “·02” suffix denotes a capacity shard, not another logical ledger.
-    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*\\d{2,}$/u, '').trim();
+    // Both legacy “·02” and current “·2” suffixes denote capacity shards.
+    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*(?:0\\d+|[2-9]\\d*)$/u, '').trim();
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
@@ -358,6 +358,103 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[], dismi
         unboundCandidates,
         remoteOnlyDraftLedgerIds,
         message: unboundLedgerIds.length === 0 ? '册目查验已毕。' : '发现未绑定的 bilimi 收藏夹，请在备册时主动确认复用对应收藏夹。'
+      };
+    })();
+  `
+}
+
+export function buildFavoriteLedgerWriteCapacityScript(
+  ledgers: FavoriteLedger[],
+  targetLedgerIds: string[]
+): string {
+  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers), targetLedgerIds })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const { csrf, mid } = readCredentials();
+      if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法检查收藏夹分区。' };
+      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const json = await ensureApiOk(response, 'favorite folder list');
+      const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+      const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || ''), folder]));
+      const fullLedgerIds = [];
+      const missingLedgerIds = [];
+      for (const ledgerId of Array.from(new Set(payload.targetLedgerIds || [])).filter(Boolean)) {
+        const ledger = payload.ledgers.find((candidate) => candidate.id === ledgerId);
+        const folderIds = ledger ? ledgerRemoteFolderIds(ledger) : [];
+        const boundFolders = folderIds.map((folderId) => folderById.get(folderId)).filter(Boolean);
+        if (!ledger || !boundFolders.length) {
+          missingLedgerIds.push(ledgerId);
+          continue;
+        }
+        if (!boundFolders.some((folder) => Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0) < 1000)) {
+          fullLedgerIds.push(ledgerId);
+        }
+      }
+      return {
+        ok: missingLedgerIds.length === 0 && fullLedgerIds.length === 0,
+        steps: ['api:favorite:capacity-list'],
+        missingTargets: [...missingLedgerIds, ...fullLedgerIds.map((ledgerId) => 'favorite-shard-confirmation:' + ledgerId)],
+        fullLedgerIds,
+        message: fullLedgerIds.length
+          ? '目标 bilimi 收藏夹的已绑定分区已满，需要确认备册新的分区后才能继续批阅。'
+          : missingLedgerIds.length
+            ? '未找到可用的正式绑定收藏夹分区。'
+            : '收藏夹分区容量可用。'
+      };
+    })();
+  `
+}
+
+export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLedger): string {
+  const payload = scriptPayload({ ledger: normalizeLedgerPayload([ledger])[0] })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const { csrf, mid } = readCredentials();
+      if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法备册新分区。' };
+      const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const listJson = await ensureApiOk(listResponse, 'favorite folder list');
+      const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      if (folders.length >= 99) {
+        return { ok: false, missingTargets: ['favorite-folder-limit'], message: 'B 站收藏夹数量已达到 99 个上限，无法备册新的分区。' };
+      }
+      const boundFolderIds = ledgerRemoteFolderIds(payload.ledger);
+      const boundFolders = boundFolderIds
+        .map((folderId) => folders.find((folder) => String(findFolderId(folder) || '') === folderId))
+        .filter(Boolean);
+      if (!boundFolders.length) {
+        return { ok: false, missingTargets: ['favorite-shard-unbound'], message: '未找到已绑定的 B 站收藏夹，无法备册新分区。' };
+      }
+      const available = [...boundFolders].reverse().find((folder) => Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0) < 1000);
+      if (available) {
+        return { ok: true, steps: ['api:favorite:capacity-list'], existingFolder: { id: String(findFolderId(available)), title: String(available.title || ''), shardNumber: 1 }, message: '已有可用收藏夹分区。' };
+      }
+      const title = String(payload.ledger.displayName || '').trim();
+      const suffixNumber = (value) => {
+        const match = String(value || '').trim().match(/·(?:0*(\d+))$/u);
+        return match ? Number(match[1]) : 1;
+      };
+      const nextShardNumber = Math.max(...boundFolders.map((folder) => suffixNumber(folder.title))) + 1;
+      const suffix = '·' + String(nextShardNumber);
+      const shardTitle = Array.from(title).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('') + suffix;
+      const body = new URLSearchParams({ csrf, privacy: '0', title: shardTitle });
+      const createResponse = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body
+      });
+      const createJson = await ensureApiOk(createResponse, 'favorite physical shard create');
+      const folderId = findFolderId(createJson.data);
+      if (!folderId) return { ok: false, missingTargets: ['favorite-shard-create'], message: 'B 站没有返回新分区的收藏夹编号。' };
+      return {
+        ok: true,
+        steps: ['api:favorite:capacity-list', 'api:favorite:shard-create'],
+        folder: { id: String(folderId), title: shardTitle, shardNumber: nextShardNumber },
+        message: '新的 B 站收藏夹分区已创建，等待登记绑定。'
       };
     })();
   `

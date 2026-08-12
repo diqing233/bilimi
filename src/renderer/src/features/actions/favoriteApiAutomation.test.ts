@@ -4,6 +4,10 @@ import {
   buildFavoriteApiAdjustmentScript,
   buildFavoriteApiFallbackScript
 } from './favoriteApiAutomation'
+import {
+  buildCreateFavoriteLedgerPhysicalShardScript,
+  buildFavoriteLedgerWriteCapacityScript
+} from '../favorites/favoriteLedgerApi'
 
 function installBilibiliPageState() {
   Object.defineProperty(document, 'cookie', {
@@ -130,6 +134,112 @@ describe('buildFavoriteApiFallbackScript', () => {
       expect.stringContaining('/x/v3/fav/folder/add')
     )
     expect(requests[1].body).toContain('add_media_ids=91000001')
+  })
+
+  it('writes a review favorite to the available bound physical shard when the first shard is full', async () => {
+    installBilibiliPageState()
+
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? {
+            ...ledger,
+            bilibiliFolderId: '91000001',
+            bilibiliFolderIds: ['91000001', '91000002'],
+            bindingState: 'bound' as const
+          }
+        : ledger
+    )
+    const requests: Array<{ body?: string; method?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), method: init?.method, url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 91000001, title: 'bilimi·游戏专区', media_count: 1000 },
+                { id: 91000002, title: 'bilimi·游戏专区·2', media_count: 23 }
+              ]
+            },
+            message: 'OK'
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {}, message: 'OK' })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildFavoriteApiFallbackScript(ledgers, 'game'))
+
+    expect(result).toMatchObject({
+      ok: true,
+      favoriteFolderIdsByLedgerId: { game: '91000002' }
+    })
+    expect(requests[1].body).toContain('add_media_ids=91000002')
+    expect(requests[1].body).not.toContain('add_media_ids=91000001')
+  })
+
+  it('requires explicit confirmation before creating the next bound physical shard', async () => {
+    installBilibiliPageState()
+
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bilibiliFolderId: '91000001',
+      bilibiliFolderIds: ['91000001'],
+      bindingState: 'bound' as const
+    }
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ body: init?.body?.toString(), url })
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 91000001, title: 'bilimi·游戏专区', media_count: 1000 }] }, message: 'OK' })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 91000002 }, message: 'OK' })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const capacity = await window.eval(buildFavoriteLedgerWriteCapacityScript([game], ['game']))
+
+    expect(capacity).toMatchObject({ ok: false, fullLedgerIds: ['game'] })
+    expect(requests).toHaveLength(1)
+
+    const creation = await window.eval(buildCreateFavoriteLedgerPhysicalShardScript(game))
+
+    expect(creation).toMatchObject({
+      ok: true,
+      folder: { id: '91000002', title: 'bilimi·游戏专区·2', shardNumber: 2 }
+    })
+    expect(requests.at(-1)?.body).toContain(`title=${encodeURIComponent('bilimi·游戏专区·2')}`)
+  })
+
+  it('reports a missing formal bound shard instead of allowing a title-based fallback', async () => {
+    installBilibiliPageState()
+
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bilibiliFolderId: '91000001',
+      bilibiliFolderIds: ['91000001'],
+      bindingState: 'bound' as const
+    }
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      Response.json({ code: 0, data: { list: [] }, message: 'OK' })
+    ))
+
+    const result = await window.eval(buildFavoriteLedgerWriteCapacityScript([game], ['game']))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['game']
+    })
   })
 
   it('adds the current video to multiple planned Bilimi folders in one API deal request', async () => {
