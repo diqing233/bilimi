@@ -162,8 +162,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       scan: {
-        // One duplicate source relationship is deduplicated, while protected,
-        // unavailable, and managed-folder members remain part of this scan run.
+        // The scan summary keeps the Bilibili relationship total from the
+        // folder inventory, including Bilimi folders and duplicate placements.
+        totalItemCount: 7,
+        // The discovered-video count remains deduplicated for scan progress.
         scannedItemCount: 5
       },
       inventoryMetrics: {
@@ -178,6 +180,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
           { id: 'managed', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, confirmed: true }
         ]
       }
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      scan: {
+        totalItemCount: 7,
+        scannedItemCount: 5
+      },
+      inventoryMetrics: { relationshipCount: 7 }
     })
   })
 
@@ -3409,7 +3420,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids: [2, 3], protectedAids: [1] })
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ scan: { totalItemCount: 4, scannedItemCount: 4 } })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      // Folder inventory has two Bilimi relationships; four unique videos
+      // were discovered because managed-member recovery can include items
+      // beyond the currently listed folder counts.
+      scan: { totalItemCount: 2, scannedItemCount: 4 }
+    })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       organizationMigrationInitialized: true,
       organizationRecords: [

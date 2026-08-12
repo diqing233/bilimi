@@ -2652,7 +2652,10 @@ export class OldFavoriteWorkspaceCoordinator {
         ...itemsByAid.keys(),
         ...Object.values(managedMembers).flat()
       ])
-      const totalItemCount = discoveredAids.size
+      // Keep the same inventory scope before and after finalization: this is
+      // every Bilibili favorite relationship reported by the folder directory,
+      // including Bilimi work folders and duplicate video placements.
+      const totalItemCount = sourceFolders.reduce((count, folder) => count + Math.max(0, folder.itemCount), 0)
       const taggedItemCount = [...organizableItemsByAid.values()].filter((item) => Boolean(item.tags?.length)).length
       const completedScan = {
         phase: 'complete' as const,
@@ -4748,7 +4751,9 @@ export class OldFavoriteWorkspaceCoordinator {
         ...folder,
         selected: folder.isBilimiWorkFolder ? false : folder.selected ?? true
       })),
-      scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
+      // Preserve the completed inventory totals written by the scan instead
+      // of rebuilding a status-only summary after an application restart.
+      scan: { ...recovered.scan, phase: 'complete', failureCount: 0, mode: scan.mode }
     })
     this.inventoryMetrics.set(marker.accountMid, recovered.inventoryMetrics
       ? clone(recovered.inventoryMetrics)
