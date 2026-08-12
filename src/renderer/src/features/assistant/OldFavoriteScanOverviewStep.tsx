@@ -118,6 +118,7 @@ export function OldFavoriteScanOverviewStep({
   const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
   const overview = activeSnapshot?.overview
   const hasMultipleSegments = Boolean(activeSnapshot?.hasMultipleSegments || (activeSnapshot?.segments.length ?? 0) > 1)
+  const isSingleRound = !hasMultipleSegments
   const inventoryMetrics = activeSnapshot?.inventoryMetrics
   const legacyProjectionConfirmed = activeSnapshot?.scan.phase === 'complete'
   const folders: SourceFolderProjection[] = inventoryMetrics?.sourceFolders ?? (activeSnapshot?.sourceFolders ?? []).map((folder) => ({
@@ -228,22 +229,22 @@ export function OldFavoriteScanOverviewStep({
       <button type="button" disabled={loading || scanStarting} onClick={onFinishScan}>结束整理</button>
     </div> : null}
     {snapshot ? <>
-      <div className="favorite-ledger-panel__scan-metrics" aria-label={scanningBasicInformation || viewScope === 'all' ? '本轮整理统计' : '本批整理统计'}>
-        <article aria-label={scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'} title={scanningBasicInformation
+      <div className="favorite-ledger-panel__scan-metrics" aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮整理统计' : '本批整理统计'}>
+        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'} title={scanningBasicInformation
           ? '当前本轮已完成基本信息扫描的视频数量。'
           : viewScope === 'current'
           ? '当前批次中实际进入整理流程的去重视频数量。'
           : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
-          <span>{scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'}</span>
+          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'}</span>
           <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
         </article>
-        <article aria-label={scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
-          <span>{scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'}</span><strong>{scanningBasicInformation ? '待确认' : lifecycleCountsConfirmed ? viewScope === 'current' ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>
+        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
+          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'}</span><strong>{scanningBasicInformation ? '待确认' : lifecycleCountsConfirmed ? viewScope === 'current' && !isSingleRound ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>
         </article>
-        {viewScope === 'all' ? <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
+        {isSingleRound || viewScope === 'all' ? <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
           <span>已保护跳过</span><strong>{lifecycleCountsConfirmed ? protectedAidCount : '待确认'}</strong>
         </article> : null}
-        {viewScope === 'all' ? <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
+        {isSingleRound || viewScope === 'all' ? <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
           <span>失效视频</span><strong>{lifecycleCountsConfirmed ? unavailableAidCount : '待确认'}</strong>
         </article> : null}
       </div>

@@ -365,6 +365,33 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByText(/待续新增/)).not.toBeInTheDocument()
   })
 
+  it('keeps all four metrics labeled as this round when the organization has only one batch', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', mode: 'full',
+        segmentSize: 2_000, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0, totalItemCount: 5_193, scannedItemCount: 40 },
+        inventoryMetrics: {
+          authority: 'incomplete', relationshipCount: 5_193, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0,
+          sourceFolders: []
+        },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      viewScope="current"
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const metrics = screen.getByLabelText('本轮整理统计')
+    expect(metrics).toHaveTextContent('本轮视频40')
+    expect(metrics).toHaveTextContent('本轮待整理待确认')
+    expect(metrics).toHaveTextContent('已保护跳过待确认')
+    expect(metrics).toHaveTextContent('失效视频待确认')
+    expect(within(metrics).queryByText('本批视频')).not.toBeInTheDocument()
+  })
+
   it('separates source, pending, protected, and tag-read counts without calling empty cached items confirmed untagged', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
