@@ -1262,6 +1262,53 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('retries a created pending shard instead of creating the same shard again', async () => {
+    const gameLedger = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      keywords: ['单机游戏'],
+      bilibiliFolderId: '9200',
+      bilibiliFolderIds: ['9200'],
+      bindingState: 'bound' as const
+    }
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? gameLedger : { ...ledger, bilibiliFolderId: `93${ledger.priority}`, bindingState: 'bound' as const }
+    )
+    let currentLedgers = ledgers
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockRejectedValue(new Error('remote shard is absent from inventory'))
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({ favoriteLedgers: ledgers })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      savePreferences: vi.fn(async (preferences) => {
+        currentLedgers = preferences.favoriteLedgers
+        return preferences
+      }),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    notifyPreferencesChanged(createAppPreferences({ favoriteLedgers: ledgers }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & { executeJavaScript?: (script: string) => Promise<unknown> }
+    const createdFolders: string[] = []
+    Object.assign(webview, { executeJavaScript: vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) return { aid: 9200, bvid: 'BV1pending9200', title: '\u5355\u673a\u6e38\u620f Boss', pageText: '\u5355\u673a\u6e38\u620f', tags: ['\u5355\u673a\u6e38\u620f'] }
+      if (script.includes('api:favorite:capacity-list') && script.includes('fullLedgerIds')) {
+        return { ok: false, fullLedgerIds: ['game'], missingTargets: ['favorite-shard-confirmation:game'], steps: [], message: 'full' }
+      }
+      if (isLedgerStatusScript(script)) return { ok: true, ledgers: currentLedgers, missingLedgerIds: [], backupConflictLedgerIds: [], unboundLedgerIds: [], message: 'bound' }
+      if (script.includes('favorite physical shard create')) {
+        createdFolders.push('9201')
+        return { ok: true, steps: ['api:favorite:shard-create'], missingTargets: [], folder: { id: '9201', title: 'bilimi·游戏专区·2', shardNumber: 2 } }
+      }
+      if (script.includes('/x/v3/fav/resource/deal')) return { ok: true, steps: [], missingTargets: [] }
+      return { ok: true, steps: [], missingTargets: [] }
+    }) })
+    act(() => webview.dispatchEvent(new CustomEvent('did-navigate-in-page', { detail: { url: 'https://www.bilibili.com/video/BV1pending9200' } })))
+
+    await expect(requestRuntime({ id: 'pending-first', type: 'run-action', action: '\u85cf', options: { confirmNewFavoriteShards: true } })).resolves.toMatchObject({ ok: false })
+    await expect(requestRuntime({ id: 'pending-second', type: 'run-action', action: '\u85cf', options: { confirmNewFavoriteShards: true } })).resolves.toMatchObject({ ok: false })
+
+    expect(createdFolders).toEqual(['9201'])
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledTimes(2)
+  })
+
   it('skips DeepSeek daily review when the target favorite is not provisioned', async () => {
     const generateDeepSeek = vi.fn().mockResolvedValue({
       kind: 'favorite-daily-classify-review',

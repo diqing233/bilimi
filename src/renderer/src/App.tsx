@@ -774,6 +774,9 @@ export default function App() {
     checkedAt: number
     status: FavoriteLedgerStatus
   } | null>(null)
+  const pendingFavoriteShardBindingsRef = useRef(new Map<string, {
+    folder: { id: string; title: string; shardNumber: number }
+  }>())
   const favoriteLedgerPreflightPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus>>())
   const favoriteLedgerEnsurePromisesRef = useRef(new Map<string, Promise<AssistantAutomationResult>>())
   const suppressPageInteractionHintsUntilRef = useRef(0)
@@ -1511,6 +1514,12 @@ export default function App() {
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
         if (trustedFolderIds.length) {
           return { ...ledger, bilibiliFolderId: trustedFolderIds[0], bilibiliFolderIds: trustedFolderIds, bindingState: 'bound' as const }
+        }
+        // A shard creation has an authoritative Bilibili folder ID even while
+        // the next inventory read has not caught up. Preserve it solely for a
+        // retry of that exact ID; it is never considered write-authorized.
+        if (ledger.pendingRemoteBinding && ledger.bilibiliFolderId) {
+          return ledger
         }
         if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledger.bilibiliFolderId) {
           return ledger
@@ -2366,6 +2375,48 @@ export default function App() {
         actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
       }
     }
+    const pendingTargetLedger = actionUsesFavorite(action)
+      ? targetLedgerIds
+        .map((ledgerId) => actionFavoriteLedgers.find((ledger) => ledger.id === ledgerId))
+        .find((ledger): ledger is FavoriteLedger => Boolean(ledger?.pendingRemoteBinding && ledger.bilibiliFolderId?.trim()))
+      : undefined
+    if (pendingTargetLedger && actionAccountMid) {
+      const remoteFolderId = pendingTargetLedger.bilibiliFolderId!.trim()
+      const remoteTitle = pendingTargetLedger.bilibiliFolderTitle || pendingTargetLedger.displayName
+      try {
+        if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
+          throw new Error('收藏库绑定服务不可用')
+        }
+        await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(actionAccountMid, {
+          logicalLedgerId: pendingTargetLedger.id,
+          logicalTitle: pendingTargetLedger.displayName,
+          remoteFolderId,
+          remoteTitle,
+          shardNumber: Math.max(1, (pendingTargetLedger.bilibiliFolderIds ?? []).length)
+        })
+      } catch (error) {
+        return {
+          ok: false,
+          steps: ['favorite:shard-binding-retry'],
+          missingTargets: [`favorite-shard-binding:${pendingTargetLedger.id}`],
+          message: `已创建的「${remoteTitle}」暂未完成正式绑定，本次不会重复创建或写入视频；请稍后重试。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
+        }
+      }
+      const clearedPendingLedgers = actionFavoriteLedgers.map((ledger) =>
+        ledger.id === pendingTargetLedger.id ? { ...ledger, pendingRemoteBinding: false } : ledger
+      )
+      const clearedPendingPreferences = createInitialAssistantPreferences({
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, clearedPendingLedgers)
+      })
+      const savedClearedPendingPreferences = window.bilimiDesktop?.savePreferences
+        ? createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(clearedPendingPreferences))
+        : clearedPendingPreferences
+      preferencesRef.current = savedClearedPendingPreferences
+      setPreferences(savedClearedPendingPreferences)
+      favoriteLedgerStatusCacheRef.current = null
+      favoriteLedgerStatus = await preflightFavoriteLedgerStatus(actionAccountMid)
+      actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
+    }
     const favoriteProvisioned = isFavoriteWriteProvisioned(favoriteLedgerStatus, targetLedgerIds)
     if (actionUsesFavorite(action) && favoriteProvisioned) {
       const capacity = await runScript(
@@ -2397,12 +2448,16 @@ export default function App() {
         for (const ledgerId of fullLedgerIds) {
           const ledger = actionFavoriteLedgers.find((candidate) => candidate.id === ledgerId)
           if (!ledger) continue
-          const creation = await runScript(
-            buildCreateFavoriteLedgerPhysicalShardScript(ledger)
-          ) as AssistantAutomationResult & {
-            folder?: { id: string; title: string; shardNumber: number }
-            existingFolder?: { id: string; title: string; shardNumber: number }
-          }
+          const pendingKey = `${actionAccountMid}:${ledgerId}`
+          const pendingFolder = pendingFavoriteShardBindingsRef.current.get(pendingKey)?.folder
+          const creation = pendingFolder
+            ? { ok: true, steps: ['favorite:shard-binding-retry'], missingTargets: [], existingFolder: pendingFolder }
+            : await runScript(
+                buildCreateFavoriteLedgerPhysicalShardScript(ledger)
+              ) as AssistantAutomationResult & {
+                folder?: { id: string; title: string; shardNumber: number }
+                existingFolder?: { id: string; title: string; shardNumber: number }
+              }
           const folder = creation.folder ?? creation.existingFolder
           if (!creation.ok || !folder?.id || !window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
             return {
@@ -2420,15 +2475,40 @@ export default function App() {
               remoteTitle: folder.title,
               shardNumber: folder.shardNumber
             })
-          } catch {
+          } catch (error) {
+            pendingFavoriteShardBindingsRef.current.set(pendingKey, { folder })
+            const pendingLedgers = actionFavoriteLedgers.map((candidate) => candidate.id === ledgerId
+              ? {
+                  ...candidate,
+                  bilibiliFolderId: folder.id,
+                  bilibiliFolderIds: Array.from(new Set([
+                    ...(candidate.bilibiliFolderIds ?? []),
+                    ...(candidate.bilibiliFolderId ? [candidate.bilibiliFolderId] : []),
+                    folder.id
+                  ])),
+                  bilibiliFolderTitle: folder.title,
+                  pendingRemoteBinding: true,
+                  bindingState: 'unbound' as const
+                }
+              : candidate)
+            const pendingPreferences = createInitialAssistantPreferences({
+              ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, pendingLedgers)
+            })
+            const savedPendingPreferences = window.bilimiDesktop?.savePreferences
+              ? createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(pendingPreferences))
+              : pendingPreferences
+            preferencesRef.current = savedPendingPreferences
+            setPreferences(savedPendingPreferences)
+            favoriteLedgerStatusCacheRef.current = null
             return {
               ok: false,
               steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
               missingTargets: [`favorite-shard-binding:${ledgerId}`],
-              message: '新的 B 站收藏夹分区已创建，但正式绑定没有完成。本次批阅没有写入收藏夹，请在收藏夹区域检查后重试。'
+              message: `新的 B 站收藏夹分区已创建，但正式绑定暂未完成；已记住该分区，下次会只重试绑定，不会重复创建。本次批阅没有写入收藏夹。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
             }
           }
           createdByLedgerId.set(ledgerId, folder)
+          pendingFavoriteShardBindingsRef.current.delete(pendingKey)
         }
         if (createdByLedgerId.size) {
           actionFavoriteLedgers = actionFavoriteLedgers.map((ledger) => {
@@ -2439,7 +2519,7 @@ export default function App() {
               ...(ledger.bilibiliFolderId ? [ledger.bilibiliFolderId] : []),
               folder.id
             ]))
-            return { ...ledger, bilibiliFolderId: bilibiliFolderIds[0], bilibiliFolderIds, bindingState: 'bound' as const }
+            return { ...ledger, bilibiliFolderId: bilibiliFolderIds[0], bilibiliFolderIds, pendingRemoteBinding: false, bindingState: 'bound' as const }
           })
           const nextPreferences = createInitialAssistantPreferences({
             ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, actionFavoriteLedgers)

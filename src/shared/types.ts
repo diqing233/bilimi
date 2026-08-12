@@ -60,6 +60,8 @@ export type FavoriteLedger = {
   bilibiliFolderVideoCount?: number
   /** Remote folder binding is explicit; same names are only rebind candidates. */
   bindingState?: FavoriteLedgerBindingState
+  /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
+  pendingRemoteBinding?: boolean
   /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */
   syncState?: FavoriteLedgerSyncState
   isDefault: boolean

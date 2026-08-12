@@ -171,6 +171,13 @@ function sharedScriptHelpers(): string {
           normalizeLogicalFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
           return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
+        // A create response already gave us this exact remote ID, but it has
+        // not passed the repository's independent inventory verification.
+        // Keep it pending even if the page list has caught up: treating it as
+        // bound here would permit a write before the formal binding exists.
+        if (ledger.pendingRemoteBinding && ledger.bilibiliFolderId) {
+          return { ...ledger, bindingState: 'unbound' };
+        }
         // A persisted binding is keyed by the remote folder ID. Bilibili users
         // may rename a bound folder, so a title mismatch must not silently
         // discard an otherwise valid binding.
@@ -424,6 +431,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
         return { ok: false, missingTargets: ['favorite-folder-limit'], message: 'B 站收藏夹数量已达到 99 个上限，无法备册新的分区。' };
       }
       const boundFolderIds = ledgerRemoteFolderIds(payload.ledger);
+      const title = String(payload.ledger.displayName || '').trim();
       const boundFolders = boundFolderIds
         .map((folderId) => folders.find((folder) => String(findFolderId(folder) || '') === folderId))
         .filter(Boolean);
@@ -434,12 +442,16 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       if (available) {
         return { ok: true, steps: ['api:favorite:capacity-list'], existingFolder: { id: String(findFolderId(available)), title: String(available.title || ''), shardNumber: 1 }, message: '已有可用收藏夹分区。' };
       }
-      const title = String(payload.ledger.displayName || '').trim();
       const suffixNumber = (value) => {
         const match = String(value || '').trim().match(/·(?:0*(\d+))$/u);
         return match ? Number(match[1]) : 1;
       };
-      const nextShardNumber = Math.max(...boundFolders.map((folder) => suffixNumber(folder.title))) + 1;
+      // Count every matching remote shard, not just the IDs whose formal
+      // binding is already persisted. A prior creation can be visible before
+      // its binding reconciliation completes; it must still reserve its slot.
+      const normalizeShardBaseTitle = (value) => String(value || '').trim().replace(/\s*\u00b7\s*(?:0*(?:[2-9]\d*))$/u, '');
+      const matchingRemoteShards = folders.filter((folder) => normalizeShardBaseTitle(folder.title) === title);
+      const nextShardNumber = Math.max(...matchingRemoteShards.map((folder) => suffixNumber(folder.title)), 1) + 1;
       const suffix = '·' + String(nextShardNumber);
       const shardTitle = Array.from(title).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('') + suffix;
       const body = new URLSearchParams({ csrf, privacy: '0', title: shardTitle });
