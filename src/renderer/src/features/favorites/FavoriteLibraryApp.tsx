@@ -387,13 +387,6 @@ export function FavoriteLibraryApp({
   const [managedFolderDeletionAcknowledgedUnbound, setManagedFolderDeletionAcknowledgedUnbound] = useState(false)
   const [managedFolderDeletionScope, setManagedFolderDeletionScope] = useState<'local-only' | 'bilibili'>('local-only')
   const [managedFolderDeletionExecuting, setManagedFolderDeletionExecuting] = useState(false)
-  const [managedFolderRecordClearDialog, setManagedFolderRecordClearDialog] = useState<{ folderIds: string[]; titles: string[] }>()
-  const [managedFolderRecordClearExecuting, setManagedFolderRecordClearExecuting] = useState(false)
-  const [workspaceOperationSelection, setWorkspaceOperationSelection] = useState<{
-    kind: 'sync' | 'clear-records' | 'delete'
-    availableLedgerIds: string[]
-    selectedLedgerIds: string[]
-  }>()
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const [workspaceSyncResult, setWorkspaceSyncResult] = useState<string>()
   const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
@@ -1320,9 +1313,10 @@ export function FavoriteLibraryApp({
     try {
       const logicalLedgerIds = [...new Set(managedFolderDeletionDialog.candidates.map((candidate) => candidate.logicalLedgerId))]
       if (managedFolderDeletionScope === 'local-only') {
-        const folderIds = logicalLedgerIds.map((logicalLedgerId) => folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)?.id).filter((folderId): folderId is string => Boolean(folderId))
-        if (!api?.deleteFavoriteLibraryManagedFolderLocalGroup || folderIds.length !== logicalLedgerIds.length) throw new Error(text.unavailable)
-        await api.deleteFavoriteLibraryManagedFolderLocalGroup(accountMid, folderIds)
+        if (!api?.deleteFavoriteLibraryManagedFolderLocal || logicalLedgerIds.some((id) => !managedFolderDeletionDialog.localExecutionTokens[id])) throw new Error(text.unavailable)
+        for (const logicalLedgerId of logicalLedgerIds) {
+          await api.deleteFavoriteLibraryManagedFolderLocal(accountMid, managedFolderDeletionDialog.localExecutionTokens[logicalLedgerId])
+        }
         setManagedFolderDeletionDialog(undefined)
         await refresh(accountMid)
         return
@@ -1349,23 +1343,6 @@ export function FavoriteLibraryApp({
     } finally {
       setManagedFolderDeletionExecuting(false)
     }
-  }
-  const confirmManagedFolderRecordClear = async () => {
-    const api = window.bilimiDesktop
-    if (!accountMid || !managedFolderRecordClearDialog?.folderIds.length || !api?.clearFavoriteLibraryManagedFolderRecords) throw new Error(text.unavailable)
-    setManagedFolderRecordClearExecuting(true)
-    try {
-      await api.clearFavoriteLibraryManagedFolderRecords(accountMid, managedFolderRecordClearDialog.folderIds)
-      if (scope.kind === 'folder' && managedFolderRecordClearDialog.folderIds.includes(currentFolder?.id ?? '')) setScopeId('all')
-      setManagedFolderRecordClearDialog(undefined)
-      await refresh(accountMid)
-    } finally {
-      setManagedFolderRecordClearExecuting(false)
-    }
-  }
-  const openWorkspaceOperationSelection = (kind: 'sync' | 'clear-records' | 'delete') => {
-    const ledgerIds = folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId).map((folder) => folder.logicalLedgerId!)
-    if (ledgerIds.length) setWorkspaceOperationSelection({ kind, availableLedgerIds: ledgerIds, selectedLedgerIds: ledgerIds })
   }
   const exportFavoriteArchive = async () => {
     const api = window.bilimiDesktop
@@ -1657,44 +1634,6 @@ export function FavoriteLibraryApp({
           if (scope.kind === 'folder' && folders.some((folder) => `folder:${folder.id}` === scopeId && folder.kind === 'bilibili')) setScopeId('all')
         })}>确认全部从收藏库删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {workspaceOperationSelection ? <FavoriteLibraryConfirmationDialog label={workspaceOperationSelection.kind === 'sync' ? '同步工作夹' : workspaceOperationSelection.kind === 'clear-records' ? '清除整理记录' : '删除工作夹'} onClose={() => setWorkspaceOperationSelection(undefined)}>
-        <p>{workspaceOperationSelection.kind === 'sync' ? '默认已全选；只会同步所勾选工作夹的本地归属。' : workspaceOperationSelection.kind === 'clear-records' ? '默认已全选；仅清除所选工作夹的本地整理归属，不删除工作夹、B 站收藏夹、视频档案或转写。' : '默认已全选；下一步将选择仅从 bilimi 删除或同时删除 B 站收藏夹。'}</p>
-        <div className="favorite-library__managed-folder-preview">{workspaceOperationSelection.availableLedgerIds.map((logicalLedgerId) => {
-          const folder = folders.find((candidate) => candidate.kind === 'bilimi-logical' && candidate.logicalLedgerId === logicalLedgerId)
-          return <label key={logicalLedgerId}><input type="checkbox" checked={workspaceOperationSelection.selectedLedgerIds.includes(logicalLedgerId)} onChange={(event) => {
-            const checked = event.currentTarget.checked
-            setWorkspaceOperationSelection((current) => !current ? current : ({ ...current, selectedLedgerIds: checked ? [...current.selectedLedgerIds, logicalLedgerId] : current.selectedLedgerIds.filter((id) => id !== logicalLedgerId) }))
-          }} />{folder?.title ?? logicalLedgerId}</label>
-        })}</div>
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setWorkspaceOperationSelection(undefined)}>取消</button><button type="button" disabled={!workspaceOperationSelection.selectedLedgerIds.length} className={workspaceOperationSelection.kind === 'delete' ? 'favorite-library__danger-action' : undefined} onClick={() => void runAction(async () => {
-          const selection = workspaceOperationSelection
-          if (!accountMid || !selection.selectedLedgerIds.length) throw new Error(text.unavailable)
-          if (selection.kind === 'delete') {
-            setWorkspaceOperationSelection(undefined)
-            await openManagedFolderDeletion(selection.selectedLedgerIds)
-            return
-          }
-          if (selection.kind === 'clear-records') {
-            const folderIds = selection.selectedLedgerIds.map((logicalLedgerId) => folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)?.id).filter((id): id is string => Boolean(id))
-            setWorkspaceOperationSelection(undefined)
-            setManagedFolderRecordClearDialog({ folderIds, titles: folderIds.map((id) => folders.find((folder) => folder.id === id)?.title ?? id) })
-            return
-          }
-          const api = window.bilimiDesktop
-          if (!api?.synchronizeFavoriteLibraryPlacements) throw new Error(text.unavailable)
-          let succeeded = 0; let skipped = 0; let failed = 0
-          for (const logicalLedgerId of selection.selectedLedgerIds) {
-            const folder = folders.find((candidate) => candidate.kind === 'bilimi-logical' && candidate.logicalLedgerId === logicalLedgerId)
-            if (!folder) continue
-            try { const result = await api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'folder', folderId: folder.id }); if (result.completedOperationCount === 0 && result.totalOperationCount === 0) skipped++; else succeeded++ } catch { failed++ }
-          }
-          setWorkspaceOperationSelection(undefined); setWorkspaceSyncResult(`同步完成 ${succeeded} 个，跳过 ${skipped} 个，失败 ${failed} 个`); await refresh(accountMid)
-        })}>{workspaceOperationSelection.kind === 'sync' ? '同步所选工作夹' : workspaceOperationSelection.kind === 'clear-records' ? '继续清除' : '继续删除'}</button></div>
-      </FavoriteLibraryConfirmationDialog> : null}
-      {managedFolderRecordClearDialog ? <FavoriteLibraryConfirmationDialog label="确认清除整理记录" busy={managedFolderRecordClearExecuting} onClose={() => { if (!managedFolderRecordClearExecuting) setManagedFolderRecordClearDialog(undefined) }}>
-        <p>将清除 {managedFolderRecordClearDialog.titles.join('、')} 的本地整理归属记录。工作夹、B 站收藏夹、视频、档案、转写和札记都会保留。</p>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderRecordClearExecuting} onClick={() => setManagedFolderRecordClearDialog(undefined)}>取消</button><button type="button" disabled={managedFolderRecordClearExecuting} onClick={() => void runAction(confirmManagedFolderRecordClear)}>确认清除整理记录</button></div>
-      </FavoriteLibraryConfirmationDialog> : null}
       {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
         if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
       }}>
@@ -1805,10 +1744,6 @@ export function FavoriteLibraryApp({
               return
             }
             if (!folder || !accountMid) return
-            if (action === 'clear-records') {
-              setManagedFolderRecordClearDialog({ folderIds: [folder.id], titles: [folder.title] })
-              return
-            }
             if (folder.id === 'local:inbox') {
               void openLocalInboxDeletion(folder).catch(() => setError(text.actionFailed))
               return
@@ -1835,17 +1770,30 @@ export function FavoriteLibraryApp({
               return
             }
             if (!accountMid) return
-            if (action === 'sync') {
-              openWorkspaceOperationSelection('sync')
-              return
+            if (action === 'sync-all') {
+              void (async () => {
+                const api = window.bilimiDesktop
+                if (!api?.synchronizeFavoriteLibraryPlacements) throw new Error(text.unavailable)
+                let succeeded = 0
+                let skipped = 0
+                let failed = 0
+                for (const folder of folders.filter((folder) => folder.kind === 'bilimi-logical')) {
+                  try {
+                    const result = await api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'folder', folderId: folder.id })
+                    if (result.completedOperationCount === 0 && result.totalOperationCount === 0) skipped++
+                    else succeeded++
+                  } catch {
+                    failed++
+                  }
+                }
+                setWorkspaceSyncResult(`同步完成 ${succeeded} 个，跳过 ${skipped} 个，失败 ${failed} 个`)
+                await refresh(accountMid)
+              })().catch(() => setError(text.actionFailed))
             }
-            if (action === 'clear-records') {
-              openWorkspaceOperationSelection('clear-records')
-              return
-            }
-            if (action === 'delete') {
-              openWorkspaceOperationSelection('delete')
-              return
+            if (action === 'delete-all') {
+              const ledgerIds = folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+                .map((folder) => folder.logicalLedgerId!)
+              void openManagedFolderDeletion(ledgerIds).catch(() => setError(text.actionFailed))
             }
           }}
         />

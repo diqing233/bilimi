@@ -169,45 +169,6 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(getSnapshot).toHaveBeenCalledOnce()
   })
 
-  it('deletes every selected local managed folder in one atomic group request', async () => {
-    const first = managedSnapshot()
-    const second = {
-      ...first,
-      revision: 5,
-      folders: [...first.folders, { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'local-only' as const }],
-      memberships: { ...first.memberships, 'bilimi-logical:music': [3] }
-    }
-    const commit = vi.fn()
-    const commitWithAudit = vi.fn()
-    const service = new FavoriteRepositoryManagedFolderService({
-      repository: { getSnapshot: vi.fn().mockResolvedValue(second), commit, commitWithAudit }
-    })
-
-    await expect(service.deleteLocalGroup('100', ['bilimi-logical:work', 'bilimi-logical:music'])).resolves.toMatchObject({ status: 'succeeded', deletedFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'] })
-    expect(commit).not.toHaveBeenCalled()
-    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
-      type: 'delete-local-managed-folders', payload: { logicalFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'] }
-    }), expect.any(Array))
-  })
-
-  it('records the selected local deletion and record clear with an explicit operation source', async () => {
-    const current = managedSnapshot()
-    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-    const service = new FavoriteRepositoryManagedFolderService({
-      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }
-    })
-
-    await service.deleteLocalGroup('100', ['bilimi-logical:work'])
-    await service.clearLocalRecords('100', ['bilimi-logical:work'])
-
-    expect(commitWithAudit.mock.calls[0][2]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ detail: 'managed-folder-delete-local-group:top-level-selection' })
-    ]))
-    expect(commitWithAudit.mock.calls[1][2]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ detail: 'managed-folder-clear-records:top-level-or-folder-menu' })
-    ]))
-  })
-
   it('requires preview, confirmation, and unchanged baseline for remote deletion; unknown results need reconciliation without retry', async () => {
     const current = managedSnapshot()
     const getSnapshot = vi.fn(async () => current)

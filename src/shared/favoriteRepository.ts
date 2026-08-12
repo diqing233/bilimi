@@ -811,22 +811,6 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
-      type: 'delete-local-managed-folders'
-      payload: { logicalFolderIds: string[] }
-    }
-  | {
-      id: string
-      accountMid: string
-      issuedAt: string
-      expectedRevision?: number
-      type: 'clear-local-managed-folder-records'
-      payload: { logicalFolderIds: string[] }
-    }
-  | {
-      id: string
-      accountMid: string
-      issuedAt: string
-      expectedRevision?: number
       type: 'clear-local-inbox'
       payload: Record<string, never>
     }
@@ -1377,12 +1361,6 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'delete-local-managed-folder':
       if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
-      return
-    case 'delete-local-managed-folders':
-    case 'clear-local-managed-folder-records':
-      if (!Array.isArray(payload.logicalFolderIds) || !payload.logicalFolderIds.length || payload.logicalFolderIds.length > 100 ||
-        payload.logicalFolderIds.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/.test(folderId.trim())) ||
-        new Set(payload.logicalFolderIds.map((folderId) => folderId.trim())).size !== payload.logicalFolderIds.length) invalidCommand()
       return
     case 'clear-local-inbox':
       if (Object.keys(payload).length) invalidCommand()
@@ -1999,29 +1977,22 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = selected
       break
     }
-    case 'delete-local-managed-folder':
-    case 'delete-local-managed-folders': {
-      const logicalFolderIds = command.type === 'delete-local-managed-folder'
-        ? [command.payload.logicalFolderId.trim()]
-        : command.payload.logicalFolderIds.map((folderId) => folderId.trim())
-      const logicalFolders = logicalFolderIds.map((logicalFolderId) => {
-        const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
-        if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
-        return logicalFolder
-      })
-      const deletingInbox = logicalFolders.some((logicalFolder) => logicalFolder.logicalLedgerId === 'inbox')
-      const deletingLedgerIds = new Set(logicalFolders.map((logicalFolder) => logicalFolder.logicalLedgerId!))
-      const removedShards = physicalShards.filter((shard) => deletingLedgerIds.has(shard.logicalLedgerId))
-      const removedFolderIds = new Set([...logicalFolderIds, ...removedShards.map((shard) => shard.folderId)])
+    case 'delete-local-managed-folder': {
+      const logicalFolderId = command.payload.logicalFolderId.trim()
+      const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
+      if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
+      const deletingInbox = logicalFolder.logicalLedgerId === 'inbox'
+      const removedShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalFolder.logicalLedgerId)
+      const removedFolderIds = new Set([logicalFolderId, ...removedShards.map((shard) => shard.folderId)])
       const affected = new Set<number>()
       for (const folderId of removedFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
       if (deletingInbox) for (const aid of memberships['local:inbox'] ?? []) affected.add(aid)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
-      physicalShards = physicalShards.filter((shard) => !deletingLedgerIds.has(shard.logicalLedgerId))
+      physicalShards = physicalShards.filter((shard) => shard.logicalLedgerId !== logicalFolder.logicalLedgerId)
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
-        if (!position.localDesiredFolderIds.some((folderId) => removedFolderIds.has(folderId))) continue
-        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
+        if (!position.localDesiredFolderIds.includes(logicalFolderId)) continue
+        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId)
         positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
           ...position,
           localDesiredFolderIds,
@@ -2047,37 +2018,6 @@ export function applyFavoriteRepositoryCommand(
       memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
       affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
-      break
-    }
-    case 'clear-local-managed-folder-records': {
-      const logicalFolderIds = command.payload.logicalFolderIds.map((folderId) => folderId.trim())
-      const logicalFolders = logicalFolderIds.map((logicalFolderId) => {
-        const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
-        if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
-        return logicalFolder
-      })
-      const clearedAids = new Set<number>()
-      for (const logicalFolder of logicalFolders) {
-        for (const aid of memberships[logicalFolder.id] ?? []) clearedAids.add(aid)
-        memberships = { ...memberships, [logicalFolder.id]: [] }
-      }
-      for (const position of Object.values(positions)) {
-        if (!position.localDesiredFolderIds.some((folderId) => logicalFolderIds.includes(folderId))) continue
-        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !logicalFolderIds.includes(folderId))
-        positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
-          ...position, localDesiredFolderIds,
-          positionState: 'local-only-change', updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
-        }
-        clearedAids.add(position.aid)
-      }
-      const inbox = new Set(memberships['local:inbox'] ?? [])
-      for (const aid of clearedAids) {
-        const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
-        if (!(position?.localDesiredFolderIds ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))) inbox.add(aid)
-      }
-      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
-      affectedFolderIds = [...new Set([...logicalFolderIds, 'local:inbox'])].sort()
-      affectedAids = [...clearedAids].sort((left, right) => left - right)
       break
     }
     case 'clear-local-inbox': {

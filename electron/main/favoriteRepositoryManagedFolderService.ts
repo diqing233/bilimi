@@ -194,58 +194,6 @@ export class FavoriteRepositoryManagedFolderService {
     return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
   }
 
-  /** Deletes selected logical folders in one repository transaction so the preview baseline cannot become stale mid-batch. */
-  async deleteLocalGroup(accountMid: string, logicalFolderIds: string[]) {
-    const normalizedAccount = account(accountMid)
-    const uniqueFolderIds = [...new Set(logicalFolderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()
-    if (!uniqueFolderIds.length || uniqueFolderIds.some((folderId) => !/^bilimi-logical:\S+$/.test(folderId))) {
-      throw new Error('Managed folder selection is invalid.')
-    }
-    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
-    const selectedFolders = uniqueFolderIds.map((folderId) => {
-      const folder = snapshot.folders.find((candidate) => candidate.id === folderId && candidate.kind === 'bilimi-logical')
-      if (!folder?.logicalLedgerId) throw new Error('Managed folder was not found.')
-      return folder
-    })
-    const auditAids = [...new Set(uniqueFolderIds.flatMap((folderId) => snapshot.memberships[folderId] ?? []))]
-    const timestamp = this.now()
-    const command: FavoriteRepositoryCommand = {
-      id: `managed-folder:delete-local-group:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: snapshot.revision,
-      type: 'delete-local-managed-folders', payload: { logicalFolderIds: uniqueFolderIds }
-    }
-    const auditEvents = this.events(auditAids, 'managed-folder-delete-local-group:top-level-selection', timestamp)
-    if (auditEvents.length) await this.options.repository.commitWithAudit(normalizedAccount, command, auditEvents)
-    else await this.options.repository.commit(normalizedAccount, command)
-    const selectedLedgerIds = new Set(selectedFolders.map((folder) => folder.logicalLedgerId!))
-    for (const shard of snapshot.physicalShards.filter((candidate) => selectedLedgerIds.has(candidate.logicalLedgerId))) {
-      for (const remoteFolderId of [...new Set([shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])].filter(Boolean) as string[])]) {
-        this.options.dismissRemoteFolder?.(normalizedAccount, remoteFolderId)
-      }
-    }
-    return { status: 'succeeded' as const, deletedFolderIds: uniqueFolderIds }
-  }
-
-  /** Clears local organization memberships while retaining the work folders and every remote binding. */
-  async clearLocalRecords(accountMid: string, logicalFolderIds: string[]) {
-    const normalizedAccount = account(accountMid)
-    const uniqueFolderIds = [...new Set(logicalFolderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()
-    if (!uniqueFolderIds.length || uniqueFolderIds.some((folderId) => !/^bilimi-logical:\S+$/.test(folderId))) throw new Error('Managed folder selection is invalid.')
-    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
-    for (const folderId of uniqueFolderIds) {
-      if (!snapshot.folders.some((folder) => folder.id === folderId && folder.kind === 'bilimi-logical')) throw new Error('Managed folder was not found.')
-    }
-    const auditAids = [...new Set(uniqueFolderIds.flatMap((folderId) => snapshot.memberships[folderId] ?? []))]
-    const timestamp = this.now()
-    const command: FavoriteRepositoryCommand = {
-      id: `managed-folder:clear-records:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: snapshot.revision,
-      type: 'clear-local-managed-folder-records', payload: { logicalFolderIds: uniqueFolderIds }
-    }
-    const events = this.events(auditAids, 'managed-folder-clear-records:top-level-or-folder-menu', timestamp)
-    if (events.length) await this.options.repository.commitWithAudit(normalizedAccount, command, events)
-    else await this.options.repository.commit(normalizedAccount, command)
-    return { status: 'succeeded' as const, clearedFolderIds: uniqueFolderIds }
-  }
-
   confirm(accountMid: string, executionToken: string) {
     const operation = [...this.operations.values()].find((item) => item.executionToken === executionToken && item.accountMid === account(accountMid) && item.status === 'previewed')
     if (!operation) throw new Error('Managed folder deletion preview is unavailable.')

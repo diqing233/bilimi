@@ -32,10 +32,10 @@ type FavoriteLibraryNavigationProps = {
   onCollapseChange: (uid: string, groupId: string, collapsed: boolean) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
   onManagedFolderMenu?: (id: string) => void
-  onManagedFolderAction?: (id: string, action: 'edit' | 'clear-records' | 'delete') => void
+  onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
   onOrdinaryFolderRemove?: (id: string) => void
   onOrdinaryGroupAction?: (action: 'delete-all') => void
-  onWorkspaceAction?: (action: 'create' | 'sync' | 'clear-records' | 'delete') => void
+  onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all') => void
 }
 
 export function FavoriteLibraryNavigation({
@@ -54,8 +54,8 @@ export function FavoriteLibraryNavigation({
   ordinaryGroupActionRef.current = onOrdinaryGroupAction
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
-  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'clear-records' | 'delete') => managedFolderActionRef.current?.(id, action), [])
-  const handleWorkspaceAction = useCallback((action: 'create' | 'sync' | 'clear-records' | 'delete') => workspaceActionRef.current?.(action), [])
+  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
+  const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all') => workspaceActionRef.current?.(action), [])
   const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
   const handleOrdinaryGroupAction = useCallback((action: 'delete-all') => ordinaryGroupActionRef.current?.(action), [])
   const renderWorkspaceMenu = useCallback((resetKey: string) => <WorkspaceFloatingMenu onAction={handleWorkspaceAction} resetKey={resetKey} />, [handleWorkspaceAction])
@@ -166,7 +166,7 @@ function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-al
     {open && typeof document !== 'undefined' ? createPortal(<div {...menuScope} ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
   </span>
 }
-function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync' | 'clear-records' | 'delete') => void; resetKey: string }) {
+function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
   const [open, setOpen, menuScope] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
@@ -219,17 +219,16 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
     }
   }, [open, reposition])
 
-  const run = (action: 'create' | 'sync' | 'clear-records' | 'delete') => {
+  const run = (action: 'create' | 'sync-all' | 'delete-all') => {
     triggerRef.current?.focus()
     setOpen(false)
     onAction?.(action)
   }
   const floatingMenu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('create')}>{'\u65b0\u5efa\u5de5\u4f5c\u5939'}</button>
-    <button role="menuitem" type="button" onClick={() => run('sync')}>{'\u540c\u6b65\u5de5\u4f5c\u5939'}</button>
-    <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u9664\u6574\u7406\u8bb0\u5f55'}</button>
+    <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
     <hr />
-    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{'\u5220\u9664\u5de5\u4f5c\u5939'}</button>
+    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
   </div> : null
   return <span {...menuScope} className="favorite-library__folder-menu-wrap">
     <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__workspace-menu" aria-label={'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355'} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>
@@ -271,7 +270,7 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
   item: FavoriteLibraryNavigationItem
   trigger: HTMLButtonElement
   onClose: () => void
-  onAction?: (id: string, action: 'edit' | 'clear-records' | 'delete') => void
+  onAction?: (id: string, action: 'edit' | 'delete') => void
 }) {
   const [position, setPosition] = useState<CSSProperties>()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -317,13 +316,12 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
       removalObserver?.disconnect()
     }
   }, [closeAndRestoreFocus, reposition, trigger])
-  const run = (action: 'edit' | 'clear-records' | 'delete') => {
+  const run = (action: 'edit' | 'delete') => {
     closeAndRestoreFocus()
     onAction?.(item.id, action)
   }
   return <div ref={menuRef} className="favorite-library__folder-floating-menu" role="menu" aria-label={`${item.label} \u64cd\u4f5c`} style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('edit')}>{'\u7f16\u8f91\u4fe1\u606f'}</button>
-    {item.managed ? <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u9664\u6574\u7406\u8bb0\u5f55'}</button> : null}
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{item.removable ? '\u4ece\u6536\u85cf\u5e93\u5220\u9664' : '\u5220\u9664'}</button>
   </div>
 }

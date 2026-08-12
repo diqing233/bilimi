@@ -99,7 +99,7 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     'copy' | 'move' | 'deleteLocal' |
     'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite' |
     'previewManagedPlacementRemoval' | 'confirmManagedPlacementRemoval' | 'executeManagedPlacementRemoval' | 'reconcileManagedPlacementRemoval'>
-  managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'previewAll' | 'deleteLocal' | 'deleteLocalGroup' | 'clearLocalRecords' | 'confirm' | 'executeRemote' | 'reconcile'>
+  managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'previewAll' | 'deleteLocal' | 'confirm' | 'executeRemote' | 'reconcile'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   /** Resolves folder provenance from the current repository snapshot, never renderer labels. */
@@ -183,12 +183,6 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   })
   options.ipcMain.handle('favorite-library-operations:delete-managed-folder-local', async (event, requestedAccount, executionToken) => {
     trusted(event); return options.managed.deleteLocal(await current(requestedAccount), token(executionToken))
-  })
-  options.ipcMain.handle('favorite-library-operations:delete-managed-folder-local-group', async (event, requestedAccount, folderIds) => {
-    trusted(event); return options.managed.deleteLocalGroup(await current(requestedAccount), targets(folderIds))
-  })
-  options.ipcMain.handle('favorite-library-operations:clear-managed-folder-records', async (event, requestedAccount, folderIds) => {
-    trusted(event); return options.managed.clearLocalRecords(await current(requestedAccount), targets(folderIds))
   })
   options.ipcMain.handle('favorite-library-operations:confirm-managed-folder-remote-delete', async (event, requestedAccount, executionToken) => {
     trusted(event); const normalized = await current(requestedAccount); return { confirmationToken: options.managed.confirm(normalized, token(executionToken)) }
