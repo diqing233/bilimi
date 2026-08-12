@@ -161,6 +161,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      scan: {
+        // One duplicate source relationship is deduplicated, while protected,
+        // unavailable, and managed-folder members remain part of this scan run.
+        scannedItemCount: 5
+      },
       inventoryMetrics: {
         authority: 'complete',
         relationshipCount: 7,
