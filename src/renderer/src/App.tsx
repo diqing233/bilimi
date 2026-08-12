@@ -2392,7 +2392,8 @@ export default function App() {
           logicalTitle: pendingTargetLedger.displayName,
           remoteFolderId,
           remoteTitle,
-          shardNumber: Math.max(1, (pendingTargetLedger.bilibiliFolderIds ?? []).length)
+          shardNumber: Math.max(1, (pendingTargetLedger.bilibiliFolderIds ?? []).length),
+          allowRemoteRename: true
         })
       } catch (error) {
         return {
@@ -2473,7 +2474,8 @@ export default function App() {
               logicalTitle: ledger.displayName,
               remoteFolderId: folder.id,
               remoteTitle: folder.title,
-              shardNumber: folder.shardNumber
+              shardNumber: folder.shardNumber,
+              allowRemoteRename: true
             })
           } catch (error) {
             pendingFavoriteShardBindingsRef.current.set(pendingKey, { folder })

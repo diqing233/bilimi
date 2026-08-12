@@ -32,6 +32,7 @@ export type AdoptExistingPhysicalShardInput = {
   remoteFolderId: string
   shardNumber: number
   memberAids: number[]
+  allowRemoteRename?: boolean
 }
 
 export type FavoriteRepositoryBindingSnapshot = {
@@ -140,7 +141,7 @@ function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
   if (memberAids.length > REMOTE_FAVORITE_SHARD_CAPACITY) {
     throw new Error('Favorite repository shard capacity is exceeded.')
   }
-  return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids }
+  return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids, allowRemoteRename: input.allowRemoteRename === true }
 }
 
 function bindingSnapshot(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryBindingSnapshot {
@@ -211,7 +212,9 @@ export class FavoriteRepositoryBindingService {
       const matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
       const remote = matches[0]
-      if (comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(normalized.expectedRemoteTitle)) {
+      const remoteTitleMatches = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
+      const remoteTitleIsManaged = /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(remote.title.trim())
+      if (!remoteTitleMatches && !(normalized.allowRemoteRename && remoteTitleIsManaged)) {
         throw new Error('Favorite repository remote shard title is invalid.')
       }
       if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||

@@ -520,13 +520,14 @@ export function registerFavoriteRepositoryIpc(options: {
     const logicalTitle = typeof input.logicalTitle === 'string' ? input.logicalTitle.trim() : ''
     const remoteFolderId = typeof input.remoteFolderId === 'string' ? input.remoteFolderId.trim() : ''
     const remoteTitle = typeof input.remoteTitle === 'string' ? input.remoteTitle.trim() : ''
+    const allowRemoteRename = input.allowRemoteRename === true
     const shardNumber = input.shardNumber === undefined ? 1 : Number(input.shardNumber)
     if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !remoteTitle || !Number.isSafeInteger(shardNumber) || shardNumber < 1) {
       throw new Error('Favorite repository binding input is invalid.')
     }
     return options.bindingService.adoptExistingPhysicalShard(accountMid, {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
-      remoteFolderId, shardNumber, memberAids: []
+      remoteFolderId, shardNumber, memberAids: [], ...(allowRemoteRename ? { allowRemoteRename: true } : {})
     })
   })
   options.ipcMain.handle('favorite-repository:preview-ledger-binding-candidates', async (event, requestedAccountMid: string, requestedLedgers: unknown) => {
