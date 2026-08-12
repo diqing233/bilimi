@@ -191,13 +191,9 @@ export function resolveWorkspaceGuidanceAnnouncement(
   return 'none'
 }
 
-/** Bulk backup must leave remote-only recovery drafts untouched until the owner explicitly rebinds them. */
+/** Only saved, enabled ledgers may create, update, or restore Bilibili bindings. */
 export function ledgersForFavoriteBackup(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  return ledgers.map((ledger) =>
-    ledger.syncState === 'local-draft' && !ledger.bilibiliFolderId
-      ? { ...ledger, syncState: undefined }
-      : ledger
-  )
+  return ledgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
 }
 
 export function statusLightNavigation(id: StatusLightId, _activeView: AssistantWorkspaceView) {

@@ -33,17 +33,34 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
-  it('keeps recovered remote drafts out of a bulk backup until the owner explicitly rebinds them', () => {
+  it('excludes recovered remote drafts from a bulk backup until they are saved and enabled', () => {
     const recoveredDraft: FavoriteLedger = {
       id: 'custom-remote-game', displayName: 'bilimi·游戏专区', keywords: [], enabled: false,
       priority: 20_000, bilibiliFolderId: '88', bilibiliFolderIds: ['88'],
       bindingState: 'unbound', syncState: 'local-draft', isDefault: false
     }
 
-    expect(ledgersForFavoriteBackup([recoveredDraft])).toEqual([recoveredDraft])
-    expect(ledgersForFavoriteBackup([{ ...recoveredDraft, bilibiliFolderId: undefined, bilibiliFolderIds: undefined }])).toEqual([
-      expect.objectContaining({ syncState: undefined })
+    expect(ledgersForFavoriteBackup([recoveredDraft])).toEqual([])
+    expect(ledgersForFavoriteBackup([{ ...recoveredDraft, enabled: true, syncState: undefined }])).toEqual([
+      expect.objectContaining({ id: recoveredDraft.id, enabled: true, syncState: undefined })
     ])
+  })
+
+  it('includes only saved and enabled ledgers in a bulk backup', () => {
+    const savedEnabled: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true
+    }
+    const unsavedEnabled: FavoriteLedger = {
+      id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: [], enabled: true,
+      priority: 20, syncState: 'local-draft', isDefault: false
+    }
+    const savedDisabled: FavoriteLedger = {
+      id: 'reading', displayName: 'bilimi·阅读', keywords: [], enabled: false,
+      priority: 30, isDefault: true
+    }
+
+    expect(ledgersForFavoriteBackup([savedEnabled, unsavedEnabled, savedDisabled])).toEqual([savedEnabled])
   })
 
   it('suppresses a dismissed remote-only draft from refreshed favorite status', () => {

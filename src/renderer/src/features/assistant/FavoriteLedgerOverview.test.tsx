@@ -930,7 +930,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')
   })
 
-  it('backs up disabled ledgers without previewing them for deletion outside deletion mode', async () => {
+  it('backs up only saved and enabled ledgers without previewing disabled ledgers for deletion', async () => {
     const sync = vi.fn().mockResolvedValue(undefined)
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3 }
@@ -943,17 +943,33 @@ describe('FavoriteLedgerOverview', () => {
       }
     })
     render(<FavoriteLedgerOverview ledgers={[
-      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true }
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true },
+      { id: 'reading', displayName: 'bilimi·阅读', keywords: [], enabled: false, priority: 20, isDefault: false },
+      { id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: [], enabled: true, priority: 30, syncState: 'local-draft', isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
 
     expect(screen.queryByRole('button', { name: '检查待删除收藏夹' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'music', enabled: false })
+      expect.objectContaining({ id: 'music', enabled: true })
     ], { deleteDisabled: false }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
+  })
+
+  it('disables backup when no saved and enabled ledger is available', () => {
+    const sync = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
+      { id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: [], enabled: true, priority: 20, syncState: 'local-draft', isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    const backupButton = screen.getByRole('button', { name: '备册收藏夹' })
+    expect(backupButton).toBeDisabled()
+    expect(backupButton).toHaveAttribute('title', '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。')
+    fireEvent.click(backupButton)
+    expect(sync).not.toHaveBeenCalled()
   })
 
   it('keeps normal selections unchanged when the deletion bulk action is used', () => {

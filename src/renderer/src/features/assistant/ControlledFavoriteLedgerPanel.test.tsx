@@ -10,12 +10,25 @@ function deferred<T>() {
 }
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('disables the toolbar backup when no saved and enabled ledger is available', () => {
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{ id: 'draft', displayName: 'bilimi·草稿', keywords: [], enabled: true, priority: 10, syncState: 'local-draft', isDefault: false }]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSyncLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '备册' })).toBeDisabled()
+  })
+
   it('uses one backup flow for the toolbar and the收藏夹 backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: true })
     const sync = vi.fn().mockResolvedValue({ ok: true })
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
-      ledgers={[]}
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
       missingLedgerIds={[]}
       onEnsureLedgers={ensure}
       onSyncLedgers={sync}
@@ -58,7 +71,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
     expect(sync).toHaveBeenLastCalledWith(
       [expect.objectContaining({ id: 'music' })],
-      { deleteDisabled: false, rebindRemoteFolderIds: { music: 'remote-music' } }
+      {
+        deleteDisabled: false,
+        rebindRemoteFolderIds: { music: 'remote-music' },
+        rebindRemoteFolders: { music: [{ id: 'remote-music', title: 'bilimi·音乐' }] }
+      }
     )
     expect(ensure).not.toHaveBeenCalled()
   })
@@ -285,7 +302,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   it('opens the Bilibili favorites page after a successful legacy backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: true })
     const openFavoritePage = vi.fn().mockResolvedValue({ ok: true })
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]} missingLedgerIds={[]}
       onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
@@ -302,7 +319,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     })
     try {
       const ensure = vi.fn().mockResolvedValue({ ok: true })
-      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]} missingLedgerIds={[]}
         onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
 
       const backup = screen.getByRole('button', { name: '备册' })
@@ -330,7 +347,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)
     try {
       const ensure = vi.fn().mockResolvedValue({ ok: true })
-      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]} missingLedgerIds={[]}
         onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
 
       fireEvent.click(screen.getByRole('button', { name: '备册' }))
@@ -350,7 +367,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       resolveEnsure = resolve
     }))
     const openFavoritePage = vi.fn().mockResolvedValue({ ok: true })
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]} missingLedgerIds={[]}
       onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
 
     const backup = screen.getByRole('button', { name: '备册' })
@@ -367,7 +384,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   it('does not open the Bilibili favorites page after a failed backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: false })
     const openFavoritePage = vi.fn()
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]} missingLedgerIds={[]}
       onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
