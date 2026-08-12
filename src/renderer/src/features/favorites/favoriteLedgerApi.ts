@@ -175,7 +175,7 @@ function sharedScriptHelpers(): string {
         // not passed the repository's independent inventory verification.
         // Keep it pending even if the page list has caught up: treating it as
         // bound here would permit a write before the formal binding exists.
-        if (ledger.pendingRemoteBinding && ledger.bilibiliFolderId) {
+        if (ledger.pendingRemoteBinding && (ledger.pendingRemoteFolderId || ledger.bilibiliFolderId)) {
           return { ...ledger, bindingState: 'unbound' };
         }
         // A persisted binding is keyed by the remote folder ID. Bilibili users

@@ -1513,13 +1513,35 @@ export default function App() {
       ledgers: favoriteLedgers.map((ledger) => {
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
         if (trustedFolderIds.length) {
-          return { ...ledger, bilibiliFolderId: trustedFolderIds[0], bilibiliFolderIds: trustedFolderIds, bindingState: 'bound' as const }
+          const legacyPendingRemoteFolderId = ledger.pendingRemoteBinding && !ledger.pendingRemoteFolderId && ledger.bilibiliFolderId && !trustedFolderIds.includes(ledger.bilibiliFolderId)
+            ? ledger.bilibiliFolderId
+            : undefined
+          return {
+            ...ledger,
+            bilibiliFolderId: trustedFolderIds[0],
+            bilibiliFolderIds: trustedFolderIds,
+            bindingState: 'bound' as const,
+            ...(legacyPendingRemoteFolderId ? {
+              pendingRemoteBinding: true,
+              pendingRemoteFolderId: legacyPendingRemoteFolderId,
+              pendingRemoteFolderTitle: ledger.bilibiliFolderTitle
+            } : {})
+          }
         }
         // A shard creation has an authoritative Bilibili folder ID even while
         // the next inventory read has not caught up. Preserve it solely for a
         // retry of that exact ID; it is never considered write-authorized.
-        if (ledger.pendingRemoteBinding && ledger.bilibiliFolderId) {
-          return ledger
+        if (ledger.pendingRemoteBinding) {
+          const legacyPendingRemoteFolderId = ledger.pendingRemoteFolderId ?? ledger.bilibiliFolderId
+          if (legacyPendingRemoteFolderId) {
+            const formalFolderIds = (ledger.bilibiliFolderIds ?? []).filter((id) => id !== legacyPendingRemoteFolderId)
+            return {
+              ...ledger,
+              ...(formalFolderIds.length ? { bilibiliFolderId: formalFolderIds[0], bilibiliFolderIds: formalFolderIds } : {}),
+              pendingRemoteFolderId: legacyPendingRemoteFolderId,
+              pendingRemoteFolderTitle: ledger.pendingRemoteFolderTitle ?? ledger.bilibiliFolderTitle
+            }
+          }
         }
         if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && ledger.bilibiliFolderId) {
           return ledger
@@ -2378,11 +2400,11 @@ export default function App() {
     const pendingTargetLedger = actionUsesFavorite(action)
       ? targetLedgerIds
         .map((ledgerId) => actionFavoriteLedgers.find((ledger) => ledger.id === ledgerId))
-        .find((ledger): ledger is FavoriteLedger => Boolean(ledger?.pendingRemoteBinding && ledger.bilibiliFolderId?.trim()))
+        .find((ledger): ledger is FavoriteLedger => Boolean(ledger?.pendingRemoteBinding && (ledger.pendingRemoteFolderId ?? ledger.bilibiliFolderId)?.trim()))
       : undefined
     if (pendingTargetLedger && actionAccountMid) {
-      const remoteFolderId = pendingTargetLedger.bilibiliFolderId!.trim()
-      const remoteTitle = pendingTargetLedger.bilibiliFolderTitle || pendingTargetLedger.displayName
+      const remoteFolderId = (pendingTargetLedger.pendingRemoteFolderId ?? pendingTargetLedger.bilibiliFolderId)!.trim()
+      const remoteTitle = pendingTargetLedger.pendingRemoteFolderTitle || pendingTargetLedger.displayName
       try {
         if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
           throw new Error('收藏库绑定服务不可用')
@@ -2404,7 +2426,9 @@ export default function App() {
         }
       }
       const clearedPendingLedgers = actionFavoriteLedgers.map((ledger) =>
-        ledger.id === pendingTargetLedger.id ? { ...ledger, pendingRemoteBinding: false } : ledger
+        ledger.id === pendingTargetLedger.id
+          ? { ...ledger, pendingRemoteBinding: false, pendingRemoteFolderId: undefined, pendingRemoteFolderTitle: undefined }
+          : ledger
       )
       const clearedPendingPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, clearedPendingLedgers)
@@ -2482,15 +2506,10 @@ export default function App() {
             const pendingLedgers = actionFavoriteLedgers.map((candidate) => candidate.id === ledgerId
               ? {
                   ...candidate,
-                  bilibiliFolderId: folder.id,
-                  bilibiliFolderIds: Array.from(new Set([
-                    ...(candidate.bilibiliFolderIds ?? []),
-                    ...(candidate.bilibiliFolderId ? [candidate.bilibiliFolderId] : []),
-                    folder.id
-                  ])),
-                  bilibiliFolderTitle: folder.title,
+                  pendingRemoteFolderId: folder.id,
+                  pendingRemoteFolderTitle: folder.title,
                   pendingRemoteBinding: true,
-                  bindingState: 'unbound' as const
+                  bindingState: candidate.bindingState ?? 'bound' as const
                 }
               : candidate)
             const pendingPreferences = createInitialAssistantPreferences({
