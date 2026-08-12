@@ -245,6 +245,29 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
+  it('accepts legacy zero-padded shard titles when the exact remote id is confirmed', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+            { id: 'game-2', title: 'bilimi·游戏专区·02', memberCount: 0 }
+          ]}),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: '游戏专区', remoteDisplayTitle: 'bilimi·游戏专区·2',
+      expectedRemoteTitle: 'bilimi·游戏专区·2', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'game-2', bindingState: 'bound' })]
+    })
+  })
+
   it('reclaims a saved remote id after a reset retained its prior binding command result', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({

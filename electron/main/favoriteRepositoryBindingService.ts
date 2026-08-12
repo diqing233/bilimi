@@ -57,6 +57,13 @@ function titleToken(value: string) {
   return value.toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 6)
 }
 
+function comparableManagedShardTitle(value: string) {
+  return value.trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*·\s*/gu, '·')
+    .replace(/·0*(\d+)$/u, '·$1')
+}
+
 export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
   return favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shardNumber, bindingToken)
 }
@@ -204,7 +211,7 @@ export class FavoriteRepositoryBindingService {
       const matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
       const remote = matches[0]
-      if (remote.title !== normalized.expectedRemoteTitle) {
+      if (comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(normalized.expectedRemoteTitle)) {
         throw new Error('Favorite repository remote shard title is invalid.')
       }
       if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||
