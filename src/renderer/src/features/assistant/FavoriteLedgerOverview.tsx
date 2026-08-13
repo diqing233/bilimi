@@ -102,6 +102,12 @@ function ruleHint(type: FavoriteLedgerRuleType | undefined) {
 function displayTitle(name: string) {
   return stripBilimiLedgerPrefix(name).replace(/^[:：·\s]+/, '').trim()
 }
+function rebindShardNumber(title: string, logicalTitle: string) {
+  const candidateTitle = displayTitle(title)
+  if (candidateTitle === logicalTitle) return 1
+  const match = candidateTitle.match(new RegExp(`^${logicalTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}·([2-9]\\d*)$`, 'u'))
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+}
 function idFor(title: string) {
   return `custom-${title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-').replace(/^-|-$/g, '') || 'ledger'}-${Date.now()}`
 }
@@ -845,26 +851,31 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
+          const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
+          const candidates = entry.candidates
+            .map((candidate, index) => ({ candidate, index }))
+            .sort((left, right) => rebindShardNumber(left.candidate.title, logicalTitle) - rebindShardNumber(right.candidate.title, logicalTitle) || left.index - right.index)
+            .map(({ candidate }) => candidate)
           const selectedIds = rebindSelectedFolderIds[entry.ledgerId] ?? []
-          const allSelected = entry.candidates.length > 0 && selectedIds.length === entry.candidates.length
+          const allSelected = candidates.length > 0 && selectedIds.length === candidates.length
           return <div key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
             <label>
               <input type="checkbox" checked={allSelected} ref={(node) => { if (node) node.indeterminate = selectedIds.length > 0 && !allSelected }} onChange={(event) => {
-                const nextIds = event.currentTarget.checked ? entry.candidates.map((candidate) => candidate.id) : []
+                const nextIds = event.currentTarget.checked ? candidates.map((candidate) => candidate.id) : []
                 setRebindSelectedFolderIds((current) => ({ ...current, [entry.ledgerId]: nextIds }))
                 setRebindSelections((current) => ({ ...current, [entry.ledgerId]: nextIds[0] ?? '' }))
               }} />
-              <span>{displayTitle(ledger?.displayName ?? entry.ledgerId)}（共 {entry.candidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
+              <span>{logicalTitle}（共 {candidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
             </label>
-            <div className="favorite-ledger-panel__rebind-candidates">
-              {entry.candidates.map((candidate, index) => <label key={candidate.id}><input type="checkbox" checked={selectedIds.includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => {
+            {candidates.length > 1 ? <div className="favorite-ledger-panel__rebind-candidates">
+              {candidates.map((candidate, index) => <label key={candidate.id}><input type="checkbox" checked={selectedIds.includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => {
                 const nextIds = event.currentTarget.checked
                   ? [...new Set([...selectedIds, candidate.id])]
                   : selectedIds.filter((id) => id !== candidate.id)
                 setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
                 return { ...current, [entry.ledgerId]: nextIds }
               })} />分册 {index + 1}：{candidate.title}（{candidate.memberCount} 个视频）</label>)}
-            </div>
+            </div> : null}
           </div>
         })}
       </OldFavoriteModal> : null}

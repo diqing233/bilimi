@@ -853,7 +853,9 @@ describe('FavoriteLedgerOverview', () => {
   })
 
   it('confirms every selected recovery shard in one backup operation', async () => {
-    const candidates = [{ ledgerId: 'game', candidates: [
+    const candidates = [{ ledgerId: 'knowledge', candidates: [
+      { id: '77', title: 'bilimi·知识学习', memberCount: 310 }
+    ] }, { ledgerId: 'game', candidates: [
       { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
       { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 }
     ] }]
@@ -861,6 +863,9 @@ describe('FavoriteLedgerOverview', () => {
       .mockResolvedValueOnce({ ok: false, unboundCandidates: candidates })
       .mockResolvedValueOnce({ ok: true })
     render(<FavoriteLedgerOverview ledgers={[{
+      id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 5,
+      bilibiliFolderId: '77', bilibiliFolderIds: ['77'], bindingState: 'unbound', isDefault: true
+    }, {
       id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
       bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'], bindingState: 'unbound', isDefault: true
     }]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
@@ -870,10 +875,17 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false })
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
+    expect(screen.queryByText('分册 1：bilimi·知识学习（310 个视频）')).not.toBeInTheDocument()
+    expect(screen.getByText('游戏专区（共 1006 个视频）')).toBeInTheDocument()
+    expect(screen.getByText('分册 1：bilimi·游戏专区（1000 个视频）')).toBeInTheDocument()
+    expect(screen.getByText('分册 2：bilimi·游戏专区·2（6 个视频）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
-      rebindRemoteFolderIds: { game: '88' },
-      rebindRemoteFolders: { game: [
+      rebindRemoteFolderIds: { knowledge: '77', game: '88' },
+      rebindRemoteFolders: { knowledge: [
+        { id: '77', title: 'bilimi·知识学习' }
+      ], game: [
         { id: '88', title: 'bilimi·游戏专区' },
         { id: '89', title: 'bilimi·游戏专区·2' }
       ] }

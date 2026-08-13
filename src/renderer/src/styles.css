@@ -4731,6 +4731,28 @@ body[data-floating-window="true"],
   grid-column: 2;
   min-width: 0;
 }
+.favorite-ledger-panel__rebind-choice {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.favorite-ledger-panel__rebind-choice > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__rebind-candidates {
+  display: grid;
+  gap: 6px;
+  margin-left: 26px;
+}
+.favorite-ledger-panel__rebind-candidates > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
 .favorite-ledger-panel__remote-draft-notice {
   display: flex;
   align-items: flex-start;
