@@ -1810,6 +1810,55 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('persists successful sibling shards as bound when another recovery shard is rejected', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn(async (_accountMid: string, input: { remoteFolderId: string }) => {
+      if (input.remoteFolderId === '89') throw new Error('Favorite repository remote shard is absent from inventory.')
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
+      }))
+    })
+
+    const result = await requestRuntime({
+      id: 'persist-partial-rebind', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: { game: [
+          { id: '88', title: 'bilimi·游戏专区' },
+          { id: '89', title: 'bilimi·游戏专区·2' }
+        ] }
+      }
+    })
+
+    expect(result).toMatchObject({ ok: false, unboundLedgerIds: ['game'] })
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({
+            id: 'game',
+            bindingState: 'bound',
+            bilibiliFolderId: '88',
+            bilibiliFolderIds: ['88']
+          })])
+        })
+      })
+    }))
+  })
+
   it('adopts every confirmed recovery shard for one logical ledger', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

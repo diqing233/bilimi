@@ -837,6 +837,15 @@ describe('FavoriteLedgerOverview', () => {
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
+  it('shows an explicitly bound logical ledger as backed even when a sibling shard remains unresolved', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '游戏专区' })).toHaveTextContent('已备册')
+  })
+
   it('shows the combined unsaved and pending recovery state for a recovered remote draft', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,

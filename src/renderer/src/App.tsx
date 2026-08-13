@@ -98,6 +98,19 @@ const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
   message: '请先登录 Bilibili 后再操作。'
 }
 
+type FavoriteLedgerBindingFailureCandidate = {
+  id: string
+  title: string
+  memberCount: number
+  bindingFailureReason: string
+  bindingFailureDetail: string
+}
+
+type FavoriteLedgerBindingRegistrationResult = {
+  failures: Array<{ ledgerId: string; candidates: FavoriteLedgerBindingFailureCandidate[] }>
+  successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; shardNumber: number }>
+}
+
 function createConfirmedReviewFavoriteCommands(args: {
   accountMid: string
   video: VideoContentContext
@@ -1622,7 +1635,7 @@ export default function App() {
     resultLedgers: FavoriteLedger[],
     rebindRemoteFolderIds?: Record<string, string>,
     rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number }>>
-  ) {
+  ): Promise<FavoriteLedgerBindingRegistrationResult> {
     const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
       const normalizedTitle = title.trim()
@@ -1661,7 +1674,8 @@ export default function App() {
       }
     }
 
-    const failures: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number; bindingFailureReason: string; bindingFailureDetail: string }> }> = []
+    const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
+    const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
     for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
         failures.push({
@@ -1683,6 +1697,7 @@ export default function App() {
           remoteFolderId,
           remoteTitle
         })
+        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle, shardNumber })
       } catch (error) {
         const failure = favoriteLedgerBindingFailure(error)
         failures.push({
@@ -1697,7 +1712,7 @@ export default function App() {
         })
       }
     }
-    return failures
+    return { failures, successfulBindings }
   }
 
   async function previewFavoriteLedgerBindingCandidates(accountMid: string, ledgers: FavoriteLedger[]) {
@@ -1711,6 +1726,34 @@ export default function App() {
       // temporarily unavailable; a preview failure must not block normal backup.
       return []
     }
+  }
+
+  function ledgersAfterBindingRegistration(
+    resultLedgers: FavoriteLedger[],
+    bindingResult: FavoriteLedgerBindingRegistrationResult
+  ): FavoriteLedger[] {
+    const successfulBindingsByLedger = new Map<string, FavoriteLedgerBindingRegistrationResult['successfulBindings']>()
+    for (const binding of bindingResult.successfulBindings) {
+      const current = successfulBindingsByLedger.get(binding.ledgerId) ?? []
+      current.push(binding)
+      successfulBindingsByLedger.set(binding.ledgerId, current)
+    }
+    return resultLedgers.map((ledger) => {
+      const successful = successfulBindingsByLedger.get(ledger.id)
+      if (!successful?.length) {
+        if (!bindingResult.failures.some((failure) => failure.ledgerId === ledger.id)) return ledger
+        const { bilibiliFolderId: _folderId, bilibiliFolderIds: _folderIds, bilibiliFolderTitle: _folderTitle, bilibiliFolderVideoCount: _videoCount, bindingState: _bindingState, ...unboundLedger } = ledger
+        return { ...unboundLedger, bindingState: 'unbound' as const }
+      }
+      const successfulIds = successful.map((binding) => binding.remoteFolderId)
+      return {
+        ...ledger,
+        bilibiliFolderId: successfulIds[0],
+        bilibiliFolderIds: successfulIds,
+        bilibiliFolderTitle: successful[0].remoteTitle,
+        bindingState: 'bound' as const
+      }
+    })
   }
 
   async function readFavoriteLedgerStatus(
@@ -1833,23 +1876,35 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
-      const bindingFailures = await registerNewFavoriteLedgerBindings(
+      const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
         result.ledgers
       )
-      if (bindingFailures.length) {
+      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult)
+      if (bindingResult.failures.length) {
+        const nextPreferences = createInitialAssistantPreferences({
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+        })
+        preferencesRef.current = nextPreferences
+        setPreferences(nextPreferences)
+        if (window.bilimiDesktop?.savePreferences) {
+          const savedPreferences = createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(nextPreferences))
+          preferencesRef.current = savedPreferences
+          setPreferences(savedPreferences)
+        }
         return {
           ...result,
           ok: false,
-          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
-          unboundCandidates: bindingFailures,
+          ledgers: persistedLedgers,
+          unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingResult.failures,
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
-      const ledgersChanged = JSON.stringify(result.ledgers) !== JSON.stringify(favoriteLedgers)
+      const ledgersChanged = JSON.stringify(persistedLedgers) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, result.ledgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
       })
 
       if (ledgersChanged) {
@@ -1863,7 +1918,7 @@ export default function App() {
 
       const favoriteLedgerStatus: FavoriteLedgerStatus = {
         ok: result.ok,
-        ledgers: result.ledgers,
+        ledgers: persistedLedgers,
         missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
         backupConflictLedgerIds: Array.isArray(result.backupConflictLedgerIds)
           ? result.backupConflictLedgerIds
@@ -1944,17 +1999,29 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
-      const bindingFailures = await registerNewFavoriteLedgerBindings(
+      const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
         result.ledgers
       )
-      if (bindingFailures.length) {
+      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult)
+      if (bindingResult.failures.length) {
+        const nextPreferences = createInitialAssistantPreferences({
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+        })
+        preferencesRef.current = nextPreferences
+        setPreferences(nextPreferences)
+        if (window.bilimiDesktop?.savePreferences) {
+          const savedPreferences = createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(nextPreferences))
+          preferencesRef.current = savedPreferences
+          setPreferences(savedPreferences)
+        }
         return {
           ...result,
           ok: false,
-          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
-          unboundCandidates: bindingFailures,
+          ledgers: persistedLedgers,
+          unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingResult.failures,
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
@@ -2023,24 +2090,39 @@ export default function App() {
           bilibiliFolderTitle: confirmedFolders[0].title
         }
       })
-      const bindingFailures = await registerNewFavoriteLedgerBindings(
+      const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
         resultLedgers,
         options?.rebindRemoteFolderIds,
         options?.rebindRemoteFolders
       )
-      if (bindingFailures.length) {
+      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult)
+      if (bindingResult.failures.length) {
+        const nextPreferences = createInitialAssistantPreferences({
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+        })
+        preferencesRef.current = nextPreferences
+        setPreferences(nextPreferences)
+        if (window.bilimiDesktop?.savePreferences) {
+          const savedPreferences = createInitialAssistantPreferences(
+            await window.bilimiDesktop.savePreferences(nextPreferences)
+          )
+          preferencesRef.current = savedPreferences
+          setPreferences(savedPreferences)
+        }
+        window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
           ...result,
           ok: false,
-          unboundLedgerIds: bindingFailures.map((failure) => failure.ledgerId),
-          unboundCandidates: bindingFailures,
+          ledgers: persistedLedgers,
+          unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
+          unboundCandidates: bindingResult.failures,
           message: '收藏夹规则已保存，但正式绑定未完成，请重新确认远端收藏夹。'
         }
       }
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, resultLedgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
       })
       preferencesRef.current = nextPreferences
       setPreferences(nextPreferences)

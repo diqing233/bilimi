@@ -175,15 +175,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
-  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
-    ? '未绑定'
-    : ledger.syncState === 'local-draft'
-      ? '未保存'
-      : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
-        ? '未备册'
-        : ledger.bilibiliFolderId
-          ? '已备册'
-          : ''
+  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.bindingState === 'bound'
+    ? '已备册'
+    : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
+      ? '未绑定'
+      : ledger.syncState === 'local-draft'
+        ? '未保存'
+        : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
+          ? '未备册'
+          : ledger.bilibiliFolderId
+            ? '已备册'
+            : ''
   const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存') && !label.includes('未绑定')
     ? 'local-draft'
     : ledger.bindingState ?? (label === '已备册' ? 'bound' : label.includes('未绑定') ? 'unbound' : 'unbacked')
