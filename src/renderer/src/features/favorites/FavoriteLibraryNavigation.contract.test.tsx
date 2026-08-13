@@ -102,7 +102,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(firstAction).not.toHaveBeenCalled()
   })
 
-  it('offers each work folder a scoped local organization-record clear action', () => {
+  it('does not expose organization-record clearing from a work-folder menu', () => {
     const label = chinese(0x5de5, 0x4f5c, 0x5939)
     const clearRecords = chinese(0x6e05, 0x7a7a, 0x6536, 0x85cf, 0x5e93, 0x6574, 0x7406, 0x8bb0, 0x5f55)
     const onManagedFolderAction = vi.fn()
@@ -116,9 +116,8 @@ describe('FavoriteLibraryNavigation contract', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: `${label} ${chinese(0x83dc, 0x5355)}` }))
-    fireEvent.click(screen.getByRole('menuitem', { name: clearRecords }))
-
-    expect(onManagedFolderAction).toHaveBeenCalledWith('folder:managed', 'clear-records')
+    expect(screen.queryByRole('menuitem', { name: clearRecords })).not.toBeInTheDocument()
+    expect(onManagedFolderAction).not.toHaveBeenCalled()
   })
 
   it('keeps all favorites fixed and makes only folder groups collapsible', () => {
@@ -375,7 +374,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     }
   })
 
-  it('keeps non-workspace group counts in their trailing slot with a group-management trigger', () => {
+  it('keeps ordinary group counts view-only without a group-management trigger', () => {
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '默认收藏夹', count: 3 }] }]}
       collapsedGroups={{}}
@@ -387,7 +386,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     const trigger = screen.getByRole('button', { name: '收起其他收藏夹' })
     expect(trigger.parentElement).toHaveTextContent('其他收藏夹')
     expect(trigger).toHaveAttribute('title', '共 1 个收藏夹\n共 3 条收藏归属\n去重后 0 个视频')
-    expect(screen.getByRole('button', { name: '其他收藏夹管理菜单' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '其他收藏夹管理菜单' })).not.toBeInTheDocument()
   })
 
   it('uses each title tooltip to show folder and deduplicated-video totals', () => {
@@ -427,7 +426,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(screen.queryByRole('button', { name: '远程工作夹 菜单' })).not.toBeInTheDocument()
   })
 
-  it('offers the same detached menu for an ordinary Bilibili folder without granting managed actions', async () => {
+  it('keeps ordinary Bilibili folders view-only without a detached menu', () => {
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '普通收藏夹', count: 3, removable: true }] }]}
       collapsedGroups={{}}
@@ -437,27 +436,20 @@ describe('FavoriteLibraryNavigation contract', () => {
     />)
 
     expect(screen.getByRole('button', { name: '普通收藏夹' })).toHaveAttribute('title', '普通收藏夹')
-    expect(screen.getByRole('button', { name: '普通收藏夹 菜单' }).closest('.favorite-library__navigation-row')).toHaveClass('favorite-library__navigation-row--menu')
-    fireEvent.click(screen.getByRole('button', { name: '普通收藏夹 菜单' }))
-    expect(await screen.findByRole('menuitem', { name: '编辑信息' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '从收藏库删除' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '普通收藏夹 菜单' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '普通收藏夹' }).closest('.favorite-library__navigation-row')).not.toHaveClass('favorite-library__navigation-row--menu')
   })
 
-  it('offers a group menu that removes all ordinary folders only from the local library', async () => {
-    const onOrdinaryGroupAction = vi.fn()
+  it('does not provide a bulk local-delete menu for ordinary folders', () => {
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'bilibili', label: '其他收藏夹', items: [{ id: 'folder:remote', label: '普通收藏夹', count: 3, removable: true }] }]}
       collapsedGroups={{}}
       selectedId="folder:remote"
       onCollapseChange={vi.fn()}
       onSelect={vi.fn()}
-      onOrdinaryGroupAction={onOrdinaryGroupAction}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '其他收藏夹管理菜单' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '全部从收藏库删除' }))
-
-    expect(onOrdinaryGroupAction).toHaveBeenCalledWith('delete-all')
+    expect(screen.queryByRole('button', { name: '其他收藏夹管理菜单' })).not.toBeInTheDocument()
   })
 
   it('keeps mounted navigation rows bounded for a 30000-folder group', () => {

@@ -236,7 +236,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
-  it('rechecks only managed bound folders before deleting and stops at the first failure', async () => {
+  it('keeps every local managed folder and binding when a later remote deletion fails', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
       id: 'binding-a', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
@@ -245,6 +245,20 @@ describe('FavoriteRepositorySyncService', () => {
     await repository.commit('100', {
       id: 'binding-b', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
       payload: { logicalLedgerId: 'disabled-b', logicalTitle: 'Disabled B', shardNumber: 1, memberAids: [2], remoteTitle: 'bilimi·Disabled B', bindingState: 'bound', remoteFolderId: 'remote-b' }
+    })
+    await repository.commit('100', {
+      id: 'placement-a', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:disabled'], remoteObservedPhysicalFolderIds: ['remote-a'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:disabled'], positionState: 'aligned', updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    await repository.commit('100', {
+      id: 'placement-b', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 2, localDesiredFolderIds: ['bilimi-logical:disabled-b'], remoteObservedPhysicalFolderIds: ['remote-b'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:disabled-b'], positionState: 'aligned', updatedAt: '2026-07-19T00:00:00.000Z'
+      }
     })
     const deleteFolder = vi.fn().mockResolvedValueOnce({ observedAccountMid: '100' }).mockRejectedValueOnce(new Error('remote failure'))
     const service = new FavoriteRepositorySyncService({
@@ -257,8 +271,71 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(service.deleteManagedFolders('100', ['disabled', 'disabled-b'])).rejects.toThrow('remote failure')
     expect(deleteFolder).toHaveBeenCalledTimes(2)
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      physicalShards: [expect.objectContaining({ remoteFolderId: 'remote-b' })],
-      videos: {}
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilimi-logical:disabled', logicalLedgerId: 'disabled' }),
+        expect.objectContaining({ id: 'bilimi-logical:disabled-b', logicalLedgerId: 'disabled-b' })
+      ]),
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ logicalLedgerId: 'disabled', remoteFolderId: 'remote-a' }),
+        expect.objectContaining({ logicalLedgerId: 'disabled-b', remoteFolderId: 'remote-b' })
+      ]),
+      memberships: expect.objectContaining({
+        'bilimi-logical:disabled': expect.arrayContaining([1]),
+        'bilimi-logical:disabled-b': expect.arrayContaining([2])
+      }),
+      positions: expect.objectContaining({
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:disabled'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:disabled-b'] })
+      })
+    })
+  })
+
+  it('passes every remotely deleted or already-absent folder ID to the atomic local deletion projection', async () => {
+    const repository = await createRepository()
+    for (const [logicalLedgerId, remoteFolderId, aid] of [
+      ['work', 'remote-work', 1],
+      ['music', 'remote-music', 2]
+    ] as const) {
+      await repository.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [aid], remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId }
+      })
+      await repository.commit('100', {
+        id: `position-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'set-favorite-placement',
+        payload: {
+          aid, localDesiredFolderIds: [`bilimi-logical:${logicalLedgerId}`], remoteObservedPhysicalFolderIds: [remoteFolderId],
+          remoteObservedLogicalFolderIds: [`bilimi-logical:${logicalLedgerId}`], positionState: 'aligned', updatedAt: '2026-08-14T00:00:00.000Z', sourceAuthority: 'complete'
+        }
+      })
+    }
+    const commit = vi.spyOn(repository, 'commit')
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-work', title: 'bilimi·work', memberCount: 1 }
+        ] })
+      },
+      now: () => '2026-08-14T00:01:00.000Z'
+    })
+
+    await expect(service.deleteManagedFolders('100', ['work', 'music'])).resolves.toEqual(expect.any(Array))
+
+    expect(deleteFolder).toHaveBeenCalledTimes(1)
+    expect(commit).toHaveBeenLastCalledWith('100', expect.objectContaining({
+      type: 'delete-local-managed-folders',
+      payload: {
+        logicalFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'],
+        confirmedRemoteFolderIds: ['remote-music', 'remote-work']
+      }
+    }))
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      tombstones: {
+        '100:1': expect.objectContaining({ kind: 'recycled', allowRediscovery: true }),
+        '100:2': expect.objectContaining({ kind: 'recycled', allowRediscovery: true })
+      }
     })
   })
 
@@ -294,6 +371,48 @@ describe('FavoriteRepositorySyncService', () => {
         expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music-1' }),
         expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music-2' })
       ])
+    })
+  })
+
+  it('keeps every local managed folder and binding when a later remote deletion is unknown', async () => {
+    const repository = await createRepository()
+    for (const [suffix, logicalLedgerId, aid] of [['a', 'disabled', 1], ['b', 'disabled-b', 2]] as const) {
+      await repository.commit('100', {
+        id: `binding-${suffix}`, accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [aid],
+          remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId: `remote-${suffix}`
+        }
+      })
+    }
+    const deleteFolder = vi.fn()
+      .mockResolvedValueOnce({ observedAccountMid: '100', status: 'ok' })
+      .mockResolvedValueOnce({ observedAccountMid: '100', status: 'unknown', reason: 'remote-ambiguous' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-a', title: 'bilimi·disabled', memberCount: 1 }, { id: 'remote-b', title: 'bilimi·disabled-b', memberCount: 1 }
+        ] })
+      }
+    })
+
+    await expect(service.deleteManagedFolders('100', ['disabled', 'disabled-b'])).rejects.toThrow('remote-ambiguous')
+    expect(deleteFolder).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilimi-logical:disabled' }),
+        expect.objectContaining({ id: 'bilimi-logical:disabled-b' })
+      ]),
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ logicalLedgerId: 'disabled', remoteFolderId: 'remote-a' }),
+        expect.objectContaining({ logicalLedgerId: 'disabled-b', remoteFolderId: 'remote-b' })
+      ]),
+      memberships: expect.objectContaining({
+        'bilimi-logical:disabled': [1],
+        'bilimi-logical:disabled-b': [2]
+      })
     })
   })
 

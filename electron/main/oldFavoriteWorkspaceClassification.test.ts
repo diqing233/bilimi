@@ -76,6 +76,15 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     expect(enableDefaultLedgersForOrganization(saved, false)).toEqual(saved)
   })
 
+  it('does not automatically re-enable a default rule that the user deliberately deleted', () => {
+    const saved = [{
+      id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10,
+      isDefault: true, bindingState: 'unbound' as const, managedFolderDeletedByUser: true
+    }]
+
+    expect(enableDefaultLedgersForOrganization(saved, true)).toEqual(saved)
+  })
+
   it('excludes ordinary defaults but retains inbox staging when disabled', () => {
     const ledgers = classifierLedgersForAccount([
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 10, isDefault: true },

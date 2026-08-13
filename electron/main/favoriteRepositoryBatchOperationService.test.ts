@@ -113,7 +113,11 @@ describe('FavoriteRepositoryBatchOperationService', () => {
       videos: { '1': { aid: 1, title: 'Kept title', description: 'Kept description', tags: ['kept-tag'], updatedAt: '2026-07-24T00:00:00.000Z' } },
       libraryMirrors: { '1': { aid: 1, status: 'synced' as const, metadataRevision: 2, lastSyncedAt: '2026-07-24T00:00:00.000Z' } },
       organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:source'], completedAt: '2026-07-24T00:00:00.000Z' }],
-      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }]
+      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': { ...snapshot().positions['100:1'], sourceAuthority: 'complete' as const }
+      }
     }
     const originalVideo = current.videos['1']
     const originalMirror = current.libraryMirrors['1']
@@ -153,11 +157,126 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(current.organizationRecords[0]).toEqual(originalOrganization)
   })
 
+  it('does not recycle a confirmed managed placement removal while a remote source remains observed', async () => {
+    let current = {
+      ...snapshot(),
+      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': { ...snapshot().positions['100:1'], sourceAuthority: 'complete' as const }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: repo,
+      placementSync: {
+        synchronizePlacements: vi.fn(async () => {
+          current = {
+            ...current,
+            positions: {
+              ...current.positions,
+              '100:1': {
+                ...current.positions['100:1'],
+                localDesiredFolderIds: [],
+                remoteObservedPhysicalFolderIds: ['11'],
+                remoteObservedLogicalFolderIds: ['bilimi-logical:source'],
+                positionState: 'aligned' as const
+              }
+            }
+          }
+          return { status: 'succeeded' as const, completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1] }
+        })
+      },
+      now: () => '2026-07-24T01:00:00.000Z'
+    })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [1], ['bilimi-logical:source'], 7)
+    await expect(service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(commands.map((command) => command.type)).not.toContain('recycle-favorites')
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('does not preview or recycle a remote managed placement removal while source evidence is incomplete', async () => {
+    let current = {
+      ...snapshot(),
+      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          sourceAuthority: 'incomplete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: repo,
+      placementSync: {
+        synchronizePlacements: vi.fn(async () => {
+          current = {
+            ...current,
+            positions: {
+              ...current.positions,
+              '100:1': {
+                ...current.positions['100:1'],
+                remoteObservedPhysicalFolderIds: [],
+                remoteObservedLogicalFolderIds: [],
+                positionState: 'aligned' as const
+              }
+            }
+          }
+          return { status: 'succeeded' as const, completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1] }
+        })
+      },
+      now: () => '2026-07-24T01:00:00.000Z'
+    })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [1], ['bilimi-logical:source'], 7)
+    expect(preview.recycleAids).toEqual([])
+    await expect(service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(commands.map((command) => command.type)).not.toContain('recycle-favorites')
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
   it('keeps result-unknown out of recycle and reconciles without retrying the remote write', async () => {
     let current = {
       ...snapshot(),
       videos: { '1': { aid: 1, title: 'Kept title', tags: ['kept-tag'], updatedAt: '2026-07-24T00:00:00.000Z' } },
-      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }]
+      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': { ...snapshot().positions['100:1'], sourceAuthority: 'complete' as const }
+      }
     }
     const repo = {
       getSnapshot: vi.fn(async () => current),
@@ -179,6 +298,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     const preview = await service.previewManagedPlacementRemoval('100', [1], ['bilimi-logical:source'], 7)
     await expect(service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken)))
       .resolves.toMatchObject({ status: 'result-unknown' })
+    expect(current.positions['100:1'].localDesiredFolderIds).toEqual(['bilimi-logical:source'])
     expect(current.tombstones['100:1']).toBeUndefined()
     await expect(service.reconcileManagedPlacementRemoval('100', preview.operationId)).resolves.toMatchObject({ status: 'reconciliation-required' })
     expect(synchronizePlacements).toHaveBeenCalledTimes(1)
@@ -187,21 +307,358 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     await expect(service.reconcileManagedPlacementRemoval('100', preview.operationId)).resolves.toMatchObject({ status: 'completed' })
     expect(synchronizePlacements).toHaveBeenCalledTimes(1)
     expect(current.tombstones['100:1']).toMatchObject({ kind: 'recycled' })
+    expect(current.positions['100:1'].localDesiredFolderIds).toEqual([])
   })
 
-  it('deletes selected local rows in one revision-checked commit while retaining remote recovery evidence', async () => {
+  it('restores the local bilimi placement when remote managed deletion is rejected', async () => {
+    let current = {
+      ...snapshot(),
+      physicalShards: [{ logicalLedgerId: 'source', folderId: 'bilimi-physical:source:1', shardNumber: 1, remoteFolderId: '11', remoteTitle: 'bilimi Source', bindingState: 'bound' as const }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': { ...snapshot().positions['100:1'], sourceAuthority: 'complete' as const }
+      }
+    }
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const synchronizePlacements = vi.fn(async () => {
+      current = {
+        ...current,
+        positions: {
+          ...current.positions,
+          '100:1': { ...current.positions['100:1'], positionState: 'failed' as const, reason: 'remote rejected' }
+        }
+      }
+      return { status: 'failed' as const, completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1] }
+    })
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, placementSync: { synchronizePlacements }, now: () => '2026-07-24T01:00:00.000Z' })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [1], ['bilimi-logical:source'], 7)
+    await expect(service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'failed' })
+
+    expect(current.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: ['bilimi-logical:source'],
+      positionState: 'failed',
+      reason: 'remote rejected'
+    })
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('rejects a local library deletion that does not identify the current bilimi work folder', async () => {
     const current = snapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1, 2], affectedFolderIds: [] }))
     const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [1, 2], affectedFolderIds: [] }))
     const service = new FavoriteRepositoryBatchOperationService({ repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit }, now: () => '2026-07-24T01:00:00.000Z' })
 
-    await expect(service.deleteLocal('100', [2, 1], 7)).resolves.toMatchObject({ affectedAids: [1, 2], auditStatus: 'recorded' })
-    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
-      type: 'delete-favorites-from-library', expectedRevision: 7,
-      payload: { aids: [1, 2], deletedAt: '2026-07-24T01:00:00.000Z', reason: 'user-delete' }
-    }), expect.any(Array))
+    await expect(service.deleteLocal('100', [2, 1], 7)).rejects.toThrow('current Bilimi work folder')
+    expect(commitWithAudit).not.toHaveBeenCalled()
     expect(commit).not.toHaveBeenCalled()
-    expect((commitWithAudit.mock.calls[0] as unknown[])[2]).toMatchObject([{ aid: 1, detail: 'batch-local-delete' }, { aid: 2, detail: 'batch-local-delete' }])
+  })
+
+  it('removes a local bilimi placement without a permanent tombstone and recycles it when complete evidence has no remaining source', async () => {
+    let current = {
+      ...snapshot(),
+      videos: { '1': { aid: 1, title: 'Keep local record', tags: ['kept'], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      libraryMirrors: { '1': { aid: 1, status: 'synced' as const, metadataRevision: 2, lastSyncedAt: '2026-07-24T00:00:00.000Z' } },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:source'], completedAt: '2026-07-24T00:00:00.000Z' }],
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const originalMirror = current.libraryMirrors['1']
+    const originalOrganization = current.organizationRecords[0]
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' }))
+      .resolves.toMatchObject({ status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1], auditStatus: 'recorded' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements', 'recycle-favorites'])
+    expect(commands).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'delete-favorite-from-library' }),
+      expect.objectContaining({ type: 'delete-favorites-from-library' })
+    ]))
+    expect(current.positions['100:1'].localDesiredFolderIds).toEqual([])
+    expect(current.tombstones['100:1']).toMatchObject({ allowRediscovery: true, kind: 'recycled' })
+    expect(current.videos['1']).toMatchObject({ aid: 1, title: 'Keep local record' })
+    expect(current.libraryMirrors['1']).toEqual(originalMirror)
+    expect(current.organizationRecords[0]).toEqual(originalOrganization)
+  })
+
+  it('keeps a local bilimi deletion in the library when a complete scan still reports an ordinary Bilibili source', async () => {
+    let current = {
+      ...snapshot(),
+      folders: [
+        ...snapshot().folders,
+        { id: 'bilibili:ordinary', title: 'Ordinary source', kind: 'bilibili' as const, remoteFolderId: '88', syncState: 'bound' as const }
+      ],
+      memberships: { ...snapshot().memberships, 'bilibili:ordinary': [1] },
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await service.deleteLocal('100', [1], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements'])
+    expect(current.memberships['bilibili:ordinary']).toEqual([1])
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('does not recycle a local bilimi deletion while source evidence is incomplete', async () => {
+    let current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'incomplete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await service.deleteLocal('100', [1], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements'])
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('keeps an ambiguous remote state out of recycle when removing a local bilimi placement', async () => {
+    let current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'result-unknown' as const,
+          sourceAuthority: 'complete' as const,
+          reason: 'timeout'
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await service.deleteLocal('100', [1], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements'])
+    expect(current.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: [],
+      positionState: 'result-unknown',
+      reason: 'timeout'
+    })
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('keeps a remote-removed state out of recycle when removing a local bilimi placement', async () => {
+    let current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:1': {
+          ...snapshot().positions['100:1'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'remote-removed' as const,
+          sourceAuthority: 'complete' as const,
+          reason: 'remote folder deletion awaits reconciliation'
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await service.deleteLocal('100', [1], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements'])
+    expect(current.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: [],
+      positionState: 'remote-removed',
+      reason: 'remote folder deletion awaits reconciliation'
+    })
+    expect(current.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('removes only the current bilimi placement when the video also belongs to another bilimi work folder', async () => {
+    let current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:2': {
+          ...snapshot().positions['100:2'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await service.deleteLocal('100', [2], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements'])
+    expect(current.positions['100:2'].localDesiredFolderIds).toEqual(['bilimi-logical:target'])
+    expect(current.memberships['bilimi-logical:source']).not.toContain(2)
+    expect(current.memberships['bilimi-logical:target']).toContain(2)
+    expect(current.tombstones['100:2']).toBeUndefined()
+  })
+
+  it('removes all explicitly scoped bilimi placements in one local command and returns a command result', async () => {
+    let current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:2': {
+          ...snapshot().positions['100:2'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-07-24T01:00:00.000Z' })
+
+    await expect(service.deleteLocal('100', [2], 7, {
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:source',
+      folderIds: ['bilimi-logical:source', 'bilimi-logical:target']
+    } as never)).resolves.toMatchObject({
+      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2], auditStatus: 'recorded'
+    })
+
+    expect(commands.map((command) => command.type)).toEqual(['set-favorite-placements', 'recycle-favorites'])
+    expect(commands[0]).toMatchObject({
+      type: 'set-favorite-placements',
+      payload: { placements: [{ aid: 2, localDesiredFolderIds: [] }] }
+    })
+    expect(current.tombstones['100:2']).toMatchObject({ allowRediscovery: true, kind: 'recycled' })
   })
 
   it('copies additively and moves only current Bilimi logical membership, with immutable audits', async () => {
@@ -222,25 +679,33 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(commit).not.toHaveBeenCalled()
   })
 
-  it('splits an all-results local deletion into revision-linked command-sized commits', async () => {
-    const current = snapshot()
+  it('splits an all-results bilimi placement deletion into revision-linked command-sized commits', async () => {
     const selected = Array.from({ length: 101 }, (_value, index) => index + 1)
+    const current = {
+      ...snapshot(),
+      positions: Object.fromEntries(selected.map((aid) => [`100:${aid}`, {
+        accountMid: '100', aid, localDesiredFolderIds: ['bilimi-logical:source'],
+        remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change' as const,
+        updatedAt: '2026-07-24T00:00:00.000Z', revision: 7
+      }]))
+    }
     const commits: FavoriteRepositoryCommand[] = []
     let revision = 7
     const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
       commits.push(command)
       revision++
-      return { ...current, revision, commandId: command.id, affectedAids: command.payload.aids, affectedFolderIds: [] }
+      return { ...current, revision, commandId: command.id, affectedAids: command.payload.placements.map((placement) => placement.aid), affectedFolderIds: [] }
     })
     const service = new FavoriteRepositoryBatchOperationService({
       repository: { getSnapshot: vi.fn(async () => ({ ...current, revision })), commit: vi.fn(), commitWithAudit },
       now: () => '2026-07-24T01:00:00.000Z'
     })
 
-    await expect(service.deleteLocal('100', selected, 7, { kind: 'bilimi-logical' })).resolves.toMatchObject({ revision: 9, auditStatus: 'recorded' })
+    await expect(service.deleteLocal('100', selected, 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })).resolves.toMatchObject({ revision: 9, auditStatus: 'recorded' })
     expect(commits).toHaveLength(2)
     expect(commits.map((command) => command.expectedRevision)).toEqual([7, 8])
-    expect(commits.map((command) => command.payload.aids.length)).toEqual([100, 1])
+    expect(commits.map((command) => command.type)).toEqual(['set-favorite-placements', 'set-favorite-placements'])
+    expect(commits.map((command) => command.payload.placements.length)).toEqual([100, 1])
   })
 
   it('previews all Bilibili-membership unfavorites, stops on unknown results, and requires explicit reconciliation', async () => {
@@ -566,11 +1031,12 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(observer.areUnfavorited).toHaveBeenCalledWith('100', [1])
   })
 
-  it('allows local deletion but rejects remote mutation from Bilibili sources and incomplete virtual evidence', async () => {
+  it('rejects local deletion outside a bilimi work folder and keeps remote mutation restricted', async () => {
     const current = snapshot()
     const service = new FavoriteRepositoryBatchOperationService({ repository: repository(current) })
 
-    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' })).resolves.toMatchObject({ auditStatus: 'recorded' })
+    await expect(service.deleteLocal('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' })).rejects.toThrow('not permitted')
+    await expect(service.deleteLocal('100', [1], 7, { kind: 'virtual', eligibleAids: [1], skippedAids: [] })).rejects.toThrow('current Bilimi work folder')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'bilibili-user', folderId: 'bilibili:1' })).rejects.toThrow('not permitted')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1] } as never)).rejects.toThrow('skipped')
     await expect(service.previewRemoteUnfavorite('100', [1], 7, { kind: 'virtual', eligibleAids: [1], skippedAids: [] })).resolves.toMatchObject({ aids: [1] })

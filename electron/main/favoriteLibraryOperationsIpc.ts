@@ -39,7 +39,7 @@ function token(value: unknown) {
   return value
 }
 
-type RendererSource = { kind: 'folder'; folderId: string } | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+type RendererSource = { kind: 'folder'; folderId: string; folderIds?: string[] } | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
 type RendererScopeSelection = {
   kind: 'scope'
   scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
@@ -51,7 +51,15 @@ type RendererSelection = { kind: 'aids'; aids: number[] } | RendererScopeSelecti
 function rendererSource(value: unknown, allowEmptyVirtual = false): RendererSource {
   if (!value || typeof value !== 'object') throw new Error('Favorite operation source is invalid.')
   const source = value as Record<string, unknown>
-  if (source.kind === 'folder' && typeof source.folderId === 'string' && source.folderId.trim()) return { kind: 'folder', folderId: source.folderId.trim() }
+  if (source.kind === 'folder' && typeof source.folderId === 'string' && source.folderId.trim()) {
+    if (source.folderIds !== undefined && (!Array.isArray(source.folderIds) || !source.folderIds.length ||
+      source.folderIds.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId.trim())))) {
+      throw new Error('Favorite operation source is invalid.')
+    }
+    const folderIds = source.folderIds === undefined ? undefined : [...new Set(source.folderIds.map((folderId) => folderId.trim()))].sort()
+    if (folderIds && !folderIds.includes(source.folderId.trim())) throw new Error('Favorite operation source is invalid.')
+    return { kind: 'folder', folderId: source.folderId.trim(), ...(folderIds ? { folderIds } : {}) }
+  }
   if (source.kind === 'virtual' && Array.isArray(source.eligibleAids) && Array.isArray(source.skippedAids)) {
     return {
       kind: 'virtual',
@@ -105,7 +113,7 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     'copy' | 'move' | 'deleteLocal' |
     'previewRemoteUnfavorite' | 'confirmRemoteUnfavorite' | 'executeRemoteUnfavorite' | 'reconcileRemoteUnfavorite' |
     'previewManagedPlacementRemoval' | 'confirmManagedPlacementRemoval' | 'executeManagedPlacementRemoval' | 'reconcileManagedPlacementRemoval'>
-  managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'previewAll' | 'deleteLocal' | 'confirm' | 'executeRemote' | 'reconcile'>
+  managed: Pick<FavoriteRepositoryManagedFolderService, 'preview' | 'previewAll' | 'deleteLocal' | 'deleteLocalMany' | 'confirm' | 'executeRemote' | 'reconcile'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   /** Resolves folder provenance from the current repository snapshot, never renderer labels. */
@@ -135,8 +143,11 @@ export function registerFavoriteLibraryOperationsIpc(options: {
       : parsedSource
     const scope = await options.resolveSourceScope(normalized, authoritativeSource, selected)
     await current(normalized)
-    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'delete' && action !== 'managed-removal') {
+    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'managed-removal') {
       throw new Error('This action is not permitted from a Bilibili source folder.')
+    }
+    if (action === 'delete' && scope.kind !== 'bilimi-logical') {
+      throw new Error('Favorite local deletion requires a current Bilimi work folder.')
     }
     return { normalized, selected, scope }
   }
@@ -149,17 +160,16 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   options.ipcMain.handle('favorite-library-operations:delete-local', async (event, requestedAccount, requestedAids, expectedRevision, requestedSource) => {
     trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'delete'); return options.batch.deleteLocal(operation.normalized, operation.selected, revision(expectedRevision), operation.scope)
   })
-  options.ipcMain.handle('favorite-library-operations:preview-unfavorite', async (event, requestedAccount, requestedAids, expectedRevision, requestedSource) => {
-    trusted(event); const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'unfavorite'); return options.batch.previewRemoteUnfavorite(operation.normalized, operation.selected, revision(expectedRevision), operation.scope)
-  })
-  options.ipcMain.handle('favorite-library-operations:confirm-unfavorite', async (event, requestedAccount, executionToken) => {
-    trusted(event); const normalized = await current(requestedAccount); return { confirmationToken: options.batch.confirmRemoteUnfavorite(normalized, token(executionToken)) }
-  })
-  options.ipcMain.handle('favorite-library-operations:execute-unfavorite', async (event, requestedAccount, executionToken, confirmationToken) => {
-    trusted(event); return options.batch.executeRemoteUnfavorite(await current(requestedAccount), token(executionToken), token(confirmationToken))
-  })
+  const retiredGlobalUnfavorite = (event: IpcEvent) => {
+    trusted(event)
+    throw new Error('The global Bilibili unfavorite operation is retired; remove a bound Bilimi work-folder placement instead.')
+  }
+  options.ipcMain.handle('favorite-library-operations:preview-unfavorite', retiredGlobalUnfavorite)
+  options.ipcMain.handle('favorite-library-operations:confirm-unfavorite', retiredGlobalUnfavorite)
+  options.ipcMain.handle('favorite-library-operations:execute-unfavorite', retiredGlobalUnfavorite)
   options.ipcMain.handle('favorite-library-operations:reconcile-unfavorite', async (event, requestedAccount, operationId) => {
-    trusted(event); return options.batch.reconcileRemoteUnfavorite(await current(requestedAccount), token(operationId))
+    trusted(event)
+    return options.batch.reconcileRemoteUnfavorite(await current(requestedAccount), token(operationId))
   })
   options.ipcMain.handle('favorite-library-operations:preview-managed-placement-removal', async (event, requestedAccount, requestedAids, requestedTargets, expectedRevision, requestedSource) => {
     trusted(event)

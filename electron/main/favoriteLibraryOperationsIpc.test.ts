@@ -16,13 +16,13 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
       previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn()
     }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
-    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical' })) as never })
+    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })) as never })
 
     await ipcMain.invoke('favorite-library-operations:copy', 7, '100', [3, 1], ['bilimi-logical:target'], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })
     await ipcMain.invoke('favorite-library-operations:move', 7, '100', [3, 1], 'bilimi-logical:source', ['bilimi-logical:target'], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })
 
-    expect(batch.copy).toHaveBeenCalledWith('100', [1, 3], ['bilimi-logical:target'], 4, { kind: 'bilimi-logical' })
-    expect(batch.move).toHaveBeenCalledWith('100', [1, 3], 'bilimi-logical:source', ['bilimi-logical:target'], 4, { kind: 'bilimi-logical' })
+    expect(batch.copy).toHaveBeenCalledWith('100', [1, 3], ['bilimi-logical:target'], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+    expect(batch.move).toHaveBeenCalledWith('100', [1, 3], 'bilimi-logical:source', ['bilimi-logical:target'], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
     await expect(ipcMain.invoke('favorite-library-operations:copy', 7, '100', [1], ['C:\\escape'], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })).rejects.toThrow('target')
   })
 
@@ -30,10 +30,36 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
-    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical' })) as never })
+    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })) as never })
 
     await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [2, 1], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })
-    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4, { kind: 'bilimi-logical' })
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' })
+  })
+
+  it('passes an explicitly selected current-and-other bilimi work-folder scope to local deletion', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = {
+      copy: vi.fn(), move: vi.fn(),
+      deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2] }),
+      previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn()
+    }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    registerFavoriteLibraryOperationsIpc({
+      ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      resolveSourceScope: vi.fn(async (_accountMid, source) => ({
+        kind: 'bilimi-logical', folderId: 'bilimi-logical:source',
+        ...(source.folderIds ? { folderIds: source.folderIds } : {})
+      })) as never
+    })
+
+    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [2], 4, {
+      kind: 'folder', folderId: 'bilimi-logical:source', folderIds: ['bilimi-logical:source', 'bilimi-logical:target']
+    })).resolves.toEqual({ status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2] })
+
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [2], 4, {
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:source', folderIds: ['bilimi-logical:source', 'bilimi-logical:target']
+    })
   })
 
   it('resolves a scope selection in the main process before executing a batch operation', async () => {
@@ -43,7 +69,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     const resolveSelection = vi.fn().mockResolvedValue([1, 3])
     registerFavoriteLibraryOperationsIpc({
       ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true,
-      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical' })) as never, resolveSelection
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical', folderId: 'bilimi-logical:music' })) as never, resolveSelection
     })
 
     await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
@@ -51,7 +77,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     }, 4, { kind: 'folder', folderId: 'bilimi-logical:music' })
 
     expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({ kind: 'scope', options: expect.objectContaining({ transcriptionFilters: ['failed'] }), excludedAids: [2] }))
-    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 3], 4, { kind: 'bilimi-logical' })
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 3], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:music' })
   })
 
   it('keeps transcription filters on a scope descriptor passed to a copy operation', async () => {
@@ -93,7 +119,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     }))
   })
 
-  it('derives virtual local-delete eligibility from a resolved all-results selection', async () => {
+  it('rejects local deletion from a resolved all-results virtual selection before invoking the batch service', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
@@ -101,12 +127,12 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     const resolveSourceScope = vi.fn(async (_accountMid, source) => ({ kind: 'virtual', ...source }))
     registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection, resolveSourceScope: resolveSourceScope as never })
 
-    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
+    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
       kind: 'scope', scope: { kind: 'all' }, options: {}, excludedAids: []
-    }, 4, { kind: 'virtual', eligibleAids: [], skippedAids: [] })
+    }, 4, { kind: 'virtual', eligibleAids: [], skippedAids: [] })).rejects.toThrow('current Bilimi work folder')
 
     expect(resolveSourceScope).toHaveBeenCalledWith('100', { kind: 'virtual', eligibleAids: [1, 2], skippedAids: [] }, [1, 2])
-    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4, { kind: 'virtual', eligibleAids: [1, 2], skippedAids: [] })
+    expect(batch.deleteLocal).not.toHaveBeenCalled()
   })
 
   it('derives virtual managed-placement eligibility from a resolved all-results selection', async () => {
@@ -152,7 +178,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(batch.deleteLocal).not.toHaveBeenCalled()
   })
 
-  it('keeps remote unfavorite behind trusted account-bound preview, confirmation, execution, and reconciliation', async () => {
+  it('rejects the retired global remote unfavorite route so a caller cannot remove every Bilibili membership', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = {
       previewRemoteUnfavorite: vi.fn().mockResolvedValue({ executionToken: 'execute', operationId: 'remote-1' }),
@@ -164,13 +190,15 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
     registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical' })) as never })
 
-    await expect(ipcMain.invoke('favorite-library-operations:preview-unfavorite', 8, '100', [2], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })).rejects.toThrow('untrusted')
-    await ipcMain.invoke('favorite-library-operations:preview-unfavorite', 7, '100', [2], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })
-    expect(batch.previewRemoteUnfavorite).toHaveBeenCalledWith('100', [2], 4, { kind: 'bilimi-logical' })
-    await ipcMain.invoke('favorite-library-operations:confirm-unfavorite', 7, '100', 'execute')
-    expect(batch.confirmRemoteUnfavorite).toHaveBeenCalledWith('100', 'execute')
-    await ipcMain.invoke('favorite-library-operations:execute-unfavorite', 7, '100', 'execute', 'confirm')
-    await expect(ipcMain.invoke('favorite-library-operations:reconcile-unfavorite', 7, '100', 'remote-1')).resolves.toEqual({ status: 'reconciliation-required' })
+    expect(() => ipcMain.invoke('favorite-library-operations:preview-unfavorite', 7, '100', [2], 4, { kind: 'folder', folderId: 'bilimi-logical:source' }))
+      .toThrow('retired')
+    expect(batch.previewRemoteUnfavorite).not.toHaveBeenCalled()
+    expect(batch.confirmRemoteUnfavorite).not.toHaveBeenCalled()
+    expect(batch.executeRemoteUnfavorite).not.toHaveBeenCalled()
+    batch.reconcileRemoteUnfavorite.mockResolvedValue({ status: 'reconciliation-required' })
+    await expect(ipcMain.invoke('favorite-library-operations:reconcile-unfavorite', 7, '100', 'remote-1'))
+      .resolves.toEqual({ status: 'reconciliation-required' })
+    expect(batch.reconcileRemoteUnfavorite).toHaveBeenCalledWith('100', 'remote-1')
   })
 
   it('exposes managed-placement removal from an ordinary source without granting global unfavorite', async () => {
@@ -232,7 +260,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(previewAll).toHaveBeenCalledWith('100')
   })
 
-  it('allows local-library deletion but rejects remote or placement mutation from a Bilibili source', async () => {
+  it('rejects local deletion, remote mutation, and placement mutation from a Bilibili source', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn(), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
@@ -245,13 +273,13 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
 
     const forgedFolder = { kind: 'folder', folderId: 'bilibili:1' }
     await expect(ipcMain.invoke('favorite-library-operations:move', 7, '100', [1], 'bilimi-logical:source', ['bilimi-logical:target'], 4, forgedFolder)).rejects.toThrow('not permitted')
-    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, forgedFolder)
-    await expect(ipcMain.invoke('favorite-library-operations:preview-unfavorite', 7, '100', [1], 4, forgedFolder)).rejects.toThrow('not permitted')
+    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, forgedFolder)).rejects.toThrow('not permitted')
+    expect(() => ipcMain.invoke('favorite-library-operations:preview-unfavorite', 7, '100', [1], 4, forgedFolder)).toThrow('retired')
     expect(batch.move).not.toHaveBeenCalled()
-    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1], 4, { kind: 'bilibili-default', folderId: 'bilibili:1' })
+    expect(batch.deleteLocal).not.toHaveBeenCalled()
     expect(batch.previewRemoteUnfavorite).not.toHaveBeenCalled()
 
-    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, { kind: 'virtual', eligibleAids: [1], skippedAids: [2] })
-    expect(batch.deleteLocal).toHaveBeenLastCalledWith('100', [1], 4, { kind: 'virtual', eligibleAids: [1], skippedAids: [2] })
+    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, { kind: 'virtual', eligibleAids: [1], skippedAids: [2] })).rejects.toThrow('not permitted')
+    expect(batch.deleteLocal).not.toHaveBeenCalled()
   })
 })

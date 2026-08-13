@@ -11,12 +11,11 @@ type FavoriteLibraryNavigationGroupViewProps = {
   renderWorkspaceMenu: (resetKey: string) => ReactNode
   renderOrdinaryGroupMenu: ReactNode
   renderManagedMenu: (item: FavoriteLibraryNavigationGroup['items'][number], active: boolean) => ReactNode
-  onOrdinaryFolderRemove: (id: string) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
 }
 
 export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryNavigationGroupView({
-  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderOrdinaryGroupMenu, renderManagedMenu, onOrdinaryFolderRemove, onSelect
+  group, separated, collapsed, selectedId, onToggle, workspaceMenuResetKey, renderWorkspaceMenu, renderOrdinaryGroupMenu, renderManagedMenu, onSelect
 }: FavoriteLibraryNavigationGroupViewProps) {
   const fixed = group.id === 'range'
   const aggregate = useMemo(() => {
@@ -64,10 +63,10 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
       <span className="favorite-library__navigation-trailing-slot">{group.id === 'workspace' ? renderWorkspaceMenu(workspaceMenuResetKey) : renderOrdinaryGroupMenu}</span>
     </div>}
     {(fixed || !collapsed) ? <div ref={itemsRef} className={`favorite-library__navigation-items${group.items.length > windowSize ? ' favorite-library__navigation-items--virtual' : ''}`} style={group.items.length > windowSize ? { height: `${group.items.length * rowHeight}px`, position: 'relative' } : undefined}>
-      {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${group.id === 'workspace' ? ' favorite-library__navigation-row--managed' : ''}${(group.id === 'workspace' || (group.id === 'bilibili' && item.removable)) ? ' favorite-library__navigation-row--menu' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
+      {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${group.id === 'workspace' ? ' favorite-library__navigation-row--managed favorite-library__navigation-row--menu' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
         <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : item.label} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
         <span className="favorite-library__navigation-trailing-slot"><span className="favorite-library__navigation-count">{item.count}</span>
-          {(group.id === 'workspace' || (group.id === 'bilibili' && item.removable)) ? renderManagedMenu(item, !collapsed) : null}
+          {group.id === 'workspace' ? renderManagedMenu(item, !collapsed) : null}
         </span>
       </div>)}
     </div> : null}
@@ -81,8 +80,7 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
   previous.onToggle === next.onToggle &&
   previous.onSelect === next.onSelect &&
   previous.renderWorkspaceMenu === next.renderWorkspaceMenu &&
-  previous.renderManagedMenu === next.renderManagedMenu &&
-  previous.onOrdinaryFolderRemove === next.onOrdinaryFolderRemove)
+  previous.renderManagedMenu === next.renderManagedMenu)
 
 function Chevron() {
   return <svg className="favorite-library__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>

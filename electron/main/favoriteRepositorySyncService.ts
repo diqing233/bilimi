@@ -848,10 +848,17 @@ export class FavoriteRepositorySyncService {
           grouped.push(candidate)
           candidatesByLedgerId.set(candidate.logicalLedgerId, grouped)
         }
+        const localLedgerIdsToDelete = new Set<string>()
+        const confirmedRemoteFolderIds = new Set<string>()
         for (const [logicalLedgerId, ledgerCandidates] of candidatesByLedgerId) {
           const deletedRemoteFolderIds = new Set<string>()
           for (const candidate of ledgerCandidates) {
-            if (!candidate.remoteFolderId || candidate.state === 'missing-remote' || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
+            if (!candidate.remoteFolderId || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
+            if (candidate.state === 'missing-remote') {
+              confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+              deletedRemoteFolderIds.add(candidate.remoteFolderId)
+              continue
+            }
             const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${candidate.remoteFolderId}`, folderId: candidate.remoteFolderId })
             this.assertObservedAccount(account, result.observedAccountMid)
             if (result.status && result.status !== 'ok') {
@@ -867,18 +874,28 @@ export class FavoriteRepositorySyncService {
               throw error
             }
             deletedRemoteFolderIds.add(candidate.remoteFolderId)
+            confirmedRemoteFolderIds.add(candidate.remoteFolderId)
           }
-          // A logical ledger is removed locally only after every one of its remote shards is settled.
-          // A later failure leaves the full local binding intact, so the next explicit retry can reconcile it.
-          if (!localLedgerIds.has(logicalLedgerId)) continue
+          localLedgerIdsToDelete.add(logicalLedgerId)
+        }
+        // Commit the local projection only after every requested remote target has
+        // succeeded or been confirmed absent. A single batch command keeps a
+        // multi-folder deletion atomic even if one remote target failed earlier.
+        const logicalFolderIdsToDelete = [...localLedgerIdsToDelete]
+          .filter((logicalLedgerId) => localLedgerIds.has(logicalLedgerId))
+          .map((logicalLedgerId) => `bilimi-logical:${logicalLedgerId}`)
+          .sort()
+        if (logicalFolderIdsToDelete.length) {
           await this.options.repository.commit(account, {
-            id: `favorite-delete-local:${logicalLedgerId}:${randomUUID()}`,
+            id: `favorite-delete-local:${randomUUID()}`,
             accountMid: account,
             issuedAt: this.now(),
-            type: 'delete-local-managed-folder',
-            payload: { logicalFolderId: `bilimi-logical:${logicalLedgerId}` }
+            type: 'delete-local-managed-folders',
+            payload: {
+              logicalFolderIds: logicalFolderIdsToDelete,
+              ...(confirmedRemoteFolderIds.size ? { confirmedRemoteFolderIds: [...confirmedRemoteFolderIds].sort() } : {})
+            }
           })
-          localLedgerIds.delete(logicalLedgerId)
         }
         return candidates
       } finally {

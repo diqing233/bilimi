@@ -109,7 +109,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(remoteFolderExists.mock.calls).toEqual([])
     expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'delete-local-managed-folder',
-      payload: { logicalFolderId: 'bilimi-logical:work' }
+      payload: { logicalFolderId: 'bilimi-logical:work', confirmedRemoteFolderIds: ['99', '100'] }
     }), expect.any(Array))
   })
 
@@ -182,9 +182,8 @@ describe('FavoriteRepositoryManagedFolderService', () => {
       }]
     }
     const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-    const dismissRemoteFolder = vi.fn()
     const service = new FavoriteRepositoryManagedFolderService({
-      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }, dismissRemoteFolder
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }
     })
     const work = await service.preview('100', 'bilimi-logical:work')
     const ideas = await service.preview('100', 'bilimi-logical:ideas')
@@ -195,7 +194,6 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'delete-local-managed-folders', payload: { logicalFolderIds: ['bilimi-logical:ideas', 'bilimi-logical:work'] }
     }), expect.any(Array))
-    expect(dismissRemoteFolder.mock.calls).toEqual([['100', '99'], ['100', '42']])
   })
 
   it('requires preview, confirmation, and unchanged baseline for remote deletion; unknown results need reconciliation without retry', async () => {
@@ -459,6 +457,48 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'record-sync-result', payload: expect.objectContaining({ status: 'result-unknown' }) }))
   })
 
+  it('does not update persisted managed ledger rules while a remote deletion result is unknown', async () => {
+    const current = managedSnapshot()
+    const onManagedFolderDeleted = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current),
+        commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })),
+        commitWithAudit: vi.fn()
+      },
+      remote: { removeRemoteFolder: vi.fn(async () => { throw new Error('connection dropped') }) },
+      onManagedFolderDeleted
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'result-unknown' })
+
+    expect(onManagedFolderDeleted).not.toHaveBeenCalled()
+  })
+
+  it('updates persisted managed ledger rules only after a remote deletion and local projection both succeed', async () => {
+    const current = managedSnapshot()
+    const onManagedFolderDeleted = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+      },
+      remote: { removeRemoteFolder: vi.fn(async () => undefined) },
+      onManagedFolderDeleted
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
+      .resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(onManagedFolderDeleted).toHaveBeenCalledTimes(1)
+    expect(onManagedFolderDeleted).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'work', remoteFolderIds: ['99'], remoteDeleted: true
+    }])
+  })
+
   it('returns a failed result when checkpoint persistence fails after a known remote rejection', async () => {
     let current = managedSnapshot()
     const service = new FavoriteRepositoryManagedFolderService({
@@ -518,24 +558,108 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commitWithAudit).not.toHaveBeenCalled()
   })
 
-  it('dismisses an adopted remote folder only after its local deletion commits', async () => {
-    const current = managedSnapshot()
-    const dismissRemoteFolder = vi.fn()
+  it('passes retained bound and pending remote ids to local managed-folder persistence', async () => {
+    const current = {
+      ...managedSnapshot(),
+      physicalShards: [{
+        ...managedSnapshot().physicalShards[0], remoteFolderId: undefined,
+        bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: [' 100 ', '99', '100']
+      }]
+    }
+    const onManagedFolderDeleted = vi.fn()
     const service = new FavoriteRepositoryManagedFolderService({
       repository: {
         getSnapshot: vi.fn(async () => current), commit: vi.fn(),
         commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
       },
-      dismissRemoteFolder
+      onManagedFolderDeleted
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
     await service.deleteLocal('100', preview.executionToken)
 
-    expect(dismissRemoteFolder).toHaveBeenCalledWith('100', '99')
+    expect(onManagedFolderDeleted).toHaveBeenCalledTimes(1)
+    expect(onManagedFolderDeleted).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'work', remoteFolderIds: ['99', '100'], remoteDeleted: false
+    }])
   })
 
-  it('dismisses every known pending shard after local deletion so recovery cannot recreate the work folder', async () => {
+  it('keeps a successful local deletion result when preference persistence fails afterward', async () => {
+    const current = managedSnapshot()
+    const onManagedFolderDeleted = vi.fn().mockRejectedValue(new Error('preferences unavailable'))
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit },
+      onManagedFolderDeleted
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.deleteLocal('100', preview.executionToken)).resolves.toMatchObject({
+      status: 'succeeded', preferencesStatus: 'failed'
+    })
+  })
+
+  it('keeps a successful remote deletion result when preference persistence fails afterward', async () => {
+    const current = managedSnapshot()
+    const onManagedFolderDeleted = vi.fn().mockRejectedValue(new Error('preferences unavailable'))
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit },
+      remote: { removeRemoteFolder: vi.fn(async () => undefined) },
+      onManagedFolderDeleted
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken))).resolves.toMatchObject({
+      status: 'succeeded', preferencesStatus: 'failed'
+    })
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folder' }), expect.any(Array))
+    expect(commitWithAudit.mock.calls.some(([, command]) => command.type === 'record-sync-result' && command.payload.status === 'result-unknown')).toBe(false)
+  })
+
+  it('does not update persisted managed ledger rules when a local managed-folder commit fails', async () => {
+    const current = managedSnapshot()
+    const onManagedFolderDeleted = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async () => { throw new Error('disk unavailable') })
+      },
+      onManagedFolderDeleted
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.deleteLocal('100', preview.executionToken)).rejects.toThrow('disk unavailable')
+
+    expect(onManagedFolderDeleted).not.toHaveBeenCalled()
+  })
+
+  it('does not write a legacy remote dismissal after local deletion so a retained bilimi folder can be rediscovered', async () => {
+    const current = managedSnapshot()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+      }
+    })
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await service.deleteLocal('100', preview.executionToken)
+
+    expect(planFavoriteLibraryManagedFolderProjection({
+      snapshot: {
+        ...current,
+        folders: [{ id: 'bilibili:99', title: 'bilimi·工作', kind: 'bilibili', remoteFolderId: '99', syncState: 'bound' }],
+        memberships: { 'bilibili:99': [1] }, physicalShards: []
+      },
+      ledgers: [{ id: 'work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 1, isDefault: false }],
+      dismissedRemoteFolderIds: ['99']
+    })).toEqual([expect.objectContaining({
+      logicalLedgerId: 'work', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['99']
+    })])
+  })
+
+  it('does not suppress any pending remote shard after local deletion', async () => {
     const current = {
       ...managedSnapshot(),
       folders: managedSnapshot().folders.map((folder) => folder.id === 'bilimi-logical:work'
@@ -546,19 +670,16 @@ describe('FavoriteRepositoryManagedFolderService', () => {
         { logicalLedgerId: 'work', folderId: 'bilimi:work:002', shardNumber: 2, remoteTitle: 'Work\u00b702', bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: ['100'] }
       ]
     }
-    const dismissRemoteFolder = vi.fn()
     const service = new FavoriteRepositoryManagedFolderService({
       repository: {
         getSnapshot: vi.fn(async () => current), commit: vi.fn(),
         commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
-      },
-      dismissRemoteFolder
+      }
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
     await service.deleteLocal('100', preview.executionToken)
 
-    expect(dismissRemoteFolder.mock.calls).toEqual([['100', '100'], ['100', '99']])
     expect(planFavoriteLibraryManagedFolderProjection({
       snapshot: {
         ...current,
@@ -570,8 +691,11 @@ describe('FavoriteRepositoryManagedFolderService', () => {
         physicalShards: []
       },
       ledgers: [{ id: 'work', displayName: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', keywords: [], enabled: true, priority: 1, isDefault: false }],
-      dismissedRemoteFolderIds: dismissRemoteFolder.mock.calls.map(([, remoteFolderId]) => remoteFolderId)
-    })).toEqual([])
+      dismissedRemoteFolderIds: ['99', '100']
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ knownRemoteFolderIds: ['99'], bindingState: 'pending-reconcile' }),
+      expect.objectContaining({ knownRemoteFolderIds: ['100'], bindingState: 'pending-reconcile' })
+    ]))
   })
 
   it('does not relabel a successful remote deletion as result-unknown when only audit persistence fails', async () => {

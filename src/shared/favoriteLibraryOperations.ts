@@ -15,7 +15,7 @@ export type FavoriteOperationSource =
 
 /** IPC-safe scope evidence for batch operations. Folder kind is resolved in main. */
 export type FavoriteLibraryOperationSource =
-  | { kind: 'folder'; folderId: string }
+  | { kind: 'folder'; folderId: string; /** Explicit additional Bilimi work folders for a local deletion only. */ folderIds?: string[] }
   | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
 
 export type FavoriteOperationSourceScopeKind =
@@ -32,7 +32,7 @@ export type FavoriteOperationEligibility = {
   allowedActions: FavoriteOperationAction[]
 }
 
-const BASE_ACTIONS: FavoriteOperationAction[] = ['copy', 'move', 'delete-local', 'unfavorite-remote', 'remove-managed-placement']
+const BASE_ACTIONS: FavoriteOperationAction[] = ['copy', 'move']
 
 /** Derives a stable, renderer-safe operation contract without relying on folder titles. */
 export function determineFavoriteOperationEligibility(input: {
@@ -67,9 +67,9 @@ export function determineFavoriteOperationEligibility(input: {
     eligibleAids,
     skipped,
     allowedActions: sourceScopeKind === 'bilimi-work-folder'
-      ? [...BASE_ACTIONS, 'delete-managed-folder-local', 'delete-managed-folder-remote']
+      ? [...BASE_ACTIONS, 'delete-local', 'delete-managed-folder-local', 'delete-managed-folder-remote']
       : sourceScopeKind === 'bilibili-default' || sourceScopeKind === 'bilibili-user-folder'
-        ? ['copy', 'delete-local', 'remove-managed-placement']
+        ? ['copy']
       : [...BASE_ACTIONS]
   }
 }
@@ -107,7 +107,7 @@ export function determineFavoriteOperationActionEligibility(input: {
     return { ...sourceEligibility, eligibleAids: [], skipped: skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason)) }
   }
   const eligibleAids = validAids.filter((aid) => {
-    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy' || input.action === 'delete-local' || input.action === 'remove-managed-placement') return true
+    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy') return true
     const scope = input.aidScopeKinds?.[aid]
     if (scope === 'bilibili-default' || scope === 'bilibili-user-folder') {
       skipped.push({ aid, reason: 'bilibili-folder-copy-only' })

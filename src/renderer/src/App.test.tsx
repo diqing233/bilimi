@@ -1641,6 +1641,49 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('clears a default deletion marker when formal backup binding succeeds', async () => {
+    const accountMid = '100'
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const ledgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      ...(ledger.id === 'music' ? { managedFolderDeletedByUser: true, bindingState: 'unbound' as const } : {}),
+      enabled: true
+    }))
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
+        }
+      })),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const returnedLedgers = ledgers.map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9800 + index),
+      bindingState: 'bound' as const
+    }))
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({ id: 'backup-clears-deletion-marker', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
+
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
+  })
+
   it('does not treat a legacy preference folder id as a formal remote binding during backup', async () => {
     const accountMid = '100'
     const legacyLedger = {
@@ -1950,6 +1993,73 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('releases remote-draft rediscovery only after an explicit successful backup and then forces a status check', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      consumeFavoriteLedgerRemoteDraftRediscoveryPending
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: true,
+          ledgers: [{
+            id: 'custom-remote-88', displayName: 'bilimi·待恢复', keywords: [], enabled: false, priority: 99,
+            bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+          }],
+          missingLedgerIds: [],
+          remoteOnlyDraftLedgerIds: ['custom-remote-88'],
+          message: '册目查验已毕。'
+        }
+      }
+      return {
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '77', bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'backup-rediscover-remote-draft', type: 'save-ledgers', ledgers: [game],
+      options: { rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+  })
+
+  it('does not release remote-draft rediscovery when the backup fails', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      consumeFavoriteLedgerRemoteDraftRediscoveryPending
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture
+        ? { hasUserId: true, hasCsrf: true }
+        : { ok: false, ledgers: [game], steps: ['api:ledger:list'], missingTargets: ['game'], message: '备册失败。' })
+    })
+
+    await expect(requestRuntime({
+      id: 'failed-backup-keeps-remote-draft-pending', type: 'save-ledgers', ledgers: [game],
+      options: { rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: false })
+
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).not.toHaveBeenCalled()
+  })
+
   it('provisions one requested ledger while retaining every other account ledger', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers()
@@ -2003,6 +2113,49 @@ describe('App runtime integration', () => {
         })
       })
     }))
+  })
+
+  it('clears a default deletion marker when one ledger is formally backed up', async () => {
+    const accountMid = '100'
+    const music = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!,
+      enabled: true,
+      bindingState: 'unbound' as const,
+      managedFolderDeletedByUser: true
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [music] }
+        }
+      })),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding: vi.fn().mockResolvedValue(undefined)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return {
+            ok: true,
+            ledgers: [{ ...music, bilibiliFolderId: '9901', bindingState: 'bound' as const }],
+            steps: ['api:ledger:list'], missingTargets: [], message: '当前册目已备齐。'
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({ id: 'backup-one-ledger-clears-marker', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:music' }))
+      .resolves.toMatchObject({ ok: true })
+
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
   })
 
   it('restores default backup targets when the master system is enabled after cancel all', async () => {
@@ -2302,6 +2455,112 @@ describe('App runtime integration', () => {
     expect(snapshot).toMatchObject({ favoriteLedgerStatus: { ok: false, missingLedgerIds: [ledger.id] } })
     const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
     expect(savedLedgers.find((item) => item.id === ledger.id)).not.toHaveProperty('bilibiliFolderId')
+  })
+
+  it('does not restore a deleted remote draft when an older status check finishes afterward', async () => {
+    const accountMid = '100'
+    const remoteDraft = {
+      id: 'custom-remote-88',
+      displayName: 'bilimi·待恢复',
+      keywords: [],
+      enabled: false,
+      priority: 99,
+      bilibiliFolderId: '88',
+      bilibiliFolderIds: ['88'],
+      bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const,
+      isDefault: false
+    }
+    const currentLedgers = [...createDefaultFavoriteLedgers(), remoteDraft]
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: currentLedgers }
+      }
+    })
+    const preferencesAfterDraftDeletion = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: currentLedgers.filter((ledger) => ledger.id !== remoteDraft.id)
+        }
+      }
+    })
+    const { notifyPreferencesChanged, requestRuntime, requestRuntimeDirect } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    let resolveOlderStatus: ((status: unknown) => void) | undefined
+    let statusReadCount = 0
+    const executeJavaScript = vi.fn((script: string) => {
+      if (script.includes('__bilimiRepaintVideoAfterHostResize')) {
+        return Promise.resolve(true)
+      }
+      if (!isLedgerStatusScript(script)) {
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      }
+      statusReadCount += 1
+      if (statusReadCount === 1) {
+        return new Promise((resolve) => {
+          resolveOlderStatus = resolve
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        ledgers: preferencesAfterDraftDeletion.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? [],
+        missingLedgerIds: [],
+        backupConflictLedgerIds: [],
+        message: '册目查验已毕。'
+      })
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    let staleSnapshot!: Promise<AssistantRuntimeResponsePayload>
+    await act(async () => {
+      staleSnapshot = requestRuntimeDirect({ id: 'stale-remote-draft-status', type: 'snapshot' })
+      await vi.waitFor(() => expect(resolveOlderStatus).toBeTypeOf('function'))
+    })
+
+    notifyPreferencesChanged(preferencesAfterDraftDeletion)
+    await act(async () => {
+      resolveOlderStatus?.({
+        ok: true,
+        ledgers: currentLedgers,
+        missingLedgerIds: [],
+        remoteOnlyDraftLedgerIds: [remoteDraft.id],
+        message: '册目查验已毕。'
+      })
+    })
+
+    await expect(staleSnapshot).resolves.toMatchObject({
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
+          }
+        }
+      },
+      favoriteLedgerStatus: {
+        ledgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
+      }
+    })
+
+    await expect(requestRuntime({ id: 'fresh-status-after-draft-deletion', type: 'snapshot' })).resolves.toMatchObject({
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
+          }
+        }
+      },
+      favoriteLedgerStatus: {
+        ledgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
+      }
+    })
+    expect(statusReadCount).toBe(2)
   })
 
   it('reuses a recent read-only ledger status instead of rerunning the page script for repeated snapshots', async () => {

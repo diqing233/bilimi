@@ -428,6 +428,7 @@ export class FavoriteRepositoryService {
     getTranscriptionArchiveRevision?: () => number
     getTranscriptionItems?: () => readonly VideoAudioTranscriptionQueueItem[]
     getTranscriptionArchives?: () => readonly VideoNoteArchiveEntry[]
+    /** Retained for callers with legacy dismissal data; ordinary folders are no longer suppressed. */
     isRemoteFolderDismissed?: (accountMid: string, remoteFolderId: string) => boolean
   }) {}
 
@@ -1348,9 +1349,7 @@ export class FavoriteRepositoryService {
       const logical = logicalFolders.get(folder.id.slice('local:'.length))
       if (logical) canonicalIdByRawId.set(folder.id, logical.id)
     }
-    const folders = snapshot.folders.filter((folder) =>
-      canonicalIdByRawId.get(folder.id) === folder.id &&
-      !(folder.kind === 'bilibili' && folder.remoteFolderId && this.options.isRemoteFolderDismissed?.(snapshot.accountMid, folder.remoteFolderId)))
+    const folders = snapshot.folders.filter((folder) => canonicalIdByRawId.get(folder.id) === folder.id)
     const foldersByTitle = new Map<string, typeof folders>()
     for (const folder of folders) {
       const title = folder.title.trim()

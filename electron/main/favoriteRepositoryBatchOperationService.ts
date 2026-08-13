@@ -16,7 +16,7 @@ type PlacementSync = {
 }
 
 export type FavoriteOperationSourceScope =
-  | { kind: 'bilimi-logical'; folderId?: string }
+  | { kind: 'bilimi-logical'; folderId?: string; /** Explicit local deletion scope; always includes folderId. */ folderIds?: string[] }
   | { kind: 'bilibili-default' | 'bilibili-user'; folderId: string }
   | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
 
@@ -25,7 +25,7 @@ type RemoteUnfavoriteObserver = {
   areUnfavorited(accountMid: string, aids: number[]): Promise<'removed' | 'present' | 'unknown'>
 }
 
-export type FavoriteRepositoryLocalOperationResult = FavoriteRepositoryCommandResult & {
+export type FavoriteRepositoryLocalOperationResult = FavoriteRepositoryCommandResult & FavoriteLibraryCommandResult & {
   /** The state change was committed even if immutable audit persistence needs repair. */
   auditStatus: 'recorded' | 'failed'
 }
@@ -124,18 +124,50 @@ export class FavoriteRepositoryBatchOperationService {
     const selected = aids(requestedAids)
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
-    const deletedAt = this.now()
+    const logicalFolderId = source?.kind === 'bilimi-logical' ? source.folderId?.trim() : undefined
+    if (!logicalFolderId) {
+      throw new Error('Favorite local deletion requires a current Bilimi work folder.')
+    }
+    const logicalFolderIds = targetFolderIds(source?.kind === 'bilimi-logical' && source.folderIds?.length ? source.folderIds : [logicalFolderId])
+    if (!logicalFolderIds.includes(logicalFolderId)) throw new Error('Favorite local deletion scope must include the current Bilimi work folder.')
+    if (logicalFolderIds.some((folderId) => !snapshot.folders.some((folder) => folder.id === folderId && folder.kind === 'bilimi-logical'))) {
+      throw new Error('Favorite local deletion scope contains a missing Bilimi work folder.')
+    }
+    const selectedFolderIds = new Set(logicalFolderIds)
+    const placements = selected.map((aid) => {
+      const prior = snapshot.positions[`${normalizedAccount}:${aid}`]
+      const localDesiredFolderIds = prior?.localDesiredFolderIds ??
+        (snapshot.memberships[logicalFolderId]?.includes(aid) ? [logicalFolderId] : [])
+      if (!localDesiredFolderIds.includes(logicalFolderId)) throw new Error('Favorite local deletion has no matching Bilimi placement.')
+      return this.placement(aid, localDesiredFolderIds.filter((folderId) => !selectedFolderIds.has(folderId)), prior, this.now())
+    })
     let revision = expectedRevision
     let result: FavoriteRepositoryCommandResult | undefined
-    for (const selectedChunk of chunks(selected)) {
+    for (const placementChunk of chunks(placements)) {
+      const issuedAt = this.now()
       result = await this.options.repository.commitWithAudit(normalizedAccount, {
-        id: `favorite-batch:delete-local:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: deletedAt, expectedRevision: revision,
-        type: 'delete-favorites-from-library', payload: { aids: selectedChunk, deletedAt, reason: 'user-delete' }
-      }, this.events(selectedChunk, 'batch-local-delete', deletedAt))
+        id: `favorite-batch:delete-local-placement:${randomUUID()}`, accountMid: normalizedAccount, issuedAt, expectedRevision: revision,
+        type: 'set-favorite-placements', payload: { adjustmentKind: 'managed-placement-remove', placements: placementChunk }
+      }, this.events(placementChunk.map((placement) => placement.aid), 'batch-local-bilimi-placement-delete', issuedAt))
       revision = result.revision
     }
     if (!result) throw new Error('Favorite operation aids are invalid.')
-    return { ...result, auditStatus: 'recorded' }
+    let current = await this.options.repository.getSnapshot(normalizedAccount)
+    const recycleAids = this.localBilimiRemovalRecycleAids(current, selected)
+    for (const selectedChunk of chunks(recycleAids)) {
+      const issuedAt = this.now()
+      result = await this.options.repository.commitWithAudit(normalizedAccount, {
+        id: `favorite-batch:delete-local-placement-recycle:${randomUUID()}`,
+        accountMid: normalizedAccount, issuedAt, expectedRevision: current.revision,
+        type: 'recycle-favorites', payload: { aids: selectedChunk, deletedAt: issuedAt, reason: 'local-bilimi-placement-removed-without-source' }
+      }, this.events(selectedChunk, 'batch-local-bilimi-placement-recycled', issuedAt))
+      current = result
+    }
+    return {
+      ...result,
+      status: 'succeeded', completedOperationCount: selected.length, totalOperationCount: selected.length, affectedAids: selected,
+      auditStatus: 'recorded'
+    }
   }
 
   async previewManagedPlacementRemoval(
@@ -161,17 +193,8 @@ export class FavoriteRepositoryBatchOperationService {
       const desired = snapshot.positions[`${normalizedAccount}:${aid}`]?.localDesiredFolderIds ?? []
       return desired.some((folderId) => selectedFolderSet.has(folderId))
     })
-    const hasObservedManagedPlacement = (aid: number) => {
-      const position = snapshot.positions[`${normalizedAccount}:${aid}`]
-      if (!position) return false
-      if (position.remoteObservedLogicalFolderIds.some((folderId) => selectedFolderSet.has(folderId))) return true
-      return position.remoteObservedPhysicalFolderIds.some((observedFolderId) => snapshot.physicalShards.some((shard) =>
-        selectedFolderSet.has(`bilimi-logical:${shard.logicalLedgerId}`) && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) &&
-        (shard.remoteFolderId === observedFolderId || `bilibili:${shard.remoteFolderId}` === observedFolderId || shard.folderId === observedFolderId)
-      ))
-    }
-    const changedAids = candidateAids.filter(hasObservedManagedPlacement)
-    const skippedUnsyncedAids = candidateAids.filter((aid) => !hasObservedManagedPlacement(aid))
+    const changedAids = candidateAids.filter((aid) => this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid))
+    const skippedUnsyncedAids = candidateAids.filter((aid) => !this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid))
     if (!changedAids.length) {
       if (skippedUnsyncedAids.length) throw new Error('收藏未同步。')
       throw new Error('Favorite managed placement removal has no matching placements.')
@@ -188,6 +211,8 @@ export class FavoriteRepositoryBatchOperationService {
         .map((shard) => shard.remoteFolderId!)
     }))].sort()
     const recycleAids = changedAids.filter((aid) => {
+      const position = snapshot.positions[`${normalizedAccount}:${aid}`]
+      if (position?.sourceAuthority !== 'complete') return false
       const desired = snapshot.positions[`${normalizedAccount}:${aid}`]?.localDesiredFolderIds ?? []
       const remaining = desired.filter((folderId) => !selectedFolderSet.has(folderId))
       const hasOrdinarySource = ordinaryFolders.some((folder) => snapshot.memberships[folder.id]?.includes(aid))
@@ -221,6 +246,11 @@ export class FavoriteRepositoryBatchOperationService {
       const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
       if (snapshot.revision !== operation.baselineRevision) throw new Error('Favorite managed placement removal baseline is stale.')
       const selectedFolderSet = new Set(operation.selectedLogicalFolderIds)
+      const priorPlacements = new Map(operation.aids.map((aid) => {
+        const position = snapshot.positions[`${operation.accountMid}:${aid}`]
+        if (!position) throw new Error('Favorite managed placement was not found.')
+        return [aid, position] as const
+      }))
       let revision = snapshot.revision
       for (const selectedChunk of chunks(operation.aids)) {
         const issuedAt = this.now()
@@ -228,8 +258,7 @@ export class FavoriteRepositoryBatchOperationService {
           id: `favorite-managed-placement-removal:intent:${operation.operationId}:${randomUUID()}`,
           accountMid: operation.accountMid, issuedAt, expectedRevision: revision, type: 'set-favorite-placements',
           payload: { adjustmentKind: 'managed-placement-remove', placements: selectedChunk.map((aid) => {
-            const prior = snapshot.positions[`${operation.accountMid}:${aid}`]
-            if (!prior) throw new Error('Favorite managed placement was not found.')
+            const prior = priorPlacements.get(aid)!
             return this.placement(aid, prior.localDesiredFolderIds.filter((folderId) => !selectedFolderSet.has(folderId)), prior, issuedAt)
           }) }
         }, this.events(selectedChunk, 'managed-placement-removal-intent', issuedAt))
@@ -248,6 +277,27 @@ export class FavoriteRepositoryBatchOperationService {
           ? 'succeeded' as const
           : 'failed' as const
       operation.status = status
+      if (status !== 'succeeded') {
+        let restoration = await this.options.repository.getSnapshot(operation.accountMid)
+        for (const selectedChunk of chunks(operation.aids)) {
+          const issuedAt = this.now()
+          restoration = await this.options.repository.commitWithAudit(operation.accountMid, {
+            id: `favorite-managed-placement-removal:restore-local:${operation.operationId}:${randomUUID()}`,
+            accountMid: operation.accountMid, issuedAt, expectedRevision: restoration.revision, type: 'set-favorite-placements',
+            payload: { adjustmentKind: 'managed-placement-remove', placements: selectedChunk.map((aid) => {
+              const currentPosition = restoration.positions[`${operation.accountMid}:${aid}`]
+              const prior = priorPlacements.get(aid)!
+              return this.placement(aid, prior.localDesiredFolderIds, {
+                ...prior,
+                remoteObservedPhysicalFolderIds: currentPosition?.remoteObservedPhysicalFolderIds ?? prior.remoteObservedPhysicalFolderIds,
+                remoteObservedLogicalFolderIds: currentPosition?.remoteObservedLogicalFolderIds ?? prior.remoteObservedLogicalFolderIds,
+                positionState: currentPosition?.positionState ?? prior.positionState,
+                ...(currentPosition?.reason ? { reason: currentPosition.reason } : {})
+              }, issuedAt)
+            }) }
+          }, this.events(selectedChunk, 'managed-placement-removal-local-restored', issuedAt))
+        }
+      }
       if (status === 'succeeded') await this.finalizeManagedPlacementRecycling(operation)
       await this.recordManagedPlacementRemovalResult(operation, status)
       return {
@@ -266,8 +316,12 @@ export class FavoriteRepositoryBatchOperationService {
       await this.recoverManagedPlacementRemoval(normalizedAccount, operationId)
     if (!operation || operation.accountMid !== normalizedAccount) throw new Error('Favorite managed placement removal operation was not found.')
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
+    const selectedFolderSet = new Set(operation.selectedLogicalFolderIds)
     const states = operation.aids.map((aid) => snapshot.positions[`${normalizedAccount}:${aid}`]?.positionState)
-    if (states.every((state) => state === 'aligned')) {
+    const remoteRemovalObserved = states.every((state) => state === 'aligned') && operation.aids.every((aid) =>
+      !this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid))
+    if (remoteRemovalObserved) {
+      await this.finalizeManagedPlacementLocalRemoval(operation)
       await this.finalizeManagedPlacementRecycling(operation)
       operation.status = 'succeeded'
       await this.recordManagedPlacementRemovalResult(operation, 'succeeded', 'reconciled')
@@ -278,6 +332,7 @@ export class FavoriteRepositoryBatchOperationService {
       return { status: 'reconciliation-required' as const, operationId, aids: [...operation.aids] }
     }
     operation.status = 'failed'
+    await this.recordManagedPlacementRemovalResult(operation, 'failed', 'reconciled')
     return { status: 'failed' as const, operationId, aids: [...operation.aids] }
   }
 
@@ -427,15 +482,41 @@ export class FavoriteRepositoryBatchOperationService {
       revision = result.revision
     }
     if (!result) throw new Error('Favorite operation aids are invalid.')
-    return { ...result, auditStatus: 'recorded' }
+    return {
+      ...result,
+      status: 'succeeded', completedOperationCount: selected.length, totalOperationCount: selected.length, affectedAids: selected,
+      auditStatus: 'recorded'
+    }
   }
 
   private placement(aid: number, localDesiredFolderIds: string[], prior: FavoriteRepositoryPositionRecord | undefined, updatedAt: string) {
+    const unresolvedRemoteState = prior && ['syncing', 'failed', 'result-unknown', 'remote-removed', 'target-missing', 'needs-review'].includes(prior.positionState)
+      ? prior.positionState
+      : 'local-only-change' as const
     return {
       aid, localDesiredFolderIds: [...new Set(localDesiredFolderIds)].sort(),
       remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
-      remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])], positionState: 'local-only-change' as const, updatedAt
+      remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])], positionState: unresolvedRemoteState,
+      ...(prior?.observedAt ? { observedAt: prior.observedAt } : {}),
+      ...(prior?.lifecycleState ? { lifecycleState: prior.lifecycleState } : {}),
+      ...(prior?.sourceAuthority ? { sourceAuthority: prior.sourceAuthority } : {}),
+      ...(prior?.observationEpoch ? { observationEpoch: prior.observationEpoch } : {}),
+      ...(prior?.reason ? { reason: prior.reason } : {}),
+      updatedAt
     }
+  }
+
+  /** A local placement removal may recycle only after a complete source observation proves no source remains. */
+  private localBilimiRemovalRecycleAids(snapshot: Awaited<ReturnType<Repository['getSnapshot']>>, requestedAids: number[]) {
+    const ordinarySourceFolders = snapshot.folders.filter((folder) => folder.kind === 'bilibili')
+    return requestedAids.filter((aid) => {
+      const position = snapshot.positions[`${snapshot.accountMid}:${aid}`]
+      if (!position || position.sourceAuthority !== 'complete') return false
+      if (['failed', 'result-unknown', 'remote-removed', 'syncing', 'needs-review', 'target-missing'].includes(position.positionState)) return false
+      if (position.localDesiredFolderIds.length || position.remoteObservedPhysicalFolderIds.length || position.remoteObservedLogicalFolderIds.length) return false
+      if (ordinarySourceFolders.some((folder) => snapshot.memberships[folder.id]?.includes(aid))) return false
+      return snapshot.tombstones[`${snapshot.accountMid}:${aid}`]?.kind !== 'recycled'
+    })
   }
 
   private async audit(accountMid: string, selected: number[], detail: string, reason?: string): Promise<'recorded' | 'failed'> {
@@ -457,9 +538,16 @@ export class FavoriteRepositoryBatchOperationService {
   }
 
   private requireScope(source: FavoriteOperationSourceScope | undefined, requestedAids: number[], action: 'copy' | 'move' | 'delete' | 'unfavorite' | 'managed-removal') {
-    if (!source || source.kind === 'bilimi-logical') return
+    if (!source) {
+      if (action === 'delete') throw new Error('Favorite local deletion requires a current Bilimi work folder.')
+      return
+    }
+    if (source.kind === 'bilimi-logical') {
+      if (action === 'delete' && !source.folderId?.trim()) throw new Error('Favorite local deletion requires a current Bilimi work folder.')
+      return
+    }
     if (source.kind === 'bilibili-default' || source.kind === 'bilibili-user') {
-      if (action !== 'copy' && action !== 'delete' && action !== 'managed-removal') throw new Error('This action is not permitted from a Bilibili source folder.')
+      if (action !== 'copy' && action !== 'managed-removal') throw new Error('This action is not permitted from a Bilibili source folder.')
       return
     }
     const selected = aids(requestedAids)
@@ -469,6 +557,7 @@ export class FavoriteRepositoryBatchOperationService {
     if (skippedAids.some((aid) => eligibleAids.includes(aid))) throw new Error('Virtual source eligibility and skipped-item evidence overlap.')
     const eligible = new Set(eligibleAids)
     if (selected.some((aid) => !eligible.has(aid))) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
+    if (action === 'delete') throw new Error('Favorite local deletion requires a current Bilimi work folder.')
   }
 
   private async recoverRemoteOperation(accountMid: string, operationId: string): Promise<PendingRemoteUnfavorite | undefined> {
@@ -504,9 +593,11 @@ export class FavoriteRepositoryBatchOperationService {
         .filter((folder) => record.affectedAids.some((aid) => snapshot.memberships[folder.id]?.includes(aid)))
         .map((folder) => ({ id: folder.id, title: folder.title })),
       skippedUnsyncedAids: [],
-      recycleAids: record.affectedAids.filter((aid) =>
-        !(snapshot.positions[`${accountMid}:${aid}`]?.localDesiredFolderIds.length) &&
-        !ordinaryFolders.some((folder) => snapshot.memberships[folder.id]?.includes(aid))),
+      recycleAids: record.affectedAids.filter((aid) => {
+        const position = snapshot.positions[`${accountMid}:${aid}`]
+        return position?.sourceAuthority === 'complete' && !position.localDesiredFolderIds.length &&
+          !ordinaryFolders.some((folder) => snapshot.memberships[folder.id]?.includes(aid))
+      }),
       baselineRevision: snapshot.revision, executionToken: '',
       status: record.status === 'pending' ? 'result-unknown' : record.status
     }
@@ -519,7 +610,8 @@ export class FavoriteRepositoryBatchOperationService {
     const ordinaryFolderIds = snapshot.folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id)
     const recycleAids = operation.aids.filter((aid) => {
       const position = snapshot.positions[`${operation.accountMid}:${aid}`]
-      return position?.positionState === 'aligned' && !position.localDesiredFolderIds.length &&
+      return position?.sourceAuthority === 'complete' && position.positionState === 'aligned' && !position.localDesiredFolderIds.length &&
+        !position.remoteObservedPhysicalFolderIds.length && !position.remoteObservedLogicalFolderIds.length &&
         !ordinaryFolderIds.some((folderId) => snapshot.memberships[folderId]?.includes(aid)) &&
         snapshot.tombstones[`${operation.accountMid}:${aid}`]?.kind !== 'recycled'
     })
@@ -531,6 +623,39 @@ export class FavoriteRepositoryBatchOperationService {
         type: 'recycle-favorites', payload: { aids: selectedChunk, deletedAt: issuedAt, reason: 'managed-placement-removed-without-source' }
       }, this.events(selectedChunk, 'managed-placement-removal-recycled', issuedAt))
     }
+  }
+
+  /** A restored local intent is cleared only after a read-only reconciliation proves the remote target no longer contains it. */
+  private async finalizeManagedPlacementLocalRemoval(operation: PendingManagedPlacementRemoval) {
+    let snapshot = await this.options.repository.getSnapshot(operation.accountMid)
+    const selectedFolderSet = new Set(operation.selectedLogicalFolderIds)
+    const placements = operation.aids.flatMap((aid) => {
+      const prior = snapshot.positions[`${operation.accountMid}:${aid}`]
+      if (!prior || !prior.localDesiredFolderIds.some((folderId) => selectedFolderSet.has(folderId))) return []
+      if (this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid)) return []
+      return [{
+        ...this.placement(aid, prior.localDesiredFolderIds.filter((folderId) => !selectedFolderSet.has(folderId)), prior, this.now()),
+        positionState: 'aligned' as const
+      }]
+    })
+    for (const selectedChunk of chunks(placements)) {
+      const issuedAt = this.now()
+      snapshot = await this.options.repository.commitWithAudit(operation.accountMid, {
+        id: `favorite-managed-placement-removal:reconcile-local:${operation.operationId}:${randomUUID()}`,
+        accountMid: operation.accountMid, issuedAt, expectedRevision: snapshot.revision, type: 'set-favorite-placements',
+        payload: { adjustmentKind: 'managed-placement-remove', placements: selectedChunk }
+      }, this.events(selectedChunk.map((placement) => placement.aid), 'managed-placement-removal-reconciled', issuedAt))
+    }
+  }
+
+  private hasObservedManagedPlacement(snapshot: Awaited<ReturnType<Repository['getSnapshot']>>, selectedFolderSet: Set<string>, aid: number) {
+    const position = snapshot.positions[`${snapshot.accountMid}:${aid}`]
+    if (!position) return false
+    if (position.remoteObservedLogicalFolderIds.some((folderId) => selectedFolderSet.has(folderId))) return true
+    return position.remoteObservedPhysicalFolderIds.some((observedFolderId) => snapshot.physicalShards.some((shard) =>
+      selectedFolderSet.has(`bilimi-logical:${shard.logicalLedgerId}`) && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) &&
+      (shard.remoteFolderId === observedFolderId || `bilibili:${shard.remoteFolderId}` === observedFolderId || shard.folderId === observedFolderId)
+    ))
   }
 
   private async recordManagedPlacementRemovalResult(

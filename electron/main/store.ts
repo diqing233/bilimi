@@ -111,6 +111,8 @@ export type DesktopStoreState = AssistantPreferences & {
   favoriteLibraryDismissedRemoteFolderIdsByAccount: Record<string, string[]>
   /** Device-local opt-outs for the remote-only Bilimi draft reminder by Bilibili UID. */
   favoriteLedgerRemoteDraftReminderDismissedByAccount: Record<string, string[]>
+  /** Remote-only drafts deleted locally remain suppressed until the owner explicitly runs backup again. */
+  favoriteLedgerRemoteDraftRediscoveryPendingByAccount: Record<string, string[]>
   deepseekApiKey: string
   deepseekApiKeyEncrypted: string
   videoNotes: VideoNote[]
@@ -312,6 +314,7 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   closeChoiceMigrationVersion: 0,
   favoriteLibraryDismissedRemoteFolderIdsByAccount: {},
   favoriteLedgerRemoteDraftReminderDismissedByAccount: {},
+  favoriteLedgerRemoteDraftRediscoveryPendingByAccount: {},
   deepseekApiKey: '',
   deepseekApiKeyEncrypted: '',
   videoNotes: [],
@@ -929,6 +932,39 @@ export function dismissFavoriteLedgerRemoteDraftReminder(
   const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))
   const next = [...new Set([...(current[account] ?? []), folderId])].sort()
   store.set('favoriteLedgerRemoteDraftReminderDismissedByAccount', { ...current, [account]: next })
+}
+
+/** Returns remote draft IDs that remain hidden until the owner explicitly runs backup. */
+export function loadFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))[account] ?? []
+}
+
+/** Keeps a locally deleted remote-only candidate out of ordinary status scans. */
+export function markFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderIds: readonly string[]
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const addedIds = remoteFolderIds.map((id) => id.trim()).filter(Boolean)
+  if (!addedIds.length) return
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))
+  const next = [...new Set([...(current[account] ?? []), ...addedIds])].sort()
+  store.set('favoriteLedgerRemoteDraftRediscoveryPendingByAccount', { ...current, [account]: next })
+}
+
+/** Releases only explicit-backup pending IDs; manual "do not remind" choices stay untouched. */
+export function consumeFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))
+  const pending = current[account] ?? []
+  if (!pending.length) return []
+  const { [account]: _consumed, ...remaining } = current
+  store.set('favoriteLedgerRemoteDraftRediscoveryPendingByAccount', remaining)
+  return pending
 }
 
 /** Reads a durable account setting instead of accepting a renderer-owned projection. */

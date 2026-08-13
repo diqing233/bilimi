@@ -595,9 +595,10 @@ export function buildSaveFavoriteLedgersScript(
   previousLedgers: FavoriteLedger[],
   options: FavoriteLedgerSaveOptions = {}
 ): string {
+  const { rediscoverDeletedRemoteDrafts: _rediscoverDeletedRemoteDrafts, ...remoteSaveOptions } = options
   const payload = scriptPayload({
     nextLedgers: normalizeLedgerPayload(nextLedgers),
-    options,
+    options: remoteSaveOptions,
     previousLedgers: normalizeLedgerPayload(previousLedgers)
   })
 

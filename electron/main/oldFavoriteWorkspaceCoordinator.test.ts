@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService'> & { onManagedFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<void>; initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService'> & { onManagedFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<void>; getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -151,6 +151,23 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.deleteManagedFolderCandidates('100', ['music'])
 
     expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', ['music'])
+  })
+
+  it('does not clear matching ledger rules when managed folder deletion fails', async () => {
+    const root = await createRoot()
+    const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
+    const syncService = createSyncService({
+      deleteManagedFolders: vi.fn().mockRejectedValue(new Error('remote deletion failed'))
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, syncService, onManagedFolderDeletion }
+    )
+
+    await expect(coordinator.deleteManagedFolderCandidates('100', ['music', 'game'])).rejects.toThrow('remote deletion failed')
+
+    expect(onManagedFolderDeletion).not.toHaveBeenCalled()
   })
 
   it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
@@ -3676,6 +3693,68 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(numberedShard.remoteFolderId).toBeUndefined()
     expect(snapshot.memberships['bilimi-logical:game']).toEqual([])
     expect(snapshot.organizationRecords).toEqual([])
+  })
+
+  it('does not reconstruct a default folder whose deletion marker is persisted', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      getUserDeletedDefaultLedgerIds: () => ['music']
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'remote-music', title: 'bilimi\u00b7音乐舞台', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'remote-music': [1] })
+
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.physicalShards.some((shard) => shard.logicalLedgerId === 'music')).toBe(false)
+    expect(snapshot.folders.some((folder) => folder.id === 'bilimi-logical:music')).toBe(false)
+    expect(snapshot.folders.some((folder) => folder.title === 'bilimi\u00b7音乐舞台' && folder.kind === 'bilimi-logical')).toBe(false)
+  })
+
+  it('does not restore a deleted default folder from a completed scan when the account reopens', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'remote-music', title: 'bilimi\u00b7音乐舞台', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await first.recordManagedMembers('100', { 'remote-music': [1] })
+    await first.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'clear-deleted-default-bindings', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'clear-local-repository',
+      payload: { preserveTombstones: true }
+    })
+    await repository.commit('100', {
+      id: 'restore-deleted-default-mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'legacy-workspace',
+        folders: [{ id: 'bilibili:remote-music', title: 'bilimi\u00b7音乐舞台', remoteFolderId: 'remote-music' }],
+        memberAidsByFolderId: { 'bilibili:remote-music': [1] },
+        videos: [{ aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }]
+      }
+    })
+    await repository.commit('100', {
+      id: 'restore-deleted-default-workspace', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: completedMarker
+    })
+
+    const reopened = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, getUserDeletedDefaultLedgerIds: () => ['music'] }
+    )
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 0 })
+    const restored = await repository.getSnapshot('100')
+    expect(restored.physicalShards.some((shard) => shard.logicalLedgerId === 'music')).toBe(false)
+    expect(restored.folders.some((folder) => folder.id === 'bilimi-logical:music')).toBe(false)
   })
 
   it('recovers the staging folder and a unique custom Bilimi workspace with stable logical identities', async () => {

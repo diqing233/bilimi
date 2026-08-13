@@ -856,7 +856,8 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       expectedRevision?: number
       type: 'delete-local-managed-folder'
-      payload: { logicalFolderId: string }
+      /** Remote IDs appear only after the corresponding Bilibili folder deletion succeeded. */
+      payload: { logicalFolderId: string; confirmedRemoteFolderIds?: string[] }
     }
   | {
       id: string
@@ -864,7 +865,8 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       expectedRevision?: number
       type: 'delete-local-managed-folders'
-      payload: { logicalFolderIds: string[] }
+      /** Remote IDs appear only after every requested Bilibili folder deletion succeeded. */
+      payload: { logicalFolderIds: string[]; confirmedRemoteFolderIds?: string[] }
     }
   | {
       id: string
@@ -1445,12 +1447,18 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
       return
     case 'delete-local-managed-folder':
-      if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
+      if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim()) ||
+        (payload.confirmedRemoteFolderIds !== undefined && (!Array.isArray(payload.confirmedRemoteFolderIds) ||
+          payload.confirmedRemoteFolderIds.some((remoteFolderId) => typeof remoteFolderId !== 'string' || !remoteFolderId.trim()) ||
+          new Set(payload.confirmedRemoteFolderIds.map((remoteFolderId) => remoteFolderId.trim())).size !== payload.confirmedRemoteFolderIds.length))) invalidCommand()
       return
     case 'delete-local-managed-folders':
       if (!Array.isArray(payload.logicalFolderIds) || !payload.logicalFolderIds.length ||
         payload.logicalFolderIds.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/.test(folderId.trim())) ||
-        new Set(payload.logicalFolderIds).size !== payload.logicalFolderIds.length) invalidCommand()
+        new Set(payload.logicalFolderIds).size !== payload.logicalFolderIds.length ||
+        (payload.confirmedRemoteFolderIds !== undefined && (!Array.isArray(payload.confirmedRemoteFolderIds) ||
+          payload.confirmedRemoteFolderIds.some((remoteFolderId) => typeof remoteFolderId !== 'string' || !remoteFolderId.trim()) ||
+          new Set(payload.confirmedRemoteFolderIds.map((remoteFolderId) => remoteFolderId.trim())).size !== payload.confirmedRemoteFolderIds.length))) invalidCommand()
       return
     case 'clear-local-inbox':
       if (Object.keys(payload).length) invalidCommand()
@@ -2191,19 +2199,47 @@ export function applyFavoriteRepositoryCommand(
       const logicalLedgerIds = new Set(logicalFolders.map((logicalFolder) => logicalFolder.logicalLedgerId!))
       const removedShards = physicalShards.filter((shard) => logicalLedgerIds.has(shard.logicalLedgerId))
       const removedFolderIds = new Set([...logicalFolderIds, ...removedShards.map((shard) => shard.folderId)])
+      const confirmedRemoteFolderIds = new Set((command.payload.confirmedRemoteFolderIds ?? []).map((remoteFolderId) => remoteFolderId.trim()))
+      const confirmedRemoteObservationIds = new Set([
+        ...confirmedRemoteFolderIds,
+        ...[...confirmedRemoteFolderIds].map((remoteFolderId) => `bilibili:${remoteFolderId}`),
+        ...removedShards
+          .filter((shard) => shard.remoteFolderId && confirmedRemoteFolderIds.has(shard.remoteFolderId))
+          .map((shard) => shard.folderId)
+      ])
+      const confirmedRemoteMirrorFolderIds = new Set(folders
+        .filter((folder) => folder.kind === 'bilibili' && folder.remoteFolderId && confirmedRemoteFolderIds.has(folder.remoteFolderId))
+        .map((folder) => folder.id))
       const affected = new Set<number>()
       for (const folderId of removedFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
+      for (const folderId of confirmedRemoteMirrorFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
       if (deletingInbox) for (const aid of memberships['local:inbox'] ?? []) affected.add(aid)
-      folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
+      folders = folders.filter((folder) => !removedFolderIds.has(folder.id) && !confirmedRemoteMirrorFolderIds.has(folder.id))
       physicalShards = physicalShards.filter((shard) => !logicalLedgerIds.has(shard.logicalLedgerId))
-      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
+      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId) && !confirmedRemoteMirrorFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
-        if (!position.localDesiredFolderIds.some((folderId) => removedFolderIds.has(folderId))) continue
+        const removesLocalPlacement = position.localDesiredFolderIds.some((folderId) => removedFolderIds.has(folderId))
+        const removesConfirmedRemoteObservation = confirmedRemoteFolderIds.size > 0 && (
+          position.remoteObservedPhysicalFolderIds.some((folderId) => confirmedRemoteObservationIds.has(folderId)) ||
+          position.remoteObservedLogicalFolderIds.some((folderId) => removedFolderIds.has(folderId))
+        )
+        if (!removesLocalPlacement && !removesConfirmedRemoteObservation) continue
         const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
+        const remoteObservedPhysicalFolderIds = confirmedRemoteFolderIds.size
+          ? position.remoteObservedPhysicalFolderIds.filter((remoteFolderId) => !confirmedRemoteObservationIds.has(remoteFolderId))
+          : position.remoteObservedPhysicalFolderIds
+        const remoteObservedLogicalFolderIds = confirmedRemoteFolderIds.size
+          ? position.remoteObservedLogicalFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
+          : position.remoteObservedLogicalFolderIds
+        const positionState = ['failed', 'result-unknown', 'syncing', 'remote-removed', 'needs-review', 'target-missing'].includes(position.positionState)
+          ? position.positionState
+          : deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds })
         positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
           ...position,
           localDesiredFolderIds,
-          positionState: 'local-only-change', updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
+          remoteObservedPhysicalFolderIds,
+          remoteObservedLogicalFolderIds,
+          positionState, updatedAt: normalizedAcceptedAt, revision: snapshot.revision + 1
         }
         affected.add(position.aid)
       }
@@ -2211,23 +2247,31 @@ export function applyFavoriteRepositoryCommand(
         const targetFolderIds = record.targetFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
         return targetFolderIds.length ? [{ ...record, targetFolderIds }] : []
       })
-      const remainingLogicalFolderIds = folders
-        .filter((folder) => folder.kind === 'bilimi-logical')
-        .map((folder) => folder.id)
-      const inbox = new Set(memberships['local:inbox'] ?? [])
       if (deletingInbox) {
-        inbox.clear()
+        memberships = { ...memberships, 'local:inbox': [] }
+        affectedFolderIds = [...removedFolderIds, 'local:inbox']
       } else {
+        // Deleting a managed folder is not an instruction to put its videos in
+        // staging. A retained remote folder remains a possible source until a
+        // complete source observation proves otherwise.
+        affectedFolderIds = [...removedFolderIds, ...confirmedRemoteMirrorFolderIds]
+      }
+      if (confirmedRemoteFolderIds.size) {
+        const remainingOrdinarySourceFolderIds = folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id)
         for (const aid of affected) {
-          const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
-          const hasRemainingLogicalPlacement = position
-            ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
-            : remainingLogicalFolderIds.some((folderId) => memberships[folderId]?.includes(aid))
-          if (!hasRemainingLogicalPlacement) inbox.add(aid)
+          const key = createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)
+          const position = positions[key]
+          if (!position || position.sourceAuthority !== 'complete' ||
+            ['failed', 'result-unknown', 'syncing', 'remote-removed', 'needs-review', 'target-missing'].includes(position.positionState) ||
+            position.localDesiredFolderIds.length || position.remoteObservedPhysicalFolderIds.length || position.remoteObservedLogicalFolderIds.length ||
+            remainingOrdinarySourceFolderIds.some((folderId) => memberships[folderId]?.includes(aid)) || tombstones[key]?.kind === 'recycled') continue
+          tombstones[key] = {
+            accountMid: snapshot.accountMid, aid, deletedAt: normalizedAcceptedAt,
+            reason: 'managed-folder-removed-without-source', allowRediscovery: true, kind: 'recycled'
+          }
+          positions[key] = { ...position, positionState: 'aligned', lifecycleState: 'recycled', revision: snapshot.revision + 1 }
         }
       }
-      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
-      affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
       recordLastAdjustment(affected, 'managed-folder-delete', command.issuedAt)
       break

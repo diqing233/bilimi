@@ -1759,7 +1759,7 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('filters a locally dismissed ordinary remote folder from library navigation without deleting its mirror data', async () => {
+  it('keeps an ordinary remote folder visible even when a legacy dismissal callback returns true', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({
       root, now: () => '2026-07-23T00:00:00.000Z',
@@ -1778,7 +1778,12 @@ describe('FavoriteRepositoryService', () => {
     })
 
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
-      folders: [expect.objectContaining({ id: 'bilibili:2' })], otherFavoriteVideoCount: 1
+      folderCount: 2,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:1' }),
+        expect.objectContaining({ id: 'bilibili:2' })
+      ]),
+      otherFavoriteVideoCount: 2
     })
     await expect(service.getSnapshot('100')).resolves.toMatchObject({
       folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:1' })]),
@@ -1786,7 +1791,7 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('refreshes library navigation after an ordinary folder is dismissed without a repository revision', async () => {
+  it('does not hide ordinary navigation after a legacy dismissal changes without a repository revision', async () => {
     const root = await createRoot()
     const dismissedRemoteFolderIds = new Set<string>()
     const service = new FavoriteRepositoryService({
@@ -1810,7 +1815,11 @@ describe('FavoriteRepositoryService', () => {
     service.invalidateLibraryReadCache('100')
 
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
-      folderCount: 1, folders: [expect.objectContaining({ id: 'bilibili:2' })]
+      folderCount: 2,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:1' }),
+        expect.objectContaining({ id: 'bilibili:2' })
+      ])
     })
   })
 

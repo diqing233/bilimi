@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -188,6 +188,170 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·自建' }))
     expect([...enabledStates.mock.calls.at(-1)![0]]).toContainEqual(['custom', false])
+  })
+
+  it('deletes a persisted remote draft through the draft-only path without entering managed deletion', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerId: 'remote-draft' })
+    const save = vi.fn()
+    const sync = vi.fn()
+    const dismiss = vi.fn()
+    const onDeleteLedger = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[
+      {
+        id: 'remote-draft', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 10,
+        bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+      },
+      {
+        id: 'other-draft', displayName: 'bilimi·其他草稿', keywords: [], enabled: false, priority: 20,
+        syncState: 'local-draft', isDefault: false
+      },
+      { id: 'saved', displayName: 'bilimi·已保存', keywords: [], enabled: true, priority: 30, isDefault: false }
+    ]} missingLedgerIds={[]} remoteOnlyDraftLedgerIds={['remote-draft']} onDismissRemoteDraftReminder={dismiss}
+      onSaveLedgers={save} onSyncLedgers={sync} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '远端草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledWith('100', 'remote-draft'))
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '远端草稿' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '其他草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '已保存' })).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+    expect(dismiss).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(onDeleteLedger).toHaveBeenCalledWith('remote-draft')
+  })
+
+  it('deletes a newly created local draft without persisting or calling the managed-folder path', () => {
+    const save = vi.fn()
+    const sync = vi.fn()
+    const onDeleteLedger = vi.fn()
+    const deleteFavoriteLedgerDraft = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={sync}
+      onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId(/favorite-ledger-chip-new-ledger-/)).not.toBeInTheDocument()
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(onDeleteLedger).not.toHaveBeenCalled()
+  })
+
+  it('deletes a transient local draft after another folder is opened without using managed deletion', () => {
+    const save = vi.fn()
+    const sync = vi.fn()
+    const onDeleteLedger = vi.fn()
+    const deleteFavoriteLedgerDraft = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'saved', displayName: 'bilimi·已保存', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={sync} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '册名' }), { target: { value: '临时草稿' } })
+    fireEvent.click(screen.getByRole('button', { name: '已保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '临时草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    expect(screen.queryByRole('button', { name: '临时草稿' })).not.toBeInTheDocument()
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+    expect(onDeleteLedger).not.toHaveBeenCalled()
+  })
+
+  it('keeps a remote draft when draft deletion is rejected and shows the existing failure notice', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockRejectedValue(new Error('draft delete failed'))
+    const onDeleteLedger = vi.fn()
+    const save = vi.fn()
+    const sync = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'remote-draft-failure', displayName: 'bilimi·删除失败草稿', keywords: [], enabled: false, priority: 10,
+      bilibiliFolderId: '89', bilibiliFolderIds: ['89'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} remoteOnlyDraftLedgerIds={['remote-draft-failure']}
+      onSaveLedgers={save} onSyncLedgers={sync} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '删除失败草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('删除未成功，请稍后重试。'))
+    expect(screen.getByRole('button', { name: '删除失败草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(onDeleteLedger).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+  })
+
+  it('routes a persisted local recommendation through managed deletion instead of draft IPC', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'recommended-up', title: 'bilimi·推荐 UP', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
+    ])
+    const onDeleteLedger = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: ['推荐 UP'], enabled: true, priority: 10,
+      syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐 UP' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['recommended-up'], { 'recommended-up': 'bilimi·推荐 UP' })
+    expect(onDeleteLedger).not.toHaveBeenCalled()
   })
 
   it('routes editor deletion through the managed-folder confirmation before clearing a recommendation', async () => {
@@ -824,6 +988,24 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
   })
 
+  it('shows a deleted default ledger as recoverable and exposes the recovery backup action', () => {
+    const sync = vi.fn().mockResolvedValue({ ok: false, unboundCandidates: [] })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10,
+      isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已删除 · 未备册')
+    const backup = screen.getByRole('button', { name: '恢复备册收藏夹' })
+    expect(backup).toBeEnabled()
+    expect(backup).toHaveAttribute('title', '已删除的默认 bilimi 收藏夹可通过备册恢复；系统会先核验并要求确认对应的 B 站收藏夹。')
+
+    fireEvent.click(backup)
+
+    expect(sync).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'music', enabled: true, managedFolderDeletedByUser: true })
+    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+  })
   it('shows the current backup state at the right of the folder-name label while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, bilibiliFolderVideoCount: 0, isDefault: false }
@@ -881,7 +1063,7 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
-    expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false })
+    expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
@@ -891,6 +1073,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText('分册 2：bilimi·游戏专区·2（6 个视频）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
+      rediscoverDeletedRemoteDrafts: true,
       rebindRemoteFolderIds: { knowledge: '77', game: '88' },
       rebindRemoteFolders: { knowledge: [
         { id: '77', title: 'bilimi·知识学习', memberCount: 310 }
@@ -1001,7 +1184,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true })
-    ], { deleteDisabled: false }))
+    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
@@ -1275,7 +1458,7 @@ describe('FavoriteLedgerOverview', () => {
     ]))
   })
 
-  it('does not rewrite rules when remote deletion result is unknown', async () => {
+  it('keeps the dialog open and uses the existing failure notice when remote deletion result is unknown', async () => {
     const save = vi.fn()
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
@@ -1299,8 +1482,10 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('删除结果尚未确认')
+    expect(await screen.findByRole('alert')).toHaveTextContent('删除未成功，请稍后重试。')
+    expect(screen.queryByText('删除结果尚未确认')).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()
   })
 
   it('keeps the deletion confirmation open and explains a remote deletion failure', async () => {
@@ -1361,7 +1546,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(deleteButton).toBeEnabled()
   })
 
-  it('shows a confirmation dialog before deleting a local-only ledger', async () => {
+  it('keeps a saved local-only ledger in the managed-folder confirmation flow', async () => {
     const save = vi.fn().mockResolvedValue(undefined)
     const previewFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ executionToken: 'local-only-delete' })
     const deleteFavoriteLibraryManagedFoldersLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -1378,7 +1563,7 @@ describe('FavoriteLedgerOverview', () => {
       }
     })
     render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
-      { id: 'local-only', displayName: 'bilimi路鍦ㄦ湰', keywords: [], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft' }
+      { id: 'local-only', displayName: 'bilimi路鍦ㄦ湰', keywords: [], enabled: true, priority: 10, isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={vi.fn()} />)
 
     fireEvent.click(document.querySelector('.favorite-ledger-panel__mode-toggle')!)

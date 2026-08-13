@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { planFavoriteLibraryManagedFolderProjection, restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
@@ -103,11 +103,27 @@ describe('favorite library managed folder projection', () => {
     }])
   })
 
-  it('does not restore a remote folder that the user removed from the local library', () => {
+  it('does not let a legacy dismissed remote id hide a retained bilimi folder candidate', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([{ id: '4050295454', title: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66' }]),
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', '4050295454')],
       dismissedRemoteFolderIds: ['4050295454']
+    })
+
+    expect(result).toEqual([expect.objectContaining({
+      logicalLedgerId: 'creative-aesthetic', bindingState: 'pending-reconcile',
+      knownRemoteFolderIds: ['4050295454']
+    })])
+  })
+
+  it('does not automatically reconstruct a default rule the user deliberately deleted', () => {
+    const result = planFavoriteLibraryManagedFolderProjection({
+      snapshot: snapshot([{ id: '9', title: 'bilimi\u00b7\u97f3\u4e50' }]),
+      ledgers: [{
+        id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: false, priority: 1,
+        isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+      }],
+      dismissedRemoteFolderIds: []
     })
 
     expect(result).toEqual([])
@@ -167,7 +183,7 @@ describe('favorite library managed folder projection', () => {
     }
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository, ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', '4050295454')],
-      isDismissed: () => false, now: () => '2026-08-03T00:00:00.000Z'
+      now: () => '2026-08-03T00:00:00.000Z'
     })
 
     expect(current.physicalShards).toEqual([expect.objectContaining({
@@ -210,7 +226,7 @@ describe('favorite library managed folder projection', () => {
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository: { getSnapshot: async () => current, commit },
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', remoteFolderId)],
-      isDismissed: () => false, now: () => '2026-08-03T00:00:00.000Z'
+      now: () => '2026-08-03T00:00:00.000Z'
     })
 
     expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
@@ -253,7 +269,7 @@ describe('favorite library managed folder projection', () => {
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository: { getSnapshot: async () => current, commit },
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7创意美学')],
-      isDismissed: () => false, now: () => '2026-08-03T00:00:00.000Z'
+      now: () => '2026-08-03T00:00:00.000Z'
     })
 
     expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
@@ -304,7 +320,6 @@ describe('favorite library managed folder projection', () => {
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository: { getSnapshot: async () => current, commit },
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', remoteFolderId)],
-      isDismissed: () => false
     })
 
     expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folder' }))
@@ -336,7 +351,6 @@ describe('favorite library managed folder projection', () => {
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository: { getSnapshot: async () => current, commit },
       ledgers: [ledger('creative-aesthetic', 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', remoteFolderId)],
-      isDismissed: () => false
     })
 
     expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folder' }))
@@ -366,7 +380,7 @@ describe('favorite library managed folder projection', () => {
 
     await restoreFavoriteLibraryManagedFolderProjection({
       accountMid: '100', repository: { getSnapshot: async () => current, commit },
-      ledgers: [], isDismissed: () => false
+      ledgers: []
     })
 
     expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folder' }))

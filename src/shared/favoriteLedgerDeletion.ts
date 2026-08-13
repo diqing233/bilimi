@@ -13,8 +13,15 @@ export function applyManagedFavoriteLedgerDeletion(
       const next = { ...ledger, enabled: false }
       if (ledger.isDefault) {
         delete next.bilibiliFolderId
-        delete next.bindingState
+        delete next.bilibiliFolderIds
+        delete next.bilibiliFolderTitle
+        delete next.bilibiliFolderVideoCount
+        delete next.pendingRemoteBinding
+        delete next.pendingRemoteFolderId
+        delete next.pendingRemoteFolderTitle
         delete next.syncState
+        next.bindingState = 'unbound'
+        next.managedFolderDeletedByUser = true
       }
       return next
     })

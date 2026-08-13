@@ -26,6 +26,27 @@ describe('resolveFavoriteLibraryOperationSource', () => {
     })
   })
 
+  it('authoritatively resolves an explicit current-and-other bilimi work-folder scope', () => {
+    const withSecondWorkFolder = {
+      folders: [
+        { id: 'bilimi-logical:work', kind: 'bilimi-logical' },
+        { id: 'bilimi-logical:other', kind: 'bilimi-logical' },
+        { id: 'local:inbox', kind: 'local' },
+        { id: 'bilibili:default', kind: 'bilibili', remoteFolderId: '1' }
+      ],
+      memberships: { 'local:inbox': [1, 3] }
+    } as never
+
+    expect(resolveFavoriteLibraryOperationSource(withSecondWorkFolder, {
+      kind: 'folder', folderId: 'bilimi-logical:work', folderIds: ['bilimi-logical:other', 'bilimi-logical:work']
+    } as never, [1])).toEqual({
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:work', folderIds: ['bilimi-logical:other', 'bilimi-logical:work']
+    })
+    expect(() => resolveFavoriteLibraryOperationSource(withSecondWorkFolder, {
+      kind: 'folder', folderId: 'bilimi-logical:work', folderIds: ['bilimi-logical:other']
+    } as never, [1])).toThrow('current')
+  })
+
   it('rejects forged unmatched selections outside the repository membership', () => {
     expect(() => resolveFavoriteLibraryOperationSource(snapshot, { kind: 'folder', folderId: 'local:inbox' }, [2])).toThrow('unmatched')
   })

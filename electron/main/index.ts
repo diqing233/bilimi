@@ -45,8 +45,9 @@ import {
   writeFavoriteLedgerEnabled,
   getFavoriteLedgerEnabledOverrideStore,
   saveFavoriteAccountPreferences,
-  dismissFavoriteLibraryRemoteFolder,
-  isFavoriteLibraryRemoteFolderDismissed,
+  markFavoriteLedgerRemoteDraftRediscoveryPending,
+  consumeFavoriteLedgerRemoteDraftRediscoveryPending,
+  loadFavoriteLedgerRemoteDraftRediscoveryPending,
   loadFavoriteLedgerRemoteDraftReminderDismissals,
   dismissFavoriteLedgerRemoteDraftReminder,
   deleteVideoNoteArchiveEntry,
@@ -114,8 +115,9 @@ import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBat
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
 import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
-import { applyManagedFavoriteLedgerDeletion } from '../../src/shared/favoriteLedgerDeletion'
+import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
+import { removeUnsavedFavoriteLedgerDraft } from '../../src/shared/favoriteLedgerDraftDeletion'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -1284,6 +1286,33 @@ function registerAssistantPreferenceHandlers() {
     sendFavoriteLedgerEnabledChanged(patch, meta)
     return patch
   })
+  ipcMain.handle('assistant:delete-favorite-ledger-draft', async (event, accountMid: unknown, ledgerId: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (
+      typeof accountMid !== 'string' ||
+      typeof ledgerId !== 'string' ||
+      accountMid !== await readCurrentBilibiliAccountMid()
+    ) {
+      throw new Error('Favorite ledger draft is unavailable.')
+    }
+
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+    const draft = current.favoriteLedgers.find((ledger) => ledger.id === ledgerId)
+    const favoriteLedgers = removeUnsavedFavoriteLedgerDraft(current.favoriteLedgers, ledgerId)
+    if (favoriteLedgers === current.favoriteLedgers) {
+      throw new Error('Favorite ledger draft is unavailable.')
+    }
+
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+    const remoteFolderIds = [...new Set([
+      draft?.bilibiliFolderId,
+      ...(draft?.bilibiliFolderIds ?? [])
+    ].map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
+    markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    notifyFloatingAssistantSnapshotChanged()
+    return { status: 'succeeded' as const, ledgerId }
+  })
   ipcMain.handle('assistant:write-default-favorite-system-enabled', (event, accountMid: string, enabled: boolean) => {
     assertTrustedOldFavoriteAssistantSender(event)
     const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
@@ -1291,6 +1320,13 @@ function registerAssistantPreferenceHandlers() {
       ...current,
       defaultFavoriteSystemEnabled: Boolean(enabled)
     }).defaultFavoriteSystemEnabled
+  })
+  ipcMain.handle('assistant:consume-favorite-ledger-remote-draft-rediscovery-pending', async (event, accountMid: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (typeof accountMid !== 'string' || accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Favorite ledger remote draft rediscovery is unavailable.')
+    }
+    return consumeFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
   })
   ipcMain.on('assistant:preview-preference-patch', (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
     const normalizedPatch = normalizeAssistantPreferencePatch(patch)
@@ -1742,8 +1778,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
-    isRemoteFolderDismissed: (accountMid, remoteFolderId) =>
-      isFavoriteLibraryRemoteFolderDismissed(getDesktopStore(), accountMid, remoteFolderId),
     getTranscriptionRevision: () => queuePublishGeneration,
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
     getTranscriptionArchives: () => loadVideoNoteArchives(getDesktopStore())
@@ -1810,8 +1844,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
     repository: favoriteRepositoryService,
     remoteArbiter: favoriteRepositoryRemoteOperations,
-    dismissRemoteFolder: (accountMid, remoteFolderId) =>
-      dismissFavoriteLibraryRemoteFolder(getDesktopStore(), accountMid, remoteFolderId),
+    onManagedFolderDeleted: async (accountMid, deletions) => {
+      await persistConfirmedManagedFolderDeletion(accountMid, deletions, {
+        load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
+        save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
+        publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore())),
+        markRemoteDraftRediscoveryPending: (targetAccountMid, remoteFolderIds) =>
+          markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), targetAccountMid, remoteFolderIds)
+      })
+    },
     remote: {
       async removeRemoteFolder(accountMid, remoteFolderId) {
         const runId = `favorite-managed-folder-delete:${Date.now()}:${remoteFolderId}`
@@ -2064,12 +2105,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
+    getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
+      .map((ledger) => ledger.id),
     onManagedFolderDeletion: async (accountMid, logicalLedgerIds) => {
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const favoriteLedgers = applyManagedFavoriteLedgerDeletion(current.favoriteLedgers, logicalLedgerIds)
-      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      await persistConfirmedManagedFolderDeletion(accountMid, logicalLedgerIds.map((logicalLedgerId) => ({
+        logicalLedgerId,
+        remoteFolderIds: [],
+        remoteDeleted: true
+      })), {
+        load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
+        save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
+        publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      })
     },
     classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {
       // Capture the saved rules once per workspace command, then classify its segment in memory.
@@ -2226,6 +2274,17 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ipcMain,
     service: favoriteRepositoryService,
     bindingService: favoriteRepositoryBindingService,
+    onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const favoriteLedgers = current.favoriteLedgers.map((ledger) => {
+        if (ledger.id !== logicalLedgerId || !ledger.isDefault || !ledger.managedFolderDeletedByUser) return ledger
+        const { managedFolderDeletedByUser: _deletedByUser, ...rest } = ledger
+        return rest
+      })
+      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    },
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     isTrustedReader: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
@@ -2251,15 +2310,13 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       await restoreFavoriteLibraryManagedFolderProjection({
         accountMid,
         repository: favoriteRepositoryService!,
-        ledgers: loadFavoriteAccountPreferences(store, accountMid).favoriteLedgers,
-        isDismissed: (remoteFolderId) => isFavoriteLibraryRemoteFolderDismissed(store, accountMid, remoteFolderId)
+        ledgers: loadFavoriteAccountPreferences(store, accountMid).favoriteLedgers
       })
     },
-    dismissOrdinaryFolder: (accountMid, remoteFolderId) => {
-      dismissFavoriteLibraryRemoteFolder(getDesktopStore(), accountMid, remoteFolderId)
-      return { status: 'succeeded' as const, remoteFolderId }
-    },
-    getRemoteDraftReminderDismissed: (accountMid) => loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid),
+    getRemoteDraftReminderDismissed: (accountMid) => [...new Set([
+      ...loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid),
+      ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
+    ])].sort(),
     dismissRemoteDraftReminder: (accountMid, remoteFolderId) => {
       dismissFavoriteLedgerRemoteDraftReminder(getDesktopStore(), accountMid, remoteFolderId)
       return { status: 'succeeded' as const, remoteFolderId }

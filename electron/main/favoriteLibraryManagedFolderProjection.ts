@@ -109,9 +109,10 @@ function assignStableShardNumbers(candidates: FavoriteLibraryManagedFolderProjec
 export function planFavoriteLibraryManagedFolderProjection(input: {
   snapshot: AccountFavoriteRepositorySnapshot
   ledgers: FavoriteLedger[]
+  /** Retained for persisted-call compatibility; legacy dismissals no longer suppress discovery. */
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
-  const dismissed = new Set(Array.from(input.dismissedRemoteFolderIds, (id) => id.trim()).filter(Boolean))
+  void input.dismissedRemoteFolderIds
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
@@ -127,7 +128,7 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   const candidates: FavoriteLibraryManagedFolderProjection[] = []
 
   for (const folder of input.snapshot.folders) {
-    if (folder.kind !== 'bilibili' || !folder.remoteFolderId || dismissed.has(folder.remoteFolderId)) continue
+    if (folder.kind !== 'bilibili' || !folder.remoteFolderId) continue
     if (resolveFavoriteFolderCapabilities(folder).identity !== 'ambiguous-bilimi-like') continue
     const title = folder.title.trim()
     if (!isBilimiManagedLedgerName(title)) continue
@@ -160,6 +161,10 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // ID-directed case; otherwise they are user-authored candidate names.
     const titleShard = configuredLedgerShard(title, input.ledgers)
     const ledger = configuredById ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
+    // A default rule deliberately deleted by the user stays visible in settings
+    // but must not be reconstructed from a same-name remote candidate. A formal
+    // repository binding above remains the only explicit recovery authority.
+    if (ledger?.isDefault && ledger.managedFolderDeletedByUser) continue
     const logicalTitle = ledger?.displayName.trim() || title
     const logicalLedgerId = ledger?.id ?? stableCustomLedgerId(title)
     const shardNumber = configuredById ? 1 : titleShard?.shardNumber ?? 1
@@ -198,7 +203,6 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   accountMid: string
   repository: ProjectionRepository
   ledgers: FavoriteLedger[]
-  isDismissed: (remoteFolderId: string) => boolean
   now?: () => string
 }) {
   let snapshot = await input.repository.getSnapshot(input.accountMid)
@@ -215,9 +219,7 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   const candidates = planFavoriteLibraryManagedFolderProjection({
     snapshot,
     ledgers: input.ledgers,
-    dismissedRemoteFolderIds: snapshot.folders
-      .filter((folder) => folder.kind === 'bilibili' && folder.remoteFolderId && input.isDismissed(folder.remoteFolderId))
-      .map((folder) => folder.remoteFolderId!)
+    dismissedRemoteFolderIds: []
   })
   let current = snapshot
   for (const candidate of candidates) {

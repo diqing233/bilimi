@@ -266,10 +266,15 @@ describe('account favorite repository contracts', () => {
     expect(restored.organizationRecords).toEqual(snapshot.organizationRecords)
   })
 
-  it('moves videos that lose their final bilimi workspace into local inbox when deleting a managed folder', () => {
+  it('keeps a local-only managed-folder deletion out of inbox and recycle while retained Bilibili sources await the next scan', () => {
     const now = '2026-08-05T00:00:00.000Z'
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: 'Keep remote source', tags: [], updatedAt: now },
+        '2': { aid: 2, title: 'Keep other workspace', tags: [], updatedAt: now },
+        '3': { aid: 3, title: 'Keep incomplete source', tags: [], updatedAt: now }
+      },
       folders: [
         { id: 'local:inbox', title: '暂存', kind: 'local' as const, syncState: 'local-only' as const },
         { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
@@ -278,9 +283,10 @@ describe('account favorite repository contracts', () => {
       ],
       memberships: {
         'local:inbox': [],
-        'bilimi-logical:work': [1, 2],
+        'bilimi-logical:work': [1, 2, 3],
         'bilimi-logical:music': [2],
-        'bilimi:work:001': [1, 2]
+        'bilimi:work:001': [1, 2, 3],
+        'bilibili:work': [1, 2, 3]
       },
       physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
       organizationRecords: [
@@ -288,8 +294,9 @@ describe('account favorite repository contracts', () => {
         { accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], completedAt: now, classificationSource: 'manual' as const }
       ],
       positions: {
-        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, updatedAt: now, revision: 0 },
-        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 }
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 },
+        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'local-only-change' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 },
+        '100:3': { accountMid: '100', aid: 3, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'incomplete' as const, updatedAt: now, revision: 0 }
       }
     }
 
@@ -298,14 +305,192 @@ describe('account favorite repository contracts', () => {
       payload: { logicalFolderId: 'bilimi-logical:work' }
     }, now)
 
-    expect(deleted.memberships['local:inbox']).toEqual([1])
+    expect(deleted.memberships['local:inbox']).toEqual([])
     expect(deleted.memberships['bilimi-logical:music']).toEqual([2])
+    expect(deleted.memberships['bilibili:work']).toEqual([1, 2, 3])
     expect(deleted.positions['100:1']?.localDesiredFolderIds).toEqual([])
     expect(deleted.positions['100:2']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])
+    expect(deleted.positions['100:3']?.localDesiredFolderIds).toEqual([])
+    expect(deleted.positions['100:1']?.remoteObservedPhysicalFolderIds).toEqual(['91'])
+    expect(deleted.positions['100:1']?.remoteObservedLogicalFolderIds).toEqual(['bilimi-logical:work'])
+    expect(deleted.positions['100:2']?.remoteObservedPhysicalFolderIds).toEqual(['91'])
+    expect(deleted.positions['100:2']?.remoteObservedLogicalFolderIds).toEqual(['bilimi-logical:work'])
+    expect(deleted.positions['100:3']?.remoteObservedPhysicalFolderIds).toEqual(['91'])
+    expect(deleted.positions['100:3']?.remoteObservedLogicalFolderIds).toEqual(['bilimi-logical:work'])
+    expect(deleted.tombstones['100:1']).toBeUndefined()
+    expect(deleted.tombstones['100:2']).toBeUndefined()
+    expect(deleted.tombstones['100:3']).toBeUndefined()
+    expect(deleted.videos).toEqual(expect.objectContaining({
+      '1': expect.objectContaining({ title: 'Keep remote source' }),
+      '2': expect.objectContaining({ title: 'Keep other workspace' }),
+      '3': expect.objectContaining({ title: 'Keep incomplete source' })
+    }))
     expect(deleted.organizationRecords).toEqual([
       expect.objectContaining({ aid: 2, targetFolderIds: ['bilimi-logical:music'], classificationSource: 'manual' })
     ])
-    expect(deleted.affectedFolderIds).toContain('local:inbox')
+    expect(deleted.affectedFolderIds).not.toContain('local:inbox')
+  })
+
+  it('recycles only complete no-source videos after a confirmed remote managed-folder deletion', () => {
+    const now = '2026-08-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: 'Recycle after remote delete', tags: [], updatedAt: now },
+        '2': { aid: 2, title: 'Keep other source', tags: [], updatedAt: now },
+        '3': { aid: 3, title: 'Keep incomplete evidence', tags: [], updatedAt: now }
+      },
+      folders: [
+        { id: 'local:inbox', title: '暂存', kind: 'local' as const, syncState: 'local-only' as const },
+        { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
+        { id: 'bilimi:work:001', title: 'bilimi·工作', kind: 'bilibili' as const, logicalLedgerId: 'work', remoteFolderId: '91', syncState: 'bound' as const },
+        { id: 'bilibili:work', title: 'bilimi·工作', kind: 'bilibili' as const, remoteFolderId: '91', syncState: 'bound' as const },
+        { id: 'bilibili:other', title: '其他收藏夹', kind: 'bilibili' as const, remoteFolderId: '92', syncState: 'bound' as const }
+      ],
+      memberships: {
+        'local:inbox': [],
+        'bilimi-logical:work': [1, 2, 3],
+        'bilimi:work:001': [1, 2, 3],
+        'bilibili:work': [1, 2, 3],
+        'bilibili:other': [2]
+      },
+      physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 },
+        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91', '92'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 },
+        '100:3': { accountMid: '100', aid: 3, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'incomplete' as const, updatedAt: now, revision: 0 }
+      }
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-work-remotely', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work', confirmedRemoteFolderIds: ['91'] }
+    } as never, now)
+
+    expect(deleted.memberships['local:inbox']).toEqual([])
+    expect(deleted.folders.map((folder) => folder.id)).toEqual(['local:inbox', 'bilibili:other'])
+    expect(deleted.memberships['bilibili:other']).toEqual([2])
+    expect(deleted.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+      positionState: 'aligned', lifecycleState: 'recycled', sourceAuthority: 'complete'
+    })
+    expect(deleted.tombstones['100:1']).toMatchObject({ kind: 'recycled', allowRediscovery: true })
+    expect(deleted.positions['100:2']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['92'], remoteObservedLogicalFolderIds: [], sourceAuthority: 'complete'
+    })
+    expect(deleted.tombstones['100:2']).toBeUndefined()
+    expect(deleted.positions['100:3']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], sourceAuthority: 'incomplete'
+    })
+    expect(deleted.tombstones['100:3']).toBeUndefined()
+  })
+
+  it('removes every confirmed managed-folder observation alias and refreshes its Bilibili mirror', () => {
+    const now = '2026-08-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: 'Remote-only member', tags: [], updatedAt: now },
+        '2': { aid: 2, title: 'Local and remote member', tags: [], updatedAt: now }
+      },
+      folders: [
+        { id: 'local:inbox', title: '暂存', kind: 'local' as const, syncState: 'local-only' as const },
+        { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
+        { id: 'bilimi:work:001', title: 'bilimi·工作', kind: 'bilibili' as const, logicalLedgerId: 'work', remoteFolderId: '91', syncState: 'bound' as const },
+        { id: 'bilibili:91', title: 'bilimi·工作', kind: 'bilibili' as const, remoteFolderId: '91', syncState: 'bound' as const }
+      ],
+      memberships: {
+        'local:inbox': [],
+        'bilimi-logical:work': [2],
+        'bilimi:work:001': [2],
+        'bilibili:91': [1, 2]
+      },
+      physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 },
+        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['bilimi:work:001'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, sourceAuthority: 'complete' as const, updatedAt: now, revision: 0 }
+      }
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-work-remotely', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work', confirmedRemoteFolderIds: ['91'] }
+    } as never, now)
+
+    expect(deleted.folders.map((folder) => folder.id)).toEqual(['local:inbox'])
+    expect(deleted.positions['100:1']).toMatchObject({
+      remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], lifecycleState: 'recycled'
+    })
+    expect(deleted.positions['100:2']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], lifecycleState: 'recycled'
+    })
+    expect(deleted.affectedFolderIds).toEqual(expect.arrayContaining(['bilibili:91']))
+    expect(deleted.affectedAids).toEqual([1, 2])
+    expect(deleted.tombstones['100:1']).toMatchObject({ kind: 'recycled', allowRediscovery: true })
+    expect(deleted.tombstones['100:2']).toMatchObject({ kind: 'recycled', allowRediscovery: true })
+  })
+
+  it('does not recycle a confirmed remote deletion while another placement result remains unknown', () => {
+    const now = '2026-08-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: { '1': { aid: 1, title: 'Keep unknown source result', tags: [], updatedAt: now } },
+      folders: [
+        { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
+        { id: 'bilimi:work:001', title: 'bilimi·工作', kind: 'bilibili' as const, logicalLedgerId: 'work', remoteFolderId: '91', syncState: 'bound' as const },
+        { id: 'bilibili:91', title: 'bilimi·工作', kind: 'bilibili' as const, remoteFolderId: '91', syncState: 'bound' as const }
+      ],
+      memberships: { 'bilimi-logical:work': [1], 'bilimi:work:001': [1], 'bilibili:91': [1] },
+      physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'result-unknown' as const,
+          sourceAuthority: 'complete' as const, updatedAt: now, revision: 0
+        }
+      }
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-work-remotely', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work', confirmedRemoteFolderIds: ['91'] }
+    } as never, now)
+
+    expect(deleted.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'result-unknown'
+    })
+    expect(deleted.tombstones['100:1']).toBeUndefined()
+  })
+
+  it('does not recycle a confirmed remote deletion while a remote-removed placement awaits reconciliation', () => {
+    const now = '2026-08-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'bilimi-logical:work', title: 'bilimi·工作', kind: 'bilimi-logical' as const, logicalLedgerId: 'work', syncState: 'bound' as const },
+        { id: 'bilimi:work:001', title: 'bilimi·工作', kind: 'bilibili' as const, logicalLedgerId: 'work', remoteFolderId: '91', syncState: 'bound' as const },
+        { id: 'bilibili:91', title: 'bilimi·工作', kind: 'bilibili' as const, remoteFolderId: '91', syncState: 'bound' as const }
+      ],
+      memberships: { 'bilimi-logical:work': [1], 'bilimi:work:001': [1], 'bilibili:91': [1] },
+      physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'remote-removed' as const,
+          sourceAuthority: 'complete' as const, updatedAt: now, revision: 0
+        }
+      }
+    }
+
+    const deleted = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'delete-work-remotely', accountMid: '100', issuedAt: now, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:work', confirmedRemoteFolderIds: ['91'] }
+    } as never, now)
+
+    expect(deleted.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'remote-removed'
+    })
+    expect(deleted.tombstones['100:1']).toBeUndefined()
   })
 
   it('clears a standalone local inbox while retaining its durable safety container', () => {

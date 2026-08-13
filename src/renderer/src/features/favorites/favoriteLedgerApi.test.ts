@@ -728,6 +728,30 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers).toEqual([])
   })
 
+  it('rediscovers a remote-only draft only after its explicit-backup pending suppression is released', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const suppressed = await window.eval(buildFavoriteLedgerStatusScript([], ['88']))
+    expect(suppressed.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(suppressed.ledgers).toEqual([])
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([], []))
+
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      displayName: 'bilimi·你好',
+      bilibiliFolderId: '88',
+      bindingState: 'unbound',
+      syncState: 'local-draft'
+    })])
+  })
+
   it('recognizes bilimi folders written with a space or without punctuation', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -1229,6 +1253,17 @@ describe('favorite ledger API scripts', () => {
     expect(result.steps).toEqual(['api:ledger:list'])
     expect(requests.some((request) => request.url.includes('/folder/del'))).toBe(false)
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('9001')
+  })
+
+  it('keeps explicit remote-draft rediscovery control out of the Bilibili save payload', () => {
+    const script = buildSaveFavoriteLedgersScript(
+      createDefaultFavoriteLedgers(),
+      createDefaultFavoriteLedgers(),
+      { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+    )
+
+    expect(script).not.toContain('rediscoverDeletedRemoteDrafts')
+    expect(script).toContain('"deleteDisabled":false')
   })
 
   it('appends old favorites without passing delete media ids', async () => {

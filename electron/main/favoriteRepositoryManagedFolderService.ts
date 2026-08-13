@@ -10,6 +10,8 @@ export type ManagedFolderDeletionResult = {
   status: 'succeeded' | 'failed' | 'result-unknown'
   operationId: string
   auditStatus: 'recorded' | 'failed'
+  /** Internal persistence outcome; callers keep the existing generic failure copy. */
+  preferencesStatus?: 'failed'
 }
 
 type RemoteFolderWriter = {
@@ -45,7 +47,16 @@ export type ManagedFolderGroupDeletionPreview = {
 type PendingDeletion = ManagedFolderDeletionPreview & {
   confirmationToken?: string
   status: 'previewed' | 'failed' | 'result-unknown' | 'reconciliation-required' | 'succeeded'
-  localDismissRemoteFolderIds: string[]
+  /** IDs observed before local deletion; a retained remote folder may reappear only after explicit backup. */
+  knownRemoteFolderIds: string[]
+}
+
+export type PersistedManagedFolderDeletion = {
+  logicalLedgerId: string
+  /** Stable Bilibili folder IDs retained only for explicit-backup rediscovery. */
+  remoteFolderIds: string[]
+  /** True only after the corresponding Bilibili folder removal succeeded. */
+  remoteDeleted: boolean
 }
 
 class ManagedFolderRemotePreconditionError extends Error {}
@@ -53,6 +64,14 @@ class ManagedFolderRemotePreconditionError extends Error {}
 function account(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) throw new Error('Managed folder account is invalid.')
   return BigInt(value.trim()).toString()
+}
+
+function knownRemoteFolderIds(shards: ReadonlyArray<{ remoteFolderId?: string; knownRemoteFolderIds?: string[] }>) {
+  return [...new Set(shards.flatMap((shard) => [
+    ...(shard.remoteFolderId ? [shard.remoteFolderId] : []),
+    ...(shard.knownRemoteFolderIds ?? [])
+  ]).map((remoteFolderId) => remoteFolderId.trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
 }
 
 /** Implements a deliberately one-shot managed-folder remote deletion flow. */
@@ -65,8 +84,8 @@ export class FavoriteRepositoryManagedFolderService {
     remote?: RemoteFolderWriter
     remoteObserver?: RemoteFolderObserver
     remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>
-    /** Records a local-only opt-out after a local deletion has committed. */
-    dismissRemoteFolder?: (accountMid: string, remoteFolderId: string) => void
+    /** Updates persisted managed-rule state only after a local deletion has committed. */
+    onManagedFolderDeleted?: (accountMid: string, deletions: PersistedManagedFolderDeletion[]) => Promise<void> | void
     now?: () => string
   }) {}
 
@@ -84,7 +103,7 @@ export class FavoriteRepositoryManagedFolderService {
         operationId: randomUUID(), accountMid: normalizedAccount, logicalFolderId: folderId,
         localMemberCount: members.size, unmatchedFallbackCount: 0, remoteOnlyMemberCount: 0,
         extraRemoteMemberCount: 0, currentRevision: snapshot.revision, executionToken: randomUUID(),
-        status: 'previewed', localDismissRemoteFolderIds: []
+        status: 'previewed', knownRemoteFolderIds: []
       }
       this.operations.set(operation.operationId, operation)
       return { ...operation }
@@ -99,10 +118,6 @@ export class FavoriteRepositoryManagedFolderService {
     const sortedRemoteIds = [...remoteIds].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
     const remoteDeletionEligible = logicalShards.length > 0 &&
       logicalShards.every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
-    const localDismissRemoteFolderIds = [...new Set(logicalShards.flatMap((shard) => [
-      ...(shard.remoteFolderId ? [shard.remoteFolderId] : []),
-      ...(shard.knownRemoteFolderIds ?? [])
-    ]))].sort()
     if ([...remoteIds].some((remoteFolderId) => snapshot.physicalShards.some((shard) =>
       shard.remoteFolderId === remoteFolderId && shard.logicalLedgerId !== logical.logicalLedgerId))) {
       throw new Error('Managed folder remote binding belongs to another logical ledger.')
@@ -123,7 +138,7 @@ export class FavoriteRepositoryManagedFolderService {
         ? { remoteBinding: { remoteFolderId: sortedRemoteIds[0], remoteFolderIds: sortedRemoteIds, shardCount: shards.length } }
         : {}),
       remoteOnlyMemberCount: remoteOnly, extraRemoteMemberCount: extraRemote, currentRevision: snapshot.revision,
-      executionToken: randomUUID(), status: 'previewed', localDismissRemoteFolderIds
+      executionToken: randomUUID(), status: 'previewed', knownRemoteFolderIds: knownRemoteFolderIds(logicalShards)
     }
     this.operations.set(operation.operationId, operation)
     return { ...operation }
@@ -201,11 +216,14 @@ export class FavoriteRepositoryManagedFolderService {
     const auditEvents = this.events(auditAids, 'managed-folder-delete-local', timestamp)
     if (auditEvents.length) await this.options.repository.commitWithAudit(normalizedAccount, command, auditEvents)
     else await this.options.repository.commit(normalizedAccount, command)
-    for (const remoteFolderId of [...new Set(operations.flatMap((operation) => operation.localDismissRemoteFolderIds))]) {
-      this.options.dismissRemoteFolder?.(normalizedAccount, remoteFolderId)
-    }
+    const preferencesStatus = await this.notifyManagedFolderDeletion(normalizedAccount, operations, false)
     for (const operation of operations) operation.status = 'succeeded'
-    return { status: 'succeeded' as const, operationId: operations.map((operation) => operation.operationId).sort().join(','), auditStatus: 'recorded' as const }
+    return {
+      status: 'succeeded' as const,
+      operationId: operations.map((operation) => operation.operationId).sort().join(','),
+      auditStatus: 'recorded' as const,
+      ...(preferencesStatus === 'failed' ? { preferencesStatus } : {})
+    }
   }
 
   confirm(accountMid: string, executionToken: string) {
@@ -228,6 +246,7 @@ export class FavoriteRepositoryManagedFolderService {
     // older delete. If the folder remains present, reconciliation records that
     // older request as failed and releases this fresh request to proceed.
     if (this.options.remoteObserver) await this.settlePriorUnknownDeletions(operation)
+    const preferenceOutcome: { status: 'recorded' | 'failed' } = { status: 'recorded' }
     try {
       await (this.options.remoteArbiter ?? favoriteRepositoryRemoteOperationArbiter).enqueue(
         operation.accountMid, { priority: 'user-single' }, async () => {
@@ -257,7 +276,7 @@ export class FavoriteRepositoryManagedFolderService {
           for (const remoteFolderId of operation.remoteBinding!.remoteFolderIds) {
             await this.options.remote!.removeRemoteFolder(operation.accountMid, remoteFolderId)
           }
-          await this.commitLocalProjection(operation, snapshot)
+          preferenceOutcome.status = await this.commitLocalProjection(operation, snapshot)
         }
       )
     } catch (error) {
@@ -276,7 +295,12 @@ export class FavoriteRepositoryManagedFolderService {
     }
     try {
       operation.status = 'succeeded'
-      return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
+      return {
+        status: 'succeeded' as const,
+        operationId: operation.operationId,
+        auditStatus: 'recorded' as const,
+        ...(preferenceOutcome.status === 'failed' ? { preferencesStatus: 'failed' as const } : {})
+      }
     } catch { throw new Error('Managed folder remote deletion did not settle.') }
   }
 
@@ -366,7 +390,8 @@ export class FavoriteRepositoryManagedFolderService {
       } } : {}),
       remoteOnlyMemberCount: 0, extraRemoteMemberCount: 0,
       currentRevision: snapshot.revision, executionToken: '', status: record.status === 'pending' ? 'result-unknown' : record.status,
-      localDismissRemoteFolderIds: remoteIds
+      knownRemoteFolderIds: knownRemoteFolderIds(snapshot.physicalShards.filter((shard) =>
+        shard.logicalLedgerId === this.logicalLedgerId(logicalFolderId)))
     }
     this.operations.set(operationId, operation)
     return operation
@@ -380,11 +405,43 @@ export class FavoriteRepositoryManagedFolderService {
       issuedAt: timestamp,
       expectedRevision: snapshot.revision,
       type: 'delete-local-managed-folder',
-      payload: { logicalFolderId: operation.logicalFolderId }
+      payload: {
+        logicalFolderId: operation.logicalFolderId,
+        ...(operation.remoteBinding ? { confirmedRemoteFolderIds: [...operation.remoteBinding.remoteFolderIds] } : {})
+      }
     }
     const auditEvents = this.events([...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])], 'managed-folder-delete-remote', timestamp)
     if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)
     else await this.options.repository.commit(operation.accountMid, command)
+    return this.notifyManagedFolderDeletion(operation.accountMid, [operation], true)
+  }
+
+  private async notifyManagedFolderDeletion(
+    accountMid: string,
+    operations: readonly PendingDeletion[],
+    remoteDeleted: boolean
+  ) {
+    const deletions = operations
+      .map((operation) => {
+        const logicalLedgerId = this.logicalLedgerId(operation.logicalFolderId)
+        const remoteFolderIds = [...new Set([
+          ...(operation.remoteBinding?.remoteFolderIds ?? []),
+          ...operation.knownRemoteFolderIds
+        ].map((remoteFolderId) => remoteFolderId.trim()).filter(Boolean))]
+          .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+        return logicalLedgerId === 'inbox'
+          ? undefined
+          : { logicalLedgerId, remoteFolderIds, remoteDeleted }
+      })
+      .filter((deletion): deletion is PersistedManagedFolderDeletion => Boolean(deletion))
+      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
+    if (!deletions.length || !this.options.onManagedFolderDeleted) return 'recorded' as const
+    try {
+      await this.options.onManagedFolderDeleted(accountMid, deletions)
+      return 'recorded' as const
+    } catch {
+      return 'failed' as const
+    }
   }
 
   private async recordResult(operation: PendingDeletion, status: 'failed' | 'result-unknown' | 'succeeded', reason?: string) {

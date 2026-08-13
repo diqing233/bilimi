@@ -48,8 +48,6 @@ import type {
   FavoriteRepositoryArchiveFullRestoreConfirmation,
   FavoriteRepositoryArchiveRestorePreview,
   FavoriteRepositoryArchiveRestoreScope,
-  FavoriteLibraryUnfavoriteConfirmation,
-  FavoriteLibraryUnfavoritePreview,
   FavoriteRepositoryLibraryPage,
   FavoriteRepositoryLibraryPageOptions,
   FavoriteRepositoryLibraryVideoDetail,
@@ -276,12 +274,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:move', accountMid, selection, sourceFolderId, targetFolderIds, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
   deleteFavoriteLibrarySelection: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) =>
     ipcRenderer.invoke('favorite-library-operations:delete-local', accountMid, selection, expectedRevision, source) as Promise<FavoriteLibraryCommandResult>,
-  previewFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, selection: FavoriteLibraryOperationSelection, expectedRevision: number, source: FavoriteLibraryOperationSource) =>
-    ipcRenderer.invoke('favorite-library-operations:preview-unfavorite', accountMid, selection, expectedRevision, source) as Promise<unknown>,
-  confirmFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string) =>
-    ipcRenderer.invoke('favorite-library-operations:confirm-unfavorite', accountMid, executionToken) as Promise<{ confirmationToken: string }>,
-  executeFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, executionToken: string, confirmationToken: string) =>
-    ipcRenderer.invoke('favorite-library-operations:execute-unfavorite', accountMid, executionToken, confirmationToken) as Promise<unknown>,
   reconcileFavoriteLibraryRemoteUnfavoriteOperation: (accountMid: string, operationId: string) =>
     ipcRenderer.invoke('favorite-library-operations:reconcile-unfavorite', accountMid, operationId) as Promise<unknown>,
   previewFavoriteLibraryManagedPlacementRemoval: (accountMid: string, selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], expectedRevision: number, source: FavoriteLibraryOperationSource) =>
@@ -306,8 +298,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library-operations:execute-managed-folder-remote-delete', accountMid, executionToken, confirmationToken) as Promise<unknown>,
   reconcileFavoriteLibraryManagedFolderDelete: (accountMid: string, operationId: string) =>
     ipcRenderer.invoke('favorite-library-operations:reconcile-managed-folder-delete', accountMid, operationId) as Promise<unknown>,
-  dismissFavoriteLibraryOrdinaryFolder: (accountMid: string, folderId: string) =>
-    ipcRenderer.invoke('favorite-repository:dismiss-ordinary-folder', accountMid, folderId) as Promise<unknown>,
   getFavoriteLedgerRemoteDraftReminderDismissals: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-remote-draft-reminder-dismissals', accountMid) as Promise<string[]>,
   dismissFavoriteLedgerRemoteDraftReminder: (accountMid: string, remoteFolderId: string) =>
@@ -328,12 +318,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:forget-tombstone', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
   clearRecycledFavoriteLibraryVideo: (accountMid: string, aid: number, expectedRevision: number) =>
     ipcRenderer.invoke('favorite-library:clear-recycled', accountMid, aid, expectedRevision) as Promise<FavoriteLibraryCommandResult>,
-  previewFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[]) =>
-    ipcRenderer.invoke('favorite-library:unfavorite-preview', accountMid, aids) as Promise<FavoriteLibraryUnfavoritePreview>,
-  confirmFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[], executionToken: string) =>
-    ipcRenderer.invoke('favorite-library:unfavorite-confirm', accountMid, aids, executionToken) as Promise<FavoriteLibraryUnfavoriteConfirmation>,
-  executeFavoriteLibraryBilibiliUnfavorite: (accountMid: string, aids: number[], executionToken: string, confirmationToken: string) =>
-    ipcRenderer.invoke('favorite-library:execute-unfavorite', accountMid, aids, executionToken, confirmationToken) as Promise<FavoriteLibraryCommandResult>,
   exportFavoriteRepositoryArchive: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:archive-export', accountMid) as Promise<unknown>,
   previewFavoriteRepositoryArchiveImport: (accountMid: string, input: unknown) =>
@@ -661,6 +645,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
   writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta) as Promise<FavoriteLedgerEnabledPatch>,
+  deleteFavoriteLedgerDraft: (accountMid: string, ledgerId: string) =>
+    ipcRenderer.invoke('assistant:delete-favorite-ledger-draft', accountMid, ledgerId) as Promise<{ status: 'succeeded'; ledgerId: string }>,
+  consumeFavoriteLedgerRemoteDraftRediscoveryPending: (accountMid: string) =>
+    ipcRenderer.invoke('assistant:consume-favorite-ledger-remote-draft-rediscovery-pending', accountMid) as Promise<string[]>,
   writeDefaultFavoriteSystemEnabled: (accountMid: string, enabled: boolean) =>
     ipcRenderer.invoke('assistant:write-default-favorite-system-enabled', accountMid, enabled) as Promise<boolean>,
   previewPreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>

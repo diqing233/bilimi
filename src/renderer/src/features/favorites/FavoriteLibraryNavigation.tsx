@@ -32,32 +32,24 @@ type FavoriteLibraryNavigationProps = {
   onCollapseChange: (uid: string, groupId: string, collapsed: boolean) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
   onManagedFolderMenu?: (id: string) => void
-  onManagedFolderAction?: (id: string, action: 'edit' | 'delete' | 'clear-records') => void
-  onOrdinaryFolderRemove?: (id: string) => void
-  onOrdinaryGroupAction?: (action: 'delete-all') => void
-  onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => void
+  onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
+  onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all') => void
 }
 
 export function FavoriteLibraryNavigation({
-  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onOrdinaryFolderRemove, onOrdinaryGroupAction, onWorkspaceAction
+  uid = '', groups, collapsedGroups, selectedId, onCollapseChange, onSelect, onManagedFolderMenu, onManagedFolderAction, onWorkspaceAction
 }: FavoriteLibraryNavigationProps) {
   const managedFolderMenuRef = useRef(onManagedFolderMenu)
   const managedFolderActionRef = useRef(onManagedFolderAction)
   const workspaceActionRef = useRef(onWorkspaceAction)
-  const ordinaryFolderRemoveRef = useRef(onOrdinaryFolderRemove)
-  const ordinaryGroupActionRef = useRef(onOrdinaryGroupAction)
   const onSelectRef = useRef(onSelect)
   managedFolderMenuRef.current = onManagedFolderMenu
   managedFolderActionRef.current = onManagedFolderAction
   workspaceActionRef.current = onWorkspaceAction
-  ordinaryFolderRemoveRef.current = onOrdinaryFolderRemove
-  ordinaryGroupActionRef.current = onOrdinaryGroupAction
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
-  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete' | 'clear-records') => managedFolderActionRef.current?.(id, action), [])
-  const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => workspaceActionRef.current?.(action), [])
-  const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
-  const handleOrdinaryGroupAction = useCallback((action: 'delete-all') => ordinaryGroupActionRef.current?.(action), [])
+  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
+  const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all') => workspaceActionRef.current?.(action), [])
   const renderWorkspaceMenu = useCallback((resetKey: string) => <WorkspaceFloatingMenu onAction={handleWorkspaceAction} resetKey={resetKey} />, [handleWorkspaceAction])
   const managedMenuIdStoreRef = useRef<{
     value?: string
@@ -132,9 +124,8 @@ export function FavoriteLibraryNavigation({
       onSelect={select}
       workspaceMenuResetKey={`${uid}:${Boolean(localCollapsedGroups[group.id])}`}
       renderWorkspaceMenu={renderWorkspaceMenu}
-      renderOrdinaryGroupMenu={group.id === 'bilibili' ? <OrdinaryGroupFloatingMenu onAction={handleOrdinaryGroupAction} /> : null}
+      renderOrdinaryGroupMenu={null}
       renderManagedMenu={renderManagedMenu}
-      onOrdinaryFolderRemove={handleOrdinaryFolderRemove}
     />)}
   </nav>{managedMenu && typeof document !== 'undefined' ? createPortal(<SharedManagedFolderMenu
     item={managedMenu.item}
@@ -143,30 +134,7 @@ export function FavoriteLibraryNavigation({
     onAction={handleManagedFolderAction}
   />, document.body) : null}</>
 }
-function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-all') => void }) {
-  const [open, setOpen, menuScope] = useExclusiveMenu()
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState<CSSProperties>()
-  const close = useCallback(() => { triggerRef.current?.focus(); setOpen(false) }, [])
-  const reposition = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    setPosition({ top: `${rect.bottom + 6}px`, left: `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 180 - 8))}px` })
-  }, [])
-  useEffect(() => {
-    if (!open) return
-    const outside = (event: PointerEvent) => { if (!triggerRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) close() }
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
-    reposition(); document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape); window.addEventListener('resize', reposition); window.addEventListener('scroll', reposition, true)
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
-  }, [close, open, reposition])
-  return <span {...menuScope} className="favorite-library__folder-menu-wrap">
-    <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__ordinary-group-menu" aria-label="其他收藏夹管理菜单" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>
-    {open && typeof document !== 'undefined' ? createPortal(<div {...menuScope} ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
-  </span>
-}
-function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => void; resetKey: string }) {
+function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
   const [open, setOpen, menuScope] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
@@ -219,7 +187,7 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
     }
   }, [open, reposition])
 
-  const run = (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => {
+  const run = (action: 'create' | 'sync-all' | 'delete-all') => {
     triggerRef.current?.focus()
     setOpen(false)
     onAction?.(action)
@@ -227,7 +195,6 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
   const floatingMenu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('create')}>{'\u65b0\u5efa\u5de5\u4f5c\u5939'}</button>
     <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5de5\u4f5c\u5939'}</button>
-    <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u7a7a\u6536\u85cf\u5e93\u6574\u7406\u8bb0\u5f55'}</button>
     <hr />
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5de5\u4f5c\u5939'}</button>
   </div> : null
@@ -271,7 +238,7 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
   item: FavoriteLibraryNavigationItem
   trigger: HTMLButtonElement
   onClose: () => void
-  onAction?: (id: string, action: 'edit' | 'delete' | 'clear-records') => void
+  onAction?: (id: string, action: 'edit' | 'delete') => void
 }) {
   const [position, setPosition] = useState<CSSProperties>()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -317,13 +284,12 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
       removalObserver?.disconnect()
     }
   }, [closeAndRestoreFocus, reposition, trigger])
-  const run = (action: 'edit' | 'delete' | 'clear-records') => {
+  const run = (action: 'edit' | 'delete') => {
     closeAndRestoreFocus()
     onAction?.(item.id, action)
   }
   return <div ref={menuRef} className="favorite-library__folder-floating-menu" role="menu" aria-label={`${item.label} \u64cd\u4f5c`} style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('edit')}>{'\u7f16\u8f91\u4fe1\u606f'}</button>
-    <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u7a7a\u6536\u85cf\u5e93\u6574\u7406\u8bb0\u5f55'}</button>
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{item.removable ? '\u4ece\u6536\u85cf\u5e93\u5220\u9664' : '\u5220\u9664'}</button>
   </div>
 }

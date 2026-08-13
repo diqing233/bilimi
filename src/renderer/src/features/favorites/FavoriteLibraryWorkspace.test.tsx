@@ -6,7 +6,6 @@ import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
 import { FavoriteLibraryNavigation } from './FavoriteLibraryNavigation'
 import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
 import { FavoriteLibraryDetail } from './FavoriteLibraryDetail'
-import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
 
 describe('Favorite Library workspace components', () => {
   it('pins virtual navigation geometry to the compact row box without clipping text', () => {
@@ -19,7 +18,7 @@ describe('Favorite Library workspace components', () => {
 
     expect(styles).toContain('.favorite-library__navigation-group-heading { display: flex; align-items: center; min-height: 28px;')
     expect(styles).toContain('.favorite-library__folder-menu, .favorite-library__workspace-menu { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 4ch; padding: 5px 0; border: 0; background: transparent; color: #64748b; opacity: 0; pointer-events: none; }')
-    expect(styles).toContain('.favorite-library__navigation-group-heading:hover .favorite-library__ordinary-group-menu')
+    expect(styles).not.toContain('ordinary-group-menu')
     expect(styles).toContain('.favorite-library__navigation-group-toggle { flex: 1 1 auto;')
     expect(styles).toContain('.favorite-library__folder-menu-items hr { width: 100%; height: 1px; margin: 3px 0;')
     expect(styles).toContain('.favorite-library__batch-floating-menu { position: fixed;')
@@ -157,7 +156,7 @@ describe('Favorite Library workspace components', () => {
     expect(screen.getByRole('menuitem', { name: '取消转写' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toBeInTheDocument()
   })
 
@@ -172,7 +171,7 @@ describe('Favorite Library workspace components', () => {
 
     const menu = screen.getByRole('menu', { name: '更多批量操作菜单' })
     expect(container.querySelector('[data-testid="favorite-library-toolbar"]')).not.toContainElement(menu)
-    expect(screen.getByRole('button', { name: '从收藏库删除' })).toHaveClass('favorite-library__danger-action')
+    expect(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).toHaveClass('favorite-library__danger-action')
     expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toHaveClass('favorite-library__danger-action')
   })
 
@@ -352,14 +351,6 @@ describe('Favorite Library workspace components', () => {
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 
-  it('keeps managed-folder deletion as an explicit choice with a safe local default', async () => {
-    const onChoose = vi.fn()
-    render(<FavoriteLibraryDialogs managedFolder={{ title: '工作夹', canDeleteRemotely: true }} onManagedFolderChoice={onChoose} />)
-    fireEvent.click(screen.getByRole('button', { name: '仅从收藏库删除' }))
-    await waitFor(() => expect(onChoose).toHaveBeenCalledWith('local'))
-    expect(screen.getByRole('button', { name: '删除并同步到B站' })).toBeInTheDocument()
-  })
-
   it('lays out each managed-folder delete range on its own aligned row', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
 
@@ -367,25 +358,4 @@ describe('Favorite Library workspace components', () => {
     expect(styles).toContain('.favorite-library__managed-folder-delete-scope-option span { grid-column: 2; min-width: 0;')
   })
 
-  it('treats managed-folder deletion as a closable modal before execution starts', () => {
-    const onClose = vi.fn()
-    const { container } = render(<FavoriteLibraryDialogs
-      managedFolder={{ title: '工作夹', canDeleteRemotely: true }}
-      onManagedFolderChoice={vi.fn()}
-      onClose={onClose}
-    />)
-
-    const dialog = screen.getByRole('dialog', { name: '删除 工作夹' })
-    const actions = Array.from(dialog.querySelectorAll('button')).map((button) => button.textContent)
-    expect(actions.slice(0, 3)).toEqual(['×', '仅从收藏库删除', '删除并同步到B站'])
-    expect(dialog.querySelector('button')).toHaveAttribute('aria-label', '关闭弹窗')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(dialog).toHaveClass('bilimi-modal__dialog', 'favorite-library__dialog-overlay')
-    expect(container.querySelector('.favorite-library__dialog-backdrop')).not.toBeInTheDocument()
-    expect(dialog.parentElement).toHaveClass('bilimi-modal__viewport')
-    expect(screen.getByRole('button', { name: '删除并同步到B站' })).toHaveClass('favorite-library__dialog-remote-action')
-
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledOnce()
-  })
 })

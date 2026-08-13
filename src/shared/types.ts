@@ -60,6 +60,8 @@ export type FavoriteLedger = {
   bilibiliFolderVideoCount?: number
   /** Remote folder binding is explicit; same names are only rebind candidates. */
   bindingState?: FavoriteLedgerBindingState
+  /** The owner deleted the default bilimi folder and must explicitly choose a later recovery. */
+  managedFolderDeletedByUser?: boolean
   /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
   pendingRemoteBinding?: boolean
   /** Exact remote ID of a created shard that is not formally bound yet. Never grants write access. */
@@ -73,6 +75,8 @@ export type FavoriteLedger = {
 
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
+  /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
+  rediscoverDeletedRemoteDrafts?: boolean
   /** Explicit user choices from the rebind confirmation dialog. */
   rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
   /** All confirmed physical Bilibili folders for one recovered logical ledger. */

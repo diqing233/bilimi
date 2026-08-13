@@ -60,19 +60,11 @@ type LibraryPageScope =
 
 const MAX_AFFECTED_FOLDER_IDS = 100
 const DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS = 5 * 60 * 1000
-const DEFAULT_REMOTE_UNFAVORITE_TOKEN_TTL_MS = 5 * 60 * 1000
 
 type ArchiveRestorePreviewToken = {
   senderId: number
   accountMid: string
   mode: FavoriteRepositoryRestorePlan['mode']
-  digest: string
-  expiresAt: number
-}
-
-type RemoteUnfavoriteToken = {
-  senderId: number
-  accountMid: string
   digest: string
   expiresAt: number
 }
@@ -145,14 +137,6 @@ export type FavoriteRepositoryArchiveRestoreScope =
   | { kind: 'all' }
   | { kind: 'aids'; aids: number[] }
   | { kind: 'logical-folder'; folderId: string }
-export type FavoriteLibraryUnfavoritePreview = {
-  accountMid: string
-  aids: number[]
-  executionToken: string
-  expiresAt: number
-}
-export type FavoriteLibraryUnfavoriteConfirmation = { confirmationToken: string }
-
 export type FavoriteLibraryArchiveSummary = {
   status: '未入档' | '已入档'
   versionCount: number
@@ -268,18 +252,6 @@ function videoAid(value: unknown) {
 function expectedRevision(value: unknown) {
   if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error('Favorite library revision is invalid.')
   return Number(value)
-}
-
-function unfavoriteAids(value: unknown) {
-  const aids = Array.isArray(value) ? Array.from(value) : []
-  if (!aids.length || aids.length > 100 || new Set(aids).size !== aids.length || aids.some((aid) => !Number.isSafeInteger(aid) || Number(aid) <= 0)) {
-    throw new Error('Favorite library unfavorite selection is invalid.')
-  }
-  return [...new Set(aids.map(Number))].sort((left, right) => left - right)
-}
-
-function unfavoriteDigest(accountMid: string, aids: number[]) {
-  return createHash('sha256').update(JSON.stringify({ accountMid, aids })).digest('hex')
 }
 
 function localPlacementInputs(value: unknown): FavoriteLibraryPlacementInput[] {
@@ -434,39 +406,33 @@ export function registerFavoriteRepositoryIpc(options: {
       candidates: Array<{ id: string; title: string; memberCount: number }>
     }>>
   }
+  /** Clears a default user-deleted marker only after formal repository adoption commits. */
+  onLedgerBindingAdopted?: (accountMid: string, logicalLedgerId: string) => Promise<unknown> | unknown
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpen?: (accountMid: string) => Promise<void>
   /** Returns persisted local ledger identities that are still unbound drafts. */
   getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
-  /** Hides an ordinary remote mirror from this local library; never writes to Bilibili. */
-  dismissOrdinaryFolder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
   /** Suppresses only the remote-only Bilimi draft reminder for this account and remote folder. */
   getRemoteDraftReminderDismissed?: (accountMid: string) => readonly string[]
   dismissRemoteDraftReminder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
   getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
   getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
-  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone' | 'clearRecycledFavorite' | 'cancelBilibiliFavorites'>
+  commandService?: Pick<FavoriteLibraryCommandService, 'setLocalPlacements' | 'adoptRemotePlacement' | 'deleteFromLibrary' | 'restoreToLibrary' | 'forgetTombstone' | 'clearRecycledFavorite'>
   archiveService?: Pick<FavoriteRepositoryArchiveService, 'exportAccount' | 'previewImport' | 'applyImport' | 'createRestorePlanFromManagedScan' | 'executeRestorePlan' | 'reconcileRestorePlan'>
   archiveRestoreWriter?: FavoriteRepositoryRestoreWriter
   /** Injectable only for deterministic expiry tests; production uses Date.now(). */
   now?: () => number
   archiveRestoreTokenTtlMs?: number
-  remoteUnfavoriteTokenTtlMs?: number
 }) {
   const accountOpenRecoveries = new Map<string, Promise<void>>()
   const subscriptions = new Map<number, Map<string, Subscription>>()
   const restoreExecutionTokens = new Map<string, ArchiveRestorePreviewToken>()
   const restoreFullConfirmationTokens = new Map<string, ArchiveRestorePreviewToken>()
-  const remoteUnfavoriteExecutionTokens = new Map<string, RemoteUnfavoriteToken>()
-  const remoteUnfavoriteConfirmationTokens = new Map<string, RemoteUnfavoriteToken>()
   const now = options.now ?? Date.now
   const restoreTokenTtlMs = Number.isSafeInteger(options.archiveRestoreTokenTtlMs) && options.archiveRestoreTokenTtlMs! > 0
     ? options.archiveRestoreTokenTtlMs!
     : DEFAULT_ARCHIVE_RESTORE_TOKEN_TTL_MS
-  const remoteUnfavoriteTokenTtlMs = Number.isSafeInteger(options.remoteUnfavoriteTokenTtlMs) && options.remoteUnfavoriteTokenTtlMs! > 0
-    ? options.remoteUnfavoriteTokenTtlMs!
-    : DEFAULT_REMOTE_UNFAVORITE_TOKEN_TTL_MS
   const assertTrusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) {
       throw new Error('Favorite repository request came from an untrusted renderer.')
@@ -545,10 +511,12 @@ export function registerFavoriteRepositoryIpc(options: {
     if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !remoteTitle || !Number.isSafeInteger(shardNumber) || shardNumber < 1) {
       throw new Error('Favorite repository binding input is invalid.')
     }
-    return options.bindingService.adoptExistingPhysicalShard(accountMid, {
+    const result = await options.bindingService.adoptExistingPhysicalShard(accountMid, {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
       remoteFolderId, shardNumber, memberAids: [], ...(allowRemoteRename ? { allowRemoteRename: true } : {})
     })
+    await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
+    return result
   })
   options.ipcMain.handle('favorite-repository:preview-ledger-binding-candidates', async (event, requestedAccountMid: string, requestedLedgers: unknown) => {
     assertTrusted(event)
@@ -609,30 +577,6 @@ export function registerFavoriteRepositoryIpc(options: {
       throw new Error('Favorite repository archive restore token does not match the preview.')
     }
   }
-  const issueRemoteUnfavoriteToken = (tokens: Map<string, RemoteUnfavoriteToken>, senderId: number, accountMid: string, aids: number[]) => {
-    const timestamp = now()
-    for (const [token, record] of tokens) if (record.expiresAt <= timestamp) tokens.delete(token)
-    const token = randomUUID()
-    tokens.set(token, {
-      senderId, accountMid, digest: unfavoriteDigest(accountMid, aids), expiresAt: timestamp + remoteUnfavoriteTokenTtlMs
-    })
-    return { token, expiresAt: timestamp + remoteUnfavoriteTokenTtlMs }
-  }
-  const assertRemoteUnfavoriteToken = (
-    tokens: Map<string, RemoteUnfavoriteToken>, token: unknown, senderId: number, accountMid: string, aids: number[], label: 'execution' | 'second confirmation'
-  ) => {
-    if (typeof token !== 'string' || !token) throw new Error(`Favorite library unfavorite requires an ${label} token.`)
-    const record = tokens.get(token)
-    if (!record) throw new Error('Favorite library unfavorite token does not match the preview.')
-    if (record.expiresAt <= now()) {
-      tokens.delete(token)
-      throw new Error('Favorite library unfavorite token expired.')
-    }
-    if (record.senderId !== senderId || record.accountMid !== accountMid || record.digest !== unfavoriteDigest(accountMid, aids)) {
-      throw new Error('Favorite library unfavorite token does not match the preview.')
-    }
-  }
-
   const servicePublishesChanges = typeof options.service.onChanged === 'function'
   options.service.onChanged?.(publish)
 
@@ -664,24 +608,6 @@ export function registerFavoriteRepositoryIpc(options: {
     return localDraftLedgerIds
       ? options.service.getLibrarySummary(accountMid, { localDraftLedgerIds })
       : options.service.getLibrarySummary(accountMid)
-  })
-  options.ipcMain.handle('favorite-repository:dismiss-ordinary-folder', async (event, requestedAccountMid: string, requestedFolderId: string) => {
-    assertTrusted(event)
-    const accountMid = normalizedAccountMid(requestedAccountMid)
-    await assertCurrentAccount(accountMid)
-    if (!options.dismissOrdinaryFolder) throw new Error('Favorite library ordinary folder removal is unavailable.')
-    if (typeof requestedFolderId !== 'string' || !/^bilibili:\S+$/.test(requestedFolderId.trim())) {
-      throw new Error('Favorite library ordinary folder is invalid.')
-    }
-    const snapshot = await options.service.getSnapshot(accountMid)
-    const folder = snapshot.folders.find((candidate) => candidate.id === requestedFolderId.trim() && candidate.kind === 'bilibili')
-    if (!folder?.remoteFolderId) throw new Error('Favorite library ordinary folder was not found.')
-    if (snapshot.physicalShards.some((shard) => shard.remoteFolderId === folder.remoteFolderId)) {
-      throw new Error('Favorite library ordinary folder is a managed work folder.')
-    }
-    const result = await options.dismissOrdinaryFolder(accountMid, folder.remoteFolderId)
-    options.service.invalidateLibraryReadCache(accountMid)
-    return result
   })
   options.ipcMain.handle('favorite-repository:get-remote-draft-reminder-dismissals', async (event, requestedAccountMid: string) => {
     assertTrusted(event)
@@ -782,41 +708,13 @@ export function registerFavoriteRepositoryIpc(options: {
       return options.commandService[method](accountMid, videoAid(requestedAid), expectedRevision(requestedRevision))
     })
   }
-  options.ipcMain.handle('favorite-library:unfavorite-preview', async (event, requestedAccountMid: string, requestedAids: unknown) => {
+  const retiredGlobalUnfavorite = (event: IpcEvent) => {
     assertTrusted(event)
-    const accountMid = normalizedAccountMid(requestedAccountMid)
-    await assertCurrentAccount(accountMid)
-    if (!options.commandService) throw new Error('Favorite library Bilibili unfavorite is unavailable.')
-    const aids = unfavoriteAids(requestedAids)
-    const issued = issueRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, event.sender.id, accountMid, aids)
-    return { accountMid, aids, executionToken: issued.token, expiresAt: issued.expiresAt } satisfies FavoriteLibraryUnfavoritePreview
-  })
-  options.ipcMain.handle('favorite-library:unfavorite-confirm', async (
-    event, requestedAccountMid: string, requestedAids: unknown, executionToken: unknown
-  ) => {
-    assertTrusted(event)
-    const accountMid = normalizedAccountMid(requestedAccountMid)
-    await assertCurrentAccount(accountMid)
-    const aids = unfavoriteAids(requestedAids)
-    assertRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, executionToken, event.sender.id, accountMid, aids, 'execution')
-    return {
-      confirmationToken: issueRemoteUnfavoriteToken(remoteUnfavoriteConfirmationTokens, event.sender.id, accountMid, aids).token
-    } satisfies FavoriteLibraryUnfavoriteConfirmation
-  })
-  options.ipcMain.handle('favorite-library:execute-unfavorite', async (
-    event, requestedAccountMid: string, requestedAids: unknown, executionToken: unknown, confirmationToken: unknown
-  ) => {
-    assertTrusted(event)
-    const accountMid = normalizedAccountMid(requestedAccountMid)
-    await assertCurrentAccount(accountMid)
-    if (!options.commandService) throw new Error('Favorite library Bilibili unfavorite is unavailable.')
-    const aids = unfavoriteAids(requestedAids)
-    assertRemoteUnfavoriteToken(remoteUnfavoriteExecutionTokens, executionToken, event.sender.id, accountMid, aids, 'execution')
-    assertRemoteUnfavoriteToken(remoteUnfavoriteConfirmationTokens, confirmationToken, event.sender.id, accountMid, aids, 'second confirmation')
-    // A dangerous authorization is one-shot even if the remote outcome is unknown.
-    remoteUnfavoriteConfirmationTokens.delete(confirmationToken as string)
-    return options.commandService.cancelBilibiliFavorites(accountMid, aids)
-  })
+    throw new Error('The global Bilibili unfavorite operation is retired; remove a bound Bilimi work-folder placement instead.')
+  }
+  options.ipcMain.handle('favorite-library:unfavorite-preview', retiredGlobalUnfavorite)
+  options.ipcMain.handle('favorite-library:unfavorite-confirm', retiredGlobalUnfavorite)
+  options.ipcMain.handle('favorite-library:execute-unfavorite', retiredGlobalUnfavorite)
   options.ipcMain.handle('favorite-repository:archive-export', async (event, requestedAccountMid: string) => {
     assertTrusted(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)

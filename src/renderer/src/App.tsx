@@ -821,6 +821,10 @@ export default function App() {
     checkedAt: number
     status: FavoriteLedgerStatus
   } | null>(null)
+  // A status read can outlive a main-process preference broadcast (for example,
+  // deleting an unbound remote draft while its Bilibili inventory request is in
+  // flight). Only the generation that started the read may publish its result.
+  const favoriteLedgerStatusGenerationRef = useRef(0)
   const pendingFavoriteShardBindingsRef = useRef(new Map<string, {
     folder: { id: string; title: string; shardNumber: number }
   }>())
@@ -935,7 +939,9 @@ export default function App() {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
       const normalized = createInitialAssistantPreferences(nextPreferences)
       preferencesRef.current = normalized
+      favoriteLedgerStatusGenerationRef.current += 1
       favoriteLedgerStatusCacheRef.current = null
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
       setPreferences(normalized)
     })
   }, [])
@@ -943,7 +949,9 @@ export default function App() {
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch) => {
       if (patch.favoriteLedgers !== undefined || patch.favoriteAccountPreferences !== undefined) {
+        favoriteLedgerStatusGenerationRef.current += 1
         favoriteLedgerStatusCacheRef.current = null
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
       }
       const next = applyImmediatePreferencePatch(preferencesRef.current, patch)
       preferencesRef.current = next
@@ -1770,8 +1778,12 @@ export default function App() {
         ...(formalLedger?.bilibiliFolderIds ?? [])
       ].filter((folderId): folderId is string => Boolean(folderId) && !successfulIds.includes(folderId)))]
       const folderIds = [...existingIds, ...successfulIds]
+      // The main process clears this durable default-deletion marker after the
+      // same formal adoption. Keep the renderer's subsequent preference save
+      // from restoring the stale marker.
+      const { managedFolderDeletedByUser: _managedFolderDeletedByUser, ...ledgerWithoutDeletionMarker } = ledger
       return {
-        ...ledger,
+        ...ledgerWithoutDeletionMarker,
         bilibiliFolderId: folderIds[0],
         bilibiliFolderIds: folderIds,
         bilibiliFolderTitle: existingIds.length ? formalLedger?.bilibiliFolderTitle : successful[0].remoteTitle,
@@ -1786,6 +1798,7 @@ export default function App() {
     accountMid = assistantSnapshotCacheRef.current.accountMid,
     options: { force?: boolean } = {}
   ): Promise<FavoriteLedgerStatus> {
+    const statusGeneration = favoriteLedgerStatusGenerationRef.current
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
     const ledgerSignature = JSON.stringify(favoriteLedgers.map((ledger) => ({
       id: ledger.id,
@@ -1808,6 +1821,17 @@ export default function App() {
     const status = await runScript(
       buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates, dismissedRemoteDraftReminderIds)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
+
+    if (statusGeneration !== favoriteLedgerStatusGenerationRef.current) {
+      return {
+        ok: false,
+        ledgers: favoriteLedgersForActiveAccount(accountMid),
+        missingLedgerIds: [],
+        unboundLedgerIds: [],
+        backupConflictLedgerIds: [],
+        message: '收藏夹状态已更新，请重新核验。'
+      }
+    }
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
       const recoveredLedgers = status.ledgers ?? ledgersWithRepositoryCandidates
@@ -2057,8 +2081,8 @@ export default function App() {
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
-      const returnedById = new Map(result.ledgers.map((ledger) => [ledger.id, ledger]))
-      const mergedLedgers = currentLedgers.map((ledger) => returnedById.get(ledger.id) ?? ledger)
+      const persistedById = new Map(persistedLedgers.map((ledger) => [ledger.id, ledger]))
+      const mergedLedgers = currentLedgers.map((ledger) => persistedById.get(ledger.id) ?? ledger)
       if (JSON.stringify(mergedLedgers) !== JSON.stringify(currentLedgers)) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, mergedLedgers)
@@ -2180,6 +2204,11 @@ export default function App() {
         setPreferences(savedPreferences)
       }
 
+      if (options?.rediscoverDeletedRemoteDrafts && result.ok === true) {
+        await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
+        favoriteLedgerStatusCacheRef.current = null
+        await readFavoriteLedgerStatus(accountMid, { force: true })
+      }
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       return { ...result, ledgers: persistedLedgers }
     }

@@ -6,6 +6,7 @@ import {
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
 import { DEEPSEEK_CONSTRAINT_MARKER, parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
+import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
 import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions } from '@shared/types'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -81,7 +82,7 @@ const LEDGER_SYNC_HINTS = [
   { title: '自定义收藏夹：', detail: '点击收藏夹名称可以编辑；按住并拖动可调整顺序。' },
   { title: '勾选 bilimi 收藏夹：', detail: '勾选的收藏夹会用于批阅预分类和整理收藏分类。预分类会显示视频建议归类的位置；备册后才能将分类结果同步到 B 站。' },
   { title: '备册到 B 站：', detail: '备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。' },
-  { title: '删除 bilimi 收藏夹：', detail: '点击右侧“×”进入删除模式，勾选要删除的收藏夹后点击“删除”，即可删除 B 站中由 bilimi 创建的对应收藏夹，收藏夹内已分类的视频也会一并移除；原有普通 B 站收藏夹不受影响（如果部分视频没有其他普通 B 站收藏夹需要谨慎操作）。' },
+  { title: '删除 bilimi 收藏夹：', detail: '点击右侧“×”进入删除模式，勾选要删除的收藏夹后点击“删除”。默认仅从 bilimi 删除并保留 B 站收藏夹；只有明确选择“同时从 B 站删除收藏夹及其中分类视频”时，才会删除对应的 B 站 bilimi 收藏夹。原有普通 B 站收藏夹不受影响。' },
   { title: '分类依据：', detail: '关键词、UP 名称和标签用于本地识别。DeepSeek 约束可用一句话描述你想把什么视频分类到这个收藏夹里，仅在启用 DeepSeek 后生效。' }
 ]
 const TYPES: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
@@ -172,10 +173,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
+  const isDeletedDefaultLedger = (ledger: FavoriteLedger) => Boolean(ledger.isDefault && ledger.managedFolderDeletedByUser)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
-  const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
-  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.bindingState === 'bound'
+  const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault && !isDeletedDefaultLedger(ledger)
+  const bindingLabelForLedger = (ledger: FavoriteLedger) => isDeletedDefaultLedger(ledger)
+    ? '已删除 · 未备册'
+    : ledger.bindingState === 'bound'
     ? '已备册'
     : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
       ? '未绑定'
@@ -189,6 +193,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存') && !label.includes('未绑定')
     ? 'local-draft'
     : ledger.bindingState ?? (label === '已备册' ? 'bound' : label.includes('未绑定') ? 'unbound' : 'unbacked')
+  const isRemoteOnlyDraft = (ledger: FavoriteLedger) => remoteOnlyDraftLedgerIds.includes(ledger.id) && isUnsavedFavoriteLedgerDraft(ledger)
+  const isTransientNewDraft = (ledger: FavoriteLedger) => !ledgers.some((item) => item.id === ledger.id) &&
+    ledger.syncState === 'local-draft' &&
+    !ledger.isDefault &&
+    !ledger.bilibiliFolderId &&
+    ledger.bindingState === undefined
+  const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
   const isOperable = (ledger: FavoriteLedger) => !isRecoveredRemoteDraft(ledger) && !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isDefaultSystemLocked(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
@@ -220,6 +231,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [deletionScope, setDeletionScope] = useState<ManagedDeletionScope>('local-only')
   const [deletionExecuting, setDeletionExecuting] = useState(false)
   const [deletionError, setDeletionError] = useState<string | null>(null)
+  const [draftDeletionError, setDraftDeletionError] = useState<string | null>(null)
   const [deletionModeActive, setDeletionModeActive] = useState(false)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(true)
@@ -263,6 +275,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setActiveLedgerId(null)
     setNewLedger(false)
     setDeletionModeActive(false)
+    setDraftDeletionError(null)
   }, [externalLedgerSignature])
   useEffect(() => () => {
     if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)
@@ -404,10 +417,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgersToDisplay = fullLedgerListVisible ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
   const projectEnabled = (items: FavoriteLedger[], enabledById: ReadonlyMap<string, boolean> = enableStore.getEnabledById()) => items.map((ledger) => ({
     ...ledger,
-    enabled: isDefaultSystemLocked(ledger) ? true : enabledById.get(ledger.id) ?? ledger.enabled
+    enabled: isDeletedDefaultLedger(ledger) || isDefaultSystemLocked(ledger) ? true : enabledById.get(ledger.id) ?? ledger.enabled
   }))
   const backupEligibleLedgers = (items: FavoriteLedger[]) => projectEnabled(items)
-    .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
+    .filter((ledger) => (ledger.enabled || isDeletedDefaultLedger(ledger)) && ledger.syncState !== 'local-draft')
+  const recoverableDeletedDefaultLedgers = draftLedgers.filter(isDeletedDefaultLedger)
+  const hasRecoverableDeletedDefaultLedger = recoverableDeletedDefaultLedgers.length > 0
   const hasBackupEligibleLedger = backupEligibleLedgers(draftLedgers).length > 0
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const persist = (next: FavoriteLedger[]) => {
@@ -541,14 +556,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const add = () => {
     if (draftMutationLocked) return
-    const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, isDefault: false }
+    const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, syncState: 'local-draft', isDefault: false }
     enableStore.reconcile(enableEntries([...draftLedgers, ledger]))
-    setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true)
+    setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true); setDraftDeletionError(null)
   }
   const close = () => {
     if (draftMutationLocked) return
     if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
-    setActiveLedgerId(null); setNewLedger(false)
+    setActiveLedgerId(null); setNewLedger(false); setDraftDeletionError(null)
   }
   const resetLedgers = () => {
     const defaults = createDefaultFavoriteLedgers()
@@ -598,7 +613,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const previous = ledgers
     const persistVersion = ++persistVersionRef.current
     const next = projectEnabled(draftLedgers).map((ledger) => {
-      if (ledger.id !== activeLedgerId || !isRecoveredRemoteDraft(ledger)) return ledger
+      if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger))) return ledger
       const { syncState: _syncState, ...savedLedger } = ledger
       return savedLedger
     })
@@ -621,7 +636,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (!currentLedgers.length) {
         return { ok: false, message: '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。' }
       }
-      const result = await onSyncLedgers(currentLedgers, { deleteDisabled: false }) as {
+      const result = await onSyncLedgers(currentLedgers, { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }) as {
         ok?: boolean
         unboundCandidates?: RebindCandidateEntry[]
       } | undefined
@@ -687,6 +702,31 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setDeletionCandidates([])
     }
   }
+  const deleteUnsavedDraft = async (ledger: FavoriteLedger) => {
+    if (draftMutationLocked || !isDraftDirectlyDeletable(ledger)) return
+    const wasPersisted = ledgers.some((item) => item.id === ledger.id)
+    if (wasPersisted) {
+      try {
+        const accountMid = window.bilimiDesktop?.readBilibiliAccountMid
+          ? await window.bilimiDesktop.readBilibiliAccountMid()
+          : ''
+        if (!accountMid || !window.bilimiDesktop?.deleteFavoriteLedgerDraft) throw new Error('Draft deletion is unavailable.')
+        await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountMid, ledger.id)
+      } catch {
+        setDraftDeletionError('删除未成功，请稍后重试。')
+        return
+      }
+    }
+    const next = draftLedgers.filter((item) => item.id !== ledger.id)
+    setDraftLedgers(next)
+    enableStore.reset(enableEntries(next, false))
+    deletionStore.reset(enableEntries(next, true))
+    setSavedLedgerSnapshots(Object.fromEntries(next.filter((item) => !isRecoveredRemoteDraft(item)).map((item) => [item.id, ledgerEditorSnapshot(item)])))
+    setActiveLedgerId(null)
+    setNewLedger(false)
+    setDraftDeletionError(null)
+    if (wasPersisted) onDeleteLedger?.(ledger.id)
+  }
   const confirmRebinding = async () => {
     if (!rebindCandidates || draftMutationLocked) return
     const ledgerIds = rebindCandidates.map((entry) => entry.ledgerId)
@@ -698,6 +738,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ]))
     const result = await onSyncLedgers(backupEligibleLedgers(draftLedgers), {
       deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
       rebindRemoteFolderIds: rebindSelections,
       rebindRemoteFolders
     }) as { ok?: boolean; unboundCandidates?: RebindCandidateEntry[] } | undefined
@@ -761,7 +802,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       ]))
       const result = await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, [...deletedIds], deletionAcknowledgedUnbound, ledgerTitleHints, expectedRemoteFolderIds)
       if (!managedFavoriteFolderDeletionSucceeded(result)) {
-        setDeletionError('删除结果尚未确认，已停止保存备册规则；请重新打开删除确认后再试。')
+        setDeletionError('删除未成功，请稍后重试。')
         return
       }
     } catch (error) {
@@ -808,7 +849,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
-        <div className="favorite-ledger-panel__category-header"><button ref={ledgerHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '固定显示'}收藏夹说明`} aria-expanded={ledgerHintExpanded} aria-describedby="favorite-ledger-help-tooltip" onMouseEnter={() => setLedgerHintVisible(true)} onMouseLeave={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onFocus={() => setLedgerHintVisible(true)} onBlur={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onClick={() => setLedgerHintExpanded((open) => { const next = !open; setLedgerHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'ledger' })); return next })}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={deletionModeActive ? deletionStore : enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={deletionModeActive ? draftMutationLocked : draftMutationLocked || !hasBackupEligibleLedger} title={!deletionModeActive && !hasBackupEligibleLedger ? '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。' : undefined} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除 bilimi 工作夹模式' : '打开删除 bilimi 工作夹模式'} disabled={draftMutationLocked} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>
+        <div className="favorite-ledger-panel__category-header"><button ref={ledgerHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '固定显示'}收藏夹说明`} aria-expanded={ledgerHintExpanded} aria-describedby="favorite-ledger-help-tooltip" onMouseEnter={() => setLedgerHintVisible(true)} onMouseLeave={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onFocus={() => setLedgerHintVisible(true)} onBlur={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onClick={() => setLedgerHintExpanded((open) => { const next = !open; setLedgerHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'ledger' })); return next })}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions"><button type="button" disabled={draftMutationLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={deletionModeActive ? deletionStore : enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={draftMutationLocked} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label={hasRecoverableDeletedDefaultLedger ? '恢复备册收藏夹' : '备册收藏夹'} disabled={deletionModeActive ? draftMutationLocked : draftMutationLocked || !hasBackupEligibleLedger} title={!deletionModeActive && hasRecoverableDeletedDefaultLedger ? '已删除的默认 bilimi 收藏夹可通过备册恢复；系统会先核验并要求确认对应的 B 站收藏夹。' : !deletionModeActive && !hasBackupEligibleLedger ? '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。' : undefined} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : hasRecoverableDeletedDefaultLedger ? '恢复备册收藏夹' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除 bilimi 工作夹模式' : '打开删除 bilimi 工作夹模式'} disabled={draftMutationLocked} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>
         {createPortal(<div ref={ledgerHintTooltipRef} id="favorite-ledger-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={ledgerHintVisible || undefined} style={ledgerHintPosition}>{LEDGER_SYNC_HINTS.map((hint) => <p key={hint.title}><strong className="favorite-ledger-panel__help-tooltip-title">{hint.title}</strong>{hint.detail}</p>)}</div>, document.body)}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
@@ -832,10 +873,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                   if (draftMutationLocked) return
                   setActiveLedgerId(null)
                   setNewLedger(false)
+                  setDraftDeletionError(null)
                   return
                 }
                 setActiveLedgerId(ledger.id)
                 setNewLedger(false)
+                setDraftDeletionError(null)
               }}><span className="favorite-ledger-panel__chip-label">{ledgerLabel}</span>{bindingLabel ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(ledger, bindingLabel)}>{bindingLabel}</small> : null}</button>
               <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? (deletionModeActive ? '取消删除' : '移出同步') : (deletionModeActive ? '加入删除' : '加入同步')} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || (deletionModeActive ? isRecoveredRemoteDraft(ledger) : !isOperable(ledger))} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
             </>
@@ -846,13 +889,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid || draftMutationLocked} onClick={() => void save()}>保存</button><button type="button" disabled={draftMutationLocked} onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={draftMutationLocked} onClick={() => { void requestManagedDeletion([active.id]); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
+      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid || draftMutationLocked} onClick={() => void save()}>保存</button><button type="button" disabled={draftMutationLocked} onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={draftMutationLocked} onClick={() => { if (isDraftDirectlyDeletable(active)) { void deleteUnsavedDraft(active); return }; void requestManagedDeletion([active.id]); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, [...new Set([
              ...(active.bilibiliFolderIds ?? []), active.bilibiliFolderId!
            ])])}>不再提醒</button> : null}
-         </p> : null}
+          </p> : null}
+         {draftDeletionError ? <p className="favorite-ledger-panel__notice" role="alert">{draftDeletionError}</p> : null}
          {draftRuleAnalysis ? <div className="favorite-ledger-panel__rule-analysis" role="status">
           <span>{draftRuleAnalysis.status === 'canceling' ? '正在取消分析…' : `正在分析 ${draftRuleAnalysis.completedItemCount} / ${draftRuleAnalysis.totalItemCount} 条`}</span>
           <progress aria-label="收藏夹规则分析进度" value={draftRuleAnalysis.completedItemCount} max={Math.max(1, draftRuleAnalysis.totalItemCount)}

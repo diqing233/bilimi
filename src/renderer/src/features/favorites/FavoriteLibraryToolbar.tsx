@@ -353,7 +353,7 @@ function BatchActions({
     closeMenu()
   }
   const directActions: Array<[Exclude<FavoriteLibraryBatchAction, 'copy' | 'move'>, string]> = [['refresh', '刷新信息'], ['reorganize', '重新整理']]
-  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库删除'], ['remove-managed-placement', '从 B 站 bilimi 收藏夹删除']]
+  const dangerActions: Array<[FavoriteLibraryBatchAction, string]> = [['delete-local', '从收藏库 bilimi 收藏夹删除'], ['remove-managed-placement', '从 B 站 bilimi 收藏夹删除']]
   const hasMoreActions = allowed('sync') || dangerActions.some(([action]) => allowed(action))
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div {...menuScope} ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
@@ -362,7 +362,7 @@ function BatchActions({
   </div> : openMenu === 'more' ? <div {...menuScope} ref={menuRef} role="menu" aria-label="更多批量操作菜单" className="favorite-library__batch-floating-menu favorite-library__batch-more-menu" style={menuPosition}>
     {allowed('sync') ? <button type="button" disabled={disabled} onClick={() => run('sync')}>同步到B站</button> : null}
     <hr />
-    {dangerActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" className="favorite-library__danger-action" disabled={disabled} onClick={() => run(action)}>{label}</button>)}
+    {dangerActions.filter(([action]) => allowed(action)).map(([action, label]) => <button key={action} type="button" className="favorite-library__danger-action" disabled={disabled || disabledActions.includes(action)} onClick={() => run(action)}>{label}</button>)}
   </div> : null
   return <div {...menuScope} ref={rootRef} className="favorite-library__batch-actions">
     {(['copy', 'move'] as const).filter((action) => allowed(action)).map((action) => {

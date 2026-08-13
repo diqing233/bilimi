@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryApp } from './FavoriteLibraryApp'
-import { FavoriteLibraryDialogs } from './FavoriteLibraryDialogs'
+import { FavoriteLibraryConfirmationDialog } from './FavoriteLibraryDialogs'
 import { FavoriteLibraryToolbar } from './FavoriteLibraryToolbar'
 
 const text = {
@@ -29,6 +29,19 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('contains no ordinary-folder dismissal or organization-record clearing UI path', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),
+      'utf8'
+    )
+
+    expect(source).not.toContain('dismissFavoriteLibraryOrdinaryFolder')
+    expect(source).not.toContain('clearOrganizationRecords')
+    expect(source).not.toContain('清空收藏库整理记录')
+    expect(source).not.toContain('确认全部从收藏库删除')
+    expect(source).not.toContain("'clear-organization-records': '清空整理记录'")
+  })
+
   it('lays each managed-folder deletion scope choice on its own readable row', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),
@@ -556,34 +569,6 @@ describe('FavoriteLibraryApp', () => {
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, createLedger: true })
   })
 
-  it.skip('holds group remote deletion at a visible second confirmation after its safe preview', async () => {
-    const executeFavoriteLibraryManagedFolderRemoteDelete = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 0, folderCount: 1,
-        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 0,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      previewFavoriteLibraryManagedFolderGroupDelete: vi.fn().mockResolvedValue({ remoteAllowed: true, folders: [{ logicalFolderId: 'bilimi-logical:music', executionToken: 'preview-1', localMemberCount: 0, remoteAllowed: true }] }),
-      previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'current-1', remoteBinding: { remoteFolderId: '9' } }),
-      confirmFavoriteLibraryManagedFolderRemoteDelete: vi.fn().mockResolvedValue({ confirmationToken: 'confirm-1' }),
-      executeFavoriteLibraryManagedFolderRemoteDelete,
-      subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as unknown as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '删除工作夹' })
-    expect(dialog.closest('.bilimi-modal__viewport')).toBeInTheDocument()
-    expect(Array.from(dialog.querySelectorAll('button')).slice(0, 3).map((button) => button.textContent)).toEqual(['取消', '仅从收藏库删除全部', '同步删除 B 站'])
-    fireEvent.click(screen.getByRole('button', { name: '同步删除 B 站' }))
-
-    expect(executeFavoriteLibraryManagedFolderRemoteDelete).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
-    await waitFor(() => expect(executeFavoriteLibraryManagedFolderRemoteDelete).toHaveBeenCalledWith('100', 'current-1', 'confirm-1'))
-  })
-
   it('uses one acknowledged deletion dialog for unbound managed folders', async () => {
     const deleteManagedFavoriteFolders = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'music', remoteFolderId: '9', title: 'bilimi·音乐', memberCount: 3, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
@@ -712,7 +697,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['ideas-local', 'music-local']))
   })
 
-  it('clears organization records only for the work folder chosen from its menu', async () => {
+  it('does not expose organization-record clearing from the favorite-library UI', async () => {
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue({})
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -728,82 +713,9 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'Music 菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '清空收藏库整理记录' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '清空收藏库整理记录' })
-    expect(dialog).toHaveTextContent('只清空选中 1 个工作夹的本地整理记录')
-    fireEvent.click(within(dialog).getByRole('button', { name: '清空整理记录' }))
-
-    await waitFor(() => expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith('100', expect.objectContaining({
-      type: 'clear-organization-records', payload: { logicalFolderIds: ['bilimi-logical:music'] }
-    })))
-  })
-
-  it.skip('deletes only remotely eligible work folders after the group confirmation', async () => {
-    const previewFavoriteLibraryManagedFolderDelete = vi.fn()
-      .mockResolvedValueOnce({ executionToken: 'current-music', remoteBinding: { remoteFolderId: '9' } })
-    const confirmFavoriteLibraryManagedFolderRemoteDelete = vi.fn().mockResolvedValue({ confirmationToken: 'confirm-music' })
-    const executeFavoriteLibraryManagedFolderRemoteDelete = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 0, folderCount: 2,
-        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }, { id: 'bilimi-logical:ideas', title: '灵感', kind: 'bilimi-logical', logicalLedgerId: 'ideas', syncState: 'pending-reconcile' }], physicalShardCount: 1, syncRecordCount: 0,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      previewFavoriteLibraryManagedFolderGroupDelete: vi.fn().mockResolvedValue({ remoteAllowed: true, folders: [
-        { logicalFolderId: 'bilimi-logical:music', executionToken: 'preview-music', localMemberCount: 0, remoteAllowed: true },
-        { logicalFolderId: 'bilimi-logical:ideas', executionToken: 'preview-ideas', localMemberCount: 0, remoteAllowed: false }
-      ] }),
-      previewFavoriteLibraryManagedFolderDelete,
-      confirmFavoriteLibraryManagedFolderRemoteDelete,
-      executeFavoriteLibraryManagedFolderRemoteDelete,
-      subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as unknown as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
-
-    await waitFor(() => expect(executeFavoriteLibraryManagedFolderRemoteDelete).toHaveBeenCalledWith('100', 'current-music', 'confirm-music'))
-    expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'bilimi-logical:music')
-    expect(previewFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalledWith('100', 'bilimi-logical:ideas')
-    expect(confirmFavoriteLibraryManagedFolderRemoteDelete).toHaveBeenCalledTimes(1)
-  })
-
-  it.skip('stops group remote deletion after an unknown result and queues reconciliation', async () => {
-    const previewFavoriteLibraryManagedFolderDelete = vi.fn()
-      .mockResolvedValueOnce({ executionToken: 'current-music', remoteBinding: { remoteFolderId: '9' } })
-      .mockResolvedValueOnce({ executionToken: 'current-game', remoteBinding: { remoteFolderId: '10' } })
-    const confirmFavoriteLibraryManagedFolderRemoteDelete = vi.fn().mockResolvedValue({ confirmationToken: 'confirm' })
-    const executeFavoriteLibraryManagedFolderRemoteDelete = vi.fn().mockResolvedValue({ status: 'result-unknown', operationId: 'delete-music' })
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 2,
-        folders: [
-          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
-          { id: 'bilimi-logical:game', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'bound' }
-        ], physicalShardCount: 2, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      previewFavoriteLibraryManagedFolderGroupDelete: vi.fn().mockResolvedValue({ remoteAllowed: true, folders: [
-        { logicalFolderId: 'bilimi-logical:music', executionToken: 'preview-music', localMemberCount: 0, remoteAllowed: true },
-        { logicalFolderId: 'bilimi-logical:game', executionToken: 'preview-game', localMemberCount: 0, remoteAllowed: true }
-      ] }),
-      previewFavoriteLibraryManagedFolderDelete,
-      confirmFavoriteLibraryManagedFolderRemoteDelete,
-      executeFavoriteLibraryManagedFolderRemoteDelete,
-      subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as unknown as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
-    fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
-
-    await waitFor(() => expect(executeFavoriteLibraryManagedFolderRemoteDelete).toHaveBeenCalledTimes(1))
-    expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledTimes(1)
-    expect(await screen.findByText(/结果待确认/)).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '清空收藏库整理记录' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog', { name: '清空收藏库整理记录' })).not.toBeInTheDocument()
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
   })
 
   it('reports successful, skipped, and failed work-folder syncs after serial execution', async () => {
@@ -836,10 +748,10 @@ describe('FavoriteLibraryApp', () => {
     expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(3, '100', { kind: 'folder', folderId: 'bilimi-logical:games' })
   })
 
-  it('keeps managed-folder deletion in an overlay so the three-column workspace remains intact', () => {
-    render(<FavoriteLibraryDialogs managedFolder={{ title: '音乐', canDeleteRemotely: true }} />)
+  it('keeps the shared deletion confirmation in an overlay so the three-column workspace remains intact', () => {
+    render(<FavoriteLibraryConfirmationDialog label="删除 音乐" onClose={vi.fn()}><p>确认删除。</p></FavoriteLibraryConfirmationDialog>)
 
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveClass('bilimi-modal__dialog', 'favorite-library__dialog-overlay')
+    expect(screen.getByRole('alertdialog', { name: '删除 音乐' })).toHaveClass('bilimi-modal__dialog', 'favorite-library__dialog-overlay')
     expect(favoriteLibraryStyles).not.toContain('.favorite-library__dialog-backdrop { position: fixed;')
     expect(favoriteLibraryStyles).toContain('.bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled)')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-actions .favorite-library__danger-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }')
@@ -898,7 +810,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(batchTrigger)
 
     expect(screen.getByRole('button', { name: '同步到B站' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toBeInTheDocument()
   })
 
@@ -972,7 +884,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('旧标签')
     expect(detail).toHaveTextContent('已入档')
   })
-  it('keeps a B站 source-folder detail local-only while allowing library deletion', async () => {
+  it('keeps a B站 source-folder detail viewable without bilimi deletion controls', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilibili:default', title: '默认收藏', kind: 'bilibili', remoteFolderId: '1', syncState: 'synced' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -990,16 +902,8 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('同步B站位置')
     expect(within(detail).getByRole('button', { name: '转写操作' })).toBeInTheDocument()
     fireEvent.click(within(detail).getByRole('button', { name: '其他操作' }))
-    expect(detail).toHaveTextContent('从收藏库删除')
-    expect(detail).not.toHaveTextContent('取消B站收藏')
-    const remoteDelete = within(detail).getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })
-    expect(remoteDelete).toBeEnabled()
-    fireEvent.click(remoteDelete)
-    expect(await screen.findByRole('alert')).toHaveTextContent('收藏未同步')
-    fireEvent.click(within(detail).getByRole('button', { name: '从收藏库删除' }))
-    const confirmation = screen.getByRole('alertdialog', { name: '确认从收藏库删除' })
-    expect(confirmation).toHaveTextContent('只会从收藏库删除')
-    expect(confirmation).not.toHaveTextContent('移入回收站')
+    expect(within(detail).queryByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).not.toBeInTheDocument()
   })
   it('keeps recycled detail local-only and exposes restore and clear actions', async () => {
     const restoreFavoriteLibraryVideo = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -1210,8 +1114,7 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(copyFavoriteLibrarySelection).toHaveBeenCalledWith('100', [2], ['bilimi-logical:target'], 1, expect.any(Object)))
   })
 
-  it('keeps ordinary-source rows in a mixed virtual selection eligible for local deletion', async () => {
-    const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+  it('does not expose local deletion for ordinary-source rows in a mixed virtual selection', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 2, folderCount: 1, folders: [{ id: 'bilibili:2', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '2', syncState: 'synced' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -1219,19 +1122,12 @@ describe('FavoriteLibraryApp', () => {
         { video: { aid: 1, title: '本地视频', tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }, folderIds: [], pendingStates: [] },
         { video: { aid: 2, title: '普通来源视频', tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }, folderIds: ['bilibili:2'], pendingStates: [] }
       ] }),
-      deleteFavoriteLibrarySelection,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 普通来源视频' }))
-    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
-    fireEvent.click(screen.getByRole('button', { name: '从收藏库删除' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除所选视频' }))
-
-    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [2], 2, {
-      kind: 'virtual', eligibleAids: [2], skippedAids: []
-    }))
+    expect(screen.queryByRole('button', { name: '更多批量操作' })).not.toBeInTheDocument()
   })
 
   it('opens the existing organization guide with only explicitly selected aids', async () => {
@@ -1310,9 +1206,7 @@ describe('FavoriteLibraryApp', () => {
     expect((await screen.findByRole('button', { name: 'bilimi 原神' })).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'bilibili')
   })
 
-  it('keeps ordinary-folder editing local and confirms before hiding every ordinary folder', async () => {
-    const dismissFavoriteLibraryOrdinaryFolder = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    const onOrdinaryFolderEdit = vi.fn()
+  it('keeps ordinary folders viewable without local-hide or bulk-delete controls', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 2, folders: [
@@ -1320,27 +1214,21 @@ describe('FavoriteLibraryApp', () => {
         { id: 'bilibili:3', title: '普通收藏夹二', kind: 'bilibili', remoteFolderId: '3', syncState: 'synced' }
       ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] }),
-      dismissFavoriteLibraryOrdinaryFolder,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
-    render(<FavoriteLibraryApp uiCallbacks={{ onOrdinaryFolderEdit }} />)
-    fireEvent.click(await screen.findByRole('button', { name: '普通收藏夹一 菜单' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑信息' }, { timeout: 3000 }))
-    expect(onOrdinaryFolderEdit).toHaveBeenCalledWith('bilibili:2')
-    fireEvent.click(screen.getByRole('button', { name: '其他收藏夹管理菜单' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '全部从收藏库删除' }))
-    expect(screen.getByRole('alertdialog', { name: '确认全部从收藏库删除' })).toHaveTextContent('不会取消 B 站收藏')
-    expect(dismissFavoriteLibraryOrdinaryFolder).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认全部从收藏库删除' }))
-    await waitFor(() => expect(dismissFavoriteLibraryOrdinaryFolder).toHaveBeenNthCalledWith(1, '100', 'bilibili:2'))
-    expect(dismissFavoriteLibraryOrdinaryFolder).toHaveBeenNthCalledWith(2, '100', 'bilibili:3')
+    render(<FavoriteLibraryApp />)
+    expect(await screen.findByRole('button', { name: '普通收藏夹一' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '普通收藏夹二' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '普通收藏夹一 菜单' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '其他收藏夹管理菜单' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog', { name: '确认全部从收藏库删除' })).not.toBeInTheDocument()
+    expect(window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder).toBeUndefined()
   })
 
-  it('keeps ordinary-folder detail operations local while preserving refresh, organization, transcription, and archive access', async () => {
+  it('keeps ordinary-folder detail non-destructive while preserving refresh, organization, transcription, and archive access', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
     const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    const deleteFavoriteLibraryVideo = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 7, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 1, folderCount: 2, folders: [
@@ -1351,7 +1239,6 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 7, video: { aid: 8, title: '普通来源视频', tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }, folderIds: ['bilibili:2'], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:2'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-05T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       openFloatingAssistantWorkspace,
       syncFavoriteLibrarySelection,
-      deleteFavoriteLibraryVideo,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -1368,37 +1255,11 @@ describe('FavoriteLibraryApp', () => {
     expect(within(detail).queryByRole('button', { name: '同步到B站' })).not.toBeInTheDocument()
 
     fireEvent.click(within(detail).getByRole('button', { name: '其他操作' }))
-    expect(within(detail).getByRole('button', { name: '从收藏库删除' })).toBeInTheDocument()
-    expect(within(detail).queryByRole('button', { name: '取消B站收藏' })).not.toBeInTheDocument()
-    const remoteDelete = within(detail).getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })
-    expect(remoteDelete).toBeEnabled()
-    fireEvent.click(remoteDelete)
-    expect(await screen.findByRole('alert')).toHaveTextContent('收藏未同步')
-    fireEvent.click(within(detail).getByRole('button', { name: '从收藏库删除' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除' }))
-    await waitFor(() => expect(deleteFavoriteLibraryVideo).toHaveBeenCalledWith('100', 8, 7))
+    expect(within(detail).queryByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).not.toBeInTheDocument()
 
     fireEvent.click(within(detail).getByRole('button', { name: '重新整理' }))
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, organizeOldFavorites: true, selectedFavoriteAids: [8] })
-  })
-  it('shows managed-folder remote-delete preview diagnostics before its second dangerous confirmation', () => {
-    render(<FavoriteLibraryDialogs managedFolder={{
-      title: '音乐',
-      canDeleteRemotely: true,
-      preview: {
-        currentRevision: 7,
-        localMemberCount: 12,
-        unmatchedFallbackCount: 3,
-        extraRemoteMemberCount: 2,
-        remoteOnlyMemberCount: 4
-      }
-    }} />)
-
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveTextContent('版本 7')
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveTextContent('受影响本地视频 12')
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveTextContent('未匹配回退 3')
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveTextContent('额外远端成员 2')
-    expect(screen.getByRole('dialog', { name: '删除 音乐' })).toHaveTextContent('仅远端成员 4')
   })
   it('keeps the compact detail placement picker without rendering normal descriptions', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__placement-picker')
@@ -1573,61 +1434,209 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).not.toBeInTheDocument()
     expect(screen.queryByText('只删除已同步的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。未同步的视频会提示“收藏未同步”，结果未知时不会自动重试。')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '其他操作' }))
-    expect(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).toBeEnabled()
-    expect(screen.getByText('只删除已同步的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。未同步的视频会提示“收藏未同步”，结果未知时不会自动重试。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).not.toBeInTheDocument()
+    expect(screen.queryByText('只删除已同步的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。未同步的视频会提示“收藏未同步”，结果未知时不会自动重试。')).not.toBeInTheDocument()
   })
-  it('requires a local-only confirmation before deleting a library record', async () => {
-    const setFavoriteLibraryLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    const deleteFavoriteLibraryVideo = vi.fn()
+  it('does not expose bilimi deletion outside a current bilimi work folder', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }),
-      setFavoriteLibraryLocalPlacements, deleteFavoriteLibraryVideo, subscribeFavoriteRepository: vi.fn(() => () => undefined)
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
     fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
-    expect(screen.getByRole('button', { name: '从所有 bilimi 工作夹移除' })).toHaveClass('favorite-library__danger-action')
-    fireEvent.click(await screen.findByRole('button', { name: '从所有 bilimi 工作夹移除' }))
-    expect(screen.getByText('将从所有 bilimi 工作夹移除；转写、档案、保护和处理记录会保留。')).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('没有其他普通 B 站收藏夹来源')
-    expect(screen.getByRole('alert')).toHaveTextContent('仍可从回收站恢复')
-    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除' }))
-    await waitFor(() => expect(setFavoriteLibraryLocalPlacements).toHaveBeenCalledWith('100', [{ aid: 1, folderIds: [] }], 4, false))
-    expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '从收藏库 bilimi 收藏夹删除' })).not.toBeInTheDocument()
   })
   it('removes only the current Bilimi membership while retaining the other work folders', async () => {
-    const setFavoriteLibraryLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
-    const deleteFavoriteLibraryVideo = vi.fn()
+    const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 3, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }, { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }, { id: 'bilibili:ordinary', title: '手动收藏', kind: 'bilibili', remoteFolderId: '8', syncState: 'synced' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music', 'bilibili:ordinary'], pendingStates: [], position: { state: 'local-only-change', localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:games'], remoteObservedPhysicalFolderIds: ['bilibili:ordinary'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }),
-      setFavoriteLibraryLocalPlacements, deleteFavoriteLibraryVideo, subscribeFavoriteRepository: vi.fn(() => () => undefined)
+      deleteFavoriteLibrarySelection, subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
     fireEvent.click(await screen.findByRole('button', { name: /归属视频 未知 UP 主/ }))
     fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
-    fireEvent.click(screen.getByRole('button', { name: '从当前工作夹移除' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' }))
 
     expect(screen.getByText('只会从当前工作夹“音乐”移除；转写、档案、保护和处理记录会保留。')).toBeInTheDocument()
-    expect(screen.getByRole('alertdialog', { name: '确认从收藏库删除' }).closest('.bilimi-modal__viewport')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' })).not.toBeChecked()
-    fireEvent.click(screen.getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' }))
-    expect(screen.getByText('还会从 1 个工作夹移除：游戏')).toBeInTheDocument()
+    expect(screen.getByRole('alertdialog', { name: '确认从收藏库 bilimi 收藏夹删除' }).closest('.bilimi-modal__viewport')).toBeInTheDocument()
+    expect(within(screen.getByRole('alertdialog', { name: '确认从收藏库 bilimi 收藏夹删除' })).getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' })).not.toBeChecked()
     expect(screen.getByText('普通 B 站收藏夹仍保留：手动收藏')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认从收藏库 bilimi 收藏夹删除' }))
 
-    await waitFor(() => expect(setFavoriteLibraryLocalPlacements).toHaveBeenCalledWith('100', [{ aid: 1, folderIds: [] }], 4, false))
-    expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
+    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 4, { kind: 'folder', folderId: 'bilimi-logical:music' }))
   })
-  it('removes a managed placement from an ordinary source without cancelling the ordinary Bilibili favorite', async () => {
+  it('removes the explicitly selected other Bilimi memberships together with the current work folder', async () => {
+    const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 3, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }, { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }, { id: 'bilibili:ordinary', title: '手动收藏', kind: 'bilibili', remoteFolderId: '8', syncState: 'synced' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music', 'bilibili:ordinary'], pendingStates: [], position: { state: 'local-only-change', localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:games'], remoteObservedPhysicalFolderIds: ['bilibili:ordinary'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }),
+      deleteFavoriteLibrarySelection, subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('button', { name: /归属视频 未知 UP 主/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' }))
+    fireEvent.click(within(screen.getByRole('alertdialog', { name: '确认从收藏库 bilimi 收藏夹删除' })).getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认从收藏库 bilimi 收藏夹删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 4, {
+      kind: 'folder', folderId: 'bilimi-logical:music', folderIds: ['bilimi-logical:games', 'bilimi-logical:music']
+    }))
+  })
+  it('uses the current detail work folder unless the exact other-folder checkbox is selected', async () => {
+    const previewFavoriteLibraryManagedPlacementRemoval = vi.fn()
+      .mockResolvedValueOnce({ executionToken: 'detail-current', aids: [1], affectedLogicalFolders: [{ id: 'bilimi-logical:music', title: '音乐' }] })
+      .mockResolvedValueOnce({ executionToken: 'detail-all', aids: [1], affectedLogicalFolders: [{ id: 'bilimi-logical:music', title: '音乐' }, { id: 'bilimi-logical:games', title: '游戏' }] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ],
+        physicalShardCount: 2, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4,
+        items: [{ video: { aid: 1, title: '双归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music', 'bilimi-logical:games'], pendingStates: [] }]
+      }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4,
+        video: { aid: 1, title: '双归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' },
+        folderIds: ['bilimi-logical:music', 'bilimi-logical:games'], pendingStates: [],
+        position: {
+          state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:games'],
+          remoteObservedPhysicalFolderIds: ['remote-music', 'remote-games'],
+          remoteObservedLogicalFolderIds: ['bilimi-logical:music', 'bilimi-logical:games'], updatedAt: '2026-07-23T00:00:00.000Z'
+        },
+        mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true }
+      }),
+      previewFavoriteLibraryManagedPlacementRemoval,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('button', { name: /双归属视频 未知 UP 主/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
+
+    const otherFolders = screen.getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' })
+    expect(otherFolders).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
+    await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenLastCalledWith(
+      '100', [1], ['bilimi-logical:music'], 4, expect.any(Object)
+    ))
+
+    fireEvent.click(within(screen.getByRole('alertdialog', { name: '确认从 B 站 bilimi 收藏夹删除' })).getByRole('button', { name: '关闭弹窗' }))
+    fireEvent.click(otherFolders)
+    fireEvent.click(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
+    await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenLastCalledWith(
+      '100', [1], ['bilimi-logical:music', 'bilimi-logical:games'], 4, expect.any(Object)
+    ))
+  })
+  it('refreshes the sidebar summary, current list, detail, and recycle count after local bilimi deletion', async () => {
+    let deleted = false
+    const deleteFavoriteLibrarySelection = vi.fn().mockImplementation(async () => {
+      deleted = true
+      return { status: 'succeeded' }
+    })
+    const openFavoriteRepositoryAccount = vi.fn()
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], scopeCounts: { all: 1, pending: 0, recycle: 0 }, physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:01:00.000Z', videoCount: 0, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], scopeCounts: { all: 0, pending: 0, recycle: 1 }, physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
+    const getFavoriteRepositoryLibraryPage = vi.fn().mockImplementation(async () => deleted
+      ? { version: 1, accountMid: '100', revision: 5, totalCount: 0, items: [] }
+      : { version: 1, accountMid: '100', revision: 4, totalCount: 1, items: [{ video: { aid: 1, title: '待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }
+    )
+    const getFavoriteRepositoryLibraryVideoDetail = vi.fn().mockImplementation(async () => deleted
+      ? { version: 1, accountMid: '100', revision: 5, video: { aid: 1, title: '待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:01:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }
+      : { version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }
+    )
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount,
+      getFavoriteRepositoryLibraryPage,
+      getFavoriteRepositoryLibraryVideoDetail,
+      deleteFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('button', { name: /待删除视频 未知 UP 主/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' }))
+    const pageCallsBeforeDelete = getFavoriteRepositoryLibraryPage.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '确认从收藏库 bilimi 收藏夹删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 4, { kind: 'folder', folderId: 'bilimi-logical:music' }))
+    await waitFor(() => expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenCalledTimes(pageCallsBeforeDelete + 1))
+    expect(screen.getByRole('button', { name: '回收站' }).parentElement).toHaveTextContent('1')
+    expect(screen.queryByRole('button', { name: /待删除视频 未知 UP 主/ })).not.toBeInTheDocument()
+  })
+  it('refreshes the sidebar summary, current list, selected detail, and recycle count after remote bilimi deletion succeeds', async () => {
+    let remotelyDeleted = false
+    const openFavoriteRepositoryAccount = vi.fn()
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], scopeCounts: { all: 1, pending: 0, recycle: 0 }, physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:01:00.000Z', videoCount: 0, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], scopeCounts: { all: 0, pending: 0, recycle: 1 }, physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
+    const getFavoriteRepositoryLibraryPage = vi.fn().mockImplementation(async () => remotelyDeleted
+      ? { version: 1, accountMid: '100', revision: 5, totalCount: 0, items: [] }
+      : { version: 1, accountMid: '100', revision: 4, totalCount: 1, items: [{ video: { aid: 1, title: '远端待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }
+    )
+    const getFavoriteRepositoryLibraryVideoDetail = vi.fn().mockImplementation(async () => remotelyDeleted
+      ? { version: 1, accountMid: '100', revision: 5, video: { aid: 1, title: '远端待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-07-23T00:01:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }
+      : { version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '远端待删除视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['remote-music'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '转写完成' }, archive: { status: '已入档', versionCount: 1, starred: false, hasMemo: false, hasSummary: true } }
+    )
+    const previewFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ executionToken: 'remote-delete-preview', aids: [1], affectedLogicalFolders: [{ id: 'bilimi-logical:music', title: '音乐' }], preservedOrdinarySources: [], recycleAids: [1] })
+    const confirmFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ confirmationToken: 'remote-delete-confirmation' })
+    const executeFavoriteLibraryManagedPlacementRemoval = vi.fn().mockImplementation(async () => {
+      remotelyDeleted = true
+      return { status: 'succeeded', operationId: 'remote-delete-operation' }
+    })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount,
+      getFavoriteRepositoryLibraryPage,
+      getFavoriteRepositoryLibraryVideoDetail,
+      previewFavoriteLibraryManagedPlacementRemoval,
+      confirmFavoriteLibraryManagedPlacementRemoval,
+      executeFavoriteLibraryManagedPlacementRemoval,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('button', { name: /远端待删除视频 未知 UP 主/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
+    await waitFor(() => expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledWith('100', 1))
+    fireEvent.click(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
+    await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', [1], ['bilimi-logical:music'], 4, expect.any(Object)))
+    const pageCallsBeforeDelete = getFavoriteRepositoryLibraryPage.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '确认删除 B 站 bilimi 归属' }))
+
+    await waitFor(() => expect(executeFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'remote-delete-preview', 'remote-delete-confirmation'))
+    await waitFor(() => expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenCalledTimes(pageCallsBeforeDelete + 1))
+    expect(screen.getByRole('button', { name: '回收站' }).parentElement).toHaveTextContent('1')
+    expect(screen.queryByRole('button', { name: /远端待删除视频 未知 UP 主/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')
+  })
+  it('does not expose managed remote removal from an ordinary source', async () => {
     const previewFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({
       accountMid: '100', aids: [1], executionToken: 'preview-token', baselineRevision: 4,
       affectedLogicalFolders: [{ id: 'bilimi-logical:music', title: '音乐' }],
@@ -1637,29 +1646,45 @@ describe('FavoriteLibraryApp', () => {
     const executeFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({
       status: 'succeeded', operationId: 'operation-1', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
     })
-    const previewFavoriteLibraryRemoteUnfavoriteOperation = vi.fn()
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 2, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }, { id: 'bilibili:ordinary', title: '手动收藏', kind: 'bilibili', remoteFolderId: '88', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilibili:ordinary'], pendingStates: [] }] }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilibili:ordinary'], pendingStates: [], position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['11'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-07-23T00:00:00.000Z' }, mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false } }),
       previewFavoriteLibraryManagedPlacementRemoval, confirmFavoriteLibraryManagedPlacementRemoval, executeFavoriteLibraryManagedPlacementRemoval,
-      previewFavoriteLibraryRemoteUnfavoriteOperation, subscribeFavoriteRepository: vi.fn(() => () => undefined)
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '手动收藏' }))
     fireEvent.click(await screen.findByRole('button', { name: /视频一 未知 UP 主/ }))
     fireEvent.click(await screen.findByRole('button', { name: '其他操作' }))
-    fireEvent.click(await screen.findByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
-    await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', [1], ['bilimi-logical:music'], 4, expect.any(Object)))
-    const remoteDialog = screen.getByRole('alertdialog', { name: '确认从 B 站 bilimi 收藏夹删除' })
-    expect(remoteDialog).toHaveTextContent('普通 B 站收藏夹仍保留：手动收藏')
-    expect(remoteDialog.closest('.bilimi-modal__viewport')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认删除 B 站 bilimi 归属' }))
-    await waitFor(() => expect(confirmFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'preview-token'))
-    expect(executeFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'preview-token', 'confirm-token')
-    expect(previewFavoriteLibraryRemoteUnfavoriteOperation).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })).not.toBeInTheDocument()
+    expect(previewFavoriteLibraryManagedPlacementRemoval).not.toHaveBeenCalled()
+    expect(confirmFavoriteLibraryManagedPlacementRemoval).not.toHaveBeenCalled()
+    expect(executeFavoriteLibraryManagedPlacementRemoval).not.toHaveBeenCalled()
+  })
+  it('keeps batch remote Bilimi deletion visible but disabled until the current work folder is bound', async () => {
+    const previewFavoriteLibraryManagedPlacementRemoval = vi.fn()
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [
+        { video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+      ] }),
+      previewFavoriteLibraryManagedPlacementRemoval,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
+
+    const remoteDeletion = screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' })
+    expect(remoteDeletion).toBeDisabled()
+    fireEvent.click(remoteDeletion)
+    expect(previewFavoriteLibraryManagedPlacementRemoval).not.toHaveBeenCalled()
   })
   it('holds batch managed-placement removal at a visible preview until confirmation is clicked', async () => {
     const previewFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({
@@ -1668,7 +1693,6 @@ describe('FavoriteLibraryApp', () => {
     })
     const confirmFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ confirmationToken: 'batch-confirm' })
     const executeFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ status: 'result-unknown', operationId: 'batch-operation' })
-    const reconcileFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ status: 'reconciliation-required' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 2, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -1679,7 +1703,6 @@ describe('FavoriteLibraryApp', () => {
       previewFavoriteLibraryManagedPlacementRemoval,
       confirmFavoriteLibraryManagedPlacementRemoval,
       executeFavoriteLibraryManagedPlacementRemoval,
-      reconcileFavoriteLibraryManagedPlacementRemoval,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -1689,6 +1712,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频二' }))
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
     fireEvent.click(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
+    fireEvent.click(within(screen.getByRole('alertdialog', { name: '确认批量从 B 站 bilimi 收藏夹删除' })).getByRole('button', { name: '继续' }))
     await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', [1, 2], ['bilimi-logical:music'], 4, expect.any(Object)))
     expect(executeFavoriteLibraryManagedPlacementRemoval).not.toHaveBeenCalled()
     const batchDialog = screen.getByRole('alertdialog', { name: '确认从 B 站 bilimi 收藏夹删除' })
@@ -1698,11 +1722,48 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认删除 B 站 bilimi 归属' }))
     await waitFor(() => expect(confirmFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'batch-preview'))
     expect(executeFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'batch-preview', 'batch-confirm')
-    expect(await screen.findByRole('status')).toHaveTextContent('远程结果待确认')
-    fireEvent.click(screen.getByRole('button', { name: '对账工作夹移出结果' }))
-    await waitFor(() => expect(reconcileFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'batch-operation'))
+    expect(await screen.findByText('从 B 站 bilimi 收藏夹删除未成功，请稍后重试。')).toHaveAttribute('role', 'alert')
+    expect(screen.queryByText('远程结果待确认')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '对账工作夹移出结果' })).not.toBeInTheDocument()
   })
-  it('keeps every recovered remote reconciliation actionable and refreshes their status after a reconciliation', async () => {
+  it('includes other Bilimi work folders in a batch remote deletion only after explicit selection', async () => {
+    const previewFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({
+      executionToken: 'batch-preview', baselineRevision: 4, aids: [1],
+      affectedLogicalFolders: [{ id: 'bilimi-logical:music', title: '音乐' }, { id: 'bilimi-logical:games', title: '游戏' }],
+      preservedOrdinarySources: [], recycleAids: [], skippedUnsyncedAids: []
+    })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ],
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4,
+        items: [{ video: { aid: 1, title: '双归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music', 'bilimi-logical:games'], pendingStates: [] }]
+      }),
+      previewFavoriteLibraryManagedPlacementRemoval,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 双归属视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '从 B 站 bilimi 收藏夹删除' }))
+    const choiceDialog = screen.getByRole('alertdialog', { name: '确认批量从 B 站 bilimi 收藏夹删除' })
+    fireEvent.click(within(choiceDialog).getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' }))
+    expect(choiceDialog).toHaveTextContent('将从当前及其他 bilimi 工作夹移除所选视频的 B 站 bilimi 归属')
+    expect(choiceDialog).not.toHaveTextContent('将只从当前 bilimi 工作夹移除所选视频的 B 站 bilimi 归属')
+    fireEvent.click(within(choiceDialog).getByRole('button', { name: '继续' }))
+
+    await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', [1], ['bilimi-logical:games', 'bilimi-logical:music'], 4, expect.any(Object)))
+  })
+  it('keeps only legacy unfavorite reconciliation actionable and hides managed reconciliation notices', async () => {
     const reconcileFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const reconcileFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const reconcileFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -1721,13 +1782,35 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     expect(await screen.findByRole('button', { name: '对账取消收藏结果' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '对账文件夹删除结果' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '对账工作夹移出结果' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '对账文件夹删除结果' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '对账工作夹移出结果' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '对账取消收藏结果' }))
     await waitFor(() => expect(reconcileFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'recovered-unfavorite'))
     await waitFor(() => expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('button', { name: '对账取消收藏结果' })).not.toBeInTheDocument()
     expect(reconcileFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
+  })
+  it('does not publish a drawer reconciliation notice for managed-folder or placement results awaiting confirmation', async () => {
+    const onDrawerStatusChange = vi.fn()
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 2,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 2 },
+        remoteReconciliations: [{ kind: 'managed-folder', operationId: 'recovered-folder' }, { kind: 'managed-placement', operationId: 'recovered-placement' }]
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp embedded onDrawerStatusChange={onDrawerStatusChange} />)
+
+    await waitFor(() => expect(onDrawerStatusChange.mock.calls.some(([status]) =>
+      status.notices.some((notice: { id: string }) => notice.id === 'sync-confirmation-required')
+    )).toBe(true))
+    const notices = onDrawerStatusChange.mock.calls.at(-1)?.[0]?.notices ?? []
+    expect(notices.map((notice: { id: string }) => notice.id)).not.toContain('remote-reconciliation-required')
   })
   it('confirms one atomic batch local deletion before clearing the selected rows', async () => {
     const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -1750,17 +1833,51 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频二' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 视频一' }))
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
-    fireEvent.click(screen.getByRole('button', { name: '从收藏库删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' }))
 
-    expect(screen.getByRole('alertdialog', { name: '确认从收藏库批量删除' })).toHaveTextContent('2 个所选视频')
+    expect(screen.getByRole('alertdialog', { name: '确认从收藏库 bilimi 收藏夹删除' })).toHaveTextContent('2 个所选视频')
     expect(deleteFavoriteLibrarySelection).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认仅从收藏库删除所选视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认从收藏库 bilimi 收藏夹删除所选视频' }))
 
     await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1, 2], 5, expect.any(Object)))
     expect(deleteFavoriteLibrarySelection).toHaveBeenCalledTimes(1)
     expect(deleteFavoriteLibraryVideo).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByText('已选 0 项')).toBeInTheDocument())
     expect(getFavoriteRepositoryLibraryPage.mock.calls.length).toBeGreaterThan(1)
+  })
+  it('removes the explicitly selected other Bilimi memberships for a batch local deletion', async () => {
+    const deleteFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ],
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 5,
+        items: [{ video: { aid: 1, title: '双归属视频', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: ['bilimi-logical:music', 'bilimi-logical:games'], pendingStates: [] }]
+      }),
+      deleteFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 双归属视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '从收藏库 bilimi 收藏夹删除' }))
+
+    const dialog = screen.getByRole('alertdialog', { name: '确认从收藏库 bilimi 收藏夹删除' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '同时从其他 bilimi 工作夹移除' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认从收藏库 bilimi 收藏夹删除所选视频' }))
+
+    await waitFor(() => expect(deleteFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 5, {
+      kind: 'folder', folderId: 'bilimi-logical:music', folderIds: ['bilimi-logical:games', 'bilimi-logical:music']
+    }))
   })
   it('uses the toolbar copy and current-work-folder-only move contracts for batch placement', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -1853,7 +1970,7 @@ describe('FavoriteLibraryApp', () => {
     expect(openFloatingAssistantWorkspace).not.toHaveBeenCalled()
   })
 
-  it('opens the same local-only deletion confirmation for a standalone staging folder', async () => {
+  it('opens the existing local-only deletion confirmation for a standalone staging folder', async () => {
     const previewFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ executionToken: 'staging-delete-token' })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -1872,24 +1989,6 @@ describe('FavoriteLibraryApp', () => {
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'local:inbox')
     expect(screen.queryByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' })).not.toBeInTheDocument()
-  })
-  it.skip('does not offer remote managed-folder deletion without an unambiguous remote binding', async () => {
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 0, folderCount: 1, folders: [
-        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }
-      ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [] }),
-      previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'delete-token', currentRevision: 6, localMemberCount: 0, unmatchedFallbackCount: 0, extraRemoteMemberCount: 0, remoteOnlyMemberCount: 0 }),
-      subscribeFavoriteRepository: vi.fn(() => () => undefined)
-    } as unknown as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('button', { name: '音乐 菜单' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '删除' }))
-
-    await screen.findByRole('dialog', { name: '删除 音乐' })
-    expect(screen.queryByRole('button', { name: '删除并同步到B站' })).not.toBeInTheDocument()
   })
   it('runs singleton copy, B站 sync, and inline transcription actions with the selected aid', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })

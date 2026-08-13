@@ -55,6 +55,31 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
   })
 
+  it('notifies preference persistence only after formal ledger adoption succeeds', async () => {
+    const ipcMain = new FakeIpcMain()
+    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'music' })
+    const onLedgerBindingAdopted = vi.fn().mockResolvedValue(undefined)
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard },
+      onLedgerBindingAdopted,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi路闊充箰', remoteFolderId: '41', remoteTitle: 'bilimi路闊充箰'
+    })
+
+    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'music')
+    adoptExistingPhysicalShard.mockRejectedValueOnce(new Error('remote shard is absent'))
+    await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi路闊充箰', remoteFolderId: '41', remoteTitle: 'bilimi路闊充箰'
+    })).rejects.toThrow('remote shard is absent')
+    expect(onLedgerBindingAdopted).toHaveBeenCalledTimes(1)
+  })
+
   it('returns the same complete library summary contract from snapshot and account-open reads', async () => {
     const ipcMain = new FakeIpcMain()
     const summary = {
@@ -154,39 +179,18 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getLibrarySummary).toHaveBeenCalledWith('100')
   })
 
-  it('hides an ordinary Bilibili folder locally without exposing a remote delete operation', async () => {
+  it('does not register an ordinary-folder dismissal IPC that could create a permanent local ignore', async () => {
     const ipcMain = new FakeIpcMain()
-    const dismissOrdinaryFolder = vi.fn().mockResolvedValue({ status: 'succeeded', remoteFolderId: '41' })
-    const service = { getSnapshot: vi.fn().mockResolvedValue({
-      folders: [{ id: 'bilibili:41', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '41', syncState: 'bound' }],
-      physicalShards: []
-    }), invalidateLibraryReadCache: vi.fn() }
-    registerFavoriteRepositoryIpc({
-      ipcMain, service: service as never, isTrustedSender: () => true,
-      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), dismissOrdinaryFolder
-    })
-
-    await expect(ipcMain.invoke('favorite-repository:dismiss-ordinary-folder', 7, '100', 'bilibili:41'))
-      .resolves.toEqual({ status: 'succeeded', remoteFolderId: '41' })
-    expect(dismissOrdinaryFolder).toHaveBeenCalledWith('100', '41')
-    expect(service.invalidateLibraryReadCache).toHaveBeenCalledWith('100')
-  })
-
-  it('refuses to hide a folder through the ordinary path once its remote id belongs to a Bilimi work folder', async () => {
-    const ipcMain = new FakeIpcMain()
-    const dismissOrdinaryFolder = vi.fn()
     const service = { getSnapshot: vi.fn().mockResolvedValue({
       folders: [{ id: 'bilibili:41', title: 'bilimi·音乐', kind: 'bilibili', remoteFolderId: '41', syncState: 'bound' }],
       physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '41', remoteTitle: 'bilimi·音乐', bindingState: 'bound' }]
     }) }
     registerFavoriteRepositoryIpc({
       ipcMain, service: service as never, isTrustedSender: () => true,
-      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), dismissOrdinaryFolder
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
-    await expect(ipcMain.invoke('favorite-repository:dismiss-ordinary-folder', 7, '100', 'bilibili:41'))
-      .rejects.toThrow('managed work folder')
-    expect(dismissOrdinaryFolder).not.toHaveBeenCalled()
+    expect(ipcMain.handlers.has('favorite-repository:dismiss-ordinary-folder')).toBe(false)
   })
 
   it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
@@ -223,43 +227,24 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(clearRecycledFavorite).toHaveBeenCalledWith('100', 9, 4)
   })
 
-  it('requires a trusted, account-bound second confirmation before cancelling explicitly previewed Bilibili favorites', async () => {
+  it('retires global Bilibili unfavorite IPC channels without calling the global cancellation command', async () => {
     const ipcMain = new FakeIpcMain()
-    let currentTime = 1_000
-    const cancelBilibiliFavorites = vi.fn().mockResolvedValue({
-      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2]
-    })
+    const cancelBilibiliFavorites = vi.fn()
     registerFavoriteRepositoryIpc({
       ipcMain, service: {} as never, isTrustedSender: (id) => id === 7,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
-      commandService: { cancelBilibiliFavorites } as never,
-      now: () => currentTime, remoteUnfavoriteTokenTtlMs: 10
+      commandService: { cancelBilibiliFavorites } as never
     })
 
-    const preview = await ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2]) as {
-      accountMid: string; aids: number[]; executionToken: string
+    for (const channel of [
+      'favorite-library:unfavorite-preview',
+      'favorite-library:unfavorite-confirm',
+      'favorite-library:execute-unfavorite'
+    ]) {
+      expect(() => ipcMain.invoke(channel, 7, '100', [2], 'execution-token', 'confirmation-token'))
+        .toThrow('The global Bilibili unfavorite operation is retired; remove a bound Bilimi work-folder placement instead.')
     }
-    expect(preview).toMatchObject({ accountMid: '100', aids: [2] })
-    await expect(ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2, 2]))
-      .rejects.toThrow('selection is invalid')
-    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken))
-      .rejects.toThrow('second confirmation')
-    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 8, '100', [2], preview.executionToken))
-      .rejects.toThrow('untrusted renderer')
-    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [3], preview.executionToken))
-      .rejects.toThrow('does not match')
-
-    const confirmation = await ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [2], preview.executionToken) as { confirmationToken: string }
-    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken, confirmation.confirmationToken))
-      .resolves.toMatchObject({ status: 'succeeded', affectedAids: [2] })
-    expect(cancelBilibiliFavorites).toHaveBeenCalledWith('100', [2])
-    await expect(ipcMain.invoke('favorite-library:execute-unfavorite', 7, '100', [2], preview.executionToken, confirmation.confirmationToken))
-      .rejects.toThrow('does not match')
-
-    const expired = await ipcMain.invoke('favorite-library:unfavorite-preview', 7, '100', [2]) as { executionToken: string }
-    currentTime += 11
-    await expect(ipcMain.invoke('favorite-library:unfavorite-confirm', 7, '100', [2], expired.executionToken))
-      .rejects.toThrow('expired')
+    expect(cancelBilibiliFavorites).not.toHaveBeenCalled()
   })
 
   it('binds an archive restore preview to a trusted current account with an opaque execution token', async () => {

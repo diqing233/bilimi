@@ -2,7 +2,7 @@ import type { FavoriteRepositoryFolder } from '../../src/shared/favoriteReposito
 import type { FavoriteOperationSourceScope } from './favoriteRepositoryBatchOperationService'
 
 type RendererSource =
-  | { kind: 'folder'; folderId: string }
+  | { kind: 'folder'; folderId: string; folderIds?: string[] }
   | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
 
 export function resolveFavoriteLibraryOperationSource(
@@ -13,7 +13,18 @@ export function resolveFavoriteLibraryOperationSource(
   if (source.kind === 'folder') {
     const folder = snapshot.folders.find((candidate) => candidate.id === source.folderId)
     if (!folder) throw new Error('Favorite operation source was not found.')
-    if (folder.kind === 'bilimi-logical') return { kind: 'bilimi-logical', folderId: folder.id }
+    if (folder.kind === 'bilimi-logical') {
+      const requestedFolderIds = source.folderIds === undefined ? [folder.id] : source.folderIds
+      if (!requestedFolderIds.length || requestedFolderIds.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId.trim()))) {
+        throw new Error('Favorite operation Bilimi work-folder scope is invalid.')
+      }
+      const folderIds = [...new Set(requestedFolderIds.map((folderId) => folderId.trim()))].sort()
+      if (!folderIds.includes(folder.id)) throw new Error('Favorite operation Bilimi work-folder scope must include the current folder.')
+      if (folderIds.some((folderId) => !snapshot.folders.some((candidate) => candidate.id === folderId && candidate.kind === 'bilimi-logical'))) {
+        throw new Error('Favorite operation Bilimi work-folder scope was not found.')
+      }
+      return { kind: 'bilimi-logical', folderId: folder.id, ...(source.folderIds === undefined ? {} : { folderIds }) }
+    }
     if (folder.id === 'local:inbox') {
       const members = new Set(snapshot.memberships[folder.id] ?? [])
       if (requestedAids.some((aid) => !members.has(aid))) throw new Error('Favorite unmatched source selection is invalid.')

@@ -27,7 +27,11 @@ import {
   dismissFavoriteLibraryRemoteFolder,
   isFavoriteLibraryRemoteFolderDismissed,
   dismissFavoriteLedgerRemoteDraftReminder,
+  clearFavoriteLedgerRemoteDraftReminder,
   isFavoriteLedgerRemoteDraftReminderDismissed,
+  loadFavoriteLedgerRemoteDraftRediscoveryPending,
+  markFavoriteLedgerRemoteDraftRediscoveryPending,
+  consumeFavoriteLedgerRemoteDraftRediscoveryPending,
   upsertPendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
@@ -92,6 +96,7 @@ function createFakeStore(
     favoriteAccountPreferences: initial.favoriteAccountPreferences ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteAccountPreferences,
     favoriteLibraryDismissedRemoteFolderIdsByAccount: initial.favoriteLibraryDismissedRemoteFolderIdsByAccount ?? {},
     favoriteLedgerRemoteDraftReminderDismissedByAccount: initial.favoriteLedgerRemoteDraftReminderDismissedByAccount ?? {},
+    favoriteLedgerRemoteDraftRediscoveryPendingByAccount: initial.favoriteLedgerRemoteDraftRediscoveryPendingByAccount ?? {},
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
@@ -250,6 +255,35 @@ describe('assistant preference store helpers', () => {
     expect(isFavoriteLedgerRemoteDraftReminderDismissed(store, '100', '4070414411')).toBe(true)
     expect(isFavoriteLedgerRemoteDraftReminderDismissed(store, '200', '4070414411')).toBe(false)
     expect(store.snapshot.favoriteLedgerRemoteDraftReminderDismissedByAccount).toEqual({ '100': ['4070414411'] })
+  })
+
+  it('keeps a locally deleted remote draft pending until an explicit later backup consumes it', () => {
+    const store = createFakeStore({
+      favoriteLedgerRemoteDraftReminderDismissedByAccount: {
+        '100': ['4070414411', 'keep-me'],
+        '200': ['other-account']
+      },
+      favoriteLedgerRemoteDraftRediscoveryPendingByAccount: {
+        '200': ['other-pending']
+      }
+    })
+
+    markFavoriteLedgerRemoteDraftRediscoveryPending(store, '00100', [' 4070414411 ', 'missing'])
+
+    expect(store.snapshot.favoriteLedgerRemoteDraftReminderDismissedByAccount).toEqual({
+      '100': ['4070414411', 'keep-me'],
+      '200': ['other-account']
+    })
+    expect(loadFavoriteLedgerRemoteDraftRediscoveryPending(store, '100')).toEqual(['4070414411', 'missing'])
+    expect(loadFavoriteLedgerRemoteDraftRediscoveryPending(store, '200')).toEqual(['other-pending'])
+
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending(store, '00100')).toEqual(['4070414411', 'missing'])
+    expect(loadFavoriteLedgerRemoteDraftRediscoveryPending(store, '100')).toEqual([])
+    expect(loadFavoriteLedgerRemoteDraftRediscoveryPending(store, '200')).toEqual(['other-pending'])
+    expect(store.snapshot.favoriteLedgerRemoteDraftReminderDismissedByAccount).toEqual({
+      '100': ['4070414411', 'keep-me'],
+      '200': ['other-account']
+    })
   })
 
   it('patches review preferences without overwriting a newer DeepSeek endpoint', () => {

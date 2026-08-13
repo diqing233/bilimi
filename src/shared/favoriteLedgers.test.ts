@@ -250,6 +250,17 @@ describe('favorite ledger model', () => {
     expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('bilimi·暂存')
   })
 
+  it('preserves a deliberate default-folder deletion marker during preference normalization', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'music', displayName: 'bilimi·音乐舞台', keywords: ['音乐'], enabled: false, priority: 60,
+      isDefault: true, managedFolderDeletedByUser: true, bindingState: 'bound', bilibiliFolderId: '9001'
+    }])
+
+    expect(ledgers.find((ledger) => ledger.id === 'music')).toEqual(expect.objectContaining({
+      id: 'music', managedFolderDeletedByUser: true, bindingState: 'bound', bilibiliFolderId: '9001'
+    }))
+  })
+
   it('repairs repeated remote-draft records by retaining the copy with its remote folder id', () => {
     const ledgers = normalizeFavoriteLedgers([
       {
