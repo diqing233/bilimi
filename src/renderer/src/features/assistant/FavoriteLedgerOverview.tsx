@@ -694,7 +694,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const rebindRemoteFolders = Object.fromEntries(rebindCandidates.map((entry) => [
       entry.ledgerId,
       entry.candidates.filter((candidate) => (rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id))
-        .map(({ id, title }) => ({ id, title }))
+        .map(({ id, title, memberCount }) => ({ id, title, memberCount }))
     ]))
     const result = await onSyncLedgers(backupEligibleLedgers(draftLedgers), {
       deleteDisabled: false,

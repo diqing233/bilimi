@@ -108,7 +108,7 @@ type FavoriteLedgerBindingFailureCandidate = {
 
 type FavoriteLedgerBindingRegistrationResult = {
   failures: Array<{ ledgerId: string; candidates: FavoriteLedgerBindingFailureCandidate[] }>
-  successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; shardNumber: number }>
+  successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }>
 }
 
 function createConfirmedReviewFavoriteCommands(args: {
@@ -1541,22 +1541,28 @@ export default function App() {
       ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
       : null
     const trustedRemoteFolderIds = new Map<string, string[]>()
+    const trustedRemoteShardNumbers = new Map<string, Map<string, number>>()
     const repositoryShards = repositorySummary?.physicalShards ?? []
     for (const shard of repositoryShards) {
       if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
       const ids = trustedRemoteFolderIds.get(shard.logicalLedgerId) ?? []
       if (!ids.includes(shard.remoteFolderId)) ids.push(shard.remoteFolderId)
       trustedRemoteFolderIds.set(shard.logicalLedgerId, ids)
+      const shardNumbers = trustedRemoteShardNumbers.get(shard.logicalLedgerId) ?? new Map<string, number>()
+      shardNumbers.set(shard.remoteFolderId, shard.shardNumber)
+      trustedRemoteShardNumbers.set(shard.logicalLedgerId, shardNumbers)
     }
     if (!repositoryShards.length) {
       for (const folder of repositorySummary?.folders ?? []) {
         if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId || !folder.remoteFolderId) continue
         trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
+        trustedRemoteShardNumbers.set(folder.logicalLedgerId, new Map([[folder.remoteFolderId, 1]]))
       }
     }
 
     return {
       trustedRemoteFolderIds,
+      trustedRemoteShardNumbers,
       ledgers: favoriteLedgers.map((ledger) => {
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
         if (trustedFolderIds.length) {
@@ -1634,7 +1640,8 @@ export default function App() {
     inputLedgers: FavoriteLedger[],
     resultLedgers: FavoriteLedger[],
     rebindRemoteFolderIds?: Record<string, string>,
-    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number }>>
+    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number }>>,
+    trustedRemoteShardNumbers?: ReadonlyMap<string, ReadonlyMap<string, number>>
   ): Promise<FavoriteLedgerBindingRegistrationResult> {
     const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
@@ -1657,12 +1664,21 @@ export default function App() {
       const remoteFolderId = ledger.bilibiliFolderId?.trim()
       if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
-      if (explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
-        const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
+      const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
+      if (selectedFolders.length || explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
         const folders = selectedFolders.length ? selectedFolders : [{ id: remoteFolderId, title: ledger.displayName }]
+        const knownShardNumbers = trustedRemoteShardNumbers?.get(ledger.id) ?? new Map<string, number>()
+        const occupiedShardNumbers = new Set(knownShardNumbers.values())
         for (const folder of folders) {
-          const shardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
-          if (shardNumber === undefined) continue
+          const titledShardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
+          if (titledShardNumber === undefined) continue
+          const existingShardNumber = knownShardNumbers.get(folder.id.trim())
+          let shardNumber = existingShardNumber ?? titledShardNumber
+          if (titledShardNumber === 1 && !existingShardNumber && occupiedShardNumbers.has(1)) {
+            shardNumber = 2
+            while (occupiedShardNumbers.has(shardNumber)) shardNumber += 1
+          }
+          occupiedShardNumbers.add(shardNumber)
           registrations.push({
             ledger,
             remoteFolderId: folder.id.trim(),
@@ -1675,7 +1691,7 @@ export default function App() {
     }
 
     const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
-    const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
+    const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
     for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
         failures.push({
@@ -1697,7 +1713,7 @@ export default function App() {
           remoteFolderId,
           remoteTitle
         })
-        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle, shardNumber })
+        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle, memberCount, shardNumber })
       } catch (error) {
         const failure = favoriteLedgerBindingFailure(error)
         failures.push({
@@ -1730,8 +1746,10 @@ export default function App() {
 
   function ledgersAfterBindingRegistration(
     resultLedgers: FavoriteLedger[],
-    bindingResult: FavoriteLedgerBindingRegistrationResult
+    bindingResult: FavoriteLedgerBindingRegistrationResult,
+    formalLedgers: FavoriteLedger[] = []
   ): FavoriteLedger[] {
+    const formalLedgerById = new Map(formalLedgers.map((ledger) => [ledger.id, ledger]))
     const successfulBindingsByLedger = new Map<string, FavoriteLedgerBindingRegistrationResult['successfulBindings']>()
     for (const binding of bindingResult.successfulBindings) {
       const current = successfulBindingsByLedger.get(binding.ledgerId) ?? []
@@ -1746,11 +1764,19 @@ export default function App() {
         return { ...unboundLedger, bindingState: 'unbound' as const }
       }
       const successfulIds = successful.map((binding) => binding.remoteFolderId)
+      const formalLedger = formalLedgerById.get(ledger.id)
+      const existingIds = [...new Set([
+        formalLedger?.bilibiliFolderId,
+        ...(formalLedger?.bilibiliFolderIds ?? [])
+      ].filter((folderId): folderId is string => Boolean(folderId) && !successfulIds.includes(folderId)))]
+      const folderIds = [...existingIds, ...successfulIds]
       return {
         ...ledger,
-        bilibiliFolderId: successfulIds[0],
-        bilibiliFolderIds: successfulIds,
-        bilibiliFolderTitle: successful[0].remoteTitle,
+        bilibiliFolderId: folderIds[0],
+        bilibiliFolderIds: folderIds,
+        bilibiliFolderTitle: existingIds.length ? formalLedger?.bilibiliFolderTitle : successful[0].remoteTitle,
+        bilibiliFolderVideoCount: (existingIds.length ? formalLedger?.bilibiliFolderVideoCount ?? 0 : 0) +
+          successful.reduce((count, binding) => count + binding.memberCount, 0),
         bindingState: 'bound' as const
       }
     })
@@ -1866,7 +1892,7 @@ export default function App() {
     const favoriteLedgers = accountMid
       ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
       : favoriteLedgersForActiveAccount(accountMid)
-    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       favoriteLedgers
     )
@@ -1879,9 +1905,12 @@ export default function App() {
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
-        result.ledgers
+        result.ledgers,
+        undefined,
+        undefined,
+        trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult)
+      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
@@ -1990,7 +2019,7 @@ export default function App() {
       return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
     }
 
-    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       [targetLedger]
     )
@@ -2002,9 +2031,12 @@ export default function App() {
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
-        result.ledgers
+        result.ledgers,
+        undefined,
+        undefined,
+        trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult)
+      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
@@ -2056,7 +2088,7 @@ export default function App() {
 
     const accountMid = await readBilibiliAccountMid()
     const previousLedgers = favoriteLedgersForActiveAccount(accountMid)
-    const { ledgers: ledgersWithFormalBindings } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       nextLedgers
     )
@@ -2080,14 +2112,26 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const formalLedgerById = new Map(ledgersWithFormalBindings.map((ledger) => [ledger.id, ledger]))
       const resultLedgers = result.ledgers.map((ledger) => {
         const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
         if (!confirmedFolders.length) return ledger
+        const formalLedger = formalLedgerById.get(ledger.id)
+        const formalFolderIds = [...new Set([
+          formalLedger?.bilibiliFolderId,
+          ...(formalLedger?.bilibiliFolderIds ?? [])
+        ].filter((folderId): folderId is string => Boolean(folderId)))]
+        const folderIds = [...new Set([...formalFolderIds, ...confirmedFolders.map((folder) => folder.id)])]
         return {
           ...ledger,
-          bilibiliFolderId: confirmedFolders[0].id,
-          bilibiliFolderIds: confirmedFolders.map((folder) => folder.id),
-          bilibiliFolderTitle: confirmedFolders[0].title
+          bilibiliFolderId: folderIds[0],
+          bilibiliFolderIds: folderIds,
+          bilibiliFolderTitle: formalFolderIds.length
+            ? formalLedger?.bilibiliFolderTitle
+            : confirmedFolders[0].title,
+          bilibiliFolderVideoCount: formalFolderIds.length
+            ? formalLedger?.bilibiliFolderVideoCount
+            : ledger.bilibiliFolderVideoCount
         }
       })
       const bindingResult = await registerNewFavoriteLedgerBindings(
@@ -2095,9 +2139,10 @@ export default function App() {
         ledgersWithFormalBindings,
         resultLedgers,
         options?.rebindRemoteFolderIds,
-        options?.rebindRemoteFolders
+        options?.rebindRemoteFolders,
+        trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult)
+      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
@@ -2136,6 +2181,7 @@ export default function App() {
       }
 
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+      return { ...result, ledgers: persistedLedgers }
     }
 
     return Array.isArray(result.ledgers) && options?.rebindRemoteFolders

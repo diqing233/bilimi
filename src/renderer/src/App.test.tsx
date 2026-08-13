@@ -1762,6 +1762,56 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('registers a same-title recovery folder after the formally bound main shard', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-08-13T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0,
+        remoteReconciliations: [],
+        physicalShards: [{ logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: 'bound-main', bindingState: 'bound' }]
+      }),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: 'recovered-main-title', bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'recover-same-title-after-bound-main', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: 'recovered-main-title' },
+        rebindRemoteFolders: { game: [{
+          id: 'recovered-main-title', title: game.displayName, memberCount: 1000
+        }] }
+      }
+    })).resolves.toMatchObject({
+      ok: true,
+      ledgers: [expect.objectContaining({
+        id: 'game',
+        bindingState: 'bound',
+        bilibiliFolderId: 'bound-main',
+        bilibiliFolderIds: ['bound-main', 'recovered-main-title'],
+        bilibiliFolderVideoCount: 1000
+      })]
+    })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: 'recovered-main-title', shardNumber: 2
+    }))
+  })
+
   it('returns the rejected recovery shard and its reason without losing successful sibling bindings', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

@@ -893,10 +893,10 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
       rebindRemoteFolderIds: { knowledge: '77', game: '88' },
       rebindRemoteFolders: { knowledge: [
-        { id: '77', title: 'bilimi·知识学习' }
+        { id: '77', title: 'bilimi·知识学习', memberCount: 310 }
       ], game: [
-        { id: '88', title: 'bilimi·游戏专区' },
-        { id: '89', title: 'bilimi·游戏专区·2' }
+        { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
+        { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 }
       ] }
     })))
   })
