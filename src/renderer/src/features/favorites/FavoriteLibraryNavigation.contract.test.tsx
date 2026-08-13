@@ -263,7 +263,7 @@ describe('FavoriteLibraryNavigation contract', () => {
   it('marks workspace and individual managed-folder deletion controls as danger actions', () => {
     const label = chinese(0x5de5, 0x4f5c, 0x5939)
     const remove = chinese(0x5220, 0x9664)
-    const removeAll = chinese(0x5220, 0x9664, 0x5168, 0x90e8, 0x5de5, 0x4f5c, 0x5939)
+    const removeWorkspace = `${remove}${label}`
     render(<FavoriteLibraryNavigation
       groups={[{ id: 'workspace', label, items: [{ id: 'folder:managed', label, count: 7, managed: true }] }]}
       collapsedGroups={{}}
@@ -273,7 +273,7 @@ describe('FavoriteLibraryNavigation contract', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    expect(screen.getByRole('menuitem', { name: removeAll })).toHaveClass('favorite-library__danger-action')
+    expect(screen.getByRole('menuitem', { name: removeWorkspace })).toHaveClass('favorite-library__danger-action')
     fireEvent.click(screen.getByRole('button', { name: `${label} 菜单` }))
     expect(screen.getByRole('menuitem', { name: remove })).toHaveClass('favorite-library__danger-action')
     expect(favoriteLibraryStyles).toContain('.favorite-library__folder-floating-menu button.favorite-library__danger-action { color: #9d2e2e; }')

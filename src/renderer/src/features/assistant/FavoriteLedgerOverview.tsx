@@ -677,7 +677,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const confirmRebinding = async () => {
     if (!rebindCandidates || draftMutationLocked) return
     const ledgerIds = rebindCandidates.map((entry) => entry.ledgerId)
-    if (ledgerIds.some((ledgerId) => !rebindSelections[ledgerId])) return
+    if (ledgerIds.some((ledgerId) => !(rebindSelectedFolderIds[ledgerId] ?? []).length)) return
     const rebindRemoteFolders = Object.fromEntries(rebindCandidates.map((entry) => [
       entry.ledgerId,
       entry.candidates.filter((candidate) => (rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id))
@@ -841,16 +841,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title="重新绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !rebindSelections[entry.ledgerId] || !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
+      {rebindCandidates ? <OldFavoriteModal title="重新绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
         <p>检测到已有的 bilimi 收藏夹。请逐项确认要复用的远端收藏夹；系统不会按同名自动绑定。</p>
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
           return <label key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
             <span>{displayTitle(ledger?.displayName ?? entry.ledgerId)}</span>
-            <select aria-label={`${displayTitle(ledger?.displayName ?? entry.ledgerId)}主收藏夹`} value={rebindSelections[entry.ledgerId] ?? ''} onChange={(event) => setRebindSelections((current) => ({ ...current, [entry.ledgerId]: event.currentTarget.value }))}>
-              <option value="">请选择</option>
-              {entry.candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title}（{candidate.memberCount} 个视频）</option>)}
-            </select>
             <div className="favorite-ledger-panel__rebind-candidates">
               {entry.candidates.map((candidate) => <label key={candidate.id}><input type="checkbox" checked={(rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => ({
                 ...current,

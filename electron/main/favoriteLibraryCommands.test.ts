@@ -296,6 +296,21 @@ describe('registerFavoriteLibraryCommandsIpc', () => {
     } as never)).resolves.toEqual({ aids: [7, 9] })
     expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({ options: expect.objectContaining({ query: 'needle', filter: 'unsynced', transcriptionFilters: ['failed'] }), excludedAids: [3] }))
   })
+  it('preserves classification-source filters when resolving an all-results operation', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const resolveSelection = vi.fn().mockResolvedValue([7])
+    const commands = { syncSelection: vi.fn().mockResolvedValue({ status: 'succeeded' }), enqueueTranscription: vi.fn() }
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: commands as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection })
+
+    await handlers.get('favorite-library:sync-selection')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'all' }, options: { classificationSources: ['manual', 'deepseek', 'manual'] }, excludedAids: []
+    } as never)
+
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({
+      options: expect.objectContaining({ classificationSources: ['deepseek', 'manual'] })
+    }))
+  })
   it('maps explicit document-export aids through the main-process identity resolver', async () => {
     const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
     const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }

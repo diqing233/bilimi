@@ -94,6 +94,32 @@ describe('FavoriteRepositoryService', () => {
       .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
   })
 
+  it('projects persisted classification provenance to library rows and details and filters it before pagination', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-13T00:00:00.000Z' })
+    snapshot.videos = Object.fromEntries([1, 2, 3].map((aid) => [String(aid), {
+      aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-13T00:00:00.000Z'
+    }]))
+    snapshot.organizationRecords = [
+      { accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:game'], completedAt: '2026-08-12T12:00:00.000Z', classificationSource: 'deepseek' },
+      { accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:game'], completedAt: '2026-08-12T13:00:00.000Z', classificationSource: 'system-high' }
+    ]
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, classificationSources: ['deepseek']
+    })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: { aid: 1 }, organization: { classificationSource: 'deepseek', completedAt: '2026-08-12T12:00:00.000Z' } }]
+    })
+    await expect(service.getLibraryDetail('100', 2)).resolves.toMatchObject({
+      organization: { classificationSource: 'system-high', completedAt: '2026-08-12T13:00:00.000Z' }
+    })
+  })
+
   it('derives completed transcriptions from each archive version source when a BV archive spans accounts and parts', async () => {
     const root = await createRoot()
     const sharedBvid = 'BV1shared'

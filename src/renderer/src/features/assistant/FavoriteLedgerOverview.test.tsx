@@ -869,6 +869,7 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
     expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false })
     await screen.findByText('重新绑定 bilimi 收藏夹')
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
       rebindRemoteFolderIds: { game: '88' },

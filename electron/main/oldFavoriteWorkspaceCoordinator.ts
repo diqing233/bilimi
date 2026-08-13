@@ -30,6 +30,7 @@ import { MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE } from '../../src/shared/oldFav
 import {
   isFavoriteRepositoryMetadataStale,
   isFavoriteRepositoryScanVisible,
+  type FavoriteRepositoryClassificationSource,
   type FavoriteRepositoryVideo,
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
@@ -106,6 +107,12 @@ type CurrentSegmentItem = {
 }
 type DeepSeekOrganizationProjection = NonNullable<OldFavoriteWorkspaceSnapshot['deepSeekOrganization']>
 type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' | 'low' }
+
+function repositoryClassificationSource(source: OldFavoriteWorkspaceClassificationSource): FavoriteRepositoryClassificationSource {
+  if (source === 'manual') return 'manual'
+  if (source === 'deepseek') return 'deepseek'
+  return source === 'system-low' ? 'system-low' : 'system-high'
+}
 type RecoveryConfiguration = {
   metadata?: unknown
   rules?: unknown
@@ -639,6 +646,18 @@ function normalizedRecoveredCustomTitle(title: string) {
   return title.trim().normalize('NFKC').replace(/\s+/gu, ' ').toLocaleLowerCase('zh-Hans-CN')
 }
 
+function recoveredManagedShardNumber(title: string, baseTitle: string): number | undefined {
+  if (title === baseTitle) return 1
+  const match = title.match(new RegExp(`^${escapeRegExp(baseTitle)}·(\\d+)$`))
+  if (!match) return undefined
+  const shardNumber = Number(match[1])
+  return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * A reset loses device-local bindings. Reconstruct only a complete, unique
  * remote work folder; incomplete reads remain pending for confirmation.
@@ -654,8 +673,8 @@ function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'],
       const baseTitle = ledger.displayName.trim()
       // A title is discovery text, never a physical shard identity. `·02`
       // can be user-authored, so only an exact default name is a candidate.
-      if (title !== baseTitle) continue
-      const shardNumber = 1
+      const shardNumber = recoveredManagedShardNumber(title, baseTitle)
+      if (shardNumber === undefined) continue
       candidates.push({
         logicalLedgerId: ledger.id,
         logicalTitle: baseTitle,
@@ -2561,9 +2580,15 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         })
       )
-      const formalManagedFolderIds = new Set(sourceFolders
-        .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
-        .map((folder) => folder.id))
+      // A scanned bilimi title is only a candidate. Protect a remote member
+      // only after an explicit bind has established that this exact physical
+      // Bilibili folder belongs to one logical working folder.
+      const formalManagedFolderIds = new Set(mirroredSnapshot.physicalShards.flatMap((shard) =>
+        shard.bindingState === 'bound' && shard.remoteFolderId &&
+          !isStagingBilimiFolder(shard.remoteTitle)
+          ? [shard.remoteFolderId]
+          : []
+      ))
       const formallyArchivedAids = new Set([...formalManagedFolderIds].flatMap((folderId) => managedMembers[folderId] ?? []))
       const successfulAids = repository.organizationRecords
         .filter((record) => {
@@ -2575,7 +2600,7 @@ export class OldFavoriteWorkspaceCoordinator {
         })
         .map((record) => record.aid)
       const initializedRecords = sourceFolders
-        .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
+        .filter((folder) => formalManagedFolderIds.has(folder.id))
         .flatMap((folder) => (managedMembers[folder.id] ?? []).map((aid) => ({
           accountMid: workspace.accountMid, aid, targetFolderIds: [folder.id], completedAt: this.now()
         })))
@@ -3672,7 +3697,8 @@ export class OldFavoriteWorkspaceCoordinator {
             accountMid: workspace.accountMid,
             aid: assignment.aid,
             targetFolderIds: assignment.targetLedgerIds.filter((id) => id !== 'inbox').map(localFolderIdForLedger),
-            completedAt: this.now()
+            completedAt: this.now(),
+            classificationSource: repositoryClassificationSource(assignment.source)
           })),
         }
       })
@@ -4343,14 +4369,20 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       if (localResultAlreadyComplete) return
       const memberAidsByFolderId: Record<string, number[]> = { 'local:inbox': [] }
-      const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string }> = []
+      const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string; classificationSource: FavoriteRepositoryClassificationSource }> = []
       for (const item of selectedItems) {
         const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
         if (!targets.length) memberAidsByFolderId['local:inbox'].push(item.aid)
         else {
           const targetFolderIds = targets.map(localFolderIdForLedger)
           for (const folderId of targetFolderIds) memberAidsByFolderId[folderId] = [...(memberAidsByFolderId[folderId] ?? []), item.aid]
-          organizationRecords.push({ accountMid: workspace.accountMid, aid: item.aid, targetFolderIds, completedAt: this.now() })
+          organizationRecords.push({
+            accountMid: workspace.accountMid,
+            aid: item.aid,
+            targetFolderIds,
+            completedAt: this.now(),
+            classificationSource: repositoryClassificationSource(assignmentsByAid.get(item.aid)?.source ?? 'system-low')
+          })
         }
       }
       const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates

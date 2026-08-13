@@ -177,6 +177,28 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music' })
   })
 
+  it('keeps scan-discovered candidate ids pending until the user confirms recovery', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'scanned-game-shard', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区·02', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2']
+      }
+    })
+    const service = new FavoriteRepositoryBindingService({ repository })
+
+    await service.reconcilePendingBindings('100', {
+      observedAccountMid: '100', inventory: [{ id: 'game-2', title: 'bilimi·游戏专区·02', memberCount: 4 }]
+    })
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.physicalShards).toEqual([expect.objectContaining({
+      logicalLedgerId: 'game', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2']
+    })])
+    expect(snapshot.memberships['bilimi-logical:game']).toEqual([])
+  })
+
   it('restores a migrated pending binding by exact folder ID after the remote folder was renamed', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

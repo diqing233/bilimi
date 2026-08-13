@@ -191,6 +191,7 @@
 .favorite-library__row-source, .favorite-library__row-status { align-self: center; }
 .favorite-library__row-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source { display: grid; align-items: center; justify-items: stretch; min-width: 0; gap: 2px; text-align: center; }
+.favorite-library__row-classification { min-width: 0; overflow: hidden; color: #334155; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source-line > span { min-width: 0; }
 .favorite-library__next-page { margin-top: 8px; padding: 6px 10px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; cursor: pointer; }
@@ -266,6 +267,9 @@
 .favorite-library__managed-folder-delete-scope-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; column-gap: 6px; width: 100%; }
 .favorite-library__managed-folder-delete-scope-option input { grid-column: 1; margin: 0.35em 0 0; }
 .favorite-library__managed-folder-delete-scope-option span { grid-column: 2; min-width: 0; }
+.favorite-library__managed-folder-preview { max-height: min(36vh, 240px); overflow-y: auto; padding-right: 4px; }
+.favorite-library__managed-folder-preview li > label { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 6px; }
+.favorite-library__managed-folder-preview li > label input { margin: .35em 0 0; }
 .favorite-library__dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),

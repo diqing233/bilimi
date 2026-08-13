@@ -138,6 +138,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-managed-before-inventory', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习', shardNumber: 1,
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: 'managed', memberAids: []
+      }
+    })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
@@ -3404,6 +3411,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('conservatively records formal Bilimi membership once while leaving staging aids active', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bind-music-before-scan', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1,
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'bilimi-music', memberAids: []
+      }
+    })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')
@@ -3614,7 +3628,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ]))
   })
 
-  it('does not treat a numbered title as a shard of a similarly named default folder during recovery', async () => {
+  it('recovers a numbered bilimi title as a shard of its default logical folder', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -3633,11 +3647,17 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const gameShard = snapshot.physicalShards.find((shard) => shard.remoteFolderId === undefined && shard.knownRemoteFolderIds?.includes('remote-a'))!
     const numberedShard = snapshot.physicalShards.find((shard) => shard.remoteFolderId === undefined && shard.knownRemoteFolderIds?.includes('remote-b'))!
     expect(gameShard.logicalLedgerId).toBe('game')
-    expect(numberedShard.logicalLedgerId).not.toBe('game')
+    expect(numberedShard.logicalLedgerId).toBe('game')
     expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
       expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, knownRemoteFolderIds: ['remote-a'] }),
-      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-/), shardNumber: 1, knownRemoteFolderIds: ['remote-b'] })
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 2, knownRemoteFolderIds: ['remote-b'] })
     ]))
+    expect(gameShard).toMatchObject({ bindingState: 'pending-reconcile' })
+    expect(numberedShard).toMatchObject({ bindingState: 'pending-reconcile' })
+    expect(gameShard.remoteFolderId).toBeUndefined()
+    expect(numberedShard.remoteFolderId).toBeUndefined()
+    expect(snapshot.memberships['bilimi-logical:game']).toEqual([])
+    expect(snapshot.organizationRecords).toEqual([])
   })
 
   it('recovers the staging folder and a unique custom Bilimi workspace with stable logical identities', async () => {

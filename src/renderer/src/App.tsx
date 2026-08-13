@@ -106,6 +106,7 @@ function createConfirmedReviewFavoriteCommands(args: {
   result: AssistantAutomationResult
   occurredAt: string
   operationId: string
+  classificationSource: 'system-high' | 'system-low' | 'deepseek' | 'manual'
 }): FavoriteRepositoryCommand[] {
   const aid = Number(args.video.aid)
   const accountMid = args.accountMid.trim()
@@ -172,6 +173,21 @@ function createConfirmedReviewFavoriteCommands(args: {
         observedAt: args.occurredAt,
         updatedAt: args.occurredAt,
         reason: '批阅收藏经 B 站接口确认'
+      }
+    },
+    {
+      id: `${args.operationId}:protection`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'record-organization-protections',
+      payload: {
+        records: [{
+          accountMid,
+          aid,
+          targetFolderIds: localDesiredFolderIds,
+          completedAt: args.occurredAt,
+          classificationSource: args.classificationSource
+        }]
       }
     },
     {
@@ -295,6 +311,21 @@ function createConfirmedDailyReviewCommands(args: {
         observedAt: args.occurredAt,
         updatedAt: args.occurredAt,
         reason: 'DeepSeek 批阅二审经 B 站接口确认'
+      }
+    },
+    {
+      id: `${args.operationId}:protection`,
+      accountMid,
+      issuedAt: args.occurredAt,
+      type: 'record-organization-protections',
+      payload: {
+        records: [{
+          accountMid,
+          aid: args.aid,
+          targetFolderIds: localDesiredFolderIds,
+          completedAt: args.occurredAt,
+          classificationSource: 'deepseek'
+        }]
       }
     },
     {
@@ -2268,6 +2299,9 @@ export default function App() {
         ? archiveTargets.map((target) => target.ledgerId)
         : [localTargetLedgerId]
     const localDiagnostics = diagnosticsForTargets(archiveTargets, localClassification.diagnostic)
+    const localClassificationSource = localClassification.diagnostic?.confidence === 'high'
+      ? 'system-high' as const
+      : 'system-low' as const
     let targetLedgerId = localTargetLedgerId
     let targetLedgerIds = localTargetLedgerIds
     let resultMessagePrefix: string | undefined
@@ -2627,7 +2661,8 @@ export default function App() {
         favoriteLedgers: actionFavoriteLedgers,
         result,
         occurredAt,
-        operationId
+        operationId,
+        classificationSource: localClassificationSource
       })
 
       if (repositoryCommands.length > 0) {

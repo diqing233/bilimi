@@ -35,7 +35,7 @@ type FavoriteLibraryNavigationProps = {
   onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
   onOrdinaryFolderRemove?: (id: string) => void
   onOrdinaryGroupAction?: (action: 'delete-all') => void
-  onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all') => void
+  onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => void
 }
 
 export function FavoriteLibraryNavigation({
@@ -55,7 +55,7 @@ export function FavoriteLibraryNavigation({
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
   const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
-  const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all') => workspaceActionRef.current?.(action), [])
+  const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => workspaceActionRef.current?.(action), [])
   const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
   const handleOrdinaryGroupAction = useCallback((action: 'delete-all') => ordinaryGroupActionRef.current?.(action), [])
   const renderWorkspaceMenu = useCallback((resetKey: string) => <WorkspaceFloatingMenu onAction={handleWorkspaceAction} resetKey={resetKey} />, [handleWorkspaceAction])
@@ -166,7 +166,7 @@ function OrdinaryGroupFloatingMenu({ onAction }: { onAction: (action: 'delete-al
     {open && typeof document !== 'undefined' ? createPortal(<div {...menuScope} ref={menuRef} role="menu" aria-label="其他收藏夹操作" className="favorite-library__workspace-floating-menu" style={position}><button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => { close(); onAction('delete-all') }}>全部从收藏库删除</button></div>, document.body) : null}
   </span>
 }
-function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all') => void; resetKey: string }) {
+function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => void; resetKey: string }) {
   const [open, setOpen, menuScope] = useExclusiveMenu()
   const previousResetKey = useRef(resetKey)
   const [position, setPosition] = useState<CSSProperties>()
@@ -219,16 +219,17 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
     }
   }, [open, reposition])
 
-  const run = (action: 'create' | 'sync-all' | 'delete-all') => {
+  const run = (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => {
     triggerRef.current?.focus()
     setOpen(false)
     onAction?.(action)
   }
   const floatingMenu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('create')}>{'\u65b0\u5efa\u5de5\u4f5c\u5939'}</button>
-    <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
+    <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5de5\u4f5c\u5939'}</button>
+    <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u7a7a\u6536\u85cf\u5e93\u6574\u7406\u8bb0\u5f55'}</button>
     <hr />
-    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939'}</button>
+    <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5de5\u4f5c\u5939'}</button>
   </div> : null
   return <span {...menuScope} className="favorite-library__folder-menu-wrap">
     <button ref={triggerRef} type="button" className="favorite-library__folder-menu favorite-library__workspace-menu" aria-label={'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355'} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{String.fromCodePoint(0x22ee)}</button>

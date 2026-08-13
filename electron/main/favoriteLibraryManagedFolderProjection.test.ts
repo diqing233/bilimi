@@ -31,7 +31,7 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
-  it('keeps a numbered title as an independent unbound candidate until its remote id is explicitly bound', () => {
+  it('projects a strict numbered title as the matching ledger shard without granting a binding', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([
         { id: 'game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', aids: [1] },
@@ -47,7 +47,7 @@ describe('favorite library managed folder projection', () => {
       bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-1']
     })
     expect(byRemoteFolderId.get('game-2')).toMatchObject({
-      logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', shardNumber: 1,
+      logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber: 2,
       bindingState: 'pending-reconcile', knownRemoteFolderIds: ['game-2']
     })
     expect(result.every((candidate) => candidate.remoteFolderId === undefined)).toBe(true)

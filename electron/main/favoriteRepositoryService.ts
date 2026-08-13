@@ -13,6 +13,7 @@ import {
   type FavoriteRepositoryArchiveExport,
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
+  type FavoriteRepositoryClassificationSource,
   type FavoriteRepositoryEvent,
   type FavoriteRepositoryOrganizationRecord,
   type FavoriteRepositoryPage,
@@ -148,6 +149,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
+  classificationSources?: FavoriteRepositoryClassificationSource[]
 }
 
 function clone<T>(value: T): T {
@@ -307,6 +309,7 @@ export type FavoriteRepositoryLibraryPageRow = {
   folderIds: string[]
   pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown' | 'transcription'>
   libraryStates: FavoriteRepositoryLibraryStates
+  organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource' | 'completedAt'>
 }
 
 export type FavoriteRepositoryLibraryDetail = {
@@ -318,6 +321,7 @@ export type FavoriteRepositoryLibraryDetail = {
   pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
   libraryStates: FavoriteRepositoryLibraryStates
   protected: boolean
+  organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource' | 'completedAt'>
   position?: {
     state: NonNullable<AccountFavoriteRepositorySnapshot['positions'][string]>['positionState']
     localDesiredFolderIds: string[]
@@ -949,11 +953,16 @@ export class FavoriteRepositoryService {
       items: selected.flatMap((aid) => {
         const video = snapshot.videos[String(aid)]
         if (!video) return []
+        const organization = snapshot.organizationRecords.find((record) => record.aid === aid)
         return [{
           video: { ...video, tags: [...video.tags] },
           folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
           pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
-          libraryStates: this.libraryStatesForAid(snapshot, index, aid)
+          libraryStates: this.libraryStatesForAid(snapshot, index, aid),
+          ...(organization ? { organization: {
+            ...(organization.classificationSource ? { classificationSource: organization.classificationSource } : {}),
+            completedAt: organization.completedAt
+          } } : {})
         }]
       }),
       ...(start + limit < scopedAids.length ? { nextCursor: String(start + limit) } : {}),
@@ -986,6 +995,7 @@ export class FavoriteRepositoryService {
     if (!video) return null
     const index = this.libraryIndex(cached, snapshot)
     const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
+    const organization = snapshot.organizationRecords.find((record) => record.aid === aid)
     return {
       version: 1,
       accountMid: account,
@@ -995,6 +1005,10 @@ export class FavoriteRepositoryService {
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
       libraryStates: this.libraryStatesForAid(snapshot, index, aid),
       protected: snapshot.organizationRecords.some((record) => record.aid === aid),
+      ...(organization ? { organization: {
+        ...(organization.classificationSource ? { classificationSource: organization.classificationSource } : {}),
+        completedAt: organization.completedAt
+      } } : {}),
       ...(snapshot.positions[`${snapshot.accountMid}:${aid}`] ? {
         position: this.positionSummary(snapshot.positions[`${snapshot.accountMid}:${aid}`])
       } : {}),
@@ -1524,6 +1538,10 @@ export class FavoriteRepositoryService {
     const sourceFilter = options.sourceFilter
     const sort = options.sort ?? 'updated-desc'
     const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
+    const classificationSources = new Set(options.classificationSources ?? [])
+    const organizationByAid = classificationSources.size > 0
+      ? new Map(snapshot.organizationRecords.map((record) => [record.aid, record]))
+      : undefined
     const transcriptionStatesByAid = transcriptionFilters.size > 0
       ? this.transcriptionStatesByAid(snapshot)
       : undefined
@@ -1534,7 +1552,7 @@ export class FavoriteRepositoryService {
       return sourceFolderIds.length > 0 && sourceFolderIds.every((folderId) => folderId.startsWith('bilimi-logical:'))
     }
     // Callers without a library sort retain the legacy bounded aid-read path.
-    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0) {
+    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0 && classificationSources.size === 0) {
       return sourceFilter ? aids.filter(matchesSource) : aids
     }
     return aids.filter((aid) => {
@@ -1547,6 +1565,7 @@ export class FavoriteRepositoryService {
       if (!matchesQuery) return false
       if (transcriptionFilters.size > 0 && ![...(transcriptionStatesByAid?.get(aid) ?? [])]
         .some((state) => transcriptionFilters.has(state))) return false
+      if (classificationSources.size > 0 && !classificationSources.has(organizationByAid?.get(aid)?.classificationSource ?? '')) return false
       const libraryStates = this.libraryStatesForAid(snapshot, index, aid)
       if (options.stateFilters?.sync && libraryStates.sync !== options.stateFilters.sync) return false
       if (options.stateFilters?.protection && libraryStates.protection !== options.stateFilters.protection) return false
@@ -1600,6 +1619,7 @@ export class FavoriteRepositoryService {
       stateFilters: options.stateFilters ?? {},
       sort: options.sort ?? '',
       transcriptionFilters: [...transcriptionFilters].sort(),
+      classificationSources: [...new Set(options.classificationSources ?? [])].sort(),
       ...(dependsOnQueue ? { transcriptionQueueRevision: normalizedQueueRevision } : {}),
       ...(dependsOnArchives ? { transcriptionArchiveRevision: normalizedArchiveRevision } : {})
     })

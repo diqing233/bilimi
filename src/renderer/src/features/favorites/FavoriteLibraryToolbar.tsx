@@ -178,13 +178,13 @@ export function FavoriteLibraryStateFilterMenu({
   </span>
 }
 
-export function FavoriteLibraryMultiSelectColumnMenu({
+export function FavoriteLibraryMultiSelectColumnMenu<T extends string>({
   label, values, options, onChange
 }: {
   label: string
-  values: FavoriteLibraryTranscriptionFilter[]
-  options: Array<{ value: FavoriteLibraryTranscriptionFilter; label: string }>
-  onChange: (values: FavoriteLibraryTranscriptionFilter[]) => void
+  values: T[]
+  options: Array<{ value: T; label: string }>
+  onChange: (values: T[]) => void
 }) {
   const [open, setOpen, menuScope] = useExclusiveMenu()
   const rootRef = useRef<HTMLSpanElement>(null)
@@ -211,7 +211,7 @@ export function FavoriteLibraryMultiSelectColumnMenu({
     window.addEventListener('scroll', reposition, true)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keydown); window.removeEventListener('resize', reposition); window.removeEventListener('scroll', reposition, true) }
   }, [close, open, reposition])
-  const toggle = (value: FavoriteLibraryTranscriptionFilter) => onChange(values.includes(value)
+  const toggle = (value: T) => onChange(values.includes(value)
     ? values.filter((current) => current !== value)
     : [...values, value].sort())
   const menu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={label} className="favorite-library__column-menu-options favorite-library__column-menu-options--portal" style={position}>

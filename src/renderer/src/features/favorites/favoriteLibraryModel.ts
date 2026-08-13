@@ -1,4 +1,5 @@
 import type {
+  FavoriteRepositoryClassificationSource,
   FavoriteRepositoryFolder,
   FavoriteRepositoryPage,
   FavoriteRepositorySyncRecord,
@@ -15,6 +16,10 @@ export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
   folderIds: string[]
   pendingStates?: FavoriteLibraryPendingState[]
   libraryStates?: FavoriteLibraryStates
+  organization?: {
+    classificationSource?: FavoriteRepositoryClassificationSource
+    completedAt: string
+  }
 }
 
 export type FavoriteLibraryStates = {
@@ -90,6 +95,16 @@ export type FavoriteLibraryNavigationItem =
 export type FavoriteLibraryDetail = FavoriteLibraryRow & {
   folders: FavoriteRepositoryFolder[]
   pendingStates: FavoriteLibraryPendingState[]
+}
+
+export function formatFavoriteLibraryClassificationSource(source?: FavoriteRepositoryClassificationSource) {
+  const labels: Record<FavoriteRepositoryClassificationSource, string> = {
+    'system-high': '系统分类（把握高）',
+    'system-low': '系统分类（把握低）',
+    deepseek: 'DeepSeek 整理',
+    manual: '手动调整'
+  }
+  return source ? labels[source] : '未记录分类方式'
 }
 
 const defaultLedgerTitlesById = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))

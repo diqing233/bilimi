@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryVideo } from '../../src/shared/favoriteRepository'
 import type { VideoAudioTranscriptionRequest } from '../../src/shared/types'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
-import type { FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryLibraryStateFilters, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
+import type { FavoriteRepositoryClassificationSource, FavoriteRepositoryLibraryFilter, FavoriteRepositoryLibraryPageScope, FavoriteRepositoryLibrarySort, FavoriteRepositoryLibraryStateFilters, FavoriteRepositoryTranscriptionFilter } from './favoriteRepositoryService'
 
 const MAX_SELECTION_AIDS = 500
 const PLACEMENT_SYNC_CHUNK_SIZE = 100
@@ -14,7 +14,7 @@ export type FavoriteLibrarySyncSelection =
 export type FavoriteLibraryScopeSelection = {
   kind: 'scope'
   scope: FavoriteRepositoryLibraryPageScope
-  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; stateFilters?: FavoriteRepositoryLibraryStateFilters; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[] }
+  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; stateFilters?: FavoriteRepositoryLibraryStateFilters; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] }
   excludedAids: number[]
 }
 
@@ -421,10 +421,13 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && Object.keys(candidate).length === 2) return { kind: 'folder', folderId: candidate.folderId.trim() }
   if (candidate.kind === 'scope' && Object.keys(candidate).length === 4 && candidate.scope && typeof candidate.scope === 'object' && candidate.options && typeof candidate.options === 'object' && Array.isArray(candidate.excludedAids)) {
     const scope = candidate.scope as { kind?: unknown; folderId?: unknown }
-    const options = candidate.options as { query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+    const options = candidate.options as { query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
     const transcriptionFilters = options.transcriptionFilters
     if (transcriptionFilters !== undefined && (!Array.isArray(transcriptionFilters) || transcriptionFilters.length > 5 || transcriptionFilters.some((filter) =>
       !['completed', 'none', 'pending', 'running', 'failed'].includes(String(filter))))) throw new Error('Selected videos are invalid.')
+    const classificationSources = options.classificationSources
+    if (classificationSources !== undefined && (!Array.isArray(classificationSources) || classificationSources.length > 4 || classificationSources.some((source) =>
+      !['system-high', 'system-low', 'deepseek', 'manual'].includes(String(source))))) throw new Error('Selected videos are invalid.')
     const validScope = scope.kind === 'all' || scope.kind === 'pending' || scope.kind === 'protected' || scope.kind === 'unsynced' ||
       scope.kind === 'folder' && typeof scope.folderId === 'string' && !!scope.folderId.trim()
     const stateFilters = options.stateFilters as Record<string, unknown> | undefined
@@ -441,7 +444,7 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
       kind: 'scope', scope: scope.kind === 'folder'
         ? { kind: 'folder', folderId: (scope.folderId as string).trim() }
         : { kind: scope.kind as Exclude<FavoriteRepositoryLibraryPageScope['kind'], 'folder'> },
-      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}) },
+      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}), ...(Array.isArray(classificationSources) && classificationSources.length ? { classificationSources: [...new Set(classificationSources as FavoriteRepositoryClassificationSource[])].sort() } : {}) },
       excludedAids: [...new Set(candidate.excludedAids as number[])].sort((left, right) => left - right)
     }
   }

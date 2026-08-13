@@ -283,6 +283,10 @@ describe('account favorite repository contracts', () => {
         'bilimi:work:001': [1, 2]
       },
       physicalShards: [{ logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1, remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const }],
+      organizationRecords: [
+        { accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:work'], completedAt: now, classificationSource: 'system-high' as const },
+        { accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], completedAt: now, classificationSource: 'manual' as const }
+      ],
       positions: {
         '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'aligned' as const, updatedAt: now, revision: 0 },
         '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:work'], remoteObservedPhysicalFolderIds: ['91'], remoteObservedLogicalFolderIds: ['bilimi-logical:work'], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 }
@@ -298,6 +302,9 @@ describe('account favorite repository contracts', () => {
     expect(deleted.memberships['bilimi-logical:music']).toEqual([2])
     expect(deleted.positions['100:1']?.localDesiredFolderIds).toEqual([])
     expect(deleted.positions['100:2']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])
+    expect(deleted.organizationRecords).toEqual([
+      expect.objectContaining({ aid: 2, targetFolderIds: ['bilimi-logical:music'], classificationSource: 'manual' })
+    ])
     expect(deleted.affectedFolderIds).toContain('local:inbox')
   })
 
@@ -873,6 +880,52 @@ describe('account favorite repository contracts', () => {
 
     expect(result.organizationRecords).toEqual([
       expect.objectContaining({ aid: 1, targetFolderIds: ['remote-knowledge', 'remote-music'] })
+    ])
+  })
+
+  it('clears local organization records without deleting bindings or Bilibili observations', () => {
+    const now = '2026-08-11T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
+        { id: 'bilimi:music:001', title: 'Music', kind: 'bilibili' as const, logicalLedgerId: 'music', remoteFolderId: '9', syncState: 'bound' as const },
+        { id: 'bilibili:9', title: 'Music', kind: 'bilibili' as const, remoteFolderId: '9', syncState: 'bound' as const }
+      ],
+      memberships: { 'bilimi-logical:music': [1], 'bilimi:music:001': [1], 'bilibili:9': [1] },
+      physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '9', remoteTitle: 'Music', bindingState: 'bound' as const }],
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: now, classificationSource: 'manual' as const }],
+      positions: { '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['9'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], positionState: 'aligned' as const, updatedAt: now, revision: 0 } }
+    }
+    const cleared = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'clear-organization-records', accountMid: '100', issuedAt: now, type: 'clear-organization-records', payload: {}
+    }, now)
+    expect(cleared.organizationRecords).toEqual([])
+    expect(cleared.physicalShards).toEqual(snapshot.physicalShards)
+    expect(cleared.memberships['bilibili:9']).toEqual([1])
+    expect(cleared.memberships['bilimi-logical:music']).toEqual([])
+    expect(cleared.memberships['local:inbox']).toEqual([1])
+  })
+
+  it('keeps the latest classification source when a protected video is organized again', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-20T00:00:00.000Z'
+    })
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'protections-with-source', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [
+        { accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-20T00:00:00.000Z', classificationSource: 'system-high' },
+        { accountMid: '100', aid: 1, targetFolderIds: ['remote-knowledge'], completedAt: '2026-07-20T00:01:00.000Z', classificationSource: 'manual' }
+      ] }
+    }, '2026-07-20T00:01:00.000Z')
+
+    expect(result.organizationRecords).toEqual([
+      expect.objectContaining({
+        aid: 1,
+        targetFolderIds: ['remote-knowledge', 'remote-music'],
+        classificationSource: 'manual'
+      })
     ])
   })
 

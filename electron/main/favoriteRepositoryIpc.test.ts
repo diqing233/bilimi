@@ -752,6 +752,25 @@ describe('registerFavoriteRepositoryIpc', () => {
     })).rejects.toThrow('Favorite library page options are invalid.')
   })
 
+  it('normalizes classification-source filters before forwarding the global library query', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [] })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibraryPage } as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, classificationSources: ['manual', 'deepseek', 'manual']
+    })
+    expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
+      limit: 50, classificationSources: ['deepseek', 'manual']
+    })
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, classificationSources: ['unknown']
+    })).rejects.toThrow('Favorite library page options are invalid.')
+  })
+
   it('publishes changes committed by a main-process sync service without a renderer command', async () => {
     const ipcMain = new FakeIpcMain()
     const send = vi.fn()

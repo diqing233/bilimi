@@ -74,6 +74,25 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(batch.copy).toHaveBeenCalledWith('100', [1, 3], ['bilimi-logical:target'], 4, { kind: 'bilimi-logical' })
   })
 
+  it('keeps classification-source filters on a scope descriptor passed to a copy operation', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = { copy: vi.fn().mockResolvedValue({ status: 'succeeded' }), move: vi.fn(), deleteLocal: vi.fn(), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    const resolveSelection = vi.fn().mockResolvedValue([1])
+    registerFavoriteLibraryOperationsIpc({
+      ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical' })) as never, resolveSelection
+    })
+
+    await ipcMain.invoke('favorite-library-operations:copy', 7, '100', {
+      kind: 'scope', scope: { kind: 'all' }, options: { classificationSources: ['manual', 'deepseek', 'manual'] }, excludedAids: []
+    }, ['bilimi-logical:target'], 4, { kind: 'folder', folderId: 'bilimi-logical:source' })
+
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({
+      options: expect.objectContaining({ classificationSources: ['deepseek', 'manual'] })
+    }))
+  })
+
   it('derives virtual local-delete eligibility from a resolved all-results selection', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }

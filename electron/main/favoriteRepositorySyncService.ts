@@ -523,11 +523,13 @@ export class FavoriteRepositorySyncService {
       .map((shard) => shard.remoteFolderId!))
     const records = plan.operations.filter((operation) => operation.kind === 'append').flatMap((operation) => {
       const targetFolderIds = operation.folderIds.filter((folderId) => !stagingFolderIds.has(folderId))
+      const existing = snapshot.organizationRecords.find((record) => record.aid === operation.aid)
       return targetFolderIds.length ? [{
       accountMid,
       aid: operation.aid,
       targetFolderIds,
-      completedAt: this.now()
+      completedAt: this.now(),
+      ...(existing?.classificationSource ? { classificationSource: existing.classificationSource } : {})
       }] : []
     })
     if (!records.length) return

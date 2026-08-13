@@ -3,6 +3,7 @@ import type {
   AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
+  FavoriteRepositoryClassificationSource,
   FavoriteRepositoryEvent,
   FavoriteRepositoryFolder,
   FavoriteRepositoryOrganizationChange,
@@ -44,6 +45,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
+  classificationSources?: FavoriteRepositoryClassificationSource[]
 }
 type Subscription = { id: string; accountMid: string; folderId?: string }
 type LibraryPageScope =
@@ -123,6 +125,10 @@ export type FavoriteRepositoryLibraryRow = {
     protection: 'protected' | 'unprotected'
     organization: 'organized' | 'unorganized'
   }
+  organization?: {
+    classificationSource?: FavoriteRepositoryClassificationSource
+    completedAt: string
+  }
 }
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
@@ -185,7 +191,7 @@ function pageOptions(value: unknown): FolderPageOptions {
 
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
-  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown }
+  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
   if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
@@ -212,9 +218,16 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
       !['completed', 'none', 'pending', 'running', 'failed'].includes(filter as string)))) {
     throw new Error('Favorite library page options are invalid.')
   }
+  if (candidate.classificationSources !== undefined && (!Array.isArray(candidate.classificationSources) ||
+    candidate.classificationSources.length > 4 || candidate.classificationSources.some((source) =>
+      !['system-high', 'system-low', 'deepseek', 'manual'].includes(source as string)))) {
+    throw new Error('Favorite library page options are invalid.')
+  }
   const query = candidate.query?.trim()
   const transcriptionFilters = candidate.transcriptionFilters === undefined ? undefined :
     [...new Set(candidate.transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort()
+  const classificationSources = candidate.classificationSources === undefined ? undefined :
+    [...new Set(candidate.classificationSources as FavoriteRepositoryClassificationSource[])].sort()
   return {
     ...base,
     ...(candidate.page ? { page: candidate.page as number } : {}),
@@ -223,7 +236,8 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
     ...(candidate.sourceFilter ? { sourceFilter: candidate.sourceFilter as FavoriteRepositoryLibrarySourceFilter } : {}),
     ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}),
     ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
-    ...(transcriptionFilters?.length ? { transcriptionFilters } : {})
+    ...(transcriptionFilters?.length ? { transcriptionFilters } : {}),
+    ...(classificationSources?.length ? { classificationSources } : {})
   }
 }
 

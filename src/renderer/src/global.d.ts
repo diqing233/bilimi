@@ -64,7 +64,7 @@ import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDee
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
   scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
-  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'> }
+  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>; classificationSources?: Array<'system-high' | 'system-low' | 'deepseek' | 'manual'> }
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }

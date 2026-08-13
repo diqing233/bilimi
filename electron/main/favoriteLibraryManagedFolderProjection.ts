@@ -60,6 +60,20 @@ function normalizedLedgerDisplayTitle(title: string) {
   return title.trim().replace(/^bilimi\s*[·.\s_-]*/iu, '').trim().toLocaleLowerCase()
 }
 
+/** A numbered shard is recognized only as an exact configured title plus `·N`. */
+function configuredLedgerShard(title: string, ledgers: FavoriteLedger[]) {
+  const normalizedTitle = normalizedLedgerDisplayTitle(title)
+  for (const ledger of ledgers) {
+    const baseTitle = normalizedLedgerDisplayTitle(ledger.displayName)
+    if (!baseTitle) continue
+    if (normalizedTitle === baseTitle) return { ledger, shardNumber: 1 }
+    const escapedBase = baseTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = normalizedTitle.match(new RegExp(`^${escapedBase}[·.]0*([2-9]\\d*)$`, 'u'))
+    if (match) return { ledger, shardNumber: Number(match[1]) }
+  }
+  return undefined
+}
+
 function remoteIdsForCandidate(candidate: FavoriteLibraryManagedFolderProjection) {
   return candidate.remoteFolderId ? [candidate.remoteFolderId] : candidate.knownRemoteFolderIds ?? []
 }
@@ -144,10 +158,11 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // A configured remote ID can recover the local logical ledger as an
     // explicitly unbound candidate. Title suffixes are ignored only in this
     // ID-directed case; otherwise they are user-authored candidate names.
-    const ledger = configuredById ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
+    const titleShard = configuredLedgerShard(title, input.ledgers)
+    const ledger = configuredById ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
     const logicalTitle = ledger?.displayName.trim() || title
     const logicalLedgerId = ledger?.id ?? stableCustomLedgerId(title)
-    const shardNumber = 1
+    const shardNumber = configuredById ? 1 : titleShard?.shardNumber ?? 1
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     candidates.push({
       logicalLedgerId,

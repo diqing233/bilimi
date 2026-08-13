@@ -71,9 +71,17 @@ describe('local data migration v1', () => {
       physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '900', remoteTitle: 'bilimi·音乐', bindingState: 'bound' as const }]
     }, { generatedAt: '2026-07-24T00:00:00.000Z' })
 
-    expect(() => createMigrationArchiveV1({
+    const archive = createMigrationArchiveV1({
       appVersion: '1.1.0', generatedAt: '2026-07-24T00:00:00.000Z', accounts: { '100': source }
-    })).not.toThrow()
+    })
+    const restored = restorePortableAccountState(parseMigrationArchiveV1(JSON.stringify(archive)).accounts['100'])
+    const recovery = restored.repository.recovery!
+    expect(recovery.physicalShards).toEqual([expect.objectContaining({
+      logicalLedgerId: 'music', shardNumber: 1, remoteFolderId: '900', bindingState: 'pending-reconcile'
+    })])
+    expect(recovery.memberships['bilimi:music:001']).toBeUndefined()
+    expect(recovery.memberships['bilimi-logical:music']).toBeUndefined()
+    expect(recovery.folders.find((folder) => folder.id === 'bilimi-logical:music')).toMatchObject({ syncState: 'pending-reconcile' })
   })
 
   it('rejects conflicting remote identities for the same logical shard during migration merge', () => {

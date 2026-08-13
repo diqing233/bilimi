@@ -136,8 +136,8 @@ describe('Favorite Library workspace components', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'bilimi 工作夹管理菜单' }))
     expect(screen.getByRole('menuitem', { name: '新建工作夹' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '同步全部工作夹' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    expect(screen.getByRole('menuitem', { name: '同步工作夹' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
     expect(onWorkspaceAction).toHaveBeenCalledWith('delete-all')
   })
 

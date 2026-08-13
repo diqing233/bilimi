@@ -112,7 +112,7 @@ export type FavoriteRepositoryArchiveExport = {
   positions?: Array<Pick<FavoriteRepositoryPositionRecord,
     'aid' | 'localDesiredFolderIds' | 'positionState' | 'observedAt' | 'updatedAt' |
     'lifecycleState' | 'sourceAuthority' | 'observationEpoch'>>
-  protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt'>>
+  protections?: Array<Pick<FavoriteRepositoryOrganizationRecord, 'aid' | 'completedAt' | 'classificationSource'>>
   events?: FavoriteRepositoryEvent[]
   archives: Array<{ aid: number; archiveId: string; registeredAt: string; version?: string }>
   /** Account-local recovery data. Bilimi binding identity is portable; remote membership observations stay local. */
@@ -334,7 +334,11 @@ export function createFavoriteRepositoryArchiveExport(
       ...(position.observationEpoch ? { observationEpoch: position.observationEpoch } : {}),
       updatedAt: position.updatedAt
     })),
-    protections: (snapshot.organizationRecords ?? []).map((record) => ({ aid: record.aid, completedAt: record.completedAt })),
+    protections: (snapshot.organizationRecords ?? []).map((record) => ({
+      aid: record.aid,
+      completedAt: record.completedAt,
+      ...(record.classificationSource ? { classificationSource: record.classificationSource } : {})
+    })),
     events: (input.events ?? []).filter((event) => normalizedAccountMid(event.accountMid) === accountMid)
       .map((event) => ({ ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined })),
     archives: (input.archives ?? []).map((archive) => ({ ...archive })),
@@ -389,7 +393,8 @@ export function validateFavoriteRepositoryArchiveExport(value: unknown): Favorit
         typeof folderId === 'string' && /^bilimi-logical:\S+$/.test(folderId.trim()))))) throw new Error('Favorite repository archive is invalid.')
   if (archive.protections !== undefined && (!Array.isArray(archive.protections) || !archive.protections.every((record) =>
     record && typeof record === 'object' && Number.isSafeInteger((record as Record<string, unknown>).aid) && Number((record as Record<string, unknown>).aid) > 0 &&
-    typeof (record as Record<string, unknown>).completedAt === 'string' && !Number.isNaN(Date.parse(String((record as Record<string, unknown>).completedAt)))))) throw new Error('Favorite repository archive is invalid.')
+    typeof (record as Record<string, unknown>).completedAt === 'string' && !Number.isNaN(Date.parse(String((record as Record<string, unknown>).completedAt))) &&
+    ((record as Record<string, unknown>).classificationSource === undefined || isClassificationSource((record as Record<string, unknown>).classificationSource))))) throw new Error('Favorite repository archive is invalid.')
   if (archive.events !== undefined && (!Array.isArray(archive.events) || !archive.events.every((event) =>
     event && typeof event === 'object' && isRepositoryEvent(event as Record<string, unknown>) &&
       (event as Record<string, unknown>).accountMid === archive.accountMid))) throw new Error('Favorite repository archive is invalid.')
@@ -547,7 +552,15 @@ export type FavoriteRepositoryOrganizationRecord = {
   aid: number
   targetFolderIds: string[]
   completedAt: string
+  /** Missing on older records; the latest explicit classification wins. */
+  classificationSource?: FavoriteRepositoryClassificationSource
 }
+
+export type FavoriteRepositoryClassificationSource =
+  | 'system-high'
+  | 'system-low'
+  | 'deepseek'
+  | 'manual'
 
 /** Immutable, account-scoped recovery evidence; it never authorizes a remote write. */
 export type FavoriteRepositoryOrganizationChange = {
@@ -620,6 +633,13 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       type: 'clear-local-repository'
       payload: { preserveTombstones?: boolean }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'clear-organization-records'
+      payload: Record<string, never>
     }
   | {
       id: string
@@ -959,7 +979,12 @@ function isOrganizationRecord(value: unknown) {
   return typeof record.accountMid === 'string' && typeof record.aid === 'number' &&
     Number.isSafeInteger(record.aid) && record.aid > 0 && Array.isArray(record.targetFolderIds) &&
     record.targetFolderIds.every((id) => typeof id === 'string' && Boolean(id.trim())) &&
-    typeof record.completedAt === 'string' && !Number.isNaN(Date.parse(record.completedAt))
+    typeof record.completedAt === 'string' && !Number.isNaN(Date.parse(record.completedAt)) &&
+    (record.classificationSource === undefined || isClassificationSource(record.classificationSource))
+}
+
+function isClassificationSource(value: unknown): value is FavoriteRepositoryClassificationSource {
+  return value === 'system-high' || value === 'system-low' || value === 'deepseek' || value === 'manual'
 }
 
 function isOrganizationChange(value: unknown) {
@@ -1073,7 +1098,7 @@ function isPortableRecoveryOrganizationRecord(value: unknown, accountMid: string
   const record = value as Record<string, unknown>
   return normalizedAccountMid(String(record.accountMid)) === accountMid &&
     record.targetFolderIds.every(isPortableLogicalFolderId) &&
-    Object.keys(record).every((key) => ['accountMid', 'aid', 'targetFolderIds', 'completedAt'].includes(key))
+    Object.keys(record).every((key) => ['accountMid', 'aid', 'targetFolderIds', 'completedAt', 'classificationSource'].includes(key))
 }
 
 function isPortableRecoveryOrganizationChange(value: unknown, accountMid: string) {
@@ -1295,6 +1320,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'clear-local-repository':
       if ((payload.preserveTombstones !== undefined && payload.preserveTombstones !== true) || Object.keys(payload).some((key) => key !== 'preserveTombstones')) invalidCommand()
+      return
+    case 'clear-organization-records':
+      if (Object.keys(payload).length) invalidCommand()
       return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
@@ -1561,9 +1589,14 @@ export function applyFavoriteRepositoryCommand(
           records.set(record.aid, {
             accountMid: snapshot.accountMid,
             aid: record.aid,
-            targetFolderIds: [...new Set([...(existing?.targetFolderIds ?? []), ...record.targetFolderIds]
-              .map((id) => id.trim()).filter(Boolean))].sort(),
-            completedAt: existing?.completedAt ?? normalizedTimestamp(record.completedAt)
+          targetFolderIds: [...new Set([...(existing?.targetFolderIds ?? []), ...record.targetFolderIds]
+            .map((id) => id.trim()).filter(Boolean))].sort(),
+            completedAt: !existing || normalizedTimestamp(record.completedAt) >= existing.completedAt
+              ? normalizedTimestamp(record.completedAt)
+              : existing.completedAt,
+            ...(!existing || normalizedTimestamp(record.completedAt) >= existing.completedAt
+              ? record.classificationSource ? { classificationSource: record.classificationSource } : {}
+              : existing.classificationSource ? { classificationSource: existing.classificationSource } : {})
           })
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
@@ -1695,6 +1728,42 @@ export function applyFavoriteRepositoryCommand(
       workspace = undefined
       break
     }
+    case 'clear-organization-records': {
+      const managedFolderIds = new Set(folders
+        .filter((folder) => folder.kind === 'bilimi-logical')
+        .map((folder) => folder.id))
+      const affected = new Set<number>([
+        ...organizationRecords.map((record) => record.aid),
+        ...Object.values(positions).filter((position) => position.localDesiredFolderIds.some((folderId) => managedFolderIds.has(folderId))).map((position) => position.aid)
+      ])
+      organizationRecords = []
+      organizationBatches = []
+      for (const [key, position] of Object.entries(positions)) {
+        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !managedFolderIds.has(folderId))
+        if (localDesiredFolderIds.length === position.localDesiredFolderIds.length) continue
+        positions[key] = {
+          ...position,
+          localDesiredFolderIds,
+          positionState: 'local-only-change',
+          updatedAt: normalizedAcceptedAt,
+          revision: snapshot.revision + 1
+        }
+      }
+      for (const folderId of managedFolderIds) {
+        memberships = { ...memberships, [folderId]: [] }
+        affectedFolderIds.push(folderId)
+      }
+      const inbox = new Set(memberships['local:inbox'] ?? [])
+      for (const aid of affected) inbox.add(aid)
+      memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
+      if (!folders.some((folder) => folder.id === 'local:inbox')) {
+        folders = [...folders, { id: 'local:inbox', title: 'bilimi路鏆傚瓨', kind: 'local', syncState: 'local-only' }]
+      }
+      affectedFolderIds.push('local:inbox')
+      affectedAids = [...affected]
+      workspace = undefined
+      break
+    }
     case 'set-folder-members':
       affectedFolderIds = [command.payload.folderId.trim()]
       affectedAids = uniquePositiveAids(command.payload.aids).sort((left, right) => left - right)
@@ -1780,7 +1849,12 @@ export function applyFavoriteRepositoryCommand(
           aid: record.aid,
           targetFolderIds: [...new Set([...(existing?.targetFolderIds ?? []), ...record.targetFolderIds]
             .map((id) => id.trim()).filter(Boolean))].sort(),
-          completedAt: existing?.completedAt ?? normalizedTimestamp(record.completedAt)
+          completedAt: !existing || normalizedTimestamp(record.completedAt) >= existing.completedAt
+            ? normalizedTimestamp(record.completedAt)
+            : existing.completedAt,
+          ...(!existing || normalizedTimestamp(record.completedAt) >= existing.completedAt
+            ? record.classificationSource ? { classificationSource: record.classificationSource } : {}
+            : existing.classificationSource ? { classificationSource: existing.classificationSource } : {})
         })
       }
       organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
@@ -2000,6 +2074,10 @@ export function applyFavoriteRepositoryCommand(
         }
         affected.add(position.aid)
       }
+      organizationRecords = organizationRecords.flatMap((record) => {
+        const targetFolderIds = record.targetFolderIds.filter((folderId) => folderId !== logicalFolderId)
+        return targetFolderIds.length ? [{ ...record, targetFolderIds }] : []
+      })
       const remainingLogicalFolderIds = folders
         .filter((folder) => folder.kind === 'bilimi-logical')
         .map((folder) => folder.id)

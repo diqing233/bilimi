@@ -573,8 +573,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '删除全部工作夹' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除工作夹' })
     expect(dialog.closest('.bilimi-modal__viewport')).toBeInTheDocument()
     expect(Array.from(dialog.querySelectorAll('button')).slice(0, 3).map((button) => button.textContent)).toEqual(['取消', '仅从收藏库删除全部', '同步删除 B 站'])
     fireEvent.click(screen.getByRole('button', { name: '同步删除 B 站' }))
@@ -603,7 +603,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
@@ -638,7 +638,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5de5\u4f5c\u5939' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
     expect(dialog).toHaveTextContent('Music')
@@ -671,7 +671,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5168\u90e8\u5de5\u4f5c\u5939' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5de5\u4f5c\u5939' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
     expect(dialog).toHaveTextContent('Ideas')
@@ -704,7 +704,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
     fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
 
@@ -740,7 +740,7 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
     fireEvent.click(await screen.findByRole('button', { name: '同步删除 B 站' }))
     fireEvent.click(screen.getByRole('button', { name: '确认同步删除 B 站' }))
 
@@ -770,7 +770,9 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '同步全部工作夹' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '同步工作夹' }))
+    expect(await screen.findByRole('alertdialog', { name: '同步 bilimi 工作夹' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始同步' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步完成 1 个，跳过 1 个，失败 1 个')
     expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(1, '100', { kind: 'folder', folderId: 'bilimi-logical:inbox' })
@@ -1037,7 +1039,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: '收藏夹来源筛选' }).closest('[data-testid="favorite-library-toolbar"]')).toBeNull()
     const headings = screen.getByTestId('favorite-library-column-headings')
     expect(Array.from(headings.children).map((child) => child.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      '', '视频名称（最近更新）', '状态', '转写（全部）', '来源（全部）'
+      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类（全部）', '来源（全部）'
     ])
     expect(screen.getByText('转写（全部）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
@@ -1071,7 +1073,7 @@ describe('FavoriteLibraryApp', () => {
     const headings = screen.getByTestId('favorite-library-column-headings')
     expect(headings.querySelector('.favorite-library__header-filter-group')).toBeNull()
     expect(Array.from(headings.children).map((child) => child.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      '', '视频名称（最近更新）', '状态', '转写（全部）', '来源（全部）'
+      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类（全部）', '来源（全部）'
     ])
 
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
