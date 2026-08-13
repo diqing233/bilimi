@@ -892,6 +892,32 @@ describe('FavoriteLedgerOverview', () => {
     })))
   })
 
+  it('keeps a rejected recovery shard visible with its binding reason', async () => {
+    const game = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'], bindingState: 'unbound' as const, isDefault: true
+    }
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'game', candidates: [
+        { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
+        { id: '89', title: 'bilimi·游戏专区·2', memberCount: 2 }
+      ] }] })
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'game', candidates: [
+        {
+          id: '89', title: 'bilimi·游戏专区·2', memberCount: 2,
+          bindingFailureReason: '远端收藏夹已不在本次清单中，请刷新 B 站收藏夹后重新确认。'
+        }
+      ] }] })
+    render(<FavoriteLedgerOverview ledgers={[game]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByText('确认绑定 bilimi 收藏夹')
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+
+    expect(await screen.findByText('分册 2：bilimi·游戏专区·2（2 个视频） — 绑定失败：远端收藏夹已不在本次清单中，请刷新 B 站收藏夹后重新确认。')).toBeInTheDocument()
+    expect(screen.queryByText('分册 1：bilimi·游戏专区（1000 个视频）')).not.toBeInTheDocument()
+  })
+
   it('dismisses every physical Bilibili folder behind one recovered draft', () => {
     const onDismiss = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{

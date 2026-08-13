@@ -1593,12 +1593,35 @@ export default function App() {
     }
   }
 
+  function favoriteLedgerBindingFailure(error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error ?? '').trim()
+    if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) {
+      return { reason: '无法读取当前 B 站收藏夹清单，请确认 B 站页面已打开并刷新后重试。', detail }
+    }
+    if (/remote account mismatch/i.test(detail)) {
+      return { reason: '当前 B 站登录账号与待绑定账号不一致，请切换回原账号后重试。', detail }
+    }
+    if (/remote shard is absent from inventory/i.test(detail)) {
+      return { reason: '远端收藏夹已不在本次清单中，请刷新 B 站收藏夹后重新确认。', detail }
+    }
+    if (/remote shard title is invalid/i.test(detail)) {
+      return { reason: '远端收藏夹标题已变化，请刷新后重新确认要绑定的收藏夹。', detail }
+    }
+    if (/remote shard inventory is invalid/i.test(detail)) {
+      return { reason: '远端收藏夹数据异常，请刷新 B 站收藏夹后重试。', detail }
+    }
+    if (/remote shard is already bound|logical shard conflicts/i.test(detail)) {
+      return { reason: '该收藏夹已与其他工作夹或分册绑定，请先核对现有绑定。', detail }
+    }
+    return { reason: '正式绑定未完成，请刷新 B 站收藏夹后重新确认。', detail }
+  }
+
   async function registerNewFavoriteLedgerBindings(
     accountMid: string,
     inputLedgers: FavoriteLedger[],
     resultLedgers: FavoriteLedger[],
     rebindRemoteFolderIds?: Record<string, string>,
-    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string }>>
+    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number }>>
   ) {
     const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
@@ -1611,7 +1634,7 @@ export default function App() {
       return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
     }
     const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
-    const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
+    const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
     for (const ledger of resultLedgers) {
       // A discovered same-name candidate remains explicitly unbound until the
       // owner confirms it in the rebind dialog. Older successful create
@@ -1627,15 +1650,30 @@ export default function App() {
         for (const folder of folders) {
           const shardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
           if (shardNumber === undefined) continue
-          registrations.push({ ledger, remoteFolderId: folder.id.trim(), remoteTitle: folder.title.trim() || ledger.displayName, shardNumber })
+          registrations.push({
+            ledger,
+            remoteFolderId: folder.id.trim(),
+            remoteTitle: folder.title.trim() || ledger.displayName,
+            memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
+            shardNumber
+          })
         }
       }
     }
 
-    const failures: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }> = []
-    for (const { ledger, remoteFolderId, remoteTitle, shardNumber } of registrations) {
+    const failures: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number; bindingFailureReason: string; bindingFailureDetail: string }> }> = []
+    for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
-        failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
+        failures.push({
+          ledgerId: ledger.id,
+          candidates: [{
+            id: remoteFolderId,
+            title: remoteTitle,
+            memberCount,
+            bindingFailureReason: '收藏库绑定服务不可用，请重启应用后重试。',
+            bindingFailureDetail: 'Favorite repository binding service is unavailable.'
+          }]
+        })
         continue
       }
       try {
@@ -1645,8 +1683,18 @@ export default function App() {
           remoteFolderId,
           remoteTitle
         })
-      } catch {
-        failures.push({ ledgerId: ledger.id, candidates: [{ id: remoteFolderId, title: ledger.displayName, memberCount: 0 }] })
+      } catch (error) {
+        const failure = favoriteLedgerBindingFailure(error)
+        failures.push({
+          ledgerId: ledger.id,
+          candidates: [{
+            id: remoteFolderId,
+            title: remoteTitle,
+            memberCount,
+            bindingFailureReason: failure.reason,
+            bindingFailureDetail: failure.detail
+          }]
+        })
       }
     }
     return failures

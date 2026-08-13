@@ -248,7 +248,15 @@ export type FavoriteLedgerStatus = {
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   unboundCandidates?: Array<{
     ledgerId: FavoriteLedgerId
-    candidates: Array<{ id: string; title: string; memberCount: number }>
+    candidates: Array<{
+      id: string
+      title: string
+      memberCount: number
+      /** Safe user-facing explanation when this exact remote shard was rejected. */
+      bindingFailureReason?: string
+      /** Original binding-service error retained for diagnostics. */
+      bindingFailureDetail?: string
+    }>
   }>
   backupConflictLedgerIds?: FavoriteLedgerId[]
   message: string

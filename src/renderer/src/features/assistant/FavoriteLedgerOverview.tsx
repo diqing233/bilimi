@@ -68,7 +68,12 @@ type ManagedDeletionScope = 'local-only' | 'bilibili'
 
 type RebindCandidateEntry = {
   ledgerId: string
-  candidates: Array<{ id: string; title: string; memberCount: number }>
+  candidates: Array<{
+    id: string
+    title: string
+    memberCount: number
+    bindingFailureReason?: string
+  }>
 }
 
 const LEDGER_SYNC_HINTS = [
@@ -616,7 +621,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }
       const result = await onSyncLedgers(currentLedgers, { deleteDisabled: false }) as {
         ok?: boolean
-        unboundCandidates?: Array<{ ledgerId: string; candidates: Array<{ id: string; title: string; memberCount: number }> }>
+        unboundCandidates?: RebindCandidateEntry[]
       } | undefined
       if (result?.unboundCandidates?.length) {
         setRebindCandidates(result.unboundCandidates)
@@ -693,8 +698,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       deleteDisabled: false,
       rebindRemoteFolderIds: rebindSelections,
       rebindRemoteFolders
-    }) as { ok?: boolean; unboundCandidates?: unknown } | undefined
-    if (result?.ok !== false && !result?.unboundCandidates) {
+    }) as { ok?: boolean; unboundCandidates?: RebindCandidateEntry[] } | undefined
+    if (result?.unboundCandidates?.length) {
+      setRebindCandidates(result.unboundCandidates)
+      setRebindSelections(Object.fromEntries(result.unboundCandidates
+        .filter((entry) => entry.candidates.length)
+        .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+      setRebindSelectedFolderIds(Object.fromEntries(result.unboundCandidates
+        .map((entry) => [entry.ledgerId, entry.candidates.map((candidate) => candidate.id)])))
+      return
+    }
+    if (result?.ok !== false) {
       setRebindCandidates(null)
       setRebindSelections({})
       setRebindSelectedFolderIds({})
@@ -886,14 +900,18 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
               }} />
               <span>{logicalTitle}（共 {candidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
             </label>
-            {candidates.length > 1 ? <div className="favorite-ledger-panel__rebind-candidates">
-              {candidates.map((candidate, index) => <label key={candidate.id}><input type="checkbox" checked={selectedIds.includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => {
-                const nextIds = event.currentTarget.checked
-                  ? [...new Set([...selectedIds, candidate.id])]
-                  : selectedIds.filter((id) => id !== candidate.id)
-                setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
-                return { ...current, [entry.ledgerId]: nextIds }
-              })} />分册 {index + 1}：{candidate.title}（{candidate.memberCount} 个视频）</label>)}
+            {candidates.length > 1 || candidates.some((candidate) => candidate.bindingFailureReason) ? <div className="favorite-ledger-panel__rebind-candidates">
+              {candidates.map((candidate, index) => {
+                const shardNumber = rebindShardNumber(candidate.title, logicalTitle)
+                const displayedShardNumber = shardNumber === Number.MAX_SAFE_INTEGER ? index + 1 : shardNumber
+                return <label key={candidate.id}><input type="checkbox" checked={selectedIds.includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => {
+                  const nextIds = event.currentTarget.checked
+                    ? [...new Set([...selectedIds, candidate.id])]
+                    : selectedIds.filter((id) => id !== candidate.id)
+                  setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
+                  return { ...current, [entry.ledgerId]: nextIds }
+                })} />分册 {displayedShardNumber}：{candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>
+              })}
             </div> : null}
           </div>
         })}
