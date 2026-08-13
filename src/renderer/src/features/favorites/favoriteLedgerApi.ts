@@ -136,8 +136,8 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
-    // Both legacy “·02” and current “·2” suffixes denote capacity shards.
-    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*(?:0\\d+|[2-9]\\d*)$/u, '').trim();
+    // Only the current numeric shard suffix denotes a capacity shard.
+    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*([2-9]\\d*)$/u, '').trim();
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);

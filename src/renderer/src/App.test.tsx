@@ -1749,7 +1749,7 @@ describe('App runtime integration', () => {
         rebindRemoteFolderIds: { game: '88' },
         rebindRemoteFolders: { game: [
           { id: '88', title: 'bilimi·游戏专区' },
-          { id: '89', title: 'bilimi·游戏专区·02' }
+          { id: '89', title: 'bilimi·游戏专区·2' }
         ] }
       }
     })).resolves.toMatchObject({
@@ -1761,7 +1761,7 @@ describe('App runtime integration', () => {
       logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·游戏专区'
     }))
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
-      logicalLedgerId: 'game', remoteFolderId: '89', remoteTitle: 'bilimi·游戏专区·02'
+      logicalLedgerId: 'game', remoteFolderId: '89', remoteTitle: 'bilimi·游戏专区·2'
     }))
   })
 

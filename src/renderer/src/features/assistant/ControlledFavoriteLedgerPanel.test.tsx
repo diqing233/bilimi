@@ -64,7 +64,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
-    const dialog = await screen.findByRole('dialog', { name: '重新绑定 bilimi 收藏夹' })
+    const dialog = await screen.findByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })
     expect(within(dialog).getByRole('button', { name: '确认绑定' })).toBeEnabled()
     fireEvent.click(within(dialog).getByRole('button', { name: '确认绑定' }))
 

@@ -78,7 +78,7 @@ function favoriteRepositoryManagedShardTitleForDisplay(
   const displayTitle = remoteDisplayTitle?.trim()
   if (displayTitle) {
     if (shardNumber === 1) return Array.from(displayTitle).slice(0, 20).join('')
-    const suffix = `\u00b7${String(shardNumber).padStart(2, '0')}`
+    const suffix = `\u00b7${String(shardNumber)}`
     return `${Array.from(displayTitle).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('')}${suffix}`
   }
   const ledgerToken = logicalLedgerId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5).padEnd(5, '0')
@@ -471,7 +471,7 @@ export class FavoriteRepositoryBindingService {
         })
         if (normalizedAccountMid(inventory.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
         const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
-        const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*\d{2,}$/u, '').trim()
+        const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*[2-9]\d*$/u, '').trim()
         return ledgers.map((ledger) => ({
           ledgerId: ledger.ledgerId.trim(),
           candidates: inventory.folders

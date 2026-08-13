@@ -630,7 +630,7 @@ describe('favorite ledger API scripts', () => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 88, title: 'bilimi·游戏专区', media_count: 1000 },
-          { id: 89, title: 'bilimi·游戏专区·02', media_count: 6 }
+          { id: 89, title: 'bilimi·游戏专区·2', media_count: 6 }
         ] } })
       }
       throw new Error(`Unexpected request: ${url}`)
@@ -853,10 +853,10 @@ describe('favorite ledger API scripts', () => {
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
   })
 
-  it('stops backup on exact duplicate titles without treating a ·02 volume as a duplicate', async () => {
+  it('stops backup on exact duplicate titles without treating a ·2 volume as a duplicate', async () => {
     installCookies()
     const ledger = createDefaultFavoriteLedgers()[0]
-    const secondVolume = { id: 3, title: `${ledger.displayName}·02` }
+    const secondVolume = { id: 3, title: `${ledger.displayName}·2` }
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [{ id: 1, title: ledger.displayName }, { id: 2, title: ledger.displayName }, secondVolume] } })

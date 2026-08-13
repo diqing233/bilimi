@@ -68,7 +68,7 @@ function configuredLedgerShard(title: string, ledgers: FavoriteLedger[]) {
     if (!baseTitle) continue
     if (normalizedTitle === baseTitle) return { ledger, shardNumber: 1 }
     const escapedBase = baseTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = normalizedTitle.match(new RegExp(`^${escapedBase}[·.]0*([2-9]\\d*)$`, 'u'))
+    const match = normalizedTitle.match(new RegExp(`^${escapedBase}·([2-9]\\d*)$`, 'u'))
     if (match) return { ledger, shardNumber: Number(match[1]) }
   }
   return undefined

@@ -3636,7 +3636,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [
-        { id: 'remote-b', title: 'bilimi·游戏专区·02', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'remote-b', title: 'bilimi·游戏专区·2', itemCount: 1, isBilimiWorkFolder: true },
         { id: 'remote-a', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: true }
       ]
     })

@@ -305,7 +305,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
     await repository.commit('100', {
       id: 'music-pending', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
-      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 2, memberAids: [], remoteTitle: 'bilimi·Music·02', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['remote-music-2'] }
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 2, memberAids: [], remoteTitle: 'bilimi·Music·2', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['remote-music-2'] }
     })
     const deleteFolder = vi.fn()
     const service = new FavoriteRepositorySyncService({

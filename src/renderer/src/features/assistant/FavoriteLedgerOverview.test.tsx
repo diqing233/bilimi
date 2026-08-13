@@ -847,15 +847,15 @@ describe('FavoriteLedgerOverview', () => {
 
     const editor = screen.getByRole('region', { name: '当前收藏夹' })
     expect(editor.querySelector('.favorite-ledger-panel__editor-title')).toHaveTextContent('正在编辑：bilimi·你好')
-    expect(screen.getByTestId('favorite-ledger-chip-custom-remote-hello')).toHaveTextContent('未保存 · 待恢复')
-    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未保存 · 待恢复')
-    expect(screen.getByText((_, element) => element?.textContent === '检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未保存待恢复。请先编辑保存好收藏夹规则，再点击“备册”恢复绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。')).toBeInTheDocument()
+    expect(screen.getByTestId('favorite-ledger-chip-custom-remote-hello')).toHaveTextContent('未保存 · 未绑定')
+    expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未保存 · 未绑定')
+    expect(screen.getByText((_, element) => element?.textContent === '检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未保存未绑定。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。')).toBeInTheDocument()
   })
 
   it('confirms every selected recovery shard in one backup operation', async () => {
     const candidates = [{ ledgerId: 'game', candidates: [
       { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
-      { id: '89', title: 'bilimi·游戏专区·02', memberCount: 6 }
+      { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 }
     ] }]
     const sync = vi.fn()
       .mockResolvedValueOnce({ ok: false, unboundCandidates: candidates })
@@ -868,14 +868,14 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
     expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false })
-    await screen.findByText('重新绑定 bilimi 收藏夹')
+    await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
       rebindRemoteFolderIds: { game: '88' },
       rebindRemoteFolders: { game: [
         { id: '88', title: 'bilimi·游戏专区' },
-        { id: '89', title: 'bilimi·游戏专区·02' }
+        { id: '89', title: 'bilimi·游戏专区·2' }
       ] }
     })))
   })
