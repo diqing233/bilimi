@@ -749,7 +749,11 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-20T00:00:02.000Z')
 
     expect(mirrored.videos['1']).toEqual({
-      aid: 1, title: '扫描标题', author: '原 UP', description: '完整简介', tags: ['音乐'], updatedAt: '2026-07-19T00:00:00.000Z'
+      aid: 1, title: '扫描标题', author: '原 UP', description: '完整简介', tags: ['音乐'], updatedAt: '2026-07-19T00:00:00.000Z',
+      initialSource: {
+        observedAt: '2026-07-20T00:00:02.000Z',
+        folders: [{ folderId: 'bilibili:source', title: '来源', kind: 'ordinary' }]
+      }
     })
   })
 
@@ -887,6 +891,11 @@ describe('account favorite repository contracts', () => {
     const now = '2026-08-11T00:00:00.000Z'
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: 'Music only', tags: [], updatedAt: now },
+        '2': { aid: 2, title: 'Game only', tags: [], updatedAt: now },
+        '3': { aid: 3, title: 'Both folders', tags: [], updatedAt: now }
+      },
       folders: [
         { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
         { id: 'bilimi:music:001', title: 'Music', kind: 'bilibili' as const, logicalLedgerId: 'music', remoteFolderId: '9', syncState: 'bound' as const },
@@ -905,6 +914,51 @@ describe('account favorite repository contracts', () => {
     expect(cleared.memberships['bilibili:9']).toEqual([1])
     expect(cleared.memberships['bilimi-logical:music']).toEqual([])
     expect(cleared.memberships['local:inbox']).toEqual([1])
+  })
+
+  it('clears organization records only for the selected work folders and preserves other organized placements', () => {
+    const now = '2026-08-11T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: 'Music only', tags: [], updatedAt: now },
+        '2': { aid: 2, title: 'Game only', tags: [], updatedAt: now },
+        '3': { aid: 3, title: 'Both folders', tags: [], updatedAt: now }
+      },
+      folders: [
+        { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
+        { id: 'bilimi-logical:game', title: 'Game', kind: 'bilimi-logical' as const, logicalLedgerId: 'game', syncState: 'bound' as const }
+      ],
+      memberships: { 'bilimi-logical:music': [1, 3], 'bilimi-logical:game': [2, 3] },
+      organizationRecords: [
+        { accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: now, classificationSource: 'manual' as const },
+        { accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:game'], completedAt: now, classificationSource: 'deepseek' as const },
+        { accountMid: '100', aid: 3, targetFolderIds: ['bilimi-logical:game', 'bilimi-logical:music'], completedAt: now, classificationSource: 'manual' as const }
+      ],
+      positions: {
+        '100:1': { accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 },
+        '100:2': { accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 },
+        '100:3': { accountMid: '100', aid: 3, localDesiredFolderIds: ['bilimi-logical:game', 'bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change' as const, updatedAt: now, revision: 0 }
+      }
+    }
+
+    const cleared = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'clear-selected-organization-records', accountMid: '100', issuedAt: now, type: 'clear-organization-records',
+      payload: { logicalFolderIds: ['bilimi-logical:music'] }
+    }, now)
+
+    expect(cleared.organizationRecords).toEqual([
+      expect.objectContaining({ aid: 2, targetFolderIds: ['bilimi-logical:game'] }),
+      expect.objectContaining({ aid: 3, targetFolderIds: ['bilimi-logical:game'] })
+    ])
+    expect(cleared.memberships['bilimi-logical:music']).toEqual([])
+    expect(cleared.memberships['bilimi-logical:game']).toEqual([2, 3])
+    expect(cleared.memberships['local:inbox']).toEqual([1])
+    expect(cleared.positions['100:3']).toMatchObject({ localDesiredFolderIds: ['bilimi-logical:game'] })
+    expect(cleared.videos['3']).toMatchObject({
+      lastAdjustment: { kind: 'clear-organization-records', occurredAt: now }
+    })
+    expect(cleared.physicalShards).toEqual(snapshot.physicalShards)
   })
 
   it('keeps the latest classification source when a protected video is organized again', () => {

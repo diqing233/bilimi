@@ -94,6 +94,58 @@ describe('FavoriteRepositoryService', () => {
       .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
   })
 
+  it('preserves the first observed source while recording later local adjustments and filtering by original source', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-13T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteFolderId: 'managed-game' }
+    })
+    await service.commit('100', {
+      id: 'first-source-scan', accountMid: '100', issuedAt: '2026-08-13T01:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'scan-1',
+        folders: [
+          { id: 'bilibili:ordinary', title: '普通收藏', remoteFolderId: 'ordinary' },
+          { id: 'bilibili:managed-game', title: 'bilimi·游戏', remoteFolderId: 'managed-game' }
+        ],
+        memberAidsByFolderId: { 'bilibili:ordinary': [1], 'bilibili:managed-game': [2] },
+        videos: [
+          { aid: 1, title: 'Ordinary origin', tags: [], updatedAt: '2026-08-13T01:00:00.000Z' },
+          { aid: 2, title: 'Managed origin', tags: [], updatedAt: '2026-08-13T01:00:00.000Z' }
+        ]
+      }
+    })
+    await service.commit('100', {
+      id: 'move-after-scan', accountMid: '100', issuedAt: '2026-08-13T02:00:00.000Z', type: 'set-favorite-placements',
+      payload: {
+        adjustmentKind: 'local-move',
+        placements: [{ aid: 1, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['ordinary'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-13T02:00:00.000Z' }]
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc', initialSourceFilter: 'initial-ordinary'
+    })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: {
+        aid: 1,
+        initialSource: { observedAt: '2026-08-13T01:00:00.000Z', folders: [{ folderId: 'bilibili:ordinary', title: '普通收藏', kind: 'ordinary' }] },
+        lastAdjustment: { kind: 'local-move', occurredAt: '2026-08-13T02:00:00.000Z' }
+      } }]
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc', initialSourceFilter: 'initial-bilimi'
+    })).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2, initialSource: { folders: [{ kind: 'bilimi' }] } } }] })
+
+    await expect(new FavoriteRepositoryService({ root }).getLibraryDetail('100', 1)).resolves.toMatchObject({
+      video: {
+        initialSource: { folders: [{ folderId: 'bilibili:ordinary', kind: 'ordinary' }] },
+        lastAdjustment: { kind: 'local-move', occurredAt: '2026-08-13T02:00:00.000Z' }
+      }
+    })
+  })
+
   it('projects persisted classification provenance to library rows and details and filters it before pagination', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })

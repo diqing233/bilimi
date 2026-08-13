@@ -13,6 +13,7 @@ import type {
 import type {
   FavoriteRepositoryLibraryDetail,
   FavoriteRepositoryLibraryFilter,
+  FavoriteRepositoryLibraryInitialSourceFilter,
   FavoriteRepositoryLibrarySourceFilter,
   FavoriteRepositoryLibraryStateFilters,
   FavoriteRepositoryLibrarySort,
@@ -42,6 +43,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
   sourceFilter?: FavoriteRepositoryLibrarySourceFilter
+  initialSourceFilter?: FavoriteRepositoryLibraryInitialSourceFilter
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
@@ -191,13 +193,16 @@ function pageOptions(value: unknown): FolderPageOptions {
 
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
-  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
+  const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; initialSourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
   if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
     throw new Error('Favorite library page options are invalid.')
   }
   if (candidate.sourceFilter !== undefined && !['with-other', 'bilimi-only'].includes(candidate.sourceFilter as string)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
+  if (candidate.initialSourceFilter !== undefined && !['initial-ordinary', 'initial-bilimi'].includes(candidate.initialSourceFilter as string)) {
     throw new Error('Favorite library page options are invalid.')
   }
   if (candidate.stateFilters !== undefined && (!candidate.stateFilters || typeof candidate.stateFilters !== 'object' || Array.isArray(candidate.stateFilters))) {
@@ -234,6 +239,7 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
     ...(query ? { query } : {}),
     ...(candidate.filter ? { filter: candidate.filter as FavoriteRepositoryLibraryFilter } : {}),
     ...(candidate.sourceFilter ? { sourceFilter: candidate.sourceFilter as FavoriteRepositoryLibrarySourceFilter } : {}),
+    ...(candidate.initialSourceFilter ? { initialSourceFilter: candidate.initialSourceFilter as FavoriteRepositoryLibraryInitialSourceFilter } : {}),
     ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}),
     ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
     ...(transcriptionFilters?.length ? { transcriptionFilters } : {}),

@@ -37,7 +37,7 @@ function normalizeAccountMid(value: string) {
   return /^\d+$/.test(value.trim()) && BigInt(value.trim()) > 0n ? BigInt(value.trim()).toString() : ''
 }
 
-function isBilimiWorkFolder(title: string) {
+function isBilimiWorkFolderCandidate(title: string) {
   return /^bilimi(?:[^\\p{L}\\p{N}]|$)/iu.test(title.trim())
 }
 
@@ -89,6 +89,8 @@ export class OldFavoriteWorkspaceScanService {
   constructor(private readonly options: {
     coordinator: OldFavoriteWorkspaceCoordinator & {
       recordTagEnrichmentFailure?: (accountMid: string, aid: number, reason: string, expectedWorkspaceId?: string) => Promise<boolean>
+      /** A name is only a recovery candidate; bound IDs are scan authority. */
+      getFormallyBoundRemoteFolderIds?: (accountMid: string) => Promise<ReadonlySet<string>>
     }
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
@@ -391,23 +393,26 @@ export class OldFavoriteWorkspaceScanService {
         await this.options.coordinator.recordScanFailure(accountMid, 'inventory-account-mismatch', runId)
         return
       }
+      const formallyBoundRemoteFolderIds = await this.options.coordinator.getFormallyBoundRemoteFolderIds?.(accountMid)
+      const managedFolderIds = new Set(formallyBoundRemoteFolderIds ?? [])
       runtimeStage = 'record-inventory'
       await this.options.coordinator.recordScanInventory(accountMid, {
         sourceFolders: inventory.folders.map((folder) => ({
           id: folder.id,
           title: folder.title,
           itemCount: folder.mediaCount,
-          isBilimiWorkFolder: isBilimiWorkFolder(folder.title)
+          isBilimiWorkFolder: managedFolderIds.has(folder.id),
+          ...(isBilimiWorkFolderCandidate(folder.title) ? { isBilimiWorkFolderCandidate: true } : {})
         }))
       }, runId)
       if (recoveryProbe) {
         await this.waitForRecoveryStabilization()
         if (!isCurrent()) return
       }
-      const managedFolderIds = inventory.folders.filter((folder) => isBilimiWorkFolder(folder.title)).map((folder) => folder.id)
+      const managedFolderIdList = inventory.folders.filter((folder) => managedFolderIds.has(folder.id)).map((folder) => folder.id)
       const declaredMediaCounts = new Map(inventory.folders.map((folder) => [folder.id, folder.mediaCount]))
-      for (let offset = 0; offset < managedFolderIds.length; offset += 10) {
-        const folderIds = managedFolderIds.slice(offset, offset + 10)
+      for (let offset = 0; offset < managedFolderIdList.length; offset += 10) {
+        const folderIds = managedFolderIdList.slice(offset, offset + 10)
         runtimeStage = 'read-managed-members'
         let managedRead = await this.requestWithTargetRetry(accountMid, target, (nextTarget) => ({
           type: 'old-favorite-workspace-read-managed-members', accountMid, target: nextTarget, folderIds
@@ -453,7 +458,7 @@ export class OldFavoriteWorkspaceScanService {
       let requestedSourcePageCount = 0
       const sourcePageBatchSize = Math.max(1, Math.floor(this.options.sourcePageBatchSize ?? Number.MAX_SAFE_INTEGER))
       for (const folder of inventory.folders) {
-        if (isBilimiWorkFolder(folder.title)) continue
+        if (managedFolderIds.has(folder.id)) continue
         let page = 1
         let hasMore = true
         while (hasMore) {

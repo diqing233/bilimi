@@ -129,7 +129,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
       recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
-      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([]),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set())
     }
     const runtime = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
@@ -149,6 +150,51 @@ describe('OldFavoriteWorkspaceScanService', () => {
       items: [expect.objectContaining({ aid: 42, unavailable: true })]
     }), 'scan-run-1')
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' }))
+  })
+
+  it('treats an unbound bilimi-named folder as a scan source instead of a protected work folder', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
+      recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([]),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set())
+    }
+    const runtime = vi.fn((request: { type: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          folders: [{ id: 'ordinary-same-name', title: 'bilimi·游戏专区', mediaCount: 1 }]
+        })
+      }
+      return Promise.resolve({
+        status: 'ok' as const, observedAccountMid: '100', hasMore: false,
+        items: [{ aid: 7, title: 'Video', upperName: 'UP', cover: '', addedAt: 0 }]
+      })
+    })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+
+    expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
+      sourceFolders: [{
+        id: 'ordinary-same-name', title: 'bilimi·游戏专区', itemCount: 1,
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true
+      }]
+    }, 'scan-run-1')
+    expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', folderId: 'ordinary-same-name'
+    }))
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-managed-members'
+    }))
   })
 
   it('quiesces an active inventory request before destructive maintenance and rejects new scans', async () => {
@@ -265,7 +311,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       recordScanInventory: vi.fn(),
       recordManagedMembers: vi.fn().mockRejectedValue(new Error('managed member storage interrupted')),
-      recordScanFailure: vi.fn()
+      recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
     }
     const runtime = vi.fn((request: { type: string }) => {
       if (request.type === 'old-favorite-workspace-bind-scan-target') {
@@ -364,7 +411,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
       recordScanInventory: vi.fn(),
-      recordScanFailure: vi.fn()
+      recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['bilimi']))
     }
     const runtime = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target: { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 } })
@@ -719,7 +767,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
   it('reads Bilimi work-folder members in batches before ordinary source pages', async () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn()
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -771,7 +820,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn()
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -801,7 +851,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn()
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -830,7 +881,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn()
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn(),
+      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()

@@ -145,7 +145,10 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     await service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken))
 
     expect(current.tombstones['100:1']).toMatchObject({ aid: 1, allowRediscovery: true, kind: 'recycled' })
-    expect(current.videos['1']).toEqual(originalVideo)
+    expect(current.videos['1']).toEqual({
+      ...originalVideo,
+      lastAdjustment: { kind: 'managed-placement-remove', occurredAt: '2026-07-24T01:00:00.000Z' }
+    })
     expect(current.libraryMirrors['1']).toEqual(originalMirror)
     expect(current.organizationRecords[0]).toEqual(originalOrganization)
   })
@@ -588,7 +591,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
 
     expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'set-favorite-placements',
-      payload: { placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })] }
+      payload: { adjustmentKind: 'local-move', placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })] }
     }), expect.any(Array))
   })
 })

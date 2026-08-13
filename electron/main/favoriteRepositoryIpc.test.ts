@@ -713,7 +713,7 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(service.getLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'recycle' }, { limit: 10 })
   })
 
-  it('forwards validated global library page, query, filter, and sort options to the main repository reader', async () => {
+  it('forwards validated current and original source filters to the main repository reader', async () => {
     const ipcMain = new FakeIpcMain()
     const getLibraryPage = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 4, items: [] })
     registerFavoriteRepositoryIpc({
@@ -722,11 +722,11 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
 
     await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
-      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
+      limit: 50, page: 3, query: '  later page  ', filter: 'unsynced', sourceFilter: 'with-other', initialSourceFilter: 'initial-ordinary', sort: 'title-asc'
     })
 
     expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
-      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sourceFilter: 'with-other', sort: 'title-asc'
+      limit: 50, page: 3, query: 'later page', filter: 'unsynced', sourceFilter: 'with-other', initialSourceFilter: 'initial-ordinary', sort: 'title-asc'
     })
   })
 
@@ -749,6 +749,9 @@ describe('registerFavoriteRepositoryIpc', () => {
     })).rejects.toThrow('Favorite library page options are invalid.')
     await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
       limit: 50, sourceFilter: 'unknown'
+    })).rejects.toThrow('Favorite library page options are invalid.')
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, initialSourceFilter: 'unknown'
     })).rejects.toThrow('Favorite library page options are invalid.')
   })
 

@@ -102,6 +102,25 @@ describe('FavoriteLibraryNavigation contract', () => {
     expect(firstAction).not.toHaveBeenCalled()
   })
 
+  it('offers each work folder a scoped local organization-record clear action', () => {
+    const label = chinese(0x5de5, 0x4f5c, 0x5939)
+    const clearRecords = chinese(0x6e05, 0x7a7a, 0x6536, 0x85cf, 0x5e93, 0x6574, 0x7406, 0x8bb0, 0x5f55)
+    const onManagedFolderAction = vi.fn()
+    render(<FavoriteLibraryNavigation
+      groups={[{ id: 'workspace', label: `bilimi ${label}`, items: [{ id: 'folder:managed', label, count: 1, managed: true }] }]}
+      collapsedGroups={{}}
+      selectedId="folder:managed"
+      onCollapseChange={vi.fn()}
+      onSelect={vi.fn()}
+      onManagedFolderAction={onManagedFolderAction}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: `${label} ${chinese(0x83dc, 0x5355)}` }))
+    fireEvent.click(screen.getByRole('menuitem', { name: clearRecords }))
+
+    expect(onManagedFolderAction).toHaveBeenCalledWith('folder:managed', 'clear-records')
+  })
+
   it('keeps all favorites fixed and makes only folder groups collapsible', () => {
     const range = chinese(0x6536, 0x85cf, 0x8303, 0x56f4)
     const workspace = `bilimi ${chinese(0x5de5, 0x4f5c, 0x5939)}`

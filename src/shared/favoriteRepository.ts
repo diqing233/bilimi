@@ -36,6 +36,35 @@ export type FavoriteRepositoryVideo = {
   scannedAt?: string
   coverUrl?: string
   updatedAt: string
+  /** First Bilibili source observed by bilimi. Older records intentionally have no inferred history. */
+  initialSource?: FavoriteRepositoryInitialSource
+  /** Latest explicit local organization adjustment. It never describes current membership. */
+  lastAdjustment?: FavoriteRepositoryLastAdjustment
+}
+
+export type FavoriteRepositoryInitialSourceFolder = {
+  folderId: string
+  title: string
+  kind: 'ordinary' | 'bilimi'
+}
+
+export type FavoriteRepositoryInitialSource = {
+  observedAt: string
+  folders: FavoriteRepositoryInitialSourceFolder[]
+}
+
+export type FavoriteRepositoryAdjustmentKind =
+  | FavoriteRepositoryClassificationSource
+  | 'local-copy'
+  | 'local-move'
+  | 'adopt-remote'
+  | 'managed-placement-remove'
+  | 'managed-folder-delete'
+  | 'clear-organization-records'
+
+export type FavoriteRepositoryLastAdjustment = {
+  kind: FavoriteRepositoryAdjustmentKind
+  occurredAt: string
 }
 
 export type FavoriteRepositoryPositionState =
@@ -202,6 +231,8 @@ export function mergeFavoriteRepositoryVideo(existing: FavoriteRepositoryVideo |
     ...(existing.author && !incoming.author ? { author: existing.author } : {}),
     ...(existing.description && !incoming.description ? { description: existing.description } : {}),
     ...(existing.coverUrl && !incoming.coverUrl ? { coverUrl: existing.coverUrl } : {}),
+    ...(existing.initialSource ? { initialSource: existing.initialSource } : incoming.initialSource ? { initialSource: incoming.initialSource } : {}),
+    ...(incoming.lastAdjustment ?? existing.lastAdjustment ? { lastAdjustment: incoming.lastAdjustment ?? existing.lastAdjustment } : {}),
     tags: incoming.tags.length ? [...incoming.tags] : [...existing.tags],
     ...(incoming.tagEvidence ?? existing.tagEvidence ? { tagEvidence: incoming.tagEvidence ?? existing.tagEvidence } : {}),
     updatedAt: existing.updatedAt
@@ -639,7 +670,8 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       type: 'clear-organization-records'
-      payload: Record<string, never>
+      /** Omitted preserves the legacy behavior of clearing every managed work folder. */
+      payload: { logicalFolderIds?: string[] }
     }
   | {
       id: string
@@ -825,6 +857,14 @@ export type FavoriteRepositoryCommand =
       expectedRevision?: number
       type: 'delete-local-managed-folder'
       payload: { logicalFolderId: string }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
+      type: 'delete-local-managed-folders'
+      payload: { logicalFolderIds: string[] }
     }
   | {
       id: string
@@ -1138,7 +1178,31 @@ function isRepositoryVideo(value: unknown) {
     (video.tagEvidence === undefined || video.tagEvidence === 'confirmed') &&
     typeof video.updatedAt === 'string' &&
     (video.author === undefined || typeof video.author === 'string') &&
-    (video.description === undefined || typeof video.description === 'string')
+    (video.description === undefined || typeof video.description === 'string') &&
+    (video.initialSource === undefined || isInitialSource(video.initialSource)) &&
+    (video.lastAdjustment === undefined || isLastAdjustment(video.lastAdjustment))
+}
+
+function isInitialSource(value: unknown): value is FavoriteRepositoryInitialSource {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const source = value as Record<string, unknown>
+  return typeof source.observedAt === 'string' && !Number.isNaN(Date.parse(source.observedAt)) &&
+    Array.isArray(source.folders) && source.folders.length > 0 && source.folders.every((folder) =>
+      folder && typeof folder === 'object' && !Array.isArray(folder) &&
+      typeof (folder as Record<string, unknown>).folderId === 'string' && !!String((folder as Record<string, unknown>).folderId).trim() &&
+      typeof (folder as Record<string, unknown>).title === 'string' && !!String((folder as Record<string, unknown>).title).trim() &&
+      ((folder as Record<string, unknown>).kind === 'ordinary' || (folder as Record<string, unknown>).kind === 'bilimi'))
+}
+
+function isAdjustmentKind(value: unknown): value is FavoriteRepositoryAdjustmentKind {
+  return isClassificationSource(value) || value === 'local-copy' || value === 'local-move' || value === 'adopt-remote' ||
+    value === 'managed-placement-remove' || value === 'managed-folder-delete' || value === 'clear-organization-records'
+}
+
+function isLastAdjustment(value: unknown): value is FavoriteRepositoryLastAdjustment {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const adjustment = value as Record<string, unknown>
+  return isAdjustmentKind(adjustment.kind) && typeof adjustment.occurredAt === 'string' && !Number.isNaN(Date.parse(adjustment.occurredAt))
 }
 
 function isLocalPlanFolder(value: unknown) {
@@ -1222,15 +1286,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       if (payload.replaceManagedAids !== undefined && (!isValidAidList(payload.replaceManagedAids) ||
         new Set(payload.replaceManagedAids).size !== payload.replaceManagedAids.length)) invalidCommand()
       if (payload.folders !== undefined && (!Array.isArray(payload.folders) || !payload.folders.every(isLocalPlanFolder))) invalidCommand()
-      if (payload.videos !== undefined && (!Array.isArray(payload.videos) || payload.videos.some((video) =>
-        !video || typeof video !== 'object' || Array.isArray(video) ||
-        !Number.isSafeInteger((video as Record<string, unknown>).aid) || Number((video as Record<string, unknown>).aid) <= 0 ||
-        typeof (video as Record<string, unknown>).title !== 'string' ||
-        !Array.isArray((video as Record<string, unknown>).tags) ||
-        !((video as Record<string, unknown>).tags as unknown[]).every((tag) => typeof tag === 'string') ||
-        typeof (video as Record<string, unknown>).updatedAt !== 'string' ||
-        ((video as Record<string, unknown>).author !== undefined && typeof (video as Record<string, unknown>).author !== 'string') ||
-        ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string')))) invalidCommand()
+      if (payload.videos !== undefined && (!Array.isArray(payload.videos) || !payload.videos.every(isRepositoryVideo))) invalidCommand()
       if (payload.organizationRecords !== undefined && (!Array.isArray(payload.organizationRecords) ||
         !payload.organizationRecords.every(isOrganizationRecord))) invalidCommand()
       if (payload.placements !== undefined && (!Array.isArray(payload.placements) ||
@@ -1247,10 +1303,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     }
     case 'upsert-video':
-      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 || typeof payload.title !== 'string' ||
-        !Array.isArray(payload.tags) || !payload.tags.every((tag) => typeof tag === 'string') || typeof payload.updatedAt !== 'string' ||
-        (payload.author !== undefined && typeof payload.author !== 'string') ||
-        (payload.description !== undefined && typeof payload.description !== 'string')) invalidCommand()
+      if (!isRepositoryVideo(payload)) invalidCommand()
       return
     case 'record-library-mirror':
       if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 ||
@@ -1322,7 +1375,11 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       if ((payload.preserveTombstones !== undefined && payload.preserveTombstones !== true) || Object.keys(payload).some((key) => key !== 'preserveTombstones')) invalidCommand()
       return
     case 'clear-organization-records':
-      if (Object.keys(payload).length) invalidCommand()
+      if (Object.keys(payload).some((key) => key !== 'logicalFolderIds') ||
+        (payload.logicalFolderIds !== undefined && (!Array.isArray(payload.logicalFolderIds) ||
+          !payload.logicalFolderIds.length || payload.logicalFolderIds.some((folderId) =>
+            typeof folderId !== 'string' || !/^bilimi-logical:\S+$/.test(folderId)) ||
+          new Set(payload.logicalFolderIds).size !== payload.logicalFolderIds.length))) invalidCommand()
       return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
@@ -1347,10 +1404,10 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'set-favorite-position':
     case 'set-favorite-placement':
-      if (!isPositionPayload(payload)) invalidCommand()
+      if (!isPositionPayload(payload) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind))) invalidCommand()
       return
     case 'set-favorite-placements':
-      if (!isPlacementList(payload.placements)) invalidCommand()
+      if (!isPlacementList(payload.placements) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind))) invalidCommand()
       return
     case 'reconcile-scan-lifecycle':
       if (typeof payload.observationEpoch !== 'string' || !payload.observationEpoch.trim() ||
@@ -1389,6 +1446,11 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'delete-local-managed-folder':
       if (typeof payload.logicalFolderId !== 'string' || !/^bilimi-logical:\S+$/.test(payload.logicalFolderId.trim())) invalidCommand()
+      return
+    case 'delete-local-managed-folders':
+      if (!Array.isArray(payload.logicalFolderIds) || !payload.logicalFolderIds.length ||
+        payload.logicalFolderIds.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/.test(folderId.trim())) ||
+        new Set(payload.logicalFolderIds).size !== payload.logicalFolderIds.length) invalidCommand()
       return
     case 'clear-local-inbox':
       if (Object.keys(payload).length) invalidCommand()
@@ -1496,6 +1558,17 @@ export function applyFavoriteRepositoryCommand(
     affectedFolderIds.push('local:inbox')
     affectedAids.push(payload.aid)
   }
+  const recordLastAdjustment = (aids: Iterable<number>, kind: FavoriteRepositoryAdjustmentKind, occurredAt: string) => {
+    const normalizedOccurredAt = normalizedTimestamp(occurredAt)
+    for (const aid of uniquePositiveAids([...aids])) {
+      const video = videos[String(aid)]
+      if (!video) continue
+      videos[String(aid)] = {
+        ...video,
+        lastAdjustment: { kind, occurredAt: normalizedOccurredAt }
+      }
+    }
+  }
   const applyPhysicalShardBinding = (payload: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>['payload']) => {
     const logicalLedgerId = payload.logicalLedgerId.trim()
     const logicalTitle = payload.logicalTitle.trim()
@@ -1600,6 +1673,9 @@ export function applyFavoriteRepositoryCommand(
           })
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+        for (const record of command.payload.organizationRecords) {
+          recordLastAdjustment([record.aid], record.classificationSource ?? 'manual', record.completedAt)
+        }
       }
       for (const placement of command.payload.placements ?? []) applyPlacement(placement)
       removeFromLocalInbox([
@@ -1682,6 +1758,30 @@ export function applyFavoriteRepositoryCommand(
         const existing = videos[String(video.aid)]
         videos[String(video.aid)] = mergeFavoriteRepositoryVideo(existing, video)
       }
+      const boundRemoteFolderIds = new Set(physicalShards
+        .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+        .map((shard) => shard.remoteFolderId!))
+      const sourceFoldersByAid = new Map<number, FavoriteRepositoryInitialSourceFolder[]>()
+      for (const folder of mirrorFolders) {
+        const kind = boundRemoteFolderIds.has(folder.remoteFolderId) ? 'bilimi' as const : 'ordinary' as const
+        for (const aid of membersByFolderId.get(folder.id) ?? []) {
+          const sources = sourceFoldersByAid.get(aid) ?? []
+          sources.push({ folderId: folder.id, title: folder.title, kind })
+          sourceFoldersByAid.set(aid, sources)
+        }
+      }
+      for (const [aid, sourceFolders] of sourceFoldersByAid) {
+        const video = videos[String(aid)]
+        if (!video || video.initialSource) continue
+        videos[String(aid)] = {
+          ...video,
+          initialSource: {
+            observedAt: normalizedTimestamp(command.issuedAt),
+            folders: Array.from(new Map(sourceFolders.map((folder) => [folder.folderId, folder])).values())
+              .sort((left, right) => left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title) || left.folderId.localeCompare(right.folderId))
+          }
+        }
+      }
       for (const aid of mirroredAids) {
         const existing = libraryMirrors[String(aid)]
         libraryMirrors[String(aid)] = {
@@ -1729,15 +1829,29 @@ export function applyFavoriteRepositoryCommand(
       break
     }
     case 'clear-organization-records': {
-      const managedFolderIds = new Set(folders
+      const availableManagedFolderIds = new Set(folders
         .filter((folder) => folder.kind === 'bilimi-logical')
         .map((folder) => folder.id))
-      const affected = new Set<number>([
-        ...organizationRecords.map((record) => record.aid),
-        ...Object.values(positions).filter((position) => position.localDesiredFolderIds.some((folderId) => managedFolderIds.has(folderId))).map((position) => position.aid)
+      const managedFolderIds = new Set(command.payload.logicalFolderIds ?? availableManagedFolderIds)
+      if ([...managedFolderIds].some((folderId) => !availableManagedFolderIds.has(folderId))) {
+        throw new Error('Favorite repository managed folder was not found.')
+      }
+      // Keep the history of every removed target. Only videos without a remaining
+      // managed placement go back to the local inbox.
+      const changedAids = new Set<number>([
+        ...[...managedFolderIds].flatMap((folderId) => memberships[folderId] ?? []),
+        ...organizationRecords
+          .filter((record) => record.targetFolderIds.some((folderId) => managedFolderIds.has(folderId)))
+          .map((record) => record.aid),
+        ...Object.values(positions)
+          .filter((position) => position.localDesiredFolderIds.some((folderId) => managedFolderIds.has(folderId)))
+          .map((position) => position.aid)
       ])
-      organizationRecords = []
-      organizationBatches = []
+      organizationRecords = organizationRecords.flatMap((record) => {
+        const targetFolderIds = record.targetFolderIds.filter((folderId) => !managedFolderIds.has(folderId))
+        return targetFolderIds.length ? [{ ...record, targetFolderIds }] : []
+      })
+      organizationBatches = organizationBatches.filter((change) => !change.afterFolderIds.some((folderId) => managedFolderIds.has(folderId)))
       for (const [key, position] of Object.entries(positions)) {
         const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !managedFolderIds.has(folderId))
         if (localDesiredFolderIds.length === position.localDesiredFolderIds.length) continue
@@ -1754,13 +1868,20 @@ export function applyFavoriteRepositoryCommand(
         affectedFolderIds.push(folderId)
       }
       const inbox = new Set(memberships['local:inbox'] ?? [])
-      for (const aid of affected) inbox.add(aid)
+      for (const aid of changedAids) {
+        const position = positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]
+        const hasRemainingManagedPlacement = position
+          ? position.localDesiredFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:'))
+          : [...availableManagedFolderIds].some((folderId) => !managedFolderIds.has(folderId) && memberships[folderId]?.includes(aid))
+        if (!hasRemainingManagedPlacement) inbox.add(aid)
+      }
       memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
       if (!folders.some((folder) => folder.id === 'local:inbox')) {
         folders = [...folders, { id: 'local:inbox', title: 'bilimi路鏆傚瓨', kind: 'local', syncState: 'local-only' }]
       }
       affectedFolderIds.push('local:inbox')
-      affectedAids = [...affected]
+      affectedAids = [...changedAids]
+      recordLastAdjustment(changedAids, 'clear-organization-records', command.issuedAt)
       workspace = undefined
       break
     }
@@ -1858,6 +1979,9 @@ export function applyFavoriteRepositoryCommand(
         })
       }
       organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+      for (const record of command.payload.records) {
+        recordLastAdjustment([record.aid], record.classificationSource ?? 'manual', record.completedAt)
+      }
       removeFromLocalInbox(command.payload.records.map((record) => record.aid))
       organizationMigrationInitialized = organizationMigrationInitialized || command.payload.markMigrationInitialized === true
       affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
@@ -1917,10 +2041,12 @@ export function applyFavoriteRepositoryCommand(
     case 'set-favorite-position':
     case 'set-favorite-placement': {
       applyPlacement(command.payload)
+      if (command.payload.adjustmentKind) recordLastAdjustment([command.payload.aid], command.payload.adjustmentKind, command.issuedAt)
       break
     }
     case 'set-favorite-placements': {
       for (const placement of command.payload.placements) applyPlacement(placement)
+      if (command.payload.adjustmentKind) recordLastAdjustment(command.payload.placements.map((placement) => placement.aid), command.payload.adjustmentKind, command.issuedAt)
       break
     }
     case 'reconcile-scan-lifecycle': {
@@ -2051,22 +2177,29 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = selected
       break
     }
-    case 'delete-local-managed-folder': {
-      const logicalFolderId = command.payload.logicalFolderId.trim()
-      const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
-      if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
-      const deletingInbox = logicalFolder.logicalLedgerId === 'inbox'
-      const removedShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalFolder.logicalLedgerId)
-      const removedFolderIds = new Set([logicalFolderId, ...removedShards.map((shard) => shard.folderId)])
+    case 'delete-local-managed-folder':
+    case 'delete-local-managed-folders': {
+      const logicalFolderIds = command.type === 'delete-local-managed-folder'
+        ? [command.payload.logicalFolderId.trim()]
+        : [...new Set(command.payload.logicalFolderIds.map((folderId) => folderId.trim()))].sort()
+      const logicalFolders = logicalFolderIds.map((logicalFolderId) => {
+        const logicalFolder = folders.find((folder) => folder.id === logicalFolderId && folder.kind === 'bilimi-logical')
+        if (!logicalFolder?.logicalLedgerId) throw new Error('Favorite repository managed folder was not found.')
+        return logicalFolder
+      })
+      const deletingInbox = logicalFolders.some((logicalFolder) => logicalFolder.logicalLedgerId === 'inbox')
+      const logicalLedgerIds = new Set(logicalFolders.map((logicalFolder) => logicalFolder.logicalLedgerId!))
+      const removedShards = physicalShards.filter((shard) => logicalLedgerIds.has(shard.logicalLedgerId))
+      const removedFolderIds = new Set([...logicalFolderIds, ...removedShards.map((shard) => shard.folderId)])
       const affected = new Set<number>()
       for (const folderId of removedFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
       if (deletingInbox) for (const aid of memberships['local:inbox'] ?? []) affected.add(aid)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
-      physicalShards = physicalShards.filter((shard) => shard.logicalLedgerId !== logicalFolder.logicalLedgerId)
+      physicalShards = physicalShards.filter((shard) => !logicalLedgerIds.has(shard.logicalLedgerId))
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
-        if (!position.localDesiredFolderIds.includes(logicalFolderId)) continue
-        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => folderId !== logicalFolderId)
+        if (!position.localDesiredFolderIds.some((folderId) => removedFolderIds.has(folderId))) continue
+        const localDesiredFolderIds = position.localDesiredFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
         positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, position.aid)] = {
           ...position,
           localDesiredFolderIds,
@@ -2075,7 +2208,7 @@ export function applyFavoriteRepositoryCommand(
         affected.add(position.aid)
       }
       organizationRecords = organizationRecords.flatMap((record) => {
-        const targetFolderIds = record.targetFolderIds.filter((folderId) => folderId !== logicalFolderId)
+        const targetFolderIds = record.targetFolderIds.filter((folderId) => !removedFolderIds.has(folderId))
         return targetFolderIds.length ? [{ ...record, targetFolderIds }] : []
       })
       const remainingLogicalFolderIds = folders
@@ -2096,6 +2229,7 @@ export function applyFavoriteRepositoryCommand(
       memberships = { ...memberships, 'local:inbox': [...inbox].sort((left, right) => left - right) }
       affectedFolderIds = [...removedFolderIds, 'local:inbox']
       affectedAids = [...affected]
+      recordLastAdjustment(affected, 'managed-folder-delete', command.issuedAt)
       break
     }
     case 'clear-local-inbox': {

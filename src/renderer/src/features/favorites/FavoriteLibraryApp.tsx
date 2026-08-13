@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLayoutEffect } from 'react'
-import type { FavoriteRepositoryClassificationSource, FavoriteRepositoryFolder } from '@shared/favoriteRepository'
+import type { FavoriteRepositoryClassificationSource, FavoriteRepositoryFolder, FavoriteRepositoryInitialSourceFilter, FavoriteRepositoryLastAdjustment } from '@shared/favoriteRepository'
 import { determineFavoriteOperationActionEligibility, determineFavoriteOperationEligibility, type FavoriteLibraryOperationSource } from '@shared/favoriteLibraryOperations'
 import type {
   FavoriteRepositoryLibraryPage,
@@ -98,7 +98,7 @@ function apiStateFilters(filters: FavoriteLibraryStateFilterSelection): Favorite
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
   scope: MutableLibraryScope
-  options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] }
+  options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; initialSourceFilter?: FavoriteRepositoryInitialSourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] }
   excludedAids: number[]
 }
 
@@ -153,10 +153,24 @@ const text = {
   unstar: '\u53d6\u6d88\u661f\u6807',
   saveMemo: '\u4fdd\u5b58\u5907\u6ce8',
   transcriptionState: '\u8f6c\u5199\u72b6\u6001',
-  actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u5931\u8d25\u3002'
+  actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u672a\u5b8c\u6210\u3002'
   , organizationHistory: '\u6574\u7406\u8bb0\u5f55', noOrganizationHistory: '\u6682\u65e0\u6574\u7406\u8bb0\u5f55\u3002',
   conflicts: '\u68c0\u6d4b\u5230\u6536\u85cf\u5939\u7ed1\u5b9a\u51b2\u7a81\u3002'
 } as const
+
+function favoriteLibraryActionFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/account mismatch|account changed|does not match the current Bilibili account/i.test(detail)) return '当前 B 站账号与收藏库账号不一致；请切换回对应账号后重试。'
+  if (/revision mismatch|baseline is stale|baseline.*stale/i.test(detail)) return '收藏库内容刚刚变化；请刷新当前列表后重新操作。'
+  if (/no unambiguous remote binding|unbound|not bound|binding.*missing/i.test(detail)) return '该工作夹没有可确认的正式 B 站绑定；请先在工作夹设置中完成绑定或重绑。'
+  if (/target was not found|target-missing|managed folder was not found/i.test(detail)) return '目标工作夹已不存在或不可用；请刷新列表后重新选择。'
+  if (/capacity|full|limit/i.test(detail)) return '目标 B 站收藏夹容量已满；请整理空间或选择其他已绑定分册。'
+  if (/result-unknown|reconciliation|required|remote-ambiguous/i.test(detail)) return '远程操作结果待确认；请先在待处理项中对账，不能直接重试。'
+  if (/csrf-missing|login|credential/i.test(detail)) return 'B 站登录状态已失效；请刷新已登录的 B 站页面后重试。'
+  if (/remote.*reject|http-status|bilibili-code|invalid-response/i.test(detail)) return 'B 站拒绝了本次操作；请检查登录状态和目标收藏夹后重新确认。'
+  if (/network|timeout|unavailable/i.test(detail)) return '无法连接 B 站或本地服务；请检查网络和登录状态后重试。'
+  return text.actionFailed
+}
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
   return page.items.map((item) => ({
@@ -191,6 +205,7 @@ type CachedFavoriteLibraryUi = {
   searchQuery: string
   libraryStateFilters: FavoriteLibraryStateFilterSelection
   sourceFilter: FavoriteRepositoryLibrarySourceFilter | 'all'
+  initialSourceFilter: FavoriteRepositoryInitialSourceFilter | 'all'
   rowSort: FavoriteLibrarySort
   transcriptionFilters: FavoriteLibraryTranscriptionFilter[]
   classificationSources: FavoriteRepositoryClassificationSource[]
@@ -205,7 +220,7 @@ function navigationForScope(scope: LibraryScope): string {
 
 export type FavoriteLibraryUiCallbacks = {
   onBatchAction?: (action: FavoriteLibraryBatchAction, aids: number[]) => void
-  onManagedFolderAction?: (folderId: string, action: 'edit' | 'delete') => void
+  onManagedFolderAction?: (folderId: string, action: 'edit' | 'delete' | 'clear-records') => void
   onManagedFolderDeleteChoice?: (folderId: string, choice: 'local' | 'remote') => void
   onOrdinaryFolderEdit?: (folderId: string) => void
 }
@@ -221,6 +236,27 @@ function formatDetailTimestamp(value?: string) {
   }).formatToParts(date)
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
+}
+
+function formatFavoriteLibraryAdjustment(adjustment?: FavoriteRepositoryLastAdjustment) {
+  if (!adjustment) return '未记录（旧记录不会以当前归属补写）'
+  return ({
+    'system-high': '系统分类（把握高）',
+    'system-low': '系统分类（把握低）',
+    deepseek: 'DeepSeek 整理',
+    manual: '手动调整',
+    'local-copy': '本地复制',
+    'local-move': '本地移动',
+    'adopt-remote': '采用 B 站归属',
+    'managed-placement-remove': '从工作夹移出',
+    'managed-folder-delete': '删除本地工作夹',
+    'clear-organization-records': '清空整理记录'
+  } as const)[adjustment.kind]
+}
+
+function formatFavoriteLibraryInitialSource(source?: { folders: Array<{ title: string; kind: 'ordinary' | 'bilimi' }> }) {
+  if (!source) return '未记录（旧记录不会以当前归属补写）'
+  return source.folders.map((folder) => `${folder.title}（${folder.kind === 'ordinary' ? '普通收藏夹' : 'bilimi 工作夹'}）`).join('、')
 }
 
 function formatRepositoryEventKind(kind: FavoriteRepositoryEventPage['items'][number]['kind']) {
@@ -340,6 +376,7 @@ export function FavoriteLibraryApp({
   const [searchQuery, setSearchQuery] = useState('')
   const [libraryStateFilters, setLibraryStateFilters] = useState<FavoriteLibraryStateFilterSelection>({ sync: 'all', protection: 'all', organization: 'all' })
   const [sourceFilter, setSourceFilter] = useState<FavoriteRepositoryLibrarySourceFilter | 'all'>('all')
+  const [initialSourceFilter, setInitialSourceFilter] = useState<FavoriteRepositoryInitialSourceFilter | 'all'>('all')
   const [rowSort, setRowSort] = useState<FavoriteLibrarySort>('updated-desc')
   const [transcriptionFilters, setTranscriptionFilters] = useState<FavoriteLibraryTranscriptionFilter[]>([])
   const [classificationSources, setClassificationSources] = useState<FavoriteRepositoryClassificationSource[]>([])
@@ -366,6 +403,7 @@ export function FavoriteLibraryApp({
   const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
   const [ordinaryGroupDeleteConfirmationOpen, setOrdinaryGroupDeleteConfirmationOpen] = useState(false)
   const [clearOrganizationRecordsConfirmationOpen, setClearOrganizationRecordsConfirmationOpen] = useState(false)
+  const [clearOrganizationRecordFolderIds, setClearOrganizationRecordFolderIds] = useState<string[]>([])
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{
     aids: number[]
     executionToken: string
@@ -433,9 +471,9 @@ export function FavoriteLibraryApp({
   useEffect(() => {
     if (!accountMid || !summary || !page || scopeId !== pageScopeId) return
     viewCacheRef.current.setReady(accountMid, summary, page, {
-      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, classificationSources, scrollTop: listScrollTop, selected, detailOpen
+      scopeId: pageScopeId, pageNumber, pageSize, searchQuery, libraryStateFilters, sourceFilter, initialSourceFilter, rowSort, transcriptionFilters, classificationSources, scrollTop: listScrollTop, selected, detailOpen
     })
-  }, [accountMid, classificationSources, detailOpen, libraryStateFilters, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowSort, scopeId, searchQuery, selected, sourceFilter, summary, transcriptionFilters])
+  }, [accountMid, classificationSources, detailOpen, initialSourceFilter, libraryStateFilters, listScrollTop, page, pageNumber, pageScopeId, pageSize, rowSort, scopeId, searchQuery, selected, sourceFilter, summary, transcriptionFilters])
 
   useEffect(() => {
     onAccountChange?.(accountMid ? { mid: accountMid, nickname: accountNickname } : undefined)
@@ -450,12 +488,13 @@ export function FavoriteLibraryApp({
       query: searchQuery,
       filter: 'all' as const,
       ...(sourceFilter !== 'all' ? { sourceFilter } : {}),
+      ...(initialSourceFilter !== 'all' ? { initialSourceFilter } : {}),
       ...(Object.keys(stateFilters).length ? { stateFilters } : {}),
       sort: rowSort,
       transcriptionFilters,
       ...(classificationSources.length ? { classificationSources } : {})
     }
-  }, [classificationSources, libraryStateFilters, rowSort, searchQuery, sourceFilter, transcriptionFilters])
+  }, [classificationSources, initialSourceFilter, libraryStateFilters, rowSort, searchQuery, sourceFilter, transcriptionFilters])
   const pageOptionsRef = useRef(pageOptions)
   pageOptionsRef.current = pageOptions
   const load = useCallback(async (
@@ -463,7 +502,7 @@ export function FavoriteLibraryApp({
     nextScope: LibraryScope,
     requestedPage = pageNumberRef.current,
     limit = pageSize,
-    options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] } = {},
+    options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; initialSourceFilter?: FavoriteRepositoryInitialSourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] } = {},
     preserveSelection = false
   ) => {
     const requestId = ++requestIdRef.current
@@ -475,6 +514,7 @@ export function FavoriteLibraryApp({
       ...(options.query?.trim() ? { query: options.query.trim() } : {}),
       ...(options.filter && options.filter !== 'all' ? { filter: options.filter } : {}),
       ...(options.sourceFilter ? { sourceFilter: options.sourceFilter } : {}),
+      ...(options.initialSourceFilter ? { initialSourceFilter: options.initialSourceFilter } : {}),
       ...(options.stateFilters && Object.keys(options.stateFilters).length ? { stateFilters: options.stateFilters } : {}),
       ...(options.sort && options.sort !== 'updated-desc' ? { sort: options.sort } : {}),
       ...(options.transcriptionFilters?.length ? { transcriptionFilters: options.transcriptionFilters } : {}),
@@ -709,6 +749,7 @@ export function FavoriteLibraryApp({
             : next
         })
         setSourceFilter(cachedUi?.sourceFilter ?? 'all')
+        setInitialSourceFilter(cachedUi?.initialSourceFilter ?? 'all')
         setRowSort(cachedUi?.rowSort ?? 'updated-desc')
         setTranscriptionFilters((current) => {
           const next = cachedUi?.transcriptionFilters ?? []
@@ -728,17 +769,18 @@ export function FavoriteLibraryApp({
       const nextScope = sameAccount ? scopeRef.current : cachedUi ? scopeForNavigation(cachedUi.scopeId) : { kind: 'all' } as const
       const nextPageNumber = sameAccount ? pageNumberRef.current : cachedUi?.pageNumber ?? 1
       const nextPageSize = sameAccount ? pageSize : cachedUi?.pageSize ?? 50
-      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'sourceFilter' | 'rowSort' | 'transcriptionFilters' | 'classificationSources'> = sameAccount
-        ? { searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, classificationSources }
+      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'sourceFilter' | 'initialSourceFilter' | 'rowSort' | 'transcriptionFilters' | 'classificationSources'> = sameAccount
+        ? { searchQuery, libraryStateFilters, sourceFilter, initialSourceFilter, rowSort, transcriptionFilters, classificationSources }
         : cachedUi
-          ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, sourceFilter: cachedUi.sourceFilter ?? 'all', rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters, classificationSources: cachedUi.classificationSources ?? [] }
-          : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, sourceFilter: 'all', rowSort: 'updated-desc', transcriptionFilters: [], classificationSources: [] }
+          ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, sourceFilter: cachedUi.sourceFilter ?? 'all', initialSourceFilter: cachedUi.initialSourceFilter ?? 'all', rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters, classificationSources: cachedUi.classificationSources ?? [] }
+          : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, sourceFilter: 'all', initialSourceFilter: 'all', rowSort: 'updated-desc', transcriptionFilters: [], classificationSources: [] }
       const pageRequestId = ++requestIdRef.current
       const pageRequest = api.getFavoriteRepositoryLibraryPage?.(mid, nextScope, {
         limit: nextPageSize,
         page: nextPageNumber,
         ...(nextOptions.searchQuery.trim() ? { query: nextOptions.searchQuery.trim() } : {}),
         ...(nextOptions.sourceFilter !== 'all' ? { sourceFilter: nextOptions.sourceFilter } : {}),
+        ...(nextOptions.initialSourceFilter !== 'all' ? { initialSourceFilter: nextOptions.initialSourceFilter } : {}),
         ...(Object.keys(apiStateFilters(nextOptions.libraryStateFilters)).length ? { stateFilters: apiStateFilters(nextOptions.libraryStateFilters) } : {}),
         ...(nextOptions.rowSort !== 'updated-desc' ? { sort: nextOptions.rowSort } : {}),
         ...(nextOptions.transcriptionFilters?.length ? { transcriptionFilters: nextOptions.transcriptionFilters } : {}),
@@ -757,7 +799,7 @@ export function FavoriteLibraryApp({
       setPageNumber(nextPageNumber)
       viewCacheRef.current.setReady(mid, nextSummary, nextPage, cachedUi ?? {
         scopeId: navigationForScope(nextScope), pageNumber: nextPageNumber, pageSize: nextPageSize,
-        searchQuery: nextOptions.searchQuery, libraryStateFilters: nextOptions.libraryStateFilters, sourceFilter: nextOptions.sourceFilter, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, classificationSources: nextOptions.classificationSources, scrollTop: sameAccount ? listScrollTop : 0,
+        searchQuery: nextOptions.searchQuery, libraryStateFilters: nextOptions.libraryStateFilters, sourceFilter: nextOptions.sourceFilter, initialSourceFilter: nextOptions.initialSourceFilter, rowSort: nextOptions.rowSort, transcriptionFilters: nextOptions.transcriptionFilters, classificationSources: nextOptions.classificationSources, scrollTop: sameAccount ? listScrollTop : 0,
         selected: sameAccount ? selected : undefined, detailOpen: sameAccount ? detailOpen : true
       })
       if (sameAccount) {
@@ -774,7 +816,7 @@ export function FavoriteLibraryApp({
         setLibraryLoadState('error')
       }
     }
-  }, [pageOptions, pageSize, sourceFilter])
+  }, [initialSourceFilter, pageOptions, pageSize, sourceFilter])
 
   useEffect(() => {
     if (!active) return
@@ -893,7 +935,7 @@ export function FavoriteLibraryApp({
       ? summary?.folderCounts?.[pageScopeId.slice('folder:'.length)]
       : summary?.scopeCounts?.[pageScopeId as keyof typeof summary.scopeCounts]
   const displayedTotal = page?.totalCount ?? currentScopeTotal ?? rows.length
-  const hasActiveResultFilter = Boolean(searchQuery.trim()) || sourceFilter !== 'all' || Object.keys(apiStateFilters(libraryStateFilters)).length > 0 || transcriptionFilters.length > 0 || classificationSources.length > 0
+  const hasActiveResultFilter = Boolean(searchQuery.trim()) || sourceFilter !== 'all' || initialSourceFilter !== 'all' || Object.keys(apiStateFilters(libraryStateFilters)).length > 0 || transcriptionFilters.length > 0 || classificationSources.length > 0
   const currentScopeLabel = pageScopeId === 'all'
     ? text.all
     : pageScopeId.startsWith('folder:')
@@ -986,8 +1028,8 @@ export function FavoriteLibraryApp({
       setError(undefined)
       await action()
       if (accountMid) await refresh(accountMid)
-    } catch {
-      setError(text.actionFailed)
+    } catch (error) {
+      setError(favoriteLibraryActionFailureMessage(error))
     }
   }
   const runDetailAction = async (action: () => Promise<void>) => {
@@ -998,8 +1040,8 @@ export function FavoriteLibraryApp({
         const snapshot = await window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail?.(accountMid, selected.aid)
         if (snapshot) setDetailSnapshot(snapshot)
       }
-    } catch {
-      setError(text.actionFailed)
+    } catch (error) {
+      setError(favoriteLibraryActionFailureMessage(error))
     }
   }
   const applyLibraryStateFilters = (next: FavoriteLibraryStateFilterSelection) => {
@@ -1018,8 +1060,8 @@ export function FavoriteLibraryApp({
       if (selectedAid !== selectedAidRef.current) return
       setEvents(next)
       setEventsOpen(true)
-    } catch {
-      setError(text.actionFailed)
+    } catch (error) {
+      setError(favoriteLibraryActionFailureMessage(error))
     }
   }
   const loadMoreEvents = async () => {
@@ -1033,8 +1075,8 @@ export function FavoriteLibraryApp({
         ...next,
         items: [...current.items, ...next.items.filter((event) => !current.items.some((existing) => existing.id === event.id))]
       } : next)
-    } catch {
-      setError(text.actionFailed)
+    } catch (error) {
+      setError(favoriteLibraryActionFailureMessage(error))
     }
   }
   const setLocalPlacement = async (folderIds: string[], synchronize = false) => {
@@ -1321,15 +1363,22 @@ export function FavoriteLibraryApp({
       localExecutionTokens: { inbox: preview.executionToken }
     })
   }
+  const openClearOrganizationRecords = (logicalFolderIds?: string[]) => {
+    const availableFolderIds = folders.filter((folder) => folder.kind === 'bilimi-logical').map((folder) => folder.id)
+    const selection = logicalFolderIds?.length ? logicalFolderIds.filter((folderId) => availableFolderIds.includes(folderId)) : availableFolderIds
+    if (!selection.length) throw new Error(text.unavailable)
+    setClearOrganizationRecordFolderIds([...new Set(selection)].sort())
+    setClearOrganizationRecordsConfirmationOpen(true)
+  }
   const clearOrganizationRecords = async () => {
     const api = window.bilimiDesktop
-    if (!accountMid || !api?.commitFavoriteRepositoryCommand) throw new Error(text.unavailable)
+    if (!accountMid || !api?.commitFavoriteRepositoryCommand || !clearOrganizationRecordFolderIds.length) throw new Error(text.unavailable)
     await api.commitFavoriteRepositoryCommand(accountMid, {
       id: `favorite-library:clear-organization-records:${Date.now()}`,
       accountMid,
       issuedAt: new Date().toISOString(),
       type: 'clear-organization-records',
-      payload: {}
+      payload: { logicalFolderIds: clearOrganizationRecordFolderIds }
     })
     setClearOrganizationRecordsConfirmationOpen(false)
     await refresh(accountMid)
@@ -1371,10 +1420,9 @@ export function FavoriteLibraryApp({
     try {
       const logicalLedgerIds = [...new Set(selectedCandidates.map((candidate) => candidate.logicalLedgerId))]
       if (managedFolderDeletionScope === 'local-only') {
-        if (!api?.deleteFavoriteLibraryManagedFolderLocal || logicalLedgerIds.some((id) => !managedFolderDeletionDialog.localExecutionTokens[id])) throw new Error(text.unavailable)
-        for (const logicalLedgerId of logicalLedgerIds) {
-          await api.deleteFavoriteLibraryManagedFolderLocal(accountMid, managedFolderDeletionDialog.localExecutionTokens[logicalLedgerId])
-        }
+        const executionTokens = logicalLedgerIds.map((id) => managedFolderDeletionDialog.localExecutionTokens[id]).filter(Boolean).sort()
+        if (!api?.deleteFavoriteLibraryManagedFoldersLocal || executionTokens.length !== logicalLedgerIds.length) throw new Error(text.unavailable)
+        await api.deleteFavoriteLibraryManagedFoldersLocal(accountMid, executionTokens)
         setManagedFolderDeletionDialog(undefined)
         await refresh(accountMid)
         return
@@ -1693,9 +1741,10 @@ export function FavoriteLibraryApp({
         })}>确认全部从收藏库删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {clearOrganizationRecordsConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="清空收藏库整理记录" onClose={() => setClearOrganizationRecordsConfirmationOpen(false)}>
-        <p>将清空本地整理分类、已保护状态和整理草稿，视频会回到 bilimi·暂存待重新整理。</p>
+        <p>只清空选中 {clearOrganizationRecordFolderIds.length} 个工作夹的本地整理记录；只失去全部选中归属的视频会回到 bilimi·暂存待重新整理。</p>
+        <ul className="favorite-library__managed-folder-preview">{folders.filter((folder) => clearOrganizationRecordFolderIds.includes(folder.id)).map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={clearOrganizationRecordFolderIds.includes(folder.id)} onChange={(event) => setClearOrganizationRecordFolderIds((current) => event.currentTarget.checked ? [...current, folder.id].sort() : current.filter((folderId) => folderId !== folder.id))} />{folder.title}</label></li>)}</ul>
         <p>不会删除 bilimi 工作夹、备册绑定、B 站收藏夹或视频，也不会删除档案、转写和札记。</p>
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setClearOrganizationRecordsConfirmationOpen(false)}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(clearOrganizationRecords)}>清空整理记录</button></div>
+        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setClearOrganizationRecordsConfirmationOpen(false)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={!clearOrganizationRecordFolderIds.length} onClick={() => void runAction(clearOrganizationRecords)}>清空整理记录</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceSyncConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="同步 bilimi 工作夹" busy={workspaceSyncExecuting} onClose={() => { if (!workspaceSyncExecuting) setWorkspaceSyncConfirmationOpen(false) }}>
         <p>请选择要同步到 B 站的 bilimi 工作夹；默认已全选。同步会执行已保存的本地归属，不会修改普通 B 站收藏夹。</p>
@@ -1799,7 +1848,7 @@ export function FavoriteLibraryApp({
                   if (scopeId === id) setScopeId('all')
                   return refresh(accountMid)
                 })
-                .catch(() => setError(text.actionFailed))
+                .catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
               return
             }
             if (action === 'edit') {
@@ -1815,13 +1864,18 @@ export function FavoriteLibraryApp({
               void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', ledgerId: folder.logicalLedgerId, ...(folder.kind === 'local' ? { ledgerTitle: folder.title } : {}), sidebar: true })
               return
             }
+            if (action === 'clear-records') {
+              if (!folder || folder.kind !== 'bilimi-logical') return
+              openClearOrganizationRecords([folder.id])
+              return
+            }
             if (!folder || !accountMid) return
             if (folder.id === 'local:inbox') {
-              void openLocalInboxDeletion(folder).catch(() => setError(text.actionFailed))
+              void openLocalInboxDeletion(folder).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
               return
             }
             if (!folder.logicalLedgerId) return
-            void openManagedFolderDeletion([folder.logicalLedgerId]).catch(() => setError(text.actionFailed))
+            void openManagedFolderDeletion([folder.logicalLedgerId]).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
           }}
           onOrdinaryFolderRemove={(id) => {
             const folder = folders.find((candidate) => `folder:${candidate.id}` === id)
@@ -1831,7 +1885,7 @@ export function FavoriteLibraryApp({
                 if (scopeId === id) setScopeId('all')
                 return refresh(accountMid)
               })
-              .catch(() => setError(text.actionFailed))
+              .catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
           }}
           onOrdinaryGroupAction={(action) => {
             if (action === 'delete-all') setOrdinaryGroupDeleteConfirmationOpen(true)
@@ -1843,7 +1897,7 @@ export function FavoriteLibraryApp({
             }
             if (!accountMid) return
             if (action === 'clear-records') {
-              setClearOrganizationRecordsConfirmationOpen(true)
+              openClearOrganizationRecords()
               return
             }
             if (action === 'sync-all') {
@@ -1854,7 +1908,7 @@ export function FavoriteLibraryApp({
             if (action === 'delete-all') {
               const ledgerIds = folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
                 .map((folder) => folder.logicalLedgerId!)
-              void openManagedFolderDeletion(ledgerIds).catch(() => setError(text.actionFailed))
+              void openManagedFolderDeletion(ledgerIds).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
             }
           }}
         />
@@ -2016,10 +2070,12 @@ export function FavoriteLibraryApp({
               setRowSort(sort); setPageNumber(1); setListScrollTop(0); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sort })
             }} /></span><span>状态 <FavoriteLibraryStateFilterMenu value={libraryStateFilters} onChange={(key, value) => applyLibraryStateFilters({ ...libraryStateFilters, [key]: value })} /></span><span>{`转写（${transcriptionFilters.length ? transcriptionFilters.length === 1 ? ({ completed: '已转写', none: '无转写', pending: '等待', running: '进行中', failed: '失败' } as const)[transcriptionFilters[0]] : `已选 ${transcriptionFilters.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="转写筛选" values={transcriptionFilters} options={[{ value: 'completed', label: '已转写' }, { value: 'none', label: '无转写' }, { value: 'pending', label: '等待' }, { value: 'running', label: '进行中' }, { value: 'failed', label: '失败' }]} onChange={(nextFilters) => {
               setTranscriptionFilters(nextFilters); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, transcriptionFilters: nextFilters })
-            }} /></span><span>{`分类（${classificationSources.length ? classificationSources.length === 1 ? formatFavoriteLibraryClassificationSource(classificationSources[0]) : `已选 ${classificationSources.length} 项` : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="分类方式筛选" values={classificationSources} options={[{ value: 'system-high', label: '系统分类（把握高）' }, { value: 'system-low', label: '系统分类（把握低）' }, { value: 'deepseek', label: 'DeepSeek 整理' }, { value: 'manual', label: '手动调整' }]} onChange={(nextSources) => {
+            }} /></span><span className="favorite-library__history-heading">{`分类与来源（分类：${classificationSources.length ? classificationSources.length === 1 ? formatFavoriteLibraryClassificationSource(classificationSources[0]) : `已选 ${classificationSources.length} 项` : '全部'}；当前：${sourceFilter === 'with-other' ? '有其它收藏夹' : sourceFilter === 'bilimi-only' ? '仅 bilimi 工作夹' : '全部'}；原始：${initialSourceFilter === 'initial-ordinary' ? '普通收藏夹' : initialSourceFilter === 'initial-bilimi' ? 'bilimi 工作夹' : '全部'}）`} <FavoriteLibraryMultiSelectColumnMenu label="分类方式筛选" values={classificationSources} options={[{ value: 'system-high', label: '系统分类（把握高）' }, { value: 'system-low', label: '系统分类（把握低）' }, { value: 'deepseek', label: 'DeepSeek 整理' }, { value: 'manual', label: '手动调整' }]} onChange={(nextSources) => {
               setClassificationSources(nextSources); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, classificationSources: nextSources })
-            }} /></span><span>{`来源（${sourceFilter === 'with-other' ? '有其它收藏夹' : sourceFilter === 'bilimi-only' ? '仅 bilimi 工作夹' : '全部'}）`} <FavoriteLibraryColumnMenu label="收藏夹来源筛选" portal value={sourceFilter} options={[{ value: 'all', label: '来源：全部' }, { value: 'with-other', label: '有其它收藏夹' }, { value: 'bilimi-only', label: '仅 bilimi 工作夹' }]} onChange={(nextSourceFilter) => {
+            }} /><FavoriteLibraryColumnMenu label="收藏夹来源筛选" portal value={sourceFilter} options={[{ value: 'all', label: '当前来源：全部' }, { value: 'with-other', label: '有其它收藏夹' }, { value: 'bilimi-only', label: '仅 bilimi 工作夹' }]} onChange={(nextSourceFilter) => {
               setSourceFilter(nextSourceFilter); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, sourceFilter: nextSourceFilter === 'all' ? undefined : nextSourceFilter })
+            }} /><FavoriteLibraryColumnMenu label="原始来源筛选" portal value={initialSourceFilter} options={[{ value: 'all', label: '原始来源：全部' }, { value: 'initial-ordinary', label: '普通收藏夹' }, { value: 'initial-bilimi', label: 'bilimi 工作夹' }]} onChange={(nextInitialSourceFilter) => {
+              setInitialSourceFilter(nextInitialSourceFilter); setPageNumber(1); setListScrollTop(0); selectionStore.clear(); if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, initialSourceFilter: nextInitialSourceFilter === 'all' ? undefined : nextInitialSourceFilter })
             }} /></span>
           </div>
           <VirtualFavoriteLibraryList
@@ -2027,7 +2083,7 @@ export function FavoriteLibraryApp({
             items={rows}
             className="favorite-library__list"
             scrollTop={listScrollTop}
-            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${sourceFilter}:${libraryStateFilters.sync}:${libraryStateFilters.protection}:${libraryStateFilters.organization}:${rowSort}:${transcriptionFilters.join(',')}:${classificationSources.join(',')}`}
+            scrollResetKey={`${accountMid ?? ''}:${scopeId}:${pageNumber}:${pageSize}:${searchQuery}:${sourceFilter}:${initialSourceFilter}:${libraryStateFilters.sync}:${libraryStateFilters.protection}:${libraryStateFilters.organization}:${rowSort}:${transcriptionFilters.join(',')}:${classificationSources.join(',')}`}
             onScrollTopChange={setListScrollTop}
             renderItem={(row) => (
               (() => {
@@ -2040,7 +2096,10 @@ export function FavoriteLibraryApp({
                 const transcriptionLabel = transcriptionQueueCommandLabel(transcriptionCommand, transcription)
                 const sourceNames = row.folderIds.map((folderId) => folderTitleById.get(folderId) ?? folderId)
                 const sourceLabel = sourceNames.length ? sourceNames.join('、') : '未记录'
-                const classificationLabel = formatFavoriteLibraryClassificationSource(row.organization?.classificationSource)
+                const initialSourceLabel = formatFavoriteLibraryInitialSource(row.initialSource)
+                const lastAdjustment = row.lastAdjustment
+                const adjustmentLabel = formatFavoriteLibraryAdjustment(lastAdjustment)
+                const adjustmentTime = lastAdjustment ? formatDetailTimestamp(lastAdjustment.occurredAt) : undefined
                 const archiveAvailable = rowDetail?.archive.status === '已入档' ||
                   Boolean(queueItem?.archiveNoteId && queueItem.archiveRegistrationStatus !== 'failed')
                 return (
@@ -2082,7 +2141,7 @@ export function FavoriteLibraryApp({
                       ? { aids: [row.aid] }
                       : { targets: [{ aid: row.aid, cid: row.cid }] })
                   })}>{transcriptionLabel}</button><button type="button" disabled={!archiveAvailable} onClick={() => void runDetailAction(() => openRowArchiveDetail(row, queueItem?.cid ?? rowDetail?.video.cid))}>档案详情</button></span>
-                  <span className="favorite-library__row-source" title={`${classificationLabel} · ${sourceLabel}`}><span className="favorite-library__row-classification">{classificationLabel}</span>{sourceNames.length ? Array.from({ length: Math.ceil(sourceNames.length / 2) }, (_, rowIndex) => <span className="favorite-library__row-source-line" key={rowIndex}>{sourceNames.slice(rowIndex * 2, rowIndex * 2 + 2).map((sourceName, index) => <span key={sourceName} title={sourceName}>{index ? '、' : ''}{sourceName}</span>)}</span>) : <span className="favorite-library__row-source-line">未记录</span>}</span>
+                  <span className="favorite-library__row-source" title={`原始：${initialSourceLabel} · 调整：${adjustmentLabel}${adjustmentTime ? ` · ${adjustmentTime}` : ''} · 当前：${sourceLabel}`}><span className="favorite-library__row-source-line">原始：{initialSourceLabel}</span><span className="favorite-library__row-source-line">调整：{adjustmentLabel}{adjustmentTime ? ` · ${adjustmentTime}` : ''}</span><span className="favorite-library__row-source-line">当前：{sourceLabel}</span></span>
                 </div>
               </div>
                 )
@@ -2155,7 +2214,7 @@ export function FavoriteLibraryApp({
               setPlacementConflictChoiceOpen(false)
             })}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : FAVORITE_LIBRARY_STAGING_TITLE}</p><p>B站收藏夹：{detailRemotePositions.length ? detailRemotePositions.join('、') : '尚未扫描或未映射'}</p><p>归属状态：{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length))}</p></section> : null}
             <section><h3>音频与档案</h3><div className="favorite-library__detail-action-row"><VideoSummaryMenu actions={[{ id: 'transcribe', label: '转写音频', disabled: !detailCanStartTranscription, onSelect: () => runDetailTranscriptionAction('start') }, { id: 'cancel-transcribe', label: '取消转写', disabled: !detailCanCancelTranscription, onSelect: () => runDetailTranscriptionAction('cancel') }]} download={{ disabled: detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成', onSelect: openDetailDocumentExport }} /><button type="button" aria-label="查看档案详情" className="favorite-library__inline-action" disabled={detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成'} onClick={() => void runDetailAction(openArchiveDetail)}>笔记档案详情</button></div><p>{text.transcriptionState}：{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '等待处理' : '暂无转写任务')}</p><p>{text.archive}：{detailSnapshot?.archive.status ?? text.noArchive}{detailSnapshot?.archive.versionCount ? ` · ${detailSnapshot.archive.versionCount} 个版本` : ''}</p></section>
-            <section><h3>来源与时间</h3><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button><p>分类方式：{formatFavoriteLibraryClassificationSource(detailSnapshot?.organization?.classificationSource ?? detail.organization?.classificationSource)}</p><p>分类时间：{formatDetailTimestamp(detailSnapshot?.organization?.completedAt ?? detail.organization?.completedAt)}</p><p>初始来源：{detail.folders.length ? detail.folders.map((folder) => folder.title).join('、') : '未记录'}</p><p>最近调整方式：{formatFavoriteLibraryClassificationSource(detailSnapshot?.organization?.classificationSource ?? detail.organization?.classificationSource)}</p><p>{detailSourceMethod} · {formatDetailTimestamp(detailSourceAt)}</p>{detailSnapshot?.sourceShards?.length ? <p>归入 {detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}{eventsOpen ? <ol className="favorite-library__events" aria-label="完整处理记录">{events?.items.map((event) => <li key={event.id} data-event-kind={event.kind}>{formatRepositoryEventKind(event.kind)} <span className="sr-only">{event.kind}</span> · {formatDetailTimestamp(event.occurredAt)}{event.detail ? ` · ${event.detail}` : ''}</li>)}</ol> : null}
+            <section><h3>来源与时间</h3><button type="button" className="favorite-library__inline-action" onClick={() => void loadEvents()}>查看完整处理记录</button><p>分类方式：{formatFavoriteLibraryClassificationSource(detailSnapshot?.organization?.classificationSource ?? detail.organization?.classificationSource)}</p><p>分类时间：{formatDetailTimestamp(detailSnapshot?.organization?.completedAt ?? detail.organization?.completedAt)}</p><p>初始来源：{formatFavoriteLibraryInitialSource(detailSnapshot?.video.initialSource ?? detail.initialSource)}</p><p>最近调整方式：{formatFavoriteLibraryAdjustment(detailSnapshot?.video.lastAdjustment ?? detail.lastAdjustment)}</p><p>最近调整时间：{formatDetailTimestamp((detailSnapshot?.video.lastAdjustment ?? detail.lastAdjustment)?.occurredAt)}</p><p>{detailSourceMethod} · {formatDetailTimestamp(detailSourceAt)}</p>{detailSnapshot?.sourceShards?.length ? <p>归入 {detailSnapshot.sourceShards.map((shard) => shard.title).join('、')}</p> : null}{eventsOpen ? <ol className="favorite-library__events" aria-label="完整处理记录">{events?.items.map((event) => <li key={event.id} data-event-kind={event.kind}>{formatRepositoryEventKind(event.kind)} <span className="sr-only">{event.kind}</span> · {formatDetailTimestamp(event.occurredAt)}{event.detail ? ` · ${event.detail}` : ''}</li>)}</ol> : null}
               {events?.nextCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreEvents()}>加载更早记录</button> : null}
             </section>
             {!isRecycleScope ? <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>{detailIsOrdinarySource ? '从收藏库删除' : currentLogicalFolderId ? '从当前工作夹移除' : '从所有 bilimi 工作夹移除'}</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>{detailIsOrdinarySource ? <p>只会从收藏库删除；不会修改普通 B 站收藏夹、转写、档案或处理记录。</p> : currentLogicalFolderId ? <>{(() => {

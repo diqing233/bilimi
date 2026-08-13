@@ -235,6 +235,38 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
+  it('does not return a formally bound main shard as a rebinding candidate, but keeps an unbound numeric shard', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'bound-game-main', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'bound-main'
+      }
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+            { id: 'ordinary', title: 'bilimi·游戏专区', memberCount: 2 },
+            { id: 'bound-main', title: 'bilimi·游戏专区', memberCount: 1000 },
+            { id: 'unbound-2', title: 'bilimi·游戏专区·2', memberCount: 4 }
+          ]}), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.previewLedgerBindingCandidates('100', [{ ledgerId: 'game', title: 'bilimi·游戏专区' }])).resolves.toEqual([
+      { ledgerId: 'game', candidates: [
+        { id: 'ordinary', title: 'bilimi·游戏专区', memberCount: 2 },
+        { id: 'unbound-2', title: 'bilimi·游戏专区·2', memberCount: 4 }
+      ] }
+    ])
+  })
+
   it('adopts every confirmed physical shard for one logical ledger', async () => {
     const repository = await createRepository()
     const inventory = [

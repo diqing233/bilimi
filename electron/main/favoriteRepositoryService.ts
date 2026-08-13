@@ -13,6 +13,7 @@ import {
   type FavoriteRepositoryArchiveExport,
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
+  type FavoriteRepositoryInitialSourceFilter,
   type FavoriteRepositoryClassificationSource,
   type FavoriteRepositoryEvent,
   type FavoriteRepositoryOrganizationRecord,
@@ -123,6 +124,7 @@ type EventJournalEntry = {
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 /** Filters by the observed source folders without exposing the full membership index to the renderer. */
 export type FavoriteRepositoryLibrarySourceFilter = 'with-other' | 'bilimi-only'
+export type FavoriteRepositoryLibraryInitialSourceFilter = FavoriteRepositoryInitialSourceFilter
 export type FavoriteRepositoryLibraryStateFilters = {
   sync?: FavoriteRepositoryLibraryStates['sync']
   protection?: FavoriteRepositoryLibraryStates['protection']
@@ -146,6 +148,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   query?: string
   filter?: FavoriteRepositoryLibraryFilter
   sourceFilter?: FavoriteRepositoryLibrarySourceFilter
+  initialSourceFilter?: FavoriteRepositoryLibraryInitialSourceFilter
   stateFilters?: FavoriteRepositoryLibraryStateFilters
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
@@ -1536,6 +1539,7 @@ export class FavoriteRepositoryService {
     const query = options.query?.trim().toLocaleLowerCase()
     const filter = options.filter ?? 'all'
     const sourceFilter = options.sourceFilter
+    const initialSourceFilter = options.initialSourceFilter
     const sort = options.sort ?? 'updated-desc'
     const transcriptionFilters = new Set(options.transcriptionFilters ?? [])
     const classificationSources = new Set(options.classificationSources ?? [])
@@ -1551,15 +1555,24 @@ export class FavoriteRepositoryService {
       if (sourceFilter === 'with-other') return sourceFolderIds.some((folderId) => folderId.startsWith('bilibili:'))
       return sourceFolderIds.length > 0 && sourceFolderIds.every((folderId) => folderId.startsWith('bilimi-logical:'))
     }
+    const matchesInitialSource = (aid: number) => {
+      if (!initialSourceFilter) return true
+      const initialSource = snapshot.videos[String(aid)]?.initialSource
+      if (!initialSource) return false
+      return initialSourceFilter === 'initial-ordinary'
+        ? initialSource.folders.some((folder) => folder.kind === 'ordinary')
+        : initialSource.folders.some((folder) => folder.kind === 'bilimi')
+    }
     // Callers without a library sort retain the legacy bounded aid-read path.
     if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0 && classificationSources.size === 0) {
-      return sourceFilter ? aids.filter(matchesSource) : aids
+      return sourceFilter || initialSourceFilter ? aids.filter((aid) => matchesSource(aid) && matchesInitialSource(aid)) : aids
     }
     return aids.filter((aid) => {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
       const states = index.pendingStatesByAid.get(aid) ?? new Set()
       if (!matchesSource(aid)) return false
+      if (!matchesInitialSource(aid)) return false
       const matchesQuery = !query || [video.title, video.author ?? '', video.description ?? '', ...video.tags]
         .some((value) => value.toLocaleLowerCase().includes(query))
       if (!matchesQuery) return false
@@ -1616,6 +1629,7 @@ export class FavoriteRepositoryService {
       query: options.query?.trim().toLocaleLowerCase() ?? '',
       filter: options.filter ?? 'all',
       sourceFilter: options.sourceFilter ?? '',
+      initialSourceFilter: options.initialSourceFilter ?? '',
       stateFilters: options.stateFilters ?? {},
       sort: options.sort ?? '',
       transcriptionFilters: [...transcriptionFilters].sort(),

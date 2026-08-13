@@ -165,6 +165,7 @@ function createConfirmedReviewFavoriteCommands(args: {
       issuedAt: args.occurredAt,
       type: 'set-favorite-position',
       payload: {
+        adjustmentKind: args.classificationSource,
         aid,
         localDesiredFolderIds,
         remoteObservedPhysicalFolderIds,
@@ -261,6 +262,7 @@ function createConfirmedDailyReviewCommands(args: {
         issuedAt: args.occurredAt,
         type: 'set-favorite-position',
         payload: {
+          adjustmentKind: 'deepseek',
           aid: args.aid,
           localDesiredFolderIds,
           remoteObservedPhysicalFolderIds: Array.from(
@@ -301,6 +303,7 @@ function createConfirmedDailyReviewCommands(args: {
       issuedAt: args.occurredAt,
       type: 'set-favorite-position',
       payload: {
+        adjustmentKind: 'deepseek',
         aid: args.aid,
         localDesiredFolderIds,
         remoteObservedPhysicalFolderIds: targetLedgerIds.map(
@@ -1597,6 +1600,16 @@ export default function App() {
     rebindRemoteFolderIds?: Record<string, string>,
     rebindRemoteFolders?: Record<string, Array<{ id: string; title: string }>>
   ) {
+    const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
+      const normalizedTitle = title.trim()
+      const normalizedBaseTitle = baseTitle.trim()
+      if (normalizedTitle === normalizedBaseTitle) return 1
+      const match = normalizedTitle.match(new RegExp(`^${escapeRegExp(normalizedBaseTitle)}·([2-9]\\d*)$`))
+      if (!match) return undefined
+      const shardNumber = Number(match[1])
+      return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
+    }
     const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
     const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; shardNumber: number }> = []
     for (const ledger of resultLedgers) {
@@ -1611,8 +1624,10 @@ export default function App() {
       if (explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
         const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
         const folders = selectedFolders.length ? selectedFolders : [{ id: remoteFolderId, title: ledger.displayName }]
-        for (const [index, folder] of folders.entries()) {
-          registrations.push({ ledger, remoteFolderId: folder.id.trim(), remoteTitle: folder.title.trim() || ledger.displayName, shardNumber: index + 1 })
+        for (const folder of folders) {
+          const shardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
+          if (shardNumber === undefined) continue
+          registrations.push({ ledger, remoteFolderId: folder.id.trim(), remoteTitle: folder.title.trim() || ledger.displayName, shardNumber })
         }
       }
     }

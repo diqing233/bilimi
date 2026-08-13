@@ -845,8 +845,18 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
   })
 
-  it('persists deletion of a custom ledger through the normal local save path after confirmation', () => {
+  it('persists deletion of a custom ledger after the local favorite-library transaction succeeds', async () => {
     const save = vi.fn()
+    const previewFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ executionToken: 'delete-music' })
+    const deleteFavoriteLibraryManagedFoldersLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+        { logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
+      ]),
+      previewFavoriteLibraryManagedFolderDelete,
+      deleteFavoriteLibraryManagedFoldersLocal
+    } as unknown as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
     ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
@@ -854,11 +864,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    const dialog = screen.getByRole('alertdialog')
+    const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(dialog.querySelector('input[type="checkbox"]')!)
     fireEvent.click(dialog.querySelector('[data-variant="danger"]')!)
 
-    expect(save).toHaveBeenCalledWith([], { deleteDisabled: false })
+    await waitFor(() => expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'bilimi-logical:music'))
+    await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['delete-music']))
+    await waitFor(() => expect(save).toHaveBeenCalledWith([], { deleteDisabled: false }))
     expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()
   })
 
@@ -3401,7 +3413,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const abandon = screen.getByRole('button', { name: '暂不同步，结束本轮整理' })
     expect(abandon).toBeEnabled()
     fireEvent.click(abandon)
-    fireEvent.click(screen.getByRole('button', { name: '清空并放弃' }))
+    fireEvent.click(screen.getByRole('button', { name: '清空并结束' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'abandon-current-workspace'
     }))

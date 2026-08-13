@@ -1724,6 +1724,44 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
+  it('registers rebinding shards from their explicit numeric titles instead of selection order', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'rebind-out-of-order', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: { game: [
+          { id: '89', title: 'bilimi·游戏专区·2' },
+          { id: '88', title: 'bilimi·游戏专区' }
+        ] }
+      }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(1, accountMid, expect.objectContaining({
+      remoteFolderId: '89', shardNumber: 2
+    }))
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(2, accountMid, expect.objectContaining({
+      remoteFolderId: '88', shardNumber: 1
+    }))
+  })
+
   it('adopts every confirmed recovery shard for one logical ledger', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

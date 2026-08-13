@@ -83,7 +83,7 @@ type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
   HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
-  sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount?: number; isBilimiWorkFolder: boolean; selected?: boolean }>
+  sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount?: number; isBilimiWorkFolder: boolean; isBilimiWorkFolderCandidate?: boolean; selected?: boolean }>
   scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; paused?: boolean; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
 }
 
@@ -648,7 +648,7 @@ function normalizedRecoveredCustomTitle(title: string) {
 
 function recoveredManagedShardNumber(title: string, baseTitle: string): number | undefined {
   if (title === baseTitle) return 1
-  const match = title.match(new RegExp(`^${escapeRegExp(baseTitle)}·(\\d+)$`))
+  const match = title.match(new RegExp(`^${escapeRegExp(baseTitle)}·([2-9]\\d*)$`))
   if (!match) return undefined
   const shardNumber = Number(match[1])
   return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
@@ -665,7 +665,7 @@ function escapeRegExp(value: string) {
 function recoverableManagedFolders(sourceFolders: ScanOverview['sourceFolders'], managedMembers: Record<string, number[]>) {
   const defaults = createDefaultFavoriteLedgers()
   const candidates: RecoverableManagedFolder[] = []
-  for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+  for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder || candidate.isBilimiWorkFolderCandidate)) {
     const title = folder.title.trim()
     const memberAids = [...new Set(managedMembers[folder.id] ?? [])].sort((left, right) => left - right)
     let recovered = false
@@ -856,6 +856,14 @@ export class OldFavoriteWorkspaceCoordinator {
 
   async open(accountMid: string): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null> {
     return this.queue(() => this.openUnsafe(accountMid))
+  }
+
+  /** IDs, not title-shaped candidates, are the only authority for protection. */
+  async getFormallyBoundRemoteFolderIds(accountMid: string): Promise<ReadonlySet<string>> {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    return new Set(snapshot.physicalShards
+      .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+      .map((shard) => shard.remoteFolderId!))
   }
 
   /** Restores only complete, uniquely identifiable Bilimi folders from an existing scan. */
@@ -6151,7 +6159,7 @@ export class OldFavoriteWorkspaceCoordinator {
             issuedAt: timestamp,
             expectedRevision: snapshot.revision,
             type: 'set-favorite-placements',
-            payload: { placements }
+            payload: { adjustmentKind: 'manual', placements }
           })
           committed = true
         } catch (error) {

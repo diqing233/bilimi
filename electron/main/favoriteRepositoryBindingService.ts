@@ -470,11 +470,16 @@ export class FavoriteRepositoryBindingService {
           accountMid: account, operationKey: `${runId}:inventory`
         })
         if (normalizedAccountMid(inventory.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const formallyBoundRemoteFolderIds = new Set(snapshot.physicalShards
+          .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
+          .map((shard) => shard.remoteFolderId!))
         const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
         const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*[2-9]\d*$/u, '').trim()
         return ledgers.map((ledger) => ({
           ledgerId: ledger.ledgerId.trim(),
           candidates: inventory.folders
+            .filter((folder) => !formallyBoundRemoteFolderIds.has(folder.id))
             .filter((folder) => normalizeLogicalTitle(folder.title) === normalizeLogicalTitle(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
             .map((folder) => ({ id: folder.id, title: folder.title, memberCount: folder.memberCount }))
         })).filter((entry) => entry.ledgerId && entry.candidates.length)

@@ -196,6 +196,7 @@ export class FavoriteLibraryCommandService {
       expectedRevision,
       type: 'set-favorite-placements',
       payload: {
+        adjustmentKind: 'manual',
         placements: placements.map((placement) => {
           const prior = snapshot.positions?.[`${account}:${placement.aid}`]
           return {
@@ -232,6 +233,7 @@ export class FavoriteLibraryCommandService {
       expectedRevision,
       type: 'set-favorite-placement',
       payload: {
+        adjustmentKind: 'adopt-remote',
         aid,
         localDesiredFolderIds: [...prior.remoteObservedLogicalFolderIds],
         remoteObservedPhysicalFolderIds: [...prior.remoteObservedPhysicalFolderIds],

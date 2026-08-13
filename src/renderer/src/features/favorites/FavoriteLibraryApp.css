@@ -191,6 +191,7 @@
 .favorite-library__row-source, .favorite-library__row-status { align-self: center; }
 .favorite-library__row-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source { display: grid; align-items: center; justify-items: stretch; min-width: 0; gap: 2px; text-align: center; }
+.favorite-library__history-heading { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .favorite-library__row-classification { min-width: 0; overflow: hidden; color: #334155; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .favorite-library__row-source-line > span { min-width: 0; }

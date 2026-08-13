@@ -169,6 +169,35 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(getSnapshot).toHaveBeenCalledOnce()
   })
 
+  it('commits selected local managed-folder deletions in one revision instead of invalidating sibling previews', async () => {
+    const current = {
+      ...managedSnapshot(),
+      folders: [...managedSnapshot().folders, { id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical' as const, logicalLedgerId: 'ideas', syncState: 'bound' as const }],
+      memberships: {
+        ...managedSnapshot().memberships,
+        'bilimi-logical:ideas': [2, 4], 'bilimi:ideas:001': [2, 4]
+      },
+      physicalShards: [...managedSnapshot().physicalShards, {
+        logicalLedgerId: 'ideas', folderId: 'bilimi:ideas:001', shardNumber: 1, remoteFolderId: '42', remoteTitle: 'Ideas', bindingState: 'bound' as const
+      }]
+    }
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const dismissRemoteFolder = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }, dismissRemoteFolder
+    })
+    const work = await service.preview('100', 'bilimi-logical:work')
+    const ideas = await service.preview('100', 'bilimi-logical:ideas')
+
+    await expect(service.deleteLocalMany('100', [work.executionToken, ideas.executionToken])).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(commitWithAudit).toHaveBeenCalledOnce()
+    expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'delete-local-managed-folders', payload: { logicalFolderIds: ['bilimi-logical:ideas', 'bilimi-logical:work'] }
+    }), expect.any(Array))
+    expect(dismissRemoteFolder.mock.calls).toEqual([['100', '99'], ['100', '42']])
+  })
+
   it('requires preview, confirmation, and unchanged baseline for remote deletion; unknown results need reconciliation without retry', async () => {
     const current = managedSnapshot()
     const getSnapshot = vi.fn(async () => current)

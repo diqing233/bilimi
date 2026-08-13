@@ -707,6 +707,25 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       (deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)) return
     const deletedIds = new Set(deletionCandidates.map((candidate) => candidate.logicalLedgerId))
     if (deletionScope === 'local-only') {
+      if (!accountMid || !window.bilimiDesktop?.previewFavoriteLibraryManagedFolderDelete || !window.bilimiDesktop?.deleteFavoriteLibraryManagedFoldersLocal) {
+        setDeletionError('当前没有可用的收藏库账户，无法仅从 bilimi 删除。')
+        return
+      }
+      setDeletionExecuting(true)
+      setDeletionError(null)
+      try {
+        const previews = await Promise.all([...deletedIds].sort().map((logicalLedgerId) =>
+          window.bilimiDesktop!.previewFavoriteLibraryManagedFolderDelete!(accountMid, `bilimi-logical:${logicalLedgerId}`) as Promise<{ executionToken?: string }>
+        ))
+        const executionTokens = previews.map((preview) => preview.executionToken).filter((executionToken): executionToken is string => Boolean(executionToken)).sort()
+        if (executionTokens.length !== deletedIds.size) throw new Error('Managed folder deletion preview is unavailable.')
+        await window.bilimiDesktop.deleteFavoriteLibraryManagedFoldersLocal(accountMid, executionTokens)
+      } catch (error) {
+        setDeletionError(managedFavoriteFolderDeletionFailureMessage(error))
+        return
+      } finally {
+        setDeletionExecuting(false)
+      }
       finalizeLedgerDeletion(deletedIds)
       return
     }

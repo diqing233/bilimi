@@ -283,7 +283,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     const metrics = screen.getByLabelText('本批整理统计')
-    expect(metrics).toHaveTextContent('本批视频500')
+    expect(metrics).toHaveTextContent('本轮待整理500')
     expect(metrics).toHaveTextContent('本批待整理500')
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()

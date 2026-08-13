@@ -269,7 +269,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(abandon).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
-    fireEvent.click(screen.getByRole('button', { name: '清空并放弃' }))
+    fireEvent.click(screen.getByRole('button', { name: '清空并结束' }))
     expect(abandon).toHaveBeenCalledOnce()
   })
 

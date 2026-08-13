@@ -24,6 +24,14 @@ describe('managedFavoriteFolderDeletionFailureMessage', () => {
     expect(message).toContain('非 JSON')
     expect(message).toContain('验证')
   })
+
+  it('does not expose unknown internal deletion errors', () => {
+    const message = managedFavoriteFolderDeletionFailureMessage(new Error('Error invoking remote method favorite-library:delete token=secret'))
+
+    expect(message).toContain('重新打开确认窗口')
+    expect(message).not.toContain('remote method')
+    expect(message).not.toContain('secret')
+  })
 })
 
 describe('managed favorite folder deletion rule projection', () => {

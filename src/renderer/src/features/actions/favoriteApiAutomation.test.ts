@@ -302,9 +302,9 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge'
-        ? { ...ledger, bilibiliFolderId: '91000001' }
+        ? { ...ledger, bilibiliFolderId: '91000001', bindingState: 'bound' as const }
         : ledger.id === 'inbox'
-          ? { ...ledger, bilibiliFolderId: '91000008' }
+          ? { ...ledger, bilibiliFolderId: '91000008', bindingState: 'bound' as const }
           : ledger
     )
     const requests: Array<{ body?: string; method?: string; url: string }> = []
@@ -358,6 +358,55 @@ describe('buildFavoriteApiFallbackScript', () => {
     expect(requests[1].body).toContain('add_media_ids=91000001')
     expect(requests[1].body).toContain('del_media_ids=91000008')
     expect(requests[1].body).not.toContain('92000000')
+  })
+
+  it('uses only the formally bound shard id when a same-named ordinary folder exists', async () => {
+    installBilibiliPageState()
+
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bilibiliFolderId: 'bound-game-main',
+      bilibiliFolderIds: ['bound-game-main', 'bound-game-2'],
+      bindingState: 'bound' as const
+    }
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ body: init?.body?.toString(), url })
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: {
+            list: [
+              { id: 'ordinary-same-name', title: 'bilimi·游戏专区', media_count: 7 },
+              { id: 'bound-game-main', title: 'bilimi·游戏专区', media_count: 1000 },
+              { id: 'bound-game-2', title: 'bilimi·游戏专区·2', media_count: 7 }
+            ]
+          },
+          message: 'OK'
+        })
+      }
+      if (url.includes('/x/v3/fav/resource/deal')) {
+        return Response.json({ code: 0, data: {}, message: 'OK' })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteApiAdjustmentScript([game], {
+      addLedgerIds: ['game'],
+      removeLedgerIds: [],
+      aid: 710,
+      accountMid: '42'
+    }))
+
+    expect(result).toMatchObject({
+      ok: true,
+      favoriteFolderIdsByLedgerId: { game: 'bound-game-2' }
+    })
+    expect(requests[1].body).toContain('add_media_ids=bound-game-2')
+    expect(requests[1].body).not.toContain('ordinary-same-name')
+    expect(requests.map((request) => request.url)).not.toContain(
+      expect.stringContaining('/x/v3/fav/folder/add')
+    )
   })
 
   it('marks the Bilibili toolbar favorite button active after API favorite succeeds', async () => {

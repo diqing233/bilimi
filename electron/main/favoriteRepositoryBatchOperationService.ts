@@ -227,7 +227,7 @@ export class FavoriteRepositoryBatchOperationService {
         const result = await this.options.repository.commitWithAudit(operation.accountMid, {
           id: `favorite-managed-placement-removal:intent:${operation.operationId}:${randomUUID()}`,
           accountMid: operation.accountMid, issuedAt, expectedRevision: revision, type: 'set-favorite-placements',
-          payload: { placements: selectedChunk.map((aid) => {
+          payload: { adjustmentKind: 'managed-placement-remove', placements: selectedChunk.map((aid) => {
             const prior = snapshot.positions[`${operation.accountMid}:${aid}`]
             if (!prior) throw new Error('Favorite managed placement was not found.')
             return this.placement(aid, prior.localDesiredFolderIds.filter((folderId) => !selectedFolderSet.has(folderId)), prior, issuedAt)
@@ -422,7 +422,7 @@ export class FavoriteRepositoryBatchOperationService {
       const chunkAids = placementChunk.map((placement) => placement.aid)
       result = await this.options.repository.commitWithAudit(normalizedAccount, {
         id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: revision,
-        type: 'set-favorite-placements', payload: { placements: placementChunk }
+        type: 'set-favorite-placements', payload: { adjustmentKind: action === 'copy' ? 'local-copy' : 'local-move', placements: placementChunk }
       }, this.events(chunkAids, action === 'copy' ? 'batch-copy' : 'batch-move', timestamp))
       revision = result.revision
     }

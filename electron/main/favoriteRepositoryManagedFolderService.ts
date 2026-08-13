@@ -173,25 +173,39 @@ export class FavoriteRepositoryManagedFolderService {
   }
 
   async deleteLocal(accountMid: string, executionToken: string) {
-    const operation = this.operationFor(accountMid, executionToken)
-    const snapshot = await this.options.repository.getSnapshot(operation.accountMid)
-    if (snapshot.revision !== operation.currentRevision) throw new Error('Managed folder baseline is stale.')
-    const auditAids = [...new Set(snapshot.memberships[operation.logicalFolderId] ?? [])]
+    return this.deleteLocalMany(accountMid, [executionToken])
+  }
+
+  async deleteLocalMany(accountMid: string, executionTokens: string[]) {
+    const normalizedAccount = account(accountMid)
+    const uniqueTokens = [...new Set(executionTokens.map((executionToken) => executionToken.trim()).filter(Boolean))]
+    if (!uniqueTokens.length) throw new Error('Managed folder deletion preview is unavailable.')
+    const operations = uniqueTokens.map((executionToken) => this.operationFor(normalizedAccount, executionToken))
+    if (new Set(operations.map((operation) => operation.logicalFolderId)).size !== operations.length) {
+      throw new Error('Managed folder deletion preview is duplicated.')
+    }
+    const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
+    if (operations.some((operation) => operation.currentRevision !== snapshot.revision)) throw new Error('Managed folder baseline is stale.')
+    const logicalFolderIds = operations.map((operation) => operation.logicalFolderId).sort()
+    const auditAids = [...new Set(logicalFolderIds.flatMap((logicalFolderId) => snapshot.memberships[logicalFolderId] ?? []))]
     const timestamp = this.now()
     const command: FavoriteRepositoryCommand = {
-      id: `managed-folder:delete-local:${operation.operationId}`, accountMid: operation.accountMid, issuedAt: timestamp, expectedRevision: snapshot.revision,
-      ...(operation.logicalFolderId === 'local:inbox'
+      id: `managed-folder:delete-local:${operations.map((operation) => operation.operationId).sort().join(':')}`,
+      accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: snapshot.revision,
+      ...(logicalFolderIds.length === 1 && logicalFolderIds[0] === 'local:inbox'
         ? { type: 'clear-local-inbox' as const, payload: {} }
-        : { type: 'delete-local-managed-folder' as const, payload: { logicalFolderId: operation.logicalFolderId } })
+        : logicalFolderIds.length === 1
+          ? { type: 'delete-local-managed-folder' as const, payload: { logicalFolderId: logicalFolderIds[0] } }
+          : { type: 'delete-local-managed-folders' as const, payload: { logicalFolderIds } })
     }
     const auditEvents = this.events(auditAids, 'managed-folder-delete-local', timestamp)
-    if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)
-    else await this.options.repository.commit(operation.accountMid, command)
-    for (const remoteFolderId of operation.localDismissRemoteFolderIds) {
-      this.options.dismissRemoteFolder?.(operation.accountMid, remoteFolderId)
+    if (auditEvents.length) await this.options.repository.commitWithAudit(normalizedAccount, command, auditEvents)
+    else await this.options.repository.commit(normalizedAccount, command)
+    for (const remoteFolderId of [...new Set(operations.flatMap((operation) => operation.localDismissRemoteFolderIds))]) {
+      this.options.dismissRemoteFolder?.(normalizedAccount, remoteFolderId)
     }
-    operation.status = 'succeeded'
-    return { status: 'succeeded' as const, operationId: operation.operationId, auditStatus: 'recorded' as const }
+    for (const operation of operations) operation.status = 'succeeded'
+    return { status: 'succeeded' as const, operationId: operations.map((operation) => operation.operationId).sort().join(','), auditStatus: 'recorded' as const }
   }
 
   confirm(accountMid: string, executionToken: string) {

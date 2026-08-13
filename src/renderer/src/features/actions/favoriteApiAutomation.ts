@@ -435,31 +435,35 @@ export function buildFavoriteApiAdjustmentScript(
         steps.push('api:favorite:adjust-list');
 
         const folders = Array.isArray(listData?.list) ? listData.list : [];
-        const findFolderId = (folder) => folder?.id || folder?.fid || '';
-        const ensureTargetFolder = async (ledger) => {
-          let targetFolder = folders.find((folder) => folder?.title === ledger.displayName);
-
-          if (!targetFolder) {
-            const createBody = new URLSearchParams({
-              csrf,
-              privacy: '0',
-              title: ledger.displayName
-            });
-            const createData = await requestJson(
-              'https://api.bilibili.com/x/v3/fav/folder/add',
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: createBody
-              }
-            );
-            targetFolder = createData;
-            folders.push(targetFolder);
-            steps.push('api:favorite:adjust-create-folder');
+        const findFolderId = (folder) => String(folder?.id || folder?.fid || '').trim();
+        const boundFolderIds = (ledger) => ledger?.bindingState === 'bound'
+          ? Array.from(new Set([
+              ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
+              ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+            ].map((folderId) => String(folderId || '').trim()).filter(Boolean)))
+          : [];
+        const findAvailableBoundFolderId = (ledger) => {
+          const formalFolderIds = boundFolderIds(ledger);
+          if (!formalFolderIds.length) {
+            const error = new Error('The target bilimi ledger has no formal remote binding.');
+            error.code = 'favorite-ledger-unbound';
+            throw error;
           }
-
+          const foldersById = new Map(folders.map((folder) => [findFolderId(folder), folder]));
+          const formalFolders = formalFolderIds.map((folderId) => foldersById.get(folderId)).filter(Boolean);
+          if (formalFolders.length !== formalFolderIds.length) {
+            const error = new Error('A formally bound Bilibili favorite shard is absent from the remote inventory.');
+            error.code = 'favorite-bound-shard-missing';
+            throw error;
+          }
+          const targetFolder = [...formalFolders]
+            .reverse()
+            .find((folder) => Math.max(0, Number(folder?.media_count ?? folder?.count ?? 0) || 0) < 1000);
+          if (!targetFolder) {
+            const error = new Error('The formally bound Bilibili favorite shards are full.');
+            error.code = 'physical-shard-capacity-exceeded';
+            throw error;
+          }
           return findFolderId(targetFolder);
         };
         const addFolderIds = [];
@@ -467,9 +471,9 @@ export function buildFavoriteApiAdjustmentScript(
         for (const ledgerId of addLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
           if (!ledger) {
-            continue;
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek target ledger is unavailable.');
           }
-          const folderId = await ensureTargetFolder(ledger);
+          const folderId = findAvailableBoundFolderId(ledger);
           if (folderId) {
             const normalizedFolderId = String(folderId);
             addFolderIds.push(normalizedFolderId);
@@ -479,13 +483,13 @@ export function buildFavoriteApiAdjustmentScript(
         const removeFolderIds = [];
         for (const ledgerId of removeLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
-          const folder = ledger ? folders.find((candidate) => candidate?.title === ledger.displayName) : null;
-          const folderId = findFolderId(folder);
-          if (folderId) {
-            const normalizedFolderId = String(folderId);
-            removeFolderIds.push(normalizedFolderId);
-            favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
+          if (!ledger) {
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek target ledger is unavailable.');
           }
+          const folderId = findAvailableBoundFolderId(ledger);
+          const normalizedFolderId = String(folderId);
+          removeFolderIds.push(normalizedFolderId);
+          favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
         }
 
         if (addFolderIds.length === 0 && removeFolderIds.length === 0) {

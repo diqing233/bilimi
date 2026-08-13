@@ -69,6 +69,8 @@ export function projectOldFavoriteInventoryMetrics(input: {
     title: string
     itemCount: number
     isBilimiWorkFolder: boolean
+    /** Name-shaped recovery candidate; no protection is implied. */
+    isBilimiWorkFolderCandidate?: boolean
     selected?: boolean
     observationComplete?: boolean
   }>

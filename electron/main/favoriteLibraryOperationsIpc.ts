@@ -190,6 +190,12 @@ export function registerFavoriteLibraryOperationsIpc(options: {
   options.ipcMain.handle('favorite-library-operations:delete-managed-folder-local', async (event, requestedAccount, executionToken) => {
     trusted(event); return options.managed.deleteLocal(await current(requestedAccount), token(executionToken))
   })
+  options.ipcMain.handle('favorite-library-operations:delete-managed-folders-local', async (event, requestedAccount, executionTokens) => {
+    trusted(event)
+    if (!Array.isArray(executionTokens) || !executionTokens.length || executionTokens.some((executionToken) => typeof executionToken !== 'string' || !executionToken.trim()) ||
+      new Set(executionTokens).size !== executionTokens.length) throw new Error('Managed folder deletion preview is invalid.')
+    return options.managed.deleteLocalMany(await current(requestedAccount), executionTokens)
+  })
   options.ipcMain.handle('favorite-library-operations:confirm-managed-folder-remote-delete', async (event, requestedAccount, executionToken) => {
     trusted(event); const normalized = await current(requestedAccount); return { confirmationToken: options.managed.confirm(normalized, token(executionToken)) }
   })

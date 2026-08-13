@@ -116,6 +116,24 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('does not recover non-canonical shard suffixes as physical bilimi bindings', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'dot-shard', title: 'bilimi·游戏专区.2', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'zero-shard', title: 'bilimi·游戏专区·02', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'dot-shard': [1], 'zero-shard': [2] })
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === 'game')).toEqual([])
+  })
+
   it('clears matching ledger rules only after managed folder deletion succeeds', async () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)

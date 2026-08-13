@@ -200,6 +200,7 @@ type BilimiDesktopApi = {
   previewFavoriteLibraryManagedFolderDelete?: (accountMid: string, folderId: string) => Promise<unknown>
   previewFavoriteLibraryManagedFolderGroupDelete?: (accountMid: string) => Promise<unknown>
   deleteFavoriteLibraryManagedFolderLocal?: (accountMid: string, executionToken: string) => Promise<unknown>
+  deleteFavoriteLibraryManagedFoldersLocal?: (accountMid: string, executionTokens: string[]) => Promise<unknown>
   confirmFavoriteLibraryManagedFolderRemoteDelete?: (accountMid: string, executionToken: string) => Promise<{ confirmationToken: string }>
   executeFavoriteLibraryManagedFolderRemoteDelete?: (accountMid: string, executionToken: string, confirmationToken: string) => Promise<unknown>
   reconcileFavoriteLibraryManagedFolderDelete?: (accountMid: string, operationId: string) => Promise<unknown>

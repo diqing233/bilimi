@@ -16,7 +16,7 @@ export function managedFavoriteFolderDeletionFailureMessage(error: unknown) {
     const diagnostics = [httpStatus ? `HTTP ${httpStatus}` : '', bilibiliCode ? `B 站错误码 ${bilibiliCode}` : ''].filter(Boolean)
     return `B 站拒绝或未返回可确认的删除结果${diagnostics.length ? `（${diagnostics.join('，')}）` : ''}；未继续执行其他删除。`
   }
-  return detail ? `删除失败：${detail}` : '删除收藏夹失败，请稍后重试。'
+  return '删除收藏夹未完成；请重新打开确认窗口核对当前账号和工作夹后再试。'
 }
 
 /** A deletion call is successful only when it returns a normal folder list or an explicit succeeded status. */

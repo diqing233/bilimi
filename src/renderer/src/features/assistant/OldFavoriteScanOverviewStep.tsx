@@ -233,12 +233,12 @@ export function OldFavoriteScanOverviewStep({
     </div> : null}
     {snapshot ? <>
       <div className="favorite-ledger-panel__scan-metrics" aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮整理统计' : '本批整理统计'}>
-        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'} title={scanningBasicInformation
+        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本轮待整理'} title={scanningBasicInformation
           ? '当前本轮已完成基本信息扫描的视频数量。'
           : viewScope === 'current'
           ? '当前批次中实际进入整理流程的去重视频数量。'
           : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
-          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本批视频'}</span>
+          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本轮待整理'}</span>
           <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
         </article>
         <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">

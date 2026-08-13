@@ -32,7 +32,7 @@ type FavoriteLibraryNavigationProps = {
   onCollapseChange: (uid: string, groupId: string, collapsed: boolean) => void
   onSelect: (id: string) => void | boolean | Promise<void | boolean>
   onManagedFolderMenu?: (id: string) => void
-  onManagedFolderAction?: (id: string, action: 'edit' | 'delete') => void
+  onManagedFolderAction?: (id: string, action: 'edit' | 'delete' | 'clear-records') => void
   onOrdinaryFolderRemove?: (id: string) => void
   onOrdinaryGroupAction?: (action: 'delete-all') => void
   onWorkspaceAction?: (action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => void
@@ -54,7 +54,7 @@ export function FavoriteLibraryNavigation({
   ordinaryGroupActionRef.current = onOrdinaryGroupAction
   onSelectRef.current = onSelect
   const handleManagedFolderMenu = useCallback((id: string) => managedFolderMenuRef.current?.(id), [])
-  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete') => managedFolderActionRef.current?.(id, action), [])
+  const handleManagedFolderAction = useCallback((id: string, action: 'edit' | 'delete' | 'clear-records') => managedFolderActionRef.current?.(id, action), [])
   const handleWorkspaceAction = useCallback((action: 'create' | 'sync-all' | 'delete-all' | 'clear-records') => workspaceActionRef.current?.(action), [])
   const handleOrdinaryFolderRemove = useCallback((id: string) => ordinaryFolderRemoveRef.current?.(id), [])
   const handleOrdinaryGroupAction = useCallback((action: 'delete-all') => ordinaryGroupActionRef.current?.(action), [])
@@ -271,7 +271,7 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
   item: FavoriteLibraryNavigationItem
   trigger: HTMLButtonElement
   onClose: () => void
-  onAction?: (id: string, action: 'edit' | 'delete') => void
+  onAction?: (id: string, action: 'edit' | 'delete' | 'clear-records') => void
 }) {
   const [position, setPosition] = useState<CSSProperties>()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -317,12 +317,13 @@ function SharedManagedFolderMenu({ item, trigger, onClose, onAction }: {
       removalObserver?.disconnect()
     }
   }, [closeAndRestoreFocus, reposition, trigger])
-  const run = (action: 'edit' | 'delete') => {
+  const run = (action: 'edit' | 'delete' | 'clear-records') => {
     closeAndRestoreFocus()
     onAction?.(item.id, action)
   }
   return <div ref={menuRef} className="favorite-library__folder-floating-menu" role="menu" aria-label={`${item.label} \u64cd\u4f5c`} style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('edit')}>{'\u7f16\u8f91\u4fe1\u606f'}</button>
+    <button role="menuitem" type="button" onClick={() => run('clear-records')}>{'\u6e05\u7a7a\u6536\u85cf\u5e93\u6574\u7406\u8bb0\u5f55'}</button>
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete')}>{item.removable ? '\u4ece\u6536\u85cf\u5e93\u5220\u9664' : '\u5220\u9664'}</button>
   </div>
 }

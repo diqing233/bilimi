@@ -1328,6 +1328,8 @@ describe('FavoriteLedgerOverview', () => {
 
   it('shows a confirmation dialog before deleting a local-only ledger', async () => {
     const save = vi.fn().mockResolvedValue(undefined)
+    const previewFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ executionToken: 'local-only-delete' })
+    const deleteFavoriteLibraryManagedFoldersLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
@@ -1335,7 +1337,9 @@ describe('FavoriteLedgerOverview', () => {
         previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
           { logicalLedgerId: 'local-only', title: 'bilimi路鍦ㄦ湰', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
         ]),
-        deleteManagedFavoriteFolders: vi.fn()
+        deleteManagedFavoriteFolders: vi.fn(),
+        previewFavoriteLibraryManagedFolderDelete,
+        deleteFavoriteLibraryManagedFoldersLocal
       }
     })
     render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
@@ -1352,5 +1356,9 @@ describe('FavoriteLedgerOverview', () => {
     expect(deleteButton).toBeDisabled()
     fireEvent.click(dialog.querySelector('input[type="checkbox"]')!)
     expect(deleteButton).toBeEnabled()
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'bilimi-logical:local-only'))
+    await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['local-only-delete']))
   })
 })

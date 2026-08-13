@@ -352,10 +352,10 @@ export function OldFavoriteConfirmationStep({
     </BilimiModal> : null}
     {endDialogOpen ? <OldFavoriteModal title="结束本轮整理？" onCancel={() => setEndDialogOpen(false)} extraActions={<>
       <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理，保留草稿</button>
-      <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>清空并放弃</button>
+      <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>清空并结束</button>
     </>}>
       <p>关闭整理会保留当前草稿、扫描和标签补取进度；下次可继续本轮整理。</p>
-      <p>清空并放弃会丢弃本轮未保存的草稿与进度，不影响已保存的收藏库和 B 站；之后需要重新扫描。</p>
+      <p>清空并结束会丢弃本轮未保存的草稿与进度，不影响已保存的收藏库和 B 站；之后需要重新扫描。</p>
     </OldFavoriteModal> : null}
   </section>
 }
