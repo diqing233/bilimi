@@ -1057,7 +1057,10 @@ describe('FavoriteRepositoryBatchOperationService', () => {
 
     expect(commitWithAudit).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'set-favorite-placements',
-      payload: { adjustmentKind: 'local-move', placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })] }
+      payload: expect.objectContaining({
+        adjustmentKind: 'local-move', audit: { operation: 'move' },
+        placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })]
+      })
     }), expect.any(Array))
   })
 })

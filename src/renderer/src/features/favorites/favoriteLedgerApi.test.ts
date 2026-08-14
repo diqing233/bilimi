@@ -822,6 +822,55 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/folder/add'))).toBe(false)
   })
 
+  it('does not rename a formally bound Bilibili folder during lightweight backup', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-lightweight', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
+      priority: 90, isDefault: false, bindingState: 'bound',
+      bilibiliFolderId: '42', bilibiliFolderIds: ['42'], bilibiliFolderTitle: 'bilimi·旧名称'
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·旧名称' }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/edit')) {
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { lightweightBackup: true }))
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
+  })
+
+  it('keeps name synchronization in a full backup', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-full-backup', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
+      priority: 90, isDefault: false, bindingState: 'bound',
+      bilibiliFolderId: '42', bilibiliFolderIds: ['42'], bilibiliFolderTitle: 'bilimi·旧名称'
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·旧名称' }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/edit')) {
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(1)
+    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·新名称' })])
+  })
+
   it('creates only missing enabled ledgers', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => index === 0 ? { ...ledger, bilibiliFolderId: '1' } : ledger)

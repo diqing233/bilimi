@@ -79,7 +79,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }
   | { id: string; type: 'ensure-ledgers' }
-  | { id: string; type: 'ensure-ledger'; logicalFolderId: string }
+  | { id: string; type: 'ensure-ledger'; logicalFolderId: string; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[]; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'open-bilibili-favorites' }
   | {

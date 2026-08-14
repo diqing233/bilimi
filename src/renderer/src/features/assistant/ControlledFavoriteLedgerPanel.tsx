@@ -170,6 +170,20 @@ export function ControlledFavoriteLedgerPanel({
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>) => {
     const previousEnabledById = ledgerEnabledByIdRef.current
     updateLedgerEnabledById(next)
+    for (const ledger of ledgers) {
+      const previousEnabled = previousEnabledById.get(ledger.id) ?? ledger.enabled
+      const enabled = next.get(ledger.id) ?? ledger.enabled
+      const ruleType = ledger.ruleType ?? 'keyword'
+      if (previousEnabled === enabled || ruleType === 'deepseek') continue
+      const rules = parseFavoriteLedgerRules(ledger)
+      workspace.queueDraftLedgerRuleAnalysis({
+        ledgerId: ledger.id,
+        title: stripBilimiLedgerPrefix(ledger.displayName),
+        keywords: rules.localKeywords,
+        ruleType,
+        ...(enabled ? {} : { adopt: false })
+      })
+    }
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
     const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
@@ -201,7 +215,7 @@ export function ControlledFavoriteLedgerPanel({
       }
     }
     if (changed) workspace.setRecommendedCandidates([...selectedIds])
-  }, [ledgers, updateLedgerEnabledById, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot])
+  }, [ledgers, updateLedgerEnabledById, workspace.queueDraftLedgerRuleAnalysis, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot])
   const handleDeleteLedger = useCallback((ledgerId: string) => {
     if (workspace.recommendedCandidateIds.includes(ledgerId)) {
       workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== ledgerId))
@@ -556,7 +570,8 @@ export function ControlledFavoriteLedgerPanel({
     .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.id))
   const hasBackupEligibleLedger = displayedLedgersWithLiveEnabled.some((ledger) =>
-    ledger.enabled && ledger.syncState !== 'local-draft')
+    ledger.enabled && ledger.syncState !== 'local-draft' &&
+    (defaultFavoriteSystemEnabled !== false || !ledger.isDefault || ledger.id === 'inbox'))
 
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
@@ -588,7 +603,7 @@ export function ControlledFavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
-          <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={workspace.loading || ensuringLedgers || defaultFavoriteSystemEnabled === false || !hasBackupEligibleLedger}
+          <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={workspace.loading || ensuringLedgers || !hasBackupEligibleLedger}
             onClick={() => void ensureLedgersAndOpenFavoritePage()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label={ensuringLedgers ? '备册中' : '备册'} description={ensuringLedgers ? '正在后台检查并生成 bilimi 收藏夹' : '一键生成 bilimi 收藏夹，用于归类收藏和整理'} />
           <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || !currentAccountMid}
@@ -627,14 +642,14 @@ export function ControlledFavoriteLedgerPanel({
           const ruleType = ledger.ruleType ?? 'keyword'
           if (ruleType === 'deepseek') return true
           const rules = parseFavoriteLedgerRules(ledger)
-          const result = await workspace.saveDraftLedgerRule({
+          workspace.queueDraftLedgerRuleAnalysis({
             ledgerId: ledger.id,
             title: stripBilimiLedgerPrefix(ledger.displayName),
             keywords: rules.localKeywords,
             ruleType,
             ...(ledger.enabled ? {} : { adopt: false })
           })
-          return Boolean(result)
+          return true
         }}
       />
       {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"

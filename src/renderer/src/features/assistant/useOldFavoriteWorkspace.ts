@@ -96,6 +96,17 @@ function deepSeekFailureMessage(error: unknown) {
   return wrapped || detail || 'DeepSeek 整理失败，请稍后重试。'
 }
 
+function draftLedgerRuleAnalysisFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/draft ledger rule is unavailable|recommendations are not ready/i.test(detail)) {
+    return '收藏夹规则暂时无法重新计算，请等待当前扫描完成后重试。'
+  }
+  if (/draft ledger rule is invalid/i.test(detail)) {
+    return '收藏夹规则内容无效，请检查名称和关键词后重试。'
+  }
+  return '收藏夹规则分析失败，请稍后重试。'
+}
+
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
   if (/retry-cooldown/i.test(detail) && /invalid-response/i.test(detail)) {
@@ -162,6 +173,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
   const observedDeepSeekCheckpointRef = useRef(false)
   const activeDraftRuleAnalysisRef = useRef<ActiveDraftLedgerRuleAnalysis | null>(null)
+  const pendingDraftLedgerRuleRef = useRef(new Map<string, DraftLedgerRuleInput>())
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
@@ -197,6 +209,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setDeepSeekCancelRequested(false)
     setTagEnrichmentUpdating(false)
     activeDraftRuleAnalysisRef.current = null
+    pendingDraftLedgerRuleRef.current.clear()
     setDraftRuleAnalysis(null)
     setDraftRuleAnalysisError(null)
     setReconciling(false)
@@ -830,8 +843,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch (error) {
       if (activeDraftRuleAnalysisRef.current === active && !active.cancelRequested) {
-        const detail = error instanceof Error ? error.message : ''
-        setDraftRuleAnalysisError(detail || '收藏夹规则分析失败，请重试。')
+        setDraftRuleAnalysisError(draftLedgerRuleAnalysisFailureMessage(error))
       }
       return null
     } finally {
@@ -841,6 +853,31 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       }
     }
   }, [accountMid, snapshot])
+  const flushQueuedDraftLedgerRuleAnalysis = useCallback(async () => {
+    const currentSnapshot = snapshot && !('recovery' in snapshot) && snapshot.status === 'previewing'
+      ? snapshot
+      : null
+    if (!currentSnapshot || !pendingDraftLedgerRuleRef.current.size || activeDraftRuleAnalysisRef.current) return null
+    const pending = pendingDraftLedgerRuleRef.current.values().next().value
+    if (!pending) return null
+    pendingDraftLedgerRuleRef.current.delete(pending.ledgerId)
+    return saveDraftLedgerRule(pending)
+  }, [saveDraftLedgerRule, snapshot])
+  const queueDraftLedgerRuleAnalysis = useCallback((input: DraftLedgerRuleInput) => {
+    const pending = {
+      ...input,
+      keywords: [...input.keywords]
+    }
+    // Keep only each ledger's latest local rule while preserving the order of
+    // its last edit relative to other pending ledgers.
+    pendingDraftLedgerRuleRef.current.delete(pending.ledgerId)
+    pendingDraftLedgerRuleRef.current.set(pending.ledgerId, pending)
+    setDraftRuleAnalysisError(null)
+    void flushQueuedDraftLedgerRuleAnalysis()
+  }, [flushQueuedDraftLedgerRuleAnalysis])
+  useEffect(() => {
+    void flushQueuedDraftLedgerRuleAnalysis()
+  }, [draftRuleAnalysis, flushQueuedDraftLedgerRuleAnalysis])
   const cancelDraftLedgerRuleAnalysis = useCallback(async () => {
     const active = activeDraftRuleAnalysisRef.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
@@ -959,7 +996,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, stopBilibiliSyncAndFinish,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, stopBilibiliSyncAndFinish,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

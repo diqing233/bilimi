@@ -675,6 +675,19 @@ export function favoriteOrganizationStatus(
     }
   }
 
+  // Pausing retains the same scanning workspace, so the status must inspect
+  // the durable pause marker before the normal scanning/tag-enrichment paths.
+  // This intentionally does not invent paused DeepSeek or B 站 labels: those
+  // channels keep their own real status until they have actually started or
+  // entered an execution queue.
+  if (snapshot.scan.paused) {
+    return {
+      label: '整理扫描已暂停',
+      detail: detail('扫描已暂停，已保存的进度不会丢失；恢复整理草稿后可以继续。'),
+      tone: 'warn'
+    }
+  }
+
   if (snapshot.tagEnrichment?.status === 'running') {
     return {
       label: '整理扫描中',

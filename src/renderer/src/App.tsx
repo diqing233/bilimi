@@ -2011,14 +2011,6 @@ export default function App() {
     }
 
     const accountMid = await readBilibiliAccountMid()
-    if (accountMid && preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled === false) {
-      return {
-        ok: false,
-        steps: [],
-        missingTargets: [],
-        message: '默认收藏夹体系已关闭，备册不会创建远端收藏夹。'
-      }
-    }
     const accountKey = accountMid || '__active-account__'
     const existing = favoriteLedgerEnsurePromisesRef.current.get(accountKey)
     if (existing) return existing
@@ -2034,13 +2026,21 @@ export default function App() {
     }
   }
 
-  async function ensureFavoriteLedger(logicalFolderId: string): Promise<AssistantAutomationResult> {
+  async function ensureFavoriteLedger(
+    logicalFolderId: string,
+    options?: FavoriteLedgerSaveOptions
+  ): Promise<AssistantAutomationResult> {
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) return loginFailure
 
     const accountMid = await readBilibiliAccountMid()
     const ledgerId = logicalFolderId.trim().replace(/^bilimi-logical:/, '')
-    if (accountMid && preferencesRef.current.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled === false) {
+    const currentLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const targetLedger = currentLedgers.find((ledger) => ledger.id === ledgerId && ledger.enabled)
+    if (!targetLedger) {
+      return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
+    }
+    if (targetLedger.isDefault && ledgerId !== 'inbox' && accountMid && preferencesRef.current.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled === false) {
       return {
         ok: false,
         steps: [],
@@ -2048,30 +2048,47 @@ export default function App() {
         message: '默认收藏夹体系已关闭，备册不会创建远端收藏夹。'
       }
     }
-    const currentLedgers = favoriteLedgersForActiveAccount(accountMid)
-    const targetLedger = currentLedgers.find((ledger) => ledger.id === ledgerId && ledger.enabled)
-    if (!targetLedger) {
-      return { ok: false, steps: [], missingTargets: [ledgerId], message: '当前分类未启用，无法备册。' }
-    }
 
     const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       [targetLedger]
     )
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings)
+      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings, options)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
+      const formalLedgerById = new Map(ledgersWithFormalBindings.map((ledger) => [ledger.id, ledger]))
+      const resultLedgers = result.ledgers.map((ledger) => {
+        const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
+        if (!confirmedFolders.length) return ledger
+        const formalLedger = formalLedgerById.get(ledger.id)
+        const formalFolderIds = [...new Set([
+          formalLedger?.bilibiliFolderId,
+          ...(formalLedger?.bilibiliFolderIds ?? [])
+        ].filter((folderId): folderId is string => Boolean(folderId)))]
+        const folderIds = [...new Set([...formalFolderIds, ...confirmedFolders.map((folder) => folder.id)])]
+        return {
+          ...ledger,
+          bilibiliFolderId: folderIds[0],
+          bilibiliFolderIds: folderIds,
+          bilibiliFolderTitle: formalFolderIds.length
+            ? formalLedger?.bilibiliFolderTitle
+            : confirmedFolders[0].title,
+          bilibiliFolderVideoCount: formalFolderIds.length
+            ? formalLedger?.bilibiliFolderVideoCount
+            : ledger.bilibiliFolderVideoCount
+        }
+      })
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
-        result.ledgers,
-        undefined,
-        undefined,
+        resultLedgers,
+        options?.rebindRemoteFolderIds,
+        options?.rebindRemoteFolders,
         trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
+      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
@@ -2107,6 +2124,7 @@ export default function App() {
       }
       favoriteLedgerStatusCacheRef.current = undefined
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+      return { ...result, ledgers: persistedLedgers }
     }
 
     return result
@@ -3291,7 +3309,7 @@ export default function App() {
         case 'ensure-ledgers':
           return ensureFavoriteLedgers()
         case 'ensure-ledger':
-          return ensureFavoriteLedger(request.logicalFolderId)
+          return ensureFavoriteLedger(request.logicalFolderId, request.options)
         case 'save-ledgers':
           return saveFavoriteLedgers(request.ledgers, request.options)
         case 'open-bilibili-favorites':

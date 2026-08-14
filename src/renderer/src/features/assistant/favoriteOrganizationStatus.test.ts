@@ -63,6 +63,21 @@ describe('favoriteOrganizationStatus', () => {
     }))).toMatchObject({ label: '整理异常', tone: 'error', detail: expect.stringContaining('network unavailable') })
   })
 
+  it('reports a durable paused scan before any normal scan or tag-enrichment state', () => {
+    expect(favoriteOrganizationStatus(workspace({
+      status: 'scanning',
+      scan: { phase: 'inventory', failureCount: 0, paused: true },
+      tagEnrichment: {
+        status: 'running', totalItemCount: 2_553, completedItemCount: 1_914,
+        pendingItemCount: 639, failedItemCount: 0
+      }
+    }))).toMatchObject({
+      label: '整理扫描已暂停',
+      tone: 'warn',
+      detail: expect.stringContaining('扫描已暂停')
+    })
+  })
+
   it('keeps tag enrichment visible as a running scan after source scanning completes', () => {
     expect(favoriteOrganizationStatus(workspace({
       tagEnrichment: {

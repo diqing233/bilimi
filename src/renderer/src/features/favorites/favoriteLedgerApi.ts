@@ -472,8 +472,17 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
   `
 }
 
-export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): string {
-  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers) })
+export function buildEnsureFavoriteLedgersScript(
+  ledgers: FavoriteLedger[],
+  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup'> = {}
+): string {
+  const payload = scriptPayload({
+    ledgers: normalizeLedgerPayload(ledgers),
+    options: {
+      rebindRemoteFolderIds: options.rebindRemoteFolderIds,
+      lightweightBackup: options.lightweightBackup
+    }
+  })
 
   return `
     (async () => {
@@ -500,7 +509,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
         .map((ledger) => ledger.id);
@@ -520,7 +529,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       // later backup, Bilimi's saved name is the deliberate source of truth.
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        if (!ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
+        if (payload.options?.lightweightBackup || !ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
         const body = new URLSearchParams();
         body.set('csrf', csrf);
         body.set('media_id', String(ledger.bilibiliFolderId));

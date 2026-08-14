@@ -59,6 +59,7 @@ import type {
 } from '../main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
 import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
+import type { ManagedFavoriteRemoteFolderDeletionResult } from '../main/favoriteRepositorySyncService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
 import type { FavoriteLibraryOperationSource } from '../../src/shared/favoriteLibraryOperations'
 import type {
@@ -98,9 +99,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds, ledgerTitleHints) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
   deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion = false, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
+    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-folders', accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds) as Promise<ManagedFavoriteRemoteFolderDeletionResult>,
   deleteManagedRemoteFolders: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion = false, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-remote-folders', accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
+    ipcRenderer.invoke('old-favorite-workspace-v1:delete-managed-remote-folders', accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds) as Promise<ManagedFavoriteRemoteFolderDeletionResult>,
   organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode, scope) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   retryOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>
@@ -634,7 +635,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }
   },
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
-  ensureFavoriteLedger: (logicalFolderId: string) => ipcRenderer.invoke('floating-assistant:ensure-ledger', logicalFolderId),
+  ensureFavoriteLedger: (logicalFolderId: string, options?: FavoriteLedgerSaveOptions) => ipcRenderer.invoke('floating-assistant:ensure-ledger', logicalFolderId, options),
   saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),

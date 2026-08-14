@@ -77,6 +77,8 @@ export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
   /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
   rediscoverDeletedRemoteDrafts?: boolean
+  /** Restricts backup to create-or-confirm-bind for explicit library targets. */
+  lightweightBackup?: boolean
   /** Explicit user choices from the rebind confirmation dialog. */
   rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
   /** All confirmed physical Bilibili folders for one recovered logical ledger. */

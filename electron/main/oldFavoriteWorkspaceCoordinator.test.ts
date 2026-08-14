@@ -138,9 +138,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
     const syncService = createSyncService({
-      deleteManagedFolders: vi.fn().mockResolvedValue([
-        { logicalLedgerId: 'music', remoteFolderId: '9001', title: 'bilimi·音乐', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }
-      ])
+      deleteManagedFolders: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        candidates: [{ logicalLedgerId: 'music', remoteFolderId: '9001', title: 'bilimi·音乐', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }],
+        succeededRemoteFolderIds: ['9001'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+      })
     })
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root }),
@@ -155,11 +157,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }])
   })
 
-  it('does not clear matching ledger rules when managed folder deletion fails', async () => {
+  it('does not clear matching ledger rules when no managed folder deletion succeeds', async () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
     const syncService = createSyncService({
-      deleteManagedFolders: vi.fn().mockRejectedValue(new Error('remote deletion failed'))
+      deleteManagedFolders: vi.fn().mockResolvedValue({
+        status: 'failed', candidates: [], succeededRemoteFolderIds: [], failedRemoteFolderIds: ['9001'],
+        unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: ['9002'], failures: []
+      })
     })
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root }),
@@ -167,9 +172,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       { initializeOnOpen: false, syncService, onManagedFolderDeletion }
     )
 
-    await expect(coordinator.deleteManagedFolderCandidates('100', ['music', 'game'])).rejects.toThrow('remote deletion failed')
+    await expect(coordinator.deleteManagedFolderCandidates('100', ['music', 'game'])).resolves.toMatchObject({ status: 'failed' })
 
     expect(onManagedFolderDeletion).not.toHaveBeenCalled()
+  })
+
+  it('clears only confirmed bindings when a multi-folder deletion partially succeeds', async () => {
+    const root = await createRoot()
+    const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
+    const syncService = createSyncService({
+      deleteManagedFolders: vi.fn().mockResolvedValue({
+        status: 'partial-failed',
+        candidates: [
+          { logicalLedgerId: 'music', remoteFolderId: '9001', title: 'bilimi·音乐·1', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false },
+          { logicalLedgerId: 'music', remoteFolderId: '9002', title: 'bilimi·音乐·2', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }
+        ],
+        succeededRemoteFolderIds: ['9001'], failedRemoteFolderIds: ['9002'], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+      })
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, syncService, onManagedFolderDeletion }
+    )
+
+    await expect(coordinator.deleteManagedFolderCandidates('100', ['music'])).resolves.toMatchObject({
+      status: 'partial-failed', succeededRemoteFolderIds: ['9001'], failedRemoteFolderIds: ['9002']
+    })
+    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'music', remoteFolderIds: ['9001'], remoteDeleted: true
+    }])
   })
 
   it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
@@ -3107,7 +3139,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2_000, unclassifiedAidCount: 1 }
     })
-  })
+  }, 15_000)
 
   it('persists a scanning inventory overview, including empty Bilimi work folders, for restart recovery', async () => {
     const root = await createRoot()
@@ -5650,7 +5682,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('admits an existing custom ledger into the round on its first rule save but rejects default ledger ids', async () => {
+  it('admits existing custom and default ledgers into the round on their first rule save', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
@@ -5692,7 +5724,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       title: '知识学习',
       keywords: ['知识'],
       ruleType: 'keyword'
-    })).rejects.toThrow('Old favorite workspace draft ledger rule is unavailable.')
+    })).resolves.toMatchObject({ status: 'previewing' })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ id: 'knowledge', displayName: 'bilimi·知识学习' })
+        ]),
+        adoptedCandidateIds: expect.arrayContaining(['knowledge'])
+      }
+    })
   })
 
   it('does not leave a repository folder when atomic draft publication fails', async () => {

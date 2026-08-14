@@ -1703,10 +1703,10 @@ function registerAssistantPreferenceHandlers() {
     assertTrustedOldFavoriteAssistantSender(event)
     return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
   })
-  ipcMain.handle('floating-assistant:ensure-ledger', (event, logicalFolderId: string) => {
+  ipcMain.handle('floating-assistant:ensure-ledger', (event, logicalFolderId: string, options?: FavoriteLedgerSaveOptions) => {
     assertTrustedOldFavoriteAssistantSender(event)
     if (typeof logicalFolderId !== 'string' || !logicalFolderId.trim()) throw new Error('Favorite ledger id is required.')
-    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledger', logicalFolderId: logicalFolderId.trim() })
+    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledger', logicalFolderId: logicalFolderId.trim(), options })
   })
   ipcMain.handle(
     'floating-assistant:save-ledgers',

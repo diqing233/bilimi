@@ -35,7 +35,7 @@ describe('managedFavoriteFolderDeletionFailureMessage', () => {
 })
 
 describe('managed favorite folder deletion rule projection', () => {
-  it('keeps default rules without their remote binding and removes custom rules after confirmed deletion', () => {
+  it('clears confirmed remote bindings while retaining all local rules', () => {
     const result = applyManagedFavoriteFolderDeletionToLedgers([
       {
         id: 'knowledge', displayName: 'bilimi·知识', keywords: ['教程'], enabled: true,
@@ -49,14 +49,19 @@ describe('managed favorite folder deletion rule projection', () => {
         id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], enabled: true,
         priority: 30, isDefault: true, bilibiliFolderId: 'remote-music'
       }
-    ], ['knowledge', 'custom-tech'])
+    ], ['knowledge', 'custom-tech'], ['knowledge', 'custom-tech'])
 
     expect(result).toEqual([
-      expect.objectContaining({ id: 'knowledge', enabled: false, isDefault: true }),
+      expect.objectContaining({
+        id: 'knowledge', enabled: true, isDefault: true,
+        bindingState: 'unbacked', managedFolderDeletedByUser: true
+      }),
+      expect.objectContaining({ id: 'custom-tech', bindingState: 'unbacked' }),
       expect.objectContaining({ id: 'music', enabled: true, bilibiliFolderId: 'remote-music' })
     ])
     expect(result[0]).not.toHaveProperty('bilibiliFolderId')
-    expect(result[0]).not.toHaveProperty('syncState')
+    expect(result[0]).toHaveProperty('syncState', 'local-draft')
+    expect(result[1]).not.toHaveProperty('bilibiliFolderId')
   })
 
   it('accepts only confirmed successful deletion outcomes', () => {

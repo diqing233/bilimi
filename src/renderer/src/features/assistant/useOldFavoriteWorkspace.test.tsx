@@ -164,6 +164,172 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.draftRuleAnalysis).toBeNull()
   })
 
+  it('defers scan-time rule analysis and only applies the latest saved rule after the scan reaches preview', async () => {
+    const scanned = workspace('100')
+    const previewing = recommendationWorkspace()
+    const open = vi.fn()
+      .mockResolvedValueOnce(scanned)
+      .mockResolvedValueOnce(previewing)
+    const command = vi.fn().mockResolvedValue(previewing)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'scanning' }))
+
+    const queueAnalysis = (result.current as typeof result.current & {
+      queueDraftLedgerRuleAnalysis: (input: {
+        ledgerId: string
+        title: string
+        keywords: string[]
+        ruleType: 'keyword' | 'author' | 'tag'
+      }) => void
+    }).queueDraftLedgerRuleAnalysis
+    act(() => {
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['旧规则'], ruleType: 'keyword' })
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['最终规则'], ruleType: 'keyword' })
+    })
+    expect(command).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.refresh() })
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1))
+    expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'save-draft-ledger-rule',
+      ledgerId: 'custom-music',
+      title: '音乐',
+      keywords: ['最终规则'],
+      ruleType: 'keyword'
+    }))
+  })
+
+  it('retains the latest scan-time rule for each edited ledger', async () => {
+    const scanned = workspace('100')
+    const previewing = recommendationWorkspace()
+    const open = vi.fn()
+      .mockResolvedValueOnce(scanned)
+      .mockResolvedValueOnce(previewing)
+    const command = vi.fn().mockResolvedValue(previewing)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'scanning' }))
+
+    const queueAnalysis = (result.current as typeof result.current & {
+      queueDraftLedgerRuleAnalysis: (input: {
+        ledgerId: string
+        title: string
+        keywords: string[]
+        ruleType: 'keyword' | 'author' | 'tag'
+      }) => void
+    }).queueDraftLedgerRuleAnalysis
+    act(() => {
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['旧规则'], ruleType: 'keyword' })
+      queueAnalysis({ ledgerId: 'custom-dance', title: '舞蹈', keywords: ['舞蹈'], ruleType: 'keyword' })
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['最终规则'], ruleType: 'keyword' })
+    })
+    expect(command).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.refresh() })
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
+    expect(command).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({
+      type: 'save-draft-ledger-rule', ledgerId: 'custom-dance', keywords: ['舞蹈']
+    }))
+    expect(command).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({
+      type: 'save-draft-ledger-rule', ledgerId: 'custom-music', keywords: ['最终规则']
+    }))
+  })
+
+  it('coalesces later rule saves while a preview analysis is running', async () => {
+    const previewing = recommendationWorkspace()
+    const first = deferred<typeof previewing>()
+    const second = deferred<typeof previewing>()
+    const command = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(previewing),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+    const queueAnalysis = (result.current as typeof result.current & {
+      queueDraftLedgerRuleAnalysis: (input: {
+        ledgerId: string
+        title: string
+        keywords: string[]
+        ruleType: 'keyword' | 'author' | 'tag'
+      }) => void
+    }).queueDraftLedgerRuleAnalysis
+
+    act(() => queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['第一次'], ruleType: 'keyword' }))
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1))
+    act(() => {
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['第二次'], ruleType: 'keyword' })
+      queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['最后一次'], ruleType: 'keyword' })
+    })
+    expect(command).toHaveBeenCalledTimes(1)
+
+    await act(async () => first.resolve(previewing))
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
+    expect(command).toHaveBeenLastCalledWith('100', expect.objectContaining({
+      type: 'save-draft-ledger-rule', keywords: ['最后一次']
+    }))
+    await act(async () => second.resolve(previewing))
+  })
+
+  it('turns unavailable draft-rule IPC errors into a Chinese retry instruction', async () => {
+    const command = vi.fn().mockRejectedValue(new Error(
+      "Error invoking remote method 'old-favorite-workspace-v1:command': Error: Old favorite workspace draft ledger rule is unavailable."
+    ))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    await act(async () => {
+      await result.current.saveDraftLedgerRule({
+        ledgerId: 'custom-music', title: '音乐', keywords: ['音乐'], ruleType: 'keyword'
+      })
+    })
+
+    expect(result.current.draftRuleAnalysisError).toBe('收藏夹规则暂时无法重新计算，请等待当前扫描完成后重试。')
+  })
+
+  it('drops a pending scan-time rule analysis when the active account changes', async () => {
+    const otherAccountPreview = {
+      ...recommendationWorkspace(), accountMid: '200', workspaceId: 'workspace-200'
+    }
+    const command = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve(
+        accountMid === '100' ? workspace('100') : otherAccountPreview
+      )),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
+      initialProps: { accountMid: '100' }
+    })
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ accountMid: '100', status: 'scanning' }))
+    const queueAnalysis = (result.current as typeof result.current & {
+      queueDraftLedgerRuleAnalysis: (input: {
+        ledgerId: string
+        title: string
+        keywords: string[]
+        ruleType: 'keyword' | 'author' | 'tag'
+      }) => void
+    }).queueDraftLedgerRuleAnalysis
+    act(() => queueAnalysis({ ledgerId: 'custom-music', title: '音乐', keywords: ['音乐'], ruleType: 'keyword' }))
+
+    rerender({ accountMid: '200' })
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ accountMid: '200', status: 'previewing' }))
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('prepares the current recommendation draft with progress before returning a preview snapshot', async () => {
     let publishProgress: ((progress: { accountMid: string; workspaceId: string; completedItemCount: number; totalItemCount: number }) => void) | undefined
     const pending = deferred<ReturnType<typeof recommendationWorkspace>>()

@@ -405,6 +405,18 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(ensure).not.toHaveBeenCalled()
   })
 
+  it('keeps the special inbox available for backup when the default system is turned off', async () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" defaultFavoriteSystemEnabled={false}
+      ledgers={[{ id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 10, isDefault: true }]}
+      missingLedgerIds={[]} onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} />)
+
+    const backup = screen.getByRole('button', { name: '备册' })
+    expect(backup).toBeEnabled()
+    fireEvent.click(backup)
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
+  })
+
   it('keeps default targets locked while an organization scan is active', async () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
@@ -760,7 +772,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
 
-  it('analyzes a normal ledger rule in the active workspace before saving the account configuration', async () => {
+  it('saves a normal ledger rule immediately while its active-workspace analysis continues in the background', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -790,7 +802,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'save-draft-ledger-rule', ledgerId: 'custom-music', title: '音乐', keywords: ['旋律', '节奏'], ruleType: 'keyword'
     })))
-    expect(save).not.toHaveBeenCalled()
+    expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'custom-music', keywords: ['旋律', '节奏'] })
+    ], { deleteDisabled: false })
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled()
@@ -799,9 +813,61 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
     await act(async () => analyzed.resolve(preview))
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1))
+  })
+
+  it('saves a normal ledger rule locally during scanning without altering the active scan', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn()
+    const save = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'custom-music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
+    await waitFor(() => expect(window.bilimiDesktop?.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '旋律 节奏' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
     await waitFor(() => expect(save).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'custom-music', keywords: ['旋律', '节奏'] })
     ], { deleteDisabled: false }))
+    expect(command).not.toHaveBeenCalled()
+  })
+
+  it('recalculates a previewing workspace when a ledger is disabled', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'completed' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [{ id: 'custom-music', title: '音乐', keywords: ['旋律'], ruleType: 'keyword' as const }], adoptedCandidateIds: ['custom-music'] }, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'custom-music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn()} />)
+
+    await screen.findByRole('button', { name: '移出同步 bilimi·音乐' })
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·音乐' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'save-draft-ledger-rule', ledgerId: 'custom-music', title: '音乐', keywords: ['旋律'], ruleType: 'keyword', adopt: false
+    })))
   })
 
   it('keeps DeepSeek-only ledger rules on the account configuration path during an active workspace', async () => {
@@ -846,17 +912,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
   })
 
-  it('persists deletion of a custom ledger after the local favorite-library transaction succeeds', async () => {
+  it('deletes a right-side custom rule without touching its favorite-library work folder', async () => {
     const save = vi.fn()
-    const previewFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ executionToken: 'delete-music' })
-    const deleteFavoriteLibraryManagedFoldersLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['music'] })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
-        { logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
-      ]),
-      previewFavoriteLibraryManagedFolderDelete,
-      deleteFavoriteLibraryManagedFoldersLocal
+      deleteFavoriteLedgersLocal
     } as unknown as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
@@ -865,13 +926,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '音乐' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    const dialog = await screen.findByRole('alertdialog')
-    fireEvent.click(dialog.querySelector('input[type="checkbox"]')!)
-    fireEvent.click(dialog.querySelector('[data-variant="danger"]')!)
-
-    await waitFor(() => expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'bilimi-logical:music'))
-    await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['delete-music']))
-    await waitFor(() => expect(save).toHaveBeenCalledWith([], { deleteDisabled: false }))
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['music']))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()
   })
 

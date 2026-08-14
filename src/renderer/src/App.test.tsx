@@ -1767,6 +1767,56 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
+  it('confirms every selected unbound candidate for one light backup without touching other ledgers', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        expect(script).toContain('"id":"game"')
+        expect(script).not.toContain('"id":"knowledge"')
+        expect(script).toContain('"rebindRemoteFolderIds":{"game":"88"}')
+        return {
+          ok: true,
+          ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' as const }],
+          steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+        }
+      })
+    })
+
+    const lightBackupResult = await requestRuntime({
+      id: 'confirmed-light-rebind', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:game',
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: {
+          game: [
+            { id: '88', title: game.displayName, memberCount: 100 },
+            { id: '89', title: `${game.displayName}·2`, memberCount: 20 }
+          ]
+        }
+      }
+    })
+    expect(lightBackupResult).toMatchObject({
+      ok: true,
+      ledgers: [expect.objectContaining({ id: 'game', bilibiliFolderIds: ['88', '89'], bindingState: 'bound' })]
+    })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(1, accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '88', shardNumber: 1
+    }))
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(2, accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '89', shardNumber: 2
+    }))
+  })
+
   it('registers rebinding shards from their explicit numeric titles instead of selection order', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
@@ -2704,11 +2754,13 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.filter(([script]) => script.includes('/x/v3/fav/folder/add'))).toHaveLength(1)
   })
 
-  it('does not create remote folders when the active account disabled the default favorite system', async () => {
+  it('backs up only the special inbox when the active account disabled the default favorite system', async () => {
     const { requestRuntime, notifyPreferencesChanged } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
     })
     const accountLedgers = createDefaultFavoriteLedgers()
+    const inbox = accountLedgers.find((ledger) => ledger.id === 'inbox')!
+    const ordinaryDefault = accountLedgers.find((ledger) => ledger.isDefault && ledger.id !== 'inbox')!
     notifyPreferencesChanged(createAppPreferences({
       favoriteAccountPreferences: {
         '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: accountLedgers }
@@ -2718,13 +2770,26 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          ledgers: [{ ...inbox, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+          steps: ['api:ledger:list', 'api:ledger:create:inbox'], missingTargets: [], message: '已备册'
+        }
+      }
       if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
       throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
     })
     Object.assign(webview, { executeJavaScript })
 
-    await expect(requestRuntime({ id: 'backup-disabled', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: false })
-    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(false)
+    await expect(requestRuntime({ id: 'backup-disabled', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
+    const createScript = executeJavaScript.mock.calls.map(([script]) => String(script)).find((script) => script.includes('/x/v3/fav/folder/add'))
+    expect(createScript).toContain('inbox')
+    const payloadMatch = createScript?.match(/const payload = (.+?);\s*\n/u)
+    expect(payloadMatch?.[1]).toBeTruthy()
+    const backupPayload = JSON.parse(payloadMatch![1]) as { ledgers: Array<{ id: string; enabled: boolean }> }
+    expect(backupPayload.ledgers.find((ledger) => ledger.id === ordinaryDefault.id)).toMatchObject({ enabled: false })
+    expect(backupPayload.ledgers.find((ledger) => ledger.id === inbox.id)).toMatchObject({ enabled: true })
   })
 
   it('does not back up one default folder when the active account disabled the default favorite system', async () => {
@@ -2762,6 +2827,77 @@ describe('App runtime integration', () => {
     await expect(requestRuntime({ id: 'backup-one-disabled', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:music' }))
       .resolves.toMatchObject({ ok: false, missingTargets: ['music'] })
     expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
+  it('still backs up a saved custom ledger when the active account disabled the default favorite system', async () => {
+    const accountMid = '100'
+    const custom = {
+      id: 'custom-music',
+      displayName: 'bilimi·自建音乐',
+      keywords: ['音乐'],
+      enabled: true,
+      priority: 20,
+      isDefault: false
+    }
+    const { requestRuntime, notifyPreferencesChanged } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: false, favoriteLedgers: [custom] }
+      }
+    }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          ledgers: [{ ...custom, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+          steps: ['api:ledger:list', 'api:ledger:create:custom-music'], missingTargets: [], message: '已备册'
+        }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'backup-custom-when-defaults-disabled', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:custom-music' }))
+      .resolves.toMatchObject({ ok: true })
+    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(true)
+  })
+
+  it('still backs up the special inbox when the active account disabled the default favorite system', async () => {
+    const accountMid = '100'
+    const inbox = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'inbox')!
+    const { requestRuntime, notifyPreferencesChanged } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: false, favoriteLedgers: [inbox] }
+      }
+    }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          ledgers: [{ ...inbox, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+          steps: ['api:ledger:list', 'api:ledger:create:inbox'], missingTargets: [], message: '已备册'
+        }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'backup-special-inbox-when-disabled', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:inbox' }))
+      .resolves.toMatchObject({ ok: true })
+    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(true)
   })
 
   it('asks the user to log in before running Bilibili page actions', async () => {

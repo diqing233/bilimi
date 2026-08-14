@@ -59,6 +59,7 @@ import type {
 } from '@shared/videoNoteBatchExport'
 import type { FavoriteRepositoryRestorePlan } from '../../../electron/main/favoriteRepositoryArchiveService'
 import type { FavoriteLibraryDrawerCommand } from '../../../electron/main/favoriteLibraryEntryFlow'
+import type { ManagedFavoriteRemoteFolderDeletionResult } from '../../../electron/main/favoriteRepositorySyncService'
 import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type FavoriteLibraryOperationSelection = number[] | {
@@ -82,8 +83,8 @@ type BilimiDesktopApi = {
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   getOldFavoriteWorkspaceRecoverySummaryV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceRecoverySummary | null>
   previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'; requiresUnboundAcknowledgement: boolean }>>
-  deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>
-  deleteManagedRemoteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>
+  deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<ManagedFavoriteRemoteFolderDeletionResult>
+  deleteManagedRemoteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<ManagedFavoriteRemoteFolderDeletionResult>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {
@@ -110,7 +111,7 @@ type BilimiDesktopApi = {
     totalItemCount: number
   }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
-  ensureFavoriteLedger?: (logicalFolderId: string) => Promise<AssistantAutomationResult>
+  ensureFavoriteLedger?: (logicalFolderId: string, options?: FavoriteLedgerSaveOptions) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>

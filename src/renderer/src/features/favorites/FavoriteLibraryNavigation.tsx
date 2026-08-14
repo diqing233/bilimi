@@ -194,7 +194,7 @@ function WorkspaceFloatingMenu({ onAction, resetKey }: { onAction?: (action: 'cr
   }
   const floatingMenu = open ? <div {...menuScope} ref={menuRef} role="menu" aria-label={menuLabel} className="favorite-library__workspace-floating-menu" style={position}>
     <button ref={firstActionRef} role="menuitem" type="button" onClick={() => run('create')}>{'\u65b0\u5efa\u5de5\u4f5c\u5939'}</button>
-    <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u540c\u6b65\u5de5\u4f5c\u5939'}</button>
+    <button role="menuitem" type="button" onClick={() => run('sync-all')}>{'\u5907\u518c\u5de5\u4f5c\u5939'}</button>
     <hr />
     <button role="menuitem" type="button" className="favorite-library__danger-action" onClick={() => run('delete-all')}>{'\u5220\u9664\u5de5\u4f5c\u5939'}</button>
   </div> : null

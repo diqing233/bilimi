@@ -23,7 +23,7 @@ describe('persistConfirmedManagedFolderDeletion', () => {
 
     expect(save).toHaveBeenCalledWith('100', expect.objectContaining({
       favoriteLedgers: [expect.objectContaining({
-        id: 'music', enabled: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+        id: 'music', enabled: true, bindingState: 'unbacked', managedFolderDeletedByUser: true
       })]
     }))
     expect(publish).toHaveBeenCalledOnce()
@@ -55,6 +55,32 @@ describe('persistConfirmedManagedFolderDeletion', () => {
     const savedLedgers = save.mock.calls[0]?.[1].favoriteLedgers
     expect(savedLedgers?.[0]).not.toHaveProperty('bilibiliFolderId')
     expect(savedLedgers?.[0]).not.toHaveProperty('bilibiliFolderIds')
+    expect(publish).toHaveBeenCalledOnce()
+  })
+
+  it('keeps remaining Bilibili bindings when only one of a multi-folder rule was deleted', async () => {
+    const current = preferences([{
+      id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,
+      isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002',
+      bilibiliFolderIds: ['9002', '9003'], bilibiliFolderTitle: 'bilimi·工作·1', bilibiliFolderVideoCount: 12
+    }])
+    const save = vi.fn()
+    const publish = vi.fn()
+
+    await expect(persistConfirmedManagedFolderDeletion('100', [{
+      logicalLedgerId: 'custom-work', remoteFolderIds: ['9002'], remoteDeleted: true
+    }], {
+      load: () => current, save, publish
+    })).resolves.toBe(true)
+
+    expect(save).toHaveBeenCalledWith('100', expect.objectContaining({
+      favoriteLedgers: [expect.objectContaining({
+        id: 'custom-work', bindingState: 'bound', bilibiliFolderId: '9003', bilibiliFolderIds: ['9003']
+      })]
+    }))
+    const savedLedger = save.mock.calls[0]?.[1].favoriteLedgers[0]
+    expect(savedLedger).not.toHaveProperty('bilibiliFolderTitle')
+    expect(savedLedger).not.toHaveProperty('bilibiliFolderVideoCount')
     expect(publish).toHaveBeenCalledOnce()
   })
 

@@ -2076,10 +2076,6 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const state = await this.ensureRecommendations(workspace)
       const existingCandidate = state.candidates.find((candidate) => candidate.id === id)
-      const defaultLedgerIds = new Set(createDefaultFavoriteLedgers().map((ledger) => ledger.id))
-      if (input.ledgerId && !existingCandidate && defaultLedgerIds.has(id)) {
-        throw new Error('Old favorite workspace draft ledger rule is unavailable.')
-      }
       if (!input.ledgerId && state.candidates.some((candidate) => candidate.id === id)) {
         throw new Error('Old favorite workspace local ledger already exists.')
       }
@@ -3293,21 +3289,24 @@ export class OldFavoriteWorkspaceCoordinator {
     expectedRemoteFolderIds?: Record<string, string[]>
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    const deleted = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+    const deletion = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+    const succeededRemoteFolderIds = new Set(deletion.succeededRemoteFolderIds)
     const remoteFolderIdsByLedgerId = new Map<string, Set<string>>()
-    for (const candidate of deleted) {
+    for (const candidate of deletion.candidates) {
+      if (!candidate.remoteFolderId || !succeededRemoteFolderIds.has(candidate.remoteFolderId)) continue
       const remoteFolderIds = remoteFolderIdsByLedgerId.get(candidate.logicalLedgerId) ?? new Set<string>()
-      if (candidate.remoteFolderId) remoteFolderIds.add(candidate.remoteFolderId)
+      remoteFolderIds.add(candidate.remoteFolderId)
       remoteFolderIdsByLedgerId.set(candidate.logicalLedgerId, remoteFolderIds)
     }
-    await this.options.onManagedFolderDeletion?.(accountMid, [...remoteFolderIdsByLedgerId]
+    const confirmedDeletions = [...remoteFolderIdsByLedgerId]
       .map(([logicalLedgerId, remoteFolderIds]) => ({
         logicalLedgerId,
         remoteFolderIds: [...remoteFolderIds].sort(),
         remoteDeleted: true
       }))
-      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId)))
-    return deleted
+      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
+    if (confirmedDeletions.length) await this.options.onManagedFolderDeletion?.(accountMid, confirmedDeletions)
+    return deletion
   }
 
   async deleteManagedRemoteFolderCandidates(
