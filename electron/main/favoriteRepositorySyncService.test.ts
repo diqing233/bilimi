@@ -448,6 +448,31 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('deletes remote managed folders without committing a local library deletion', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'custom-binding', accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'custom', logicalTitle: '自建', shardNumber: 1, memberAids: [1], remoteTitle: 'bilimi·自建', bindingState: 'bound', remoteFolderId: '9' }
+    })
+    const commit = vi.spyOn(repository, 'commit')
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: '9', title: 'bilimi·自建', memberCount: 12 }
+        ] })
+      },
+      now: () => '2026-08-14T00:01:00.000Z'
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['custom'], false, { custom: 'bilimi·自建' }, { custom: ['9'] }))
+      .resolves.toEqual(expect.arrayContaining([expect.objectContaining({ logicalLedgerId: 'custom', remoteFolderId: '9' })]))
+    expect(deleteFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: '9' }))
+    expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folders' }))
+  })
+
   it('keeps every shard binding when a later remote deletion fails for the same logical ledger', async () => {
     const repository = await createRepository()
     for (const [shardNumber, remoteFolderId] of [[1, 'remote-music-1'], [2, 'remote-music-2']] as const) {

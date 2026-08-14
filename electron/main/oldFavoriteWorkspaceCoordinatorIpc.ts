@@ -348,6 +348,18 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (!Array.isArray(ledgerIds) || !ledgerIds.length || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || typeof acknowledgeUnboundRemoteDeletion !== 'boolean' || (ledgerTitleHints !== undefined && (!ledgerTitleHints || typeof ledgerTitleHints !== 'object' || Array.isArray(ledgerTitleHints) || Object.entries(ledgerTitleHints).some(([id, title]) => !id.trim() || typeof title !== 'string'))) || (expectedRemoteFolderIds !== undefined && (!expectedRemoteFolderIds || typeof expectedRemoteFolderIds !== 'object' || Array.isArray(expectedRemoteFolderIds) || Object.entries(expectedRemoteFolderIds).some(([id, values]) => !id.trim() || !Array.isArray(values) || values.some((value) => typeof value !== 'string'))))) throw new Error('Old favorite workspace deletion request selection is empty or invalid.')
     return options.coordinator.deleteManagedFolderCandidates(accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
   })
+  options.ipcMain.handle('old-favorite-workspace-v1:delete-managed-remote-folders', async (
+    event,
+    requestedAccountMid: string,
+    ledgerIds: string[],
+    acknowledgeUnboundRemoteDeletion = false,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) => {
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    if (!Array.isArray(ledgerIds) || !ledgerIds.length || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || typeof acknowledgeUnboundRemoteDeletion !== 'boolean' || (ledgerTitleHints !== undefined && (!ledgerTitleHints || typeof ledgerTitleHints !== 'object' || Array.isArray(ledgerTitleHints) || Object.entries(ledgerTitleHints).some(([id, title]) => !id.trim() || typeof title !== 'string'))) || (expectedRemoteFolderIds !== undefined && (!expectedRemoteFolderIds || typeof expectedRemoteFolderIds !== 'object' || Array.isArray(expectedRemoteFolderIds) || Object.entries(expectedRemoteFolderIds).some(([id, values]) => !id.trim() || !Array.isArray(values) || values.some((value) => typeof value !== 'string'))))) throw new Error('Old favorite workspace deletion request selection is empty or invalid.')
+    return options.coordinator.deleteManagedRemoteFolderCandidates(accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+  })
   options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope, ...args: unknown[]) => {
     if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode)) || (scope !== undefined && !['current', 'all'].includes(scope))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')

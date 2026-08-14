@@ -800,7 +800,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'previewManagedFolderDeletion'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (
       items: CurrentSegmentItem[],
@@ -3292,6 +3292,17 @@ export class OldFavoriteWorkspaceCoordinator {
     const deleted = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
     await this.options.onManagedFolderDeletion?.(accountMid, [...new Set(deleted.map((candidate) => candidate.logicalLedgerId))])
     return deleted
+  }
+
+  async deleteManagedRemoteFolderCandidates(
+    accountMid: string,
+    logicalLedgerIds: string[],
+    acknowledgeUnboundRemoteDeletion = false,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) {
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    return this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
   }
 
   private async autoClassifyCurrentSegmentUnsafe(

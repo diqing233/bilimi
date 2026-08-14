@@ -860,21 +860,9 @@ export class FavoriteRepositorySyncService {
       await this.bindPageTarget(account, runId)
       try {
         const bridge = this.pageBridge(account, runId)
-        const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints)
-        if (expectedRemoteFolderIds !== undefined) {
-          for (const logicalLedgerId of requestedLedgerIds) {
-            const expected = [...new Set((expectedRemoteFolderIds[logicalLedgerId] ?? []).map((id) => id.trim()).filter(Boolean))].sort()
-            const actual = [...new Set(candidates
-              .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
-              .map((candidate) => candidate.remoteFolderId!))].sort()
-            if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
-              throw new Error('managed-folder-deletion-preview-stale')
-            }
-          }
-        }
-        if (candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !acknowledgeUnboundRemoteDeletion) {
-          throw new Error('unbound-managed-folder-deletion-acknowledgement-required')
-        }
+        const { candidates, confirmedRemoteFolderIds } = await this.deleteManagedRemoteFoldersWithBridge(
+          account, requestedLedgerIds, bridge, runId, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds
+        )
         const snapshot = await this.options.repository.getSnapshot(account)
         const localLedgerIds = new Set(snapshot.folders
           .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
@@ -886,33 +874,7 @@ export class FavoriteRepositorySyncService {
           candidatesByLedgerId.set(candidate.logicalLedgerId, grouped)
         }
         const localLedgerIdsToDelete = new Set<string>()
-        const confirmedRemoteFolderIds = new Set<string>()
         for (const [logicalLedgerId, ledgerCandidates] of candidatesByLedgerId) {
-          const deletedRemoteFolderIds = new Set<string>()
-          for (const candidate of ledgerCandidates) {
-            if (!candidate.remoteFolderId || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
-            if (candidate.state === 'missing-remote') {
-              confirmedRemoteFolderIds.add(candidate.remoteFolderId)
-              deletedRemoteFolderIds.add(candidate.remoteFolderId)
-              continue
-            }
-            const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${candidate.remoteFolderId}`, folderId: candidate.remoteFolderId })
-            this.assertObservedAccount(account, result.observedAccountMid)
-            if (result.status && result.status !== 'ok') {
-              const diagnostics = [
-                result.reason?.trim() || `remote-delete-${result.status}`,
-                Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
-                result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
-                result.responseCategory ? `response-category=${result.responseCategory}` : '',
-                Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
-              ].filter(Boolean)
-              const error = new Error(diagnostics.join('; '))
-              if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
-              throw error
-            }
-            deletedRemoteFolderIds.add(candidate.remoteFolderId)
-            confirmedRemoteFolderIds.add(candidate.remoteFolderId)
-          }
           localLedgerIdsToDelete.add(logicalLedgerId)
         }
         // Commit the local projection only after every requested remote target has
@@ -939,6 +901,89 @@ export class FavoriteRepositorySyncService {
         this.options.pageBridgeManager?.release(account, runId)
       }
     })
+  }
+
+  /** Deletes verified Bilibili folders only; the collection-library projection remains untouched. */
+  async deleteManagedRemoteFolders(
+    accountMid: string,
+    logicalLedgerIds: string[],
+    acknowledgeUnboundRemoteDeletion = false,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) {
+    const account = normalizeAccountMid(accountMid)
+    return this.runRemote(account, async () => {
+      const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
+      if (!requestedLedgerIds.size) throw new Error('Managed folder deletion selection is empty.')
+      const runId = `favorite-remote-delete:${this.now()}`
+      await this.bindPageTarget(account, runId)
+      try {
+        return (await this.deleteManagedRemoteFoldersWithBridge(
+          account,
+          requestedLedgerIds,
+          this.pageBridge(account, runId),
+          runId,
+          acknowledgeUnboundRemoteDeletion,
+          ledgerTitleHints,
+          expectedRemoteFolderIds
+        )).candidates
+      } finally {
+        this.options.pageBridgeManager?.release(account, runId)
+      }
+    })
+  }
+
+  private async deleteManagedRemoteFoldersWithBridge(
+    account: string,
+    requestedLedgerIds: Set<string>,
+    bridge: FavoriteRepositoryPageBridge,
+    runId: string,
+    acknowledgeUnboundRemoteDeletion: boolean,
+    ledgerTitleHints?: Record<string, string>,
+    expectedRemoteFolderIds?: Record<string, string[]>
+  ) {
+    const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints)
+    if (expectedRemoteFolderIds !== undefined) {
+      for (const logicalLedgerId of requestedLedgerIds) {
+        const expected = [...new Set((expectedRemoteFolderIds[logicalLedgerId] ?? []).map((id) => id.trim()).filter(Boolean))].sort()
+        const actual = [...new Set(candidates
+          .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
+          .map((candidate) => candidate.remoteFolderId!))].sort()
+        if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+          throw new Error('managed-folder-deletion-preview-stale')
+        }
+      }
+    }
+    if (candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !acknowledgeUnboundRemoteDeletion) {
+      throw new Error('unbound-managed-folder-deletion-acknowledgement-required')
+    }
+    const confirmedRemoteFolderIds = new Set<string>()
+    const deletedRemoteFolderIds = new Set<string>()
+    for (const candidate of candidates) {
+      if (!candidate.remoteFolderId || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
+      if (candidate.state === 'missing-remote') {
+        confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+        deletedRemoteFolderIds.add(candidate.remoteFolderId)
+        continue
+      }
+      const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${candidate.remoteFolderId}`, folderId: candidate.remoteFolderId })
+      this.assertObservedAccount(account, result.observedAccountMid)
+      if (result.status && result.status !== 'ok') {
+        const diagnostics = [
+          result.reason?.trim() || `remote-delete-${result.status}`,
+          Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
+          result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
+          result.responseCategory ? `response-category=${result.responseCategory}` : '',
+          Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
+        ].filter(Boolean)
+        const error = new Error(diagnostics.join('; '))
+        if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
+        throw error
+      }
+      deletedRemoteFolderIds.add(candidate.remoteFolderId)
+      confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+    }
+    return { candidates, confirmedRemoteFolderIds }
   }
 
   async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[], ledgerTitleHints?: Record<string, string>) {

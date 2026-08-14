@@ -2115,6 +2115,59 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('preserves unchecked rules and local drafts when a full backup result is persisted', async () => {
+    const accountMid = '100'
+    const enabled = { id: 'enabled', displayName: 'bilimi·已勾选', keywords: [], enabled: true, priority: 10, isDefault: false }
+    const unchecked = { id: 'unchecked', displayName: 'bilimi·未勾选', keywords: [], enabled: false, priority: 20, isDefault: false }
+    const draft = { id: 'draft', displayName: 'bilimi·草稿', keywords: [], enabled: true, priority: 30, syncState: 'local-draft' as const, isDefault: false }
+    const ledgers = [enabled, unchecked, draft]
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        expect(script).toContain('"id":"unchecked"')
+        expect(script).toContain('"id":"draft"')
+        return {
+          ok: true,
+          ledgers: [
+            { ...enabled, bilibiliFolderId: '9901', bindingState: 'bound' as const },
+            unchecked,
+            draft
+          ],
+          steps: ['api:ledger:list'],
+          missingTargets: [],
+          message: '册目已备齐。'
+        }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'backup-preserves-local-ledgers', type: 'save-ledgers', ledgers,
+      options: { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: true })
+
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'enabled', bilibiliFolderId: '9901' }),
+      expect.objectContaining({ id: 'unchecked', enabled: false }),
+      expect.objectContaining({ id: 'draft', syncState: 'local-draft' })
+    ]))
+  })
+
   it('clears a default deletion marker when one ledger is formally backed up', async () => {
     const accountMid = '100'
     const music = {

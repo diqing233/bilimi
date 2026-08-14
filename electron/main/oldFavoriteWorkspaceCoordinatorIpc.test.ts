@@ -40,6 +40,27 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.deleteManagedFolderCandidates).not.toHaveBeenCalled()
   })
 
+  it('routes a verified remote-only folder deletion without using the library-deletion coordinator path', async () => {
+    const ipcMain = new FakeIpcMain()
+    const deleteManagedRemoteFolderCandidates = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'custom', remoteFolderId: '9', title: 'bilimi·自建', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false }
+    ])
+    const coordinator = {
+      deleteManagedFolderCandidates: vi.fn(),
+      deleteManagedRemoteFolderCandidates
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-workspace-v1:delete-managed-remote-folders', 7, '100', ['custom'], false, { custom: 'bilimi·自建' }, { custom: ['9'] }
+    )).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ logicalLedgerId: 'custom', remoteFolderId: '9' })]))
+    expect(deleteManagedRemoteFolderCandidates).toHaveBeenCalledWith('100', ['custom'], false, { custom: 'bilimi·自建' }, { custom: ['9'] })
+    expect(coordinator.deleteManagedFolderCandidates).not.toHaveBeenCalled()
+  })
+
   it('opens only the current account and returns a compact current-segment snapshot', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = { getSnapshot: vi.fn().mockResolvedValue(snapshot) }
