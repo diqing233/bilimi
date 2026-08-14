@@ -135,6 +135,25 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(batch.deleteLocal).not.toHaveBeenCalled()
   })
 
+  it('passes a virtual bilimi-membership deletion request only after resolving the selected aids in main', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    const resolveSourceScope = vi.fn(async (_accountMid, source) => ({ kind: 'virtual', ...source }))
+    registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSourceScope: resolveSourceScope as never })
+
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [2, 1], 4, {
+      kind: 'virtual', eligibleAids: [2, 1], skippedAids: [], bilimiMembershipSelection: 'primary'
+    })
+
+    expect(resolveSourceScope).toHaveBeenCalledWith('100', {
+      kind: 'virtual', eligibleAids: [1, 2], skippedAids: [], bilimiMembershipSelection: 'primary'
+    }, [1, 2])
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4, {
+      kind: 'virtual', eligibleAids: [1, 2], skippedAids: [], bilimiMembershipSelection: 'primary'
+    })
+  })
+
   it('derives virtual managed-placement eligibility from a resolved all-results selection', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = {

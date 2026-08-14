@@ -19,6 +19,15 @@ describe('shared video classifier', () => {
     expect(classification.diagnostic?.confidence).toBe('high')
   })
 
+  it('does not classify into an unbound ledger', () => {
+    const classification = classifyVideoContent({ title: '摄影教程' }, [
+      { id: 'inbox', displayName: '暂存', keywords: [], enabled: true, priority: 0, isDefault: false },
+      { id: 'unbound-photo', displayName: 'bilimi·光影', keywords: ['摄影'], enabled: true, priority: 1, isDefault: false, bindingState: 'unbound' }
+    ])
+
+    expect(classification.ledgerId).toBe('inbox')
+  })
+
   it('keeps an exact UP-author match high confidence when another rule is also plausible', () => {
     const classification = classifyVideoContent({
       author: 'UP Alpha', title: 'UP Alpha music', description: 'UP Alpha music', pageText: 'UP Alpha music', category: 'UP Alpha', tags: ['UP Alpha', 'music']

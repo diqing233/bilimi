@@ -21,6 +21,12 @@ describe('favorite ledger capabilities', () => {
     })
   })
 
+  it('keeps an unbound ledger out of classification until it is backed up again', () => {
+    expect(resolveFavoriteLedgerCapabilities(ledger({ bindingState: 'unbound' }))).toEqual({
+      identity: 'managed', canClassify: false, canProvisionRemote: true, canOpenRemote: false, canDeleteRemote: false
+    })
+  })
+
   it('marks a bilimi-like remote folder without binding evidence as ambiguous', () => {
     const folder: FavoriteRepositoryFolder = { id: 'bilibili:9', title: 'bilimi·音乐', kind: 'bilibili', remoteFolderId: '9', syncState: 'synced' }
     expect(resolveFavoriteFolderCapabilities(folder)).toEqual({

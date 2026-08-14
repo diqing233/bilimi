@@ -1,4 +1,5 @@
 import { createDefaultFavoriteLedgers } from '../favoriteLedgers'
+import { resolveFavoriteLedgerCapabilities } from '../favoriteLedgerCapabilities'
 import { parseFavoriteLedgerRules } from '../favoriteLedgerConstraints'
 import type {
   FavoriteLedger,
@@ -437,7 +438,7 @@ function diagnosticForScore(score: LedgerScore, runnerUp?: LedgerScore): Favorit
 
 function rankedLedgerScores(context: VideoContentContext, ledgers: FavoriteLedger[]) {
   return ledgers
-    .filter((ledger) => ledger.id !== 'inbox')
+    .filter((ledger) => ledger.id !== 'inbox' && resolveFavoriteLedgerCapabilities(ledger).canClassify)
     .map((ledger) => scoreLedger(context, ledger))
     .filter(
       (entry) =>

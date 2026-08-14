@@ -22,8 +22,8 @@ function revision(value: unknown) {
   return value
 }
 
-function targets(value: unknown) {
-  if (!Array.isArray(value) || !value.length || value.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId))) {
+function targets(value: unknown, allowEmpty = false) {
+  if (!Array.isArray(value) || (!allowEmpty && !value.length) || value.some((folderId) => typeof folderId !== 'string' || !/^bilimi-logical:\S+$/u.test(folderId))) {
     throw new Error('Favorite operation target is invalid.')
   }
   return [...new Set(value)].sort()
@@ -39,7 +39,9 @@ function token(value: unknown) {
   return value
 }
 
-type RendererSource = { kind: 'folder'; folderId: string; folderIds?: string[] } | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+type RendererSource =
+  | { kind: 'folder'; folderId: string; folderIds?: string[] }
+  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[]; bilimiMembershipSelection?: 'primary' | 'all' }
 type RendererScopeSelection = {
   kind: 'scope'
   scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
@@ -61,10 +63,14 @@ function rendererSource(value: unknown, allowEmptyVirtual = false): RendererSour
     return { kind: 'folder', folderId: source.folderId.trim(), ...(folderIds ? { folderIds } : {}) }
   }
   if (source.kind === 'virtual' && Array.isArray(source.eligibleAids) && Array.isArray(source.skippedAids)) {
+    if (source.bilimiMembershipSelection !== undefined && source.bilimiMembershipSelection !== 'primary' && source.bilimiMembershipSelection !== 'all') {
+      throw new Error('Favorite operation source is invalid.')
+    }
     return {
       kind: 'virtual',
       eligibleAids: allowEmptyVirtual && !source.eligibleAids.length ? [] : aids(source.eligibleAids),
-      skippedAids: source.skippedAids.length ? aids(source.skippedAids) : []
+      skippedAids: source.skippedAids.length ? aids(source.skippedAids) : [],
+      ...(source.bilimiMembershipSelection ? { bilimiMembershipSelection: source.bilimiMembershipSelection } : {})
     }
   }
   throw new Error('Favorite operation source is invalid.')
@@ -139,14 +145,14 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     if (!Array.isArray(selected) || !selected.length || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Favorite operation selection is invalid.')
     const parsedSource = rendererSource(requestedSource, action === 'delete' || action === 'managed-removal')
     const authoritativeSource = (action === 'delete' || action === 'managed-removal') && parsedSource.kind === 'virtual'
-      ? { kind: 'virtual' as const, eligibleAids: [...selected], skippedAids: [] }
+      ? { kind: 'virtual' as const, eligibleAids: [...selected], skippedAids: [], ...(parsedSource.bilimiMembershipSelection ? { bilimiMembershipSelection: parsedSource.bilimiMembershipSelection } : {}) }
       : parsedSource
     const scope = await options.resolveSourceScope(normalized, authoritativeSource, selected)
     await current(normalized)
     if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'managed-removal') {
       throw new Error('This action is not permitted from a Bilibili source folder.')
     }
-    if (action === 'delete' && scope.kind !== 'bilimi-logical') {
+    if (action === 'delete' && scope.kind !== 'bilimi-logical' && !(scope.kind === 'virtual' && scope.bilimiMembershipSelection)) {
       throw new Error('Favorite local deletion requires a current Bilimi work folder.')
     }
     return { normalized, selected, scope }
@@ -175,7 +181,9 @@ export function registerFavoriteLibraryOperationsIpc(options: {
     trusted(event)
     const operation = await sourceScope(requestedAccount, requestedAids, requestedSource, 'managed-removal')
     return options.batch.previewManagedPlacementRemoval(
-      operation.normalized, operation.selected, targets(requestedTargets), revision(expectedRevision), operation.scope
+      operation.normalized, operation.selected,
+      targets(requestedTargets, operation.scope.kind === 'virtual' && Boolean(operation.scope.bilimiMembershipSelection)),
+      revision(expectedRevision), operation.scope
     )
   })
   options.ipcMain.handle('favorite-library-operations:confirm-managed-placement-removal', async (event, requestedAccount, executionToken) => {

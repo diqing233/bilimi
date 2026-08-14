@@ -16,13 +16,17 @@ describe('determineFavoriteOperationEligibility', () => {
     expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'local:inbox' }, aids: [2], folders })).toMatchObject({
       sourceScopeKind: 'unmatched', eligibleAids: [2], allowedActions: ['copy', 'move']
     })
-    expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'bilibili:default' }, aids: [4], folders })).toMatchObject({ sourceScopeKind: 'bilibili-default', allowedActions: ['copy'] })
-    expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'bilibili:user' }, aids: [5], folders })).toMatchObject({ sourceScopeKind: 'bilibili-user-folder', allowedActions: ['copy'] })
+    expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'bilibili:default' }, aids: [4], folders })).toMatchObject({
+      sourceScopeKind: 'bilibili-default', allowedActions: ['copy', 'delete-local', 'remove-managed-placement']
+    })
+    expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'bilibili:user' }, aids: [5], folders })).toMatchObject({
+      sourceScopeKind: 'bilibili-user-folder', allowedActions: ['copy', 'delete-local', 'remove-managed-placement']
+    })
     expect(determineFavoriteOperationEligibility({
       source: { kind: 'virtual', label: 'search' }, aids: [9, 0, 9, 2], folders, aidScopeKinds: { 2: 'bilibili-default' }
     })).toEqual({
       sourceScopeKind: 'mixed-virtual', eligibleAids: [9], skipped: [{ aid: 0, reason: 'invalid-aid' }, { aid: 2, reason: 'bilibili-folder-copy-only' }],
-      allowedActions: ['copy', 'move']
+      allowedActions: ['copy', 'move', 'delete-local', 'remove-managed-placement']
     })
   })
 
@@ -44,10 +48,7 @@ describe('determineFavoriteOperationEligibility', () => {
       eligibleAids: [2], skipped: [{ aid: 1, reason: 'bilibili-folder-copy-only' }]
     })
     expect(determineFavoriteOperationActionEligibility({ ...input, action: 'delete-local' })).toMatchObject({
-      eligibleAids: [], skipped: [
-        { aid: 1, reason: 'action-not-allowed' },
-        { aid: 2, reason: 'action-not-allowed' }
-      ]
+      eligibleAids: [1, 2], skipped: []
     })
   })
 })

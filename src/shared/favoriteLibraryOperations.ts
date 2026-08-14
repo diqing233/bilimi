@@ -16,7 +16,13 @@ export type FavoriteOperationSource =
 /** IPC-safe scope evidence for batch operations. Folder kind is resolved in main. */
 export type FavoriteLibraryOperationSource =
   | { kind: 'folder'; folderId: string; /** Explicit additional Bilimi work folders for a local deletion only. */ folderIds?: string[] }
-  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+  | {
+      kind: 'virtual'
+      eligibleAids: number[]
+      skippedAids: number[]
+      /** Resolves each video's existing Bilimi membership in the main process; never targets its ordinary Bilibili source. */
+      bilimiMembershipSelection?: 'primary' | 'all'
+    }
 
 export type FavoriteOperationSourceScopeKind =
   | 'bilimi-work-folder'
@@ -66,11 +72,13 @@ export function determineFavoriteOperationEligibility(input: {
     sourceScopeKind,
     eligibleAids,
     skipped,
-    allowedActions: sourceScopeKind === 'bilimi-work-folder'
+  allowedActions: sourceScopeKind === 'bilimi-work-folder'
       ? [...BASE_ACTIONS, 'delete-local', 'delete-managed-folder-local', 'delete-managed-folder-remote']
       : sourceScopeKind === 'bilibili-default' || sourceScopeKind === 'bilibili-user-folder'
-        ? ['copy']
-      : [...BASE_ACTIONS]
+        ? ['copy', 'delete-local', 'remove-managed-placement']
+        : sourceScopeKind === 'mixed-virtual'
+          ? [...BASE_ACTIONS, 'delete-local', 'remove-managed-placement']
+          : [...BASE_ACTIONS]
   }
 }
 
@@ -107,7 +115,8 @@ export function determineFavoriteOperationActionEligibility(input: {
     return { ...sourceEligibility, eligibleAids: [], skipped: skipped.sort((left, right) => left.aid - right.aid || left.reason.localeCompare(right.reason)) }
   }
   const eligibleAids = validAids.filter((aid) => {
-    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy') return true
+    if (sourceEligibility.sourceScopeKind !== 'mixed-virtual' || input.action === 'copy' ||
+      input.action === 'delete-local' || input.action === 'remove-managed-placement') return true
     const scope = input.aidScopeKinds?.[aid]
     if (scope === 'bilibili-default' || scope === 'bilibili-user-folder') {
       skipped.push({ aid, reason: 'bilibili-folder-copy-only' })

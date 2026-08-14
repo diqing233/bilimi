@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { createDefaultFavoriteLedgers } from './favoriteLedgers'
 import { applyManagedFavoriteLedgerDeletion } from './favoriteLedgerDeletion'
 
 describe('applyManagedFavoriteLedgerDeletion', () => {
-  it('keeps custom rules while clearing only bindings for folders actually deleted from Bilibili', () => {
+  it('restores a default card while clearing only the Bilibili binding that was actually deleted', () => {
     const next = applyManagedFavoriteLedgerDeletion([
       {
         id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
@@ -16,10 +17,7 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
     ], ['music', 'games'], ['music', 'games'])
 
     expect(next).toEqual([
-      {
-        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
-        bindingState: 'unbacked', managedFolderDeletedByUser: true, syncState: 'local-draft'
-      },
+      { ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!, bindingState: 'unbacked' },
       {
         id: 'games', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 20, isDefault: false,
         bindingState: 'unbacked', syncState: 'bound'

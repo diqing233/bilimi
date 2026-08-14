@@ -457,6 +457,48 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(current.tombstones['100:1']).toBeUndefined()
   })
 
+  it('removes the primary bilimi membership for each virtual-source video and skips videos without one', async () => {
+    let current = {
+      ...snapshot(),
+      folders: [
+        ...snapshot().folders,
+        { id: 'bilibili:ordinary', title: 'Ordinary source', kind: 'bilibili' as const, remoteFolderId: '88', syncState: 'bound' as const }
+      ],
+      memberships: { ...snapshot().memberships, 'bilibili:ordinary': [1, 2, 3] },
+      positions: {
+        ...snapshot().positions,
+        '100:1': { ...snapshot().positions['100:1'], sourceAuthority: 'complete' as const },
+        '100:2': { ...snapshot().positions['100:2'], sourceAuthority: 'complete' as const },
+        '100:3': {
+          ...snapshot().positions['100:3'], localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [], sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo, now: () => '2026-08-15T04:00:00.000Z' })
+
+    await expect(service.deleteLocal('100', [1, 2, 3], 7, {
+      kind: 'virtual', eligibleAids: [1, 2, 3], skippedAids: [], bilimiMembershipSelection: 'primary'
+    })).resolves.toMatchObject({
+      status: 'succeeded', affectedAids: [1, 2], skippedAids: [3], completedOperationCount: 2, totalOperationCount: 3
+    })
+
+    expect(current.positions['100:1'].localDesiredFolderIds).toEqual([])
+    expect(current.positions['100:2'].localDesiredFolderIds).toEqual(['bilimi-logical:target'])
+    expect(current.memberships['bilibili:ordinary']).toEqual([1, 2, 3])
+  })
+
   it('does not recycle a local bilimi deletion while source evidence is incomplete', async () => {
     let current = {
       ...snapshot(),

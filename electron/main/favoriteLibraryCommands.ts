@@ -23,6 +23,8 @@ export type FavoriteLibraryCommandResult = {
   completedOperationCount: number
   totalOperationCount: number
   affectedAids: number[]
+  /** Requested videos that had no applicable Bilimi membership for this operation. */
+  skippedAids?: number[]
   reason?: string
 }
 

@@ -188,7 +188,11 @@ function isPortableLogicalFolderId(folderId: unknown) {
 function portableSyncRecord(record: FavoriteRepositorySyncRecord) {
   return {
     ...record,
-    ...(record.targetFolderIds ? { targetFolderIds: portableLogicalFolderIds(record.targetFolderIds) } : {})
+    ...(record.targetFolderIds ? { targetFolderIds: portableLogicalFolderIds(record.targetFolderIds) } : {}),
+    ...(record.targetFolderIdsByAid ? {
+      targetFolderIdsByAid: Object.fromEntries(Object.entries(record.targetFolderIdsByAid)
+        .map(([aid, folderIds]) => [aid, portableLogicalFolderIds(folderIds)]))
+    } : {})
   }
 }
 
@@ -584,6 +588,8 @@ export type FavoriteRepositorySyncRecord = {
   runId?: string
   operationKey?: string
   targetFolderIds?: string[]
+  /** Exact logical targets per video for recovering a partially executed membership deletion. */
+  targetFolderIdsByAid?: Record<string, string[]>
   attempt?: number
   retryAvailableAt?: string
   /** Archive restoration marker. Runtime commands cannot set this status. */
@@ -1250,13 +1256,15 @@ function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceI
 function isPortableRecoverySyncRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'attempt', 'retryAvailableAt', 'autoRetry'])
+  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'targetFolderIdsByAid', 'attempt', 'retryAvailableAt', 'autoRetry'])
   return !Object.keys(record).some((key) => !allowedKeys.has(key)) && typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
     isPortableSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
     (record.status !== 'reconciliation-required' || record.autoRetry === false) && (record.autoRetry === undefined || record.autoRetry === false) &&
     (record.reason === undefined || typeof record.reason === 'string') && (record.runId === undefined || typeof record.runId === 'string') &&
     (record.operationKey === undefined || typeof record.operationKey === 'string') &&
     (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
+    (record.targetFolderIdsByAid === undefined || (typeof record.targetFolderIdsByAid === 'object' && record.targetFolderIdsByAid !== null && !Array.isArray(record.targetFolderIdsByAid) &&
+      Object.entries(record.targetFolderIdsByAid).every(([aid, folderIds]) => /^\d+$/u.test(aid) && Array.isArray(folderIds) && folderIds.every(isPortableLogicalFolderId)))) &&
     (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0)) &&
     (record.retryAvailableAt === undefined || (typeof record.retryAvailableAt === 'string' && !Number.isNaN(Date.parse(record.retryAvailableAt))))
 }
@@ -1528,6 +1536,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.operationKey !== undefined && (typeof payload.operationKey !== 'string' || !payload.operationKey.trim())) ||
         (payload.targetFolderIds !== undefined && (!Array.isArray(payload.targetFolderIds) ||
           payload.targetFolderIds.some((id) => typeof id !== 'string' || !id.trim()))) ||
+        (payload.targetFolderIdsByAid !== undefined && (!payload.targetFolderIdsByAid || typeof payload.targetFolderIdsByAid !== 'object' || Array.isArray(payload.targetFolderIdsByAid) ||
+          Object.entries(payload.targetFolderIdsByAid as Record<string, unknown>).some(([aid, folderIds]) => !/^\d+$/u.test(aid) || !Array.isArray(folderIds) ||
+            !folderIds.length || folderIds.some((id) => typeof id !== 'string' || !/^bilimi-logical:\S+$/u.test(id))))) ||
         (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
     case 'record-organization-protections':

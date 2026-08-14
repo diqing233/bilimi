@@ -3,7 +3,7 @@ import type { FavoriteOperationSourceScope } from './favoriteRepositoryBatchOper
 
 type RendererSource =
   | { kind: 'folder'; folderId: string; folderIds?: string[] }
-  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[] }
+  | { kind: 'virtual'; eligibleAids: number[]; skippedAids: number[]; bilimiMembershipSelection?: 'primary' | 'all' }
 
 export function resolveFavoriteLibraryOperationSource(
   snapshot: { folders: readonly FavoriteRepositoryFolder[]; memberships: Record<string, number[]> },
@@ -44,6 +44,7 @@ export function resolveFavoriteLibraryOperationSource(
   return {
     kind: 'virtual',
     eligibleAids: [...eligible].sort((left, right) => left - right),
-    skippedAids: [...skipped].sort((left, right) => left - right)
+    skippedAids: [...skipped].sort((left, right) => left - right),
+    ...(source.bilimiMembershipSelection ? { bilimiMembershipSelection: source.bilimiMembershipSelection } : {})
   }
 }

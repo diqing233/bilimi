@@ -1,9 +1,16 @@
+import { createDefaultFavoriteLedgers } from './favoriteLedgers'
 import type { FavoriteLedger } from './types'
 
 function normalizedRemoteFolderIds(ledger: FavoriteLedger) {
   return [...new Set([ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
     .map((id) => id?.trim())
     .filter((id): id is string => Boolean(id)))]
+}
+
+export function restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger: FavoriteLedger): FavoriteLedger {
+  const template = createDefaultFavoriteLedgers().find((candidate) => candidate.id === ledger.id)
+  if (!ledger.isDefault || !template) return ledger
+  return { ...template, bindingState: 'unbound' }
 }
 
 /**
@@ -50,12 +57,7 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
       ...ledgerWithoutRemoteBinding
     } = ledger
     if (!ledger.isDefault) return { ...ledgerWithoutRemoteBinding, bindingState: 'unbacked' }
-    return {
-      ...ledgerWithoutRemoteBinding,
-      enabled: true,
-      bindingState: 'unbacked',
-      managedFolderDeletedByUser: true
-    }
+    return { ...restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger), bindingState: 'unbacked' }
   })
 }
 

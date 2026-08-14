@@ -6,6 +6,10 @@ import {
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
 import { DEEPSEEK_CONSTRAINT_MARKER, parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
+import {
+  applyConfirmedManagedFavoriteRemoteFolderDeletion,
+  restoreDefaultFavoriteLedgerAfterLocalDeletion
+} from '@shared/favoriteLedgerDeletion'
 import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
 import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions } from '@shared/types'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
@@ -76,7 +80,9 @@ type ManagedDeletionScope = 'local-only' | 'bilibili'
 
 type ManagedDeletionPlan = {
   remoteCustomLedgerIds: string[]
+  remoteDefaultLedgerIds: string[]
   localCustomLedgerIds: string[]
+  localDefaultLedgerIds: string[]
   draftLedgerIds: string[]
   candidates: ManagedFolderDeletionCandidate[]
 }
@@ -173,29 +179,10 @@ function remoteBindingIdsForLedger(ledger: FavoriteLedger) {
 function removeConfirmedRemoteBindings(ledgers: FavoriteLedger[], deletedRemoteFolderIds: Iterable<string>) {
   const deletedIds = new Set([...deletedRemoteFolderIds].map((id) => id.trim()).filter(Boolean))
   if (!deletedIds.size) return ledgers
-  return ledgers.map((ledger) => {
-    const retainedRemoteIds = remoteBindingIdsForLedger(ledger).filter((id) => !deletedIds.has(id))
-    if (retainedRemoteIds.length === remoteBindingIdsForLedger(ledger).length) return ledger
-    const {
-      bilibiliFolderId: _bilibiliFolderId,
-      bilibiliFolderIds: _bilibiliFolderIds,
-      bilibiliFolderTitle: _bilibiliFolderTitle,
-      bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
-      ...ledgerWithoutDeletedBinding
-    } = ledger
-    if (retainedRemoteIds.length) {
-      return {
-        ...ledgerWithoutDeletedBinding,
-        bilibiliFolderId: retainedRemoteIds[0],
-        bilibiliFolderIds: retainedRemoteIds,
-        bindingState: 'bound' as const
-      }
-    }
-    return {
-      ...ledgerWithoutDeletedBinding,
-      bindingState: 'unbacked' as const
-    }
-  })
+  return applyConfirmedManagedFavoriteRemoteFolderDeletion(ledgers, new Map(ledgers.map((ledger) => [
+    ledger.id,
+    new Set(remoteBindingIdsForLedger(ledger).filter((remoteId) => deletedIds.has(remoteId)))
+  ])))
 }
 
 function isManagedRemoteDeletionResult(result: unknown): result is ManagedRemoteDeletionResult {
@@ -241,7 +228,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
-  const isDeletedDefaultLedger = (ledger: FavoriteLedger) => Boolean(ledger.isDefault && ledger.managedFolderDeletedByUser)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
@@ -251,8 +237,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       ? '未绑定'
       : ledger.syncState === 'local-draft'
         ? '未保存'
-        : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked' ||
-          (isDeletedDefaultLedger(ledger) && !ledger.bilibiliFolderId)
+        : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
           ? '未备册'
           : ledger.bilibiliFolderId
             ? '已备册'
@@ -276,7 +261,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
     enabled: enabledOverride?.get(ledger.id) ?? (deletionMode ? false : isDefaultSystemLocked(ledger) ? true : ledger.enabled),
-    operable: deletionMode ? !ledger.isDefault && !isRoundLocked(ledger) : isOperable(ledger),
+    operable: deletionMode ? !isRoundLocked(ledger) : isOperable(ledger),
     forceEnabledOnBulk: isRoundLocked(ledger)
   }))
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
@@ -491,11 +476,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgersToDisplay = fullLedgerListVisible ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
   const projectEnabled = (items: FavoriteLedger[], enabledById: ReadonlyMap<string, boolean> = enableStore.getEnabledById()) => items.map((ledger) => ({
     ...ledger,
-    enabled: isDeletedDefaultLedger(ledger) || isDefaultSystemLocked(ledger) ? true : enabledById.get(ledger.id) ?? ledger.enabled
+    enabled: isDefaultSystemLocked(ledger) ? true : enabledById.get(ledger.id) ?? ledger.enabled
   }))
   const backupEligibleLedgers = (items: FavoriteLedger[]) => projectEnabled(items)
     .filter((ledger) => !isSystemDisabled(ledger) &&
-      (ledger.enabled || isDeletedDefaultLedger(ledger)) && ledger.syncState !== 'local-draft')
+      ledger.enabled && ledger.syncState !== 'local-draft')
   const hasBackupEligibleLedger = backupEligibleLedgers(draftLedgers).length > 0
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const persist = (next: FavoriteLedger[]) => {
@@ -735,17 +720,24 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       await requestBackup()
       return
     }
-    const selectedLedgers = currentLedgers.filter((ledger) => !ledger.isDefault && deletionStore.isEnabled(ledger.id))
+    const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id))
     const draftLedgerIds = selectedLedgers.filter(isDraftDirectlyDeletable).map((ledger) => ledger.id)
     const selectedCustomLedgers = selectedLedgers.filter((ledger) => !ledger.isDefault && !draftLedgerIds.includes(ledger.id))
+    const selectedDefaultLedgers = selectedLedgers.filter((ledger) => ledger.isDefault)
     const remoteCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
+      .map((ledger) => ledger.id)
+    const remoteDefaultLedgerIds = selectedDefaultLedgers
+      .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
     const localCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => !remoteCustomLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
-    const plan = { remoteCustomLedgerIds, localCustomLedgerIds, draftLedgerIds, candidates: [] }
-    if (remoteCustomLedgerIds.length) {
+    const localDefaultLedgerIds = selectedDefaultLedgers
+      .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
+      .map((ledger) => ledger.id)
+    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, candidates: [] }
+    if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length) {
       await requestManagedDeletion(plan)
       return
     }
@@ -812,7 +804,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const requestManagedDeletion = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
     if (destructiveActionLocked) return
-    const ledgerIds = plan.remoteCustomLedgerIds
+    const ledgerIds = [...plan.remoteCustomLedgerIds, ...plan.remoteDefaultLedgerIds]
     if (!ledgerIds.length) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !window.bilimiDesktop?.previewManagedFavoriteFolderDeletion) {
@@ -846,9 +838,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (!window.bilimiDesktop?.deleteFavoriteLedgersLocal) throw new Error('Local favorite ledger deletion is unavailable.')
     await window.bilimiDesktop.deleteFavoriteLedgersLocal(accountMid, persisted.map((ledger) => ledger.id))
   }
-  const finalizeManagedDeletionPlan = (plan: ManagedDeletionPlan) => {
+  const finalizeManagedDeletionPlan = async (plan: ManagedDeletionPlan) => {
     const deletedCustomIds = new Set([...plan.remoteCustomLedgerIds, ...plan.localCustomLedgerIds, ...plan.draftLedgerIds])
-    const next = draftLedgers
+    const locallyResetDefaultIds = new Set(deletionScope === 'local-only'
+      ? [...plan.remoteDefaultLedgerIds, ...plan.localDefaultLedgerIds]
+      : [])
+    const remotelyDeletedDefaultIds = new Set(deletionScope === 'bilibili' ? plan.remoteDefaultLedgerIds : [])
+    const retained = draftLedgers
       .filter((ledger) => !deletedCustomIds.has(ledger.id))
       .map((ledger) => ({
         ...ledger,
@@ -856,6 +852,16 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           ? true
           : enableStore.isEnabled(ledger.id)
       }))
+    const next = removeConfirmedRemoteBindings(retained, deletionScope === 'bilibili'
+      ? plan.candidates
+        .filter((candidate) => remotelyDeletedDefaultIds.has(candidate.logicalLedgerId) && candidate.remoteFolderId)
+        .map((candidate) => candidate.remoteFolderId!)
+      : []).map((ledger) => locallyResetDefaultIds.has(ledger.id)
+      ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
+      : ledger)
+    if (locallyResetDefaultIds.size || remotelyDeletedDefaultIds.size) {
+      await onSaveLedgers(next, { deleteDisabled: false })
+    }
     setDraftLedgers(next)
     enableStore.reset(enableEntries(next, false))
     deletionStore.reset(enableEntries(next, true))
@@ -884,7 +890,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     try {
       await deletePersistedDraftLedgers(accountMid, plan.draftLedgerIds)
       await deletePersistedCustomLedgers(accountMid, plan.localCustomLedgerIds)
-      finalizeManagedDeletionPlan({ ...plan, candidates: [] })
+      await finalizeManagedDeletionPlan({ ...plan, candidates: [] })
     } catch {
       setDeletionError('删除未成功，请稍后重试。')
     } finally {
@@ -899,7 +905,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setDeletionError('删除未成功，请稍后重试。')
       return
     }
-    const remoteIds = new Set(deletionPlan.remoteCustomLedgerIds)
+    const remoteIds = new Set([...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.remoteDefaultLedgerIds])
     const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
     const expectedRemoteFolderIds = (ids: ReadonlySet<string>) => Object.fromEntries([...ids].map((ledgerId) => [
       ledgerId,
@@ -931,7 +937,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }
       await deletePersistedDraftLedgers(accountMid, deletionPlan.draftLedgerIds)
       await deletePersistedCustomLedgers(accountMid, [...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.localCustomLedgerIds])
-      finalizeManagedDeletionPlan(deletionPlan)
+      await finalizeManagedDeletionPlan(deletionPlan)
     } catch {
       setDeletionError('删除未成功，请稍后重试。')
     } finally {

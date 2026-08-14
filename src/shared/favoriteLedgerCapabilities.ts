@@ -30,7 +30,7 @@ export function resolveFavoriteLedgerCapabilities(ledger: FavoriteLedger): Favor
     return { identity: 'local-draft', canClassify: false, canProvisionRemote: false, canOpenRemote: false, canDeleteRemote: false }
   }
   return {
-    identity: 'managed', canClassify: true, canProvisionRemote: true,
+    identity: 'managed', canClassify: ledger.bindingState !== 'unbound', canProvisionRemote: true,
     canOpenRemote: Boolean(ledger.bilibiliFolderId), canDeleteRemote: Boolean(ledger.bilibiliFolderId)
   }
 }
