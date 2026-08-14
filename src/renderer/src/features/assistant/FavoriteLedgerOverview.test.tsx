@@ -437,6 +437,41 @@ describe('FavoriteLedgerOverview', () => {
     expect(dialog).not.toBeInTheDocument()
   })
 
+  it('summarizes each right-side deletion candidate without repeating remote deletion details', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'knowledge', remoteFolderId: 'remote-knowledge', title: 'bilimi·知识学习', memberCount: 310, state: 'bound', requiresUnboundAcknowledgement: false },
+      { logicalLedgerId: 'storage', title: 'bilimi·暂存', memberCount: 0, state: 'missing-remote', requiresUnboundAcknowledgement: true }
+    ])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 10, isDefault: true, bilibiliFolderId: 'remote-knowledge' },
+      { id: 'storage', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 20, isDefault: true, bilibiliFolderId: 'remote-storage' }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·知识学习' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·暂存' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('bilimi·知识学习（当前 310 个视频）B站：保留')
+    expect(dialog).toHaveTextContent('bilimi·暂存（当前 0 个视频）B站：保留')
+    expect(dialog).toHaveTextContent('只移除右侧规则或草稿；收藏库和 B 站保留。')
+
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+
+    expect(dialog).toHaveTextContent('bilimi·知识学习（当前 310 个视频）B站：删除 1 个实际收藏夹')
+    expect(dialog).toHaveTextContent('bilimi·暂存（当前 0 个视频）B站：无绑定，不会删除')
+    expect(dialog).toHaveTextContent('收藏库工作夹和成员保留。')
+    expect(dialog).not.toHaveTextContent('删除“知识学习”时，会同时从 B 站删除')
+  })
+
   it('keeps the right-side rule and retains only failed remote bindings after a partial Bilibili deletion', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'custom', remoteFolderId: '9', title: 'bilimi·自建', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false },

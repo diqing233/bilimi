@@ -974,15 +974,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setRebindSelectedFolderIds({})
     }
   }
-  const remoteDeletionSummaries = deletionPlan
-    ? [...deletionPlan.candidates.reduce((groups, candidate) => {
-      if (!candidate.remoteFolderId) return groups
-      const current = groups.get(candidate.logicalLedgerId) ?? { title: candidate.title, count: 0 }
-      current.count += 1
-      groups.set(candidate.logicalLedgerId, current)
-      return groups
-    }, new Map<string, { title: string; count: number }>()).values()]
-    : []
+  const remoteDeletionCounts = deletionPlan
+    ? deletionPlan.candidates.reduce((counts, candidate) => {
+      if (candidate.remoteFolderId) counts.set(candidate.logicalLedgerId, (counts.get(candidate.logicalLedgerId) ?? 0) + 1)
+      return counts
+    }, new Map<string, number>())
+    : new Map<string, number>()
   const duplicateLedgerTitleCounts = draftLedgers.reduce((counts, ledger) => {
     const title = displayTitle(ledger.displayName) || ledger.displayName
     counts.set(title, (counts.get(title) ?? 0) + 1)
@@ -1060,12 +1057,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       </section> : null}
       {deletionPlan ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={deletionExecuting ? '删除中…' : '删除'} confirmDisabled={!deletionPlan.candidates.length || !deletionConfirmed || deletionExecuting || (deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)} onCancel={() => { if (deletionExecuting) return; setDeletionPlan(null); setDeletionConfirmed(false); setDeletionAcknowledgedUnbound(false); setDeletionScope('local-only'); setDeletionError(null) }} onConfirm={() => void confirmManagedDeletion()}>
         <p>以下 {deletionPlan.candidates.length} 个右侧 bilimi 收藏夹将被删除或移除：</p>
-        <ul className="favorite-ledger-panel__deletion-list">{deletionPlan.candidates.map((candidate) => <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
         <fieldset className="favorite-ledger-panel__deletion-scope"><legend>删除范围</legend><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'local-only'} onChange={() => setDeletionScope('local-only')} /><span>仅删除右侧 bilimi 收藏夹（保留收藏库和 B 站收藏夹）</span></label><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'bilibili'} onChange={() => setDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹（保留收藏库）</span></label></fieldset>
+        <ul className="favorite-ledger-panel__deletion-list">{deletionPlan.candidates.map((candidate) => {
+          const remoteDeletionCount = remoteDeletionCounts.get(candidate.logicalLedgerId) ?? 0
+          const remoteSummary = deletionScope === 'local-only'
+            ? 'B站：保留'
+            : remoteDeletionCount
+              ? `B站：删除 ${remoteDeletionCount} 个实际收藏夹`
+              : 'B站：无绑定，不会删除'
+          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
+        })}</ul>
         <p>{deletionScope === 'local-only'
-          ? '只移除右侧规则或草稿；不会修改收藏库工作夹、B 站收藏夹、视频、档案库、转写或札记。'
-          : '将从右侧移除所选规则；同时从 B 站删除对应收藏夹及其中分类视频。收藏库工作夹和成员保持不变。'}</p>
-        {deletionScope === 'bilibili' && remoteDeletionSummaries.length ? <p className="favorite-ledger-panel__delete-remote-summary">{remoteDeletionSummaries.map(({ title, count }) => `删除“${displayTitle(title)}”时，会同时从 B 站删除 ${count} 个实际收藏夹及其中分类视频。`).join(' ')}</p> : null}
+          ? '只移除右侧规则或草稿；收藏库和 B 站保留。'
+          : '收藏库工作夹和成员保留。'}</p>
         <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
         {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
