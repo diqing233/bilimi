@@ -1,28 +1,33 @@
 import type { FavoriteLedger } from './types'
 
-/** Applies a confirmed managed-folder deletion to local rules without touching unrelated rules. */
+/** Clears only bindings whose Bilibili folders were actually deleted, without removing local rules. */
 export function applyManagedFavoriteLedgerDeletion(
   ledgers: FavoriteLedger[],
-  deletedLedgerIds: Iterable<string>
+  deletedLedgerIds: Iterable<string>,
+  remotelyDeletedLedgerIds: Iterable<string> = []
 ): FavoriteLedger[] {
   const deleted = new Set(deletedLedgerIds)
-  return ledgers
-    .filter((ledger) => !deleted.has(ledger.id) || ledger.isDefault)
-    .map((ledger) => {
-      if (!deleted.has(ledger.id)) return ledger
-      const next = { ...ledger, enabled: false }
-      if (ledger.isDefault) {
-        delete next.bilibiliFolderId
-        delete next.bilibiliFolderIds
-        delete next.bilibiliFolderTitle
-        delete next.bilibiliFolderVideoCount
-        delete next.pendingRemoteBinding
-        delete next.pendingRemoteFolderId
-        delete next.pendingRemoteFolderTitle
-        delete next.syncState
-        next.bindingState = 'unbound'
-        next.managedFolderDeletedByUser = true
-      }
-      return next
-    })
+  const remotelyDeleted = new Set(remotelyDeletedLedgerIds)
+  return ledgers.map((ledger) => {
+    if (!deleted.has(ledger.id) || !remotelyDeleted.has(ledger.id)) return ledger
+    const {
+      bilibiliFolderId: _bilibiliFolderId,
+      bilibiliFolderIds: _bilibiliFolderIds,
+      bilibiliFolderTitle: _bilibiliFolderTitle,
+      bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+      pendingRemoteBinding: _pendingRemoteBinding,
+      pendingRemoteFolderId: _pendingRemoteFolderId,
+      pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
+      ...ledgerWithoutRemoteBinding
+    } = ledger
+    if (!ledger.isDefault) {
+      return { ...ledgerWithoutRemoteBinding, bindingState: 'unbacked' }
+    }
+    return {
+      ...ledgerWithoutRemoteBinding,
+      enabled: false,
+      bindingState: 'unbound',
+      managedFolderDeletedByUser: true
+    }
+  })
 }

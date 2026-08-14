@@ -191,9 +191,9 @@ export function resolveWorkspaceGuidanceAnnouncement(
   return 'none'
 }
 
-/** Only saved, enabled ledgers may create, update, or restore Bilibili bindings. */
+/** Keeps the complete local snapshot intact; remote writers decide which entries are eligible to write. */
 export function ledgersForFavoriteBackup(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  return ledgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
+  return ledgers
 }
 
 export function statusLightNavigation(id: StatusLightId, _activeView: AssistantWorkspaceView) {

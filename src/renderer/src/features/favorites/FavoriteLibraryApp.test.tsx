@@ -591,7 +591,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
-    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留右侧规则）' }))
     expect(dialog).toHaveTextContent('已检测到 1 个未绑定的 bilimi 收藏夹')
     expect(screen.queryByRole('button', { name: '同步删除 B 站' })).not.toBeInTheDocument()
     const remove = screen.getByRole('button', { name: '删除' })
@@ -628,9 +628,12 @@ describe('FavoriteLibraryApp', () => {
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
     expect(dialog).toHaveTextContent('Music')
     expect(dialog).toHaveTextContent('Ideas')
+    expect(screen.getByRole('radio', { name: '仅从收藏库删除 bilimi 工作夹（保留右侧规则和 B 站收藏夹）' })).toBeChecked()
+    expect(dialog).toHaveTextContent('仅删除收藏库工作夹和分类关系；右侧规则、草稿、B 站收藏夹、视频、档案、转写和札记都会保留。')
     expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['music', 'ideas'], { music: 'Music', ideas: 'Ideas' })
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留右侧规则）' }))
+    expect(dialog).toHaveTextContent('将删除所选收藏库工作夹及对应 B 站收藏夹；右侧规则和草稿会保留并显示未备册，可再次备册。')
     fireEvent.click(screen.getByRole('checkbox', { name: '\u6211\u5df2\u786e\u8ba4' }))
     fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
 
@@ -2012,7 +2015,7 @@ describe('FavoriteLibraryApp', () => {
 
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(previewFavoriteLibraryManagedFolderDelete).toHaveBeenCalledWith('100', 'local:inbox')
-    expect(screen.queryByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '同时从 B 站删除收藏夹（保留右侧规则）' })).not.toBeInTheDocument()
   })
   it('runs singleton copy, B站 sync, and inline transcription actions with the selected aid', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })

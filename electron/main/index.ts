@@ -1879,8 +1879,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
         save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
         publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore())),
-        markRemoteDraftRediscoveryPending: (targetAccountMid, remoteFolderIds) =>
-          markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), targetAccountMid, remoteFolderIds)
       })
     },
     remote: {
@@ -2138,12 +2136,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
       .map((ledger) => ledger.id),
-    onManagedFolderDeletion: async (accountMid, logicalLedgerIds) => {
-      await persistConfirmedManagedFolderDeletion(accountMid, logicalLedgerIds.map((logicalLedgerId) => ({
-        logicalLedgerId,
-        remoteFolderIds: [],
-        remoteDeleted: true
-      })), {
+    onManagedFolderDeletion: async (accountMid, deletions) => {
+      await persistConfirmedManagedFolderDeletion(accountMid, deletions, {
         load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
         save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
         publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))

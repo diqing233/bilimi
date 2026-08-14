@@ -7,7 +7,7 @@ function preferences(favoriteLedgers: FavoriteAccountPreferences['favoriteLedger
 }
 
 describe('persistConfirmedManagedFolderDeletion', () => {
-  it('persists the default user-deleted marker only after a confirmed managed-folder deletion', async () => {
+  it('persists the default user-deleted marker only after Bilibili was actually deleted', async () => {
     const current = preferences([{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
       isDefault: true, bindingState: 'bound', bilibiliFolderId: '9001'
@@ -16,7 +16,7 @@ describe('persistConfirmedManagedFolderDeletion', () => {
     const publish = vi.fn()
 
     await expect(persistConfirmedManagedFolderDeletion('100', [{
-      logicalLedgerId: 'music', remoteFolderIds: ['9001'], remoteDeleted: false
+      logicalLedgerId: 'music', remoteFolderIds: ['9001'], remoteDeleted: true
     }], {
       load: () => current, save, publish
     })).resolves.toBe(true)
@@ -29,7 +29,7 @@ describe('persistConfirmedManagedFolderDeletion', () => {
     expect(publish).toHaveBeenCalledOnce()
   })
 
-  it('removes a confirmed custom managed-folder rule and does not publish a no-op deletion', async () => {
+  it('keeps a custom right-side rule when left-side deletion also removed its Bilibili folder', async () => {
     const current = preferences([{
       id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,
       isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002'
@@ -42,69 +42,57 @@ describe('persistConfirmedManagedFolderDeletion', () => {
     }], {
       load: () => current, save, publish
     })).resolves.toBe(true)
-    await expect(persistConfirmedManagedFolderDeletion('100', [{
-      logicalLedgerId: 'not-present', remoteFolderIds: [], remoteDeleted: false
-    }], {
-      load: () => current, save, publish
-    })).resolves.toBe(false)
-
     expect(save).toHaveBeenCalledTimes(1)
-    expect(save).toHaveBeenCalledWith('100', expect.objectContaining({ favoriteLedgers: [] }))
+    expect(save).toHaveBeenCalledWith('100', expect.objectContaining({
+      favoriteLedgers: [expect.objectContaining({
+        id: 'custom-work',
+        displayName: 'bilimi·工作',
+        keywords: [],
+        enabled: true,
+        bindingState: 'unbacked'
+      })]
+    }))
+    const savedLedgers = save.mock.calls[0]?.[1].favoriteLedgers
+    expect(savedLedgers?.[0]).not.toHaveProperty('bilibiliFolderId')
+    expect(savedLedgers?.[0]).not.toHaveProperty('bilibiliFolderIds')
     expect(publish).toHaveBeenCalledOnce()
   })
 
-  it('marks a locally deleted custom binding for rediscovery only after a later explicit backup', async () => {
+  it('does not touch right-side rules or bindings when only the left library work folder is deleted', async () => {
     const current = preferences([{
       id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,
       isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002', bilibiliFolderIds: ['9002', '9003']
     }])
     const save = vi.fn()
     const publish = vi.fn()
-    const markRemoteDraftRediscoveryPending = vi.fn()
 
     await expect(persistConfirmedManagedFolderDeletion('100', [{
       logicalLedgerId: 'custom-work', remoteFolderIds: [' 9003 ', '9002', '9002']
     }], {
-      load: () => current, save, publish, markRemoteDraftRediscoveryPending
-    })).resolves.toBe(true)
+      load: () => current, save, publish
+    })).resolves.toBe(false)
 
-    expect(save).toHaveBeenCalledWith('100', expect.objectContaining({ favoriteLedgers: [] }))
-    expect(markRemoteDraftRediscoveryPending).toHaveBeenCalledWith('100', ['9002', '9003'])
-    expect(publish).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
   })
 
-  it('does not mark remote rediscovery after a confirmed Bilibili folder deletion', async () => {
+  it('does not persist the right-side rules when only the local library folder was deleted', async () => {
     const current = preferences([{
       id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,
       isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002'
     }])
-    const markRemoteDraftRediscoveryPending = vi.fn()
-
-    await expect(persistConfirmedManagedFolderDeletion('100', [{
-      logicalLedgerId: 'custom-work', remoteFolderIds: ['9002'], remoteDeleted: true
-    }], {
-      load: () => current, save: vi.fn(), publish: vi.fn(), markRemoteDraftRediscoveryPending
-    })).resolves.toBe(true)
-
-    expect(markRemoteDraftRediscoveryPending).not.toHaveBeenCalled()
-  })
-
-  it('does not mark rediscovery when saving the local deletion state fails', async () => {
-    const current = preferences([{
-      id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,
-      isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002'
-    }])
-    const markRemoteDraftRediscoveryPending = vi.fn()
+    const save = vi.fn(async () => { throw new Error('preferences unavailable') })
+    const publish = vi.fn()
 
     await expect(persistConfirmedManagedFolderDeletion('100', [{
       logicalLedgerId: 'custom-work', remoteFolderIds: ['9002'], remoteDeleted: false
     }], {
       load: () => current,
-      save: vi.fn(async () => { throw new Error('preferences unavailable') }),
-      publish: vi.fn(),
-      markRemoteDraftRediscoveryPending
-    })).rejects.toThrow('preferences unavailable')
+      save,
+      publish
+    })).resolves.toBe(false)
 
-    expect(markRemoteDraftRediscoveryPending).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
   })
 })

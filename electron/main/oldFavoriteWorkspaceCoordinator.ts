@@ -820,7 +820,11 @@ export class OldFavoriteWorkspaceCoordinator {
     notifyRecommendedLedgersChanged?: (accountMid: string) => void
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
-    onManagedFolderDeletion?: (accountMid: string, logicalLedgerIds: string[]) => Promise<void>
+    onManagedFolderDeletion?: (accountMid: string, deletions: Array<{
+      logicalLedgerId: string
+      remoteFolderIds: string[]
+      remoteDeleted: boolean
+    }>) => Promise<void>
     prepareForOrganization?: (accountMid: string) => Promise<void>
     refreshSelectedVideoMetadata?: (accountMid: string, aid: number) => Promise<FavoriteRepositoryVideo>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
@@ -3290,7 +3294,19 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
     const deleted = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
-    await this.options.onManagedFolderDeletion?.(accountMid, [...new Set(deleted.map((candidate) => candidate.logicalLedgerId))])
+    const remoteFolderIdsByLedgerId = new Map<string, Set<string>>()
+    for (const candidate of deleted) {
+      const remoteFolderIds = remoteFolderIdsByLedgerId.get(candidate.logicalLedgerId) ?? new Set<string>()
+      if (candidate.remoteFolderId) remoteFolderIds.add(candidate.remoteFolderId)
+      remoteFolderIdsByLedgerId.set(candidate.logicalLedgerId, remoteFolderIds)
+    }
+    await this.options.onManagedFolderDeletion?.(accountMid, [...remoteFolderIdsByLedgerId]
+      .map(([logicalLedgerId, remoteFolderIds]) => ({
+        logicalLedgerId,
+        remoteFolderIds: [...remoteFolderIds].sort(),
+        remoteDeleted: true
+      }))
+      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId)))
     return deleted
   }
 

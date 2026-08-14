@@ -52,8 +52,11 @@ describe('FavoriteLedgerOverview', () => {
     const toggle = screen.getByRole('button', { name: '固定显示收藏夹说明' })
     expect(toggle).not.toHaveAttribute('title')
     expect(toggle).toHaveAttribute('aria-describedby', 'favorite-ledger-help-tooltip')
-    expect(screen.getByRole('tooltip')).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
-    expect(screen.getByRole('tooltip').parentElement).toBe(document.body)
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent('小咪提醒：同一个视频可以保存在多个收藏夹里。')
+    expect(tooltip).toHaveTextContent('默认收藏夹删除后会保留在右侧，收藏库工作夹不会被删除，可通过“备册”恢复。')
+    expect(tooltip).not.toHaveTextContent('按确认范围处理对应的收藏库工作夹')
+    expect(tooltip.parentElement).toBe(document.body)
     fireEvent.click(toggle)
     expect(screen.getByRole('tooltip')).toBeVisible()
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
@@ -410,15 +413,16 @@ describe('FavoriteLedgerOverview', () => {
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(dialog).toHaveTextContent('bilimi·游戏')
     expect(screen.getByText('删除范围')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '仅从 bilimi 删除（保留 B 站收藏夹）' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '仅删除右侧 bilimi 收藏夹（保留收藏库和 B 站收藏夹）' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' })).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('只移除右侧规则或草稿；不会修改收藏库工作夹、B 站收藏夹、视频、档案库、转写或札记。')
     expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['game'], { game: 'bilimi·游戏' })
     expect(previewFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
     expect(deleteFavoriteLibraryManagedFoldersLocal).not.toHaveBeenCalled()
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
   })
 
-  it('removes only the default library work folder for a local right-side default deletion', async () => {
+  it('keeps the library work folder for a local right-side default deletion', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'game', remoteFolderId: '9', title: 'bilimi·游戏', memberCount: 1000, state: 'bound', requiresUnboundAcknowledgement: false }
     ])
@@ -447,7 +451,8 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['game-local']))
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('已删除 · 未备册'))
+    expect(deleteFavoriteLibraryManagedFoldersLocal).not.toHaveBeenCalled()
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
     expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('已删除 · 未备册')
     expect(screen.getByRole('button', { name: '备册收藏夹' })).toBeEnabled()
@@ -455,11 +460,12 @@ describe('FavoriteLedgerOverview', () => {
     expect(save).toHaveBeenCalledWith([expect.objectContaining({ id: 'game', enabled: false, managedFolderDeletedByUser: true })], { deleteDisabled: false })
   })
 
-  it('deletes a default remote folder only after the Bilibili scope is selected', async () => {
+  it('deletes a default remote folder only after the Bilibili scope is selected without deleting the library work folder', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'game', remoteFolderId: '9', title: 'bilimi·游戏', memberCount: 1000, state: 'bound', requiresUnboundAcknowledgement: false }
     ])
-    const deleteManagedFavoriteFolders = vi.fn().mockResolvedValue([
+    const deleteManagedFavoriteFolders = vi.fn()
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'game', remoteFolderId: '9', title: 'bilimi·游戏', memberCount: 1000, state: 'bound', requiresUnboundAcknowledgement: false }
     ])
     const deleteFavoriteLibraryManagedFoldersLocal = vi.fn()
@@ -469,6 +475,7 @@ describe('FavoriteLedgerOverview', () => {
         readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
         previewManagedFavoriteFolderDeletion,
         deleteManagedFavoriteFolders,
+        deleteManagedRemoteFolders,
         deleteFavoriteLibraryManagedFoldersLocal
       }
     })
@@ -480,13 +487,14 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
-    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith(
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledWith(
       '100', ['game'], false, { game: 'bilimi·游戏' }, { game: ['9'] }
     ))
+    expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
     expect(deleteFavoriteLibraryManagedFoldersLocal).not.toHaveBeenCalled()
   })
 
@@ -519,7 +527,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
-    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
@@ -1667,7 +1675,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
     expect(await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹及其中分类视频' }))
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
     expect(screen.getByText('已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。')).toBeInTheDocument()
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
   })

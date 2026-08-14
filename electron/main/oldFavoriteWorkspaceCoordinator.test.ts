@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService'> & { onManagedFolderDeletion?: (accountMid: string, ledgerIds: string[]) => Promise<void>; getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -134,12 +134,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === 'game')).toEqual([])
   })
 
-  it('clears matching ledger rules only after managed folder deletion succeeds', async () => {
+  it('reports the successful Bilibili deletion without deleting the right-side rule', async () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
     const syncService = createSyncService({
       deleteManagedFolders: vi.fn().mockResolvedValue([
-        { logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }
+        { logicalLedgerId: 'music', remoteFolderId: '9001', title: 'bilimi·音乐', memberCount: 2, state: 'bound', requiresUnboundAcknowledgement: false }
       ])
     })
     const coordinator = createCoordinator(
@@ -150,7 +150,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.deleteManagedFolderCandidates('100', ['music'])
 
-    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', ['music'])
+    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'music', remoteFolderIds: ['9001'], remoteDeleted: true
+    }])
   })
 
   it('does not clear matching ledger rules when managed folder deletion fails', async () => {
