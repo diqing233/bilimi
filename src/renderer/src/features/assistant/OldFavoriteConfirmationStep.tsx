@@ -350,12 +350,12 @@ export function OldFavoriteConfirmationStep({
         同步 bilimi·暂存（{unmatchedCount} 条）
       </label>
     </BilimiModal> : null}
-    {endDialogOpen ? <OldFavoriteModal title="结束本轮整理？" onCancel={() => setEndDialogOpen(false)} extraActions={<>
-      <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理，保留草稿</button>
-      <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>清空并结束</button>
+    {endDialogOpen ? <OldFavoriteModal title="结束本轮整理?" onCancel={() => setEndDialogOpen(false)} extraActions={<>
+      <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理</button>
+      <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>确认结束</button>
     </>}>
-      <p>关闭整理会保留当前草稿、扫描和标签补取进度；下次可继续本轮整理。</p>
-      <p>清空并结束会丢弃本轮未保存的草稿与进度，不影响已保存的收藏库和 B 站；之后需要重新扫描。</p>
+      <p>关闭整理只会隐藏当前整理界面，当前草稿、扫描和标签补取进度都会保留。下次点击“整理收藏”可继续本轮草稿；继续草稿不会自动加入新增收藏，如需处理新增收藏请重新扫描。</p>
+      <p>确认结束会清空本轮草稿和进度，不影响已保存到收藏库的内容或 B 站收藏。下次点击“整理收藏”可重新扫描，并处理新增收藏。</p>
     </OldFavoriteModal> : null}
   </section>
 }

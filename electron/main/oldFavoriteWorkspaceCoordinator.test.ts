@@ -7581,6 +7581,32 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(executeFrozenPlan).toHaveBeenCalledWith('100', persisted)
   })
 
+  it('links each frozen remote operation to the local organize adjustment that produced it', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+
+    await coordinator.freezeForBilibiliExecution('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    const adjustment = snapshot.classificationAdjustments.find((record) => record.aid === 1 && record.operation === 'organize-favorites')
+    expect(adjustment).toEqual(expect.objectContaining({ classificationSource: 'manual', bilibiliSync: { attempted: false } }))
+    expect(snapshot.workspace?.frozenSyncPlan?.operations).toEqual([
+      expect.objectContaining({ aid: 1, classificationAdjustmentId: adjustment?.id })
+    ])
+  })
+
   it('freezes and starts a Bilibili plan from one explicit confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

@@ -10,6 +10,7 @@ export type FavoriteRepositoryLocalPlanPayload = {
     positionState?: FavoriteRepositoryPositionState
   }>
   workspace?: FavoriteRepositoryWorkspace
+  audit?: FavoriteRepositoryClassificationAdjustmentAudit
 }
 
 /** Main-process snapshot of the account's current Bilibili source folders. */
@@ -40,6 +41,10 @@ export type FavoriteRepositoryVideo = {
   initialSource?: FavoriteRepositoryInitialSource
   /** Latest explicit local organization adjustment. It never describes current membership. */
   lastAdjustment?: FavoriteRepositoryLastAdjustment
+  /** Latest valid classification projection for list queries; detailed evidence stays in classificationAdjustments. */
+  classificationSource?: FavoriteRepositoryClassificationSource
+  /** Time of the latest valid classification projection. */
+  classificationAt?: string
 }
 
 export type FavoriteRepositoryInitialSourceFolder = {
@@ -147,7 +152,7 @@ export type FavoriteRepositoryArchiveExport = {
   /** Account-local recovery data. Bilimi binding identity is portable; remote membership observations stay local. */
   recovery?: Pick<AccountFavoriteRepositorySnapshot,
     'folders' | 'memberships' | 'physicalShards' | 'workspace' | 'syncRecords' |
-    'organizationRecords' | 'organizationBatches' | 'organizationMigrationInitialized'> & {
+    'organizationRecords' | 'organizationBatches' | 'classificationAdjustments' | 'organizationMigrationInitialized'> & {
       tombstones: FavoriteRepositoryTombstone[]
     }
 }
@@ -284,6 +289,9 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
     positions: [...(exported.positions ?? [])].map((position) => ({
       ...position, localDesiredFolderIds: normalizeFolderIds(position.localDesiredFolderIds)
     })).sort((left, right) => left.aid - right.aid),
+    classificationAdjustments: [...(exported.recovery?.classificationAdjustments ?? [])]
+      .map((record) => ({ ...record, beforeFolderIds: normalizeFolderIds(record.beforeFolderIds), afterFolderIds: normalizeFolderIds(record.afterFolderIds) }))
+      .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id)),
     protections: [...(exported.protections ?? [])].map((record) => ({ ...record })).sort((left, right) => left.aid - right.aid),
     events: [...(exported.events ?? [])].map((event) => ({
       ...event, folderTitlesAtTime: event.folderTitlesAtTime ? [...event.folderTitlesAtTime] : undefined
@@ -299,6 +307,7 @@ export function createFavoriteRepositoryArchiveExportChecksum(exported: Favorite
         syncRecords: [...exported.recovery.syncRecords].sort((left, right) => left.id.localeCompare(right.id)),
         organizationRecords: [...exported.recovery.organizationRecords].sort((left, right) => left.aid - right.aid),
         organizationBatches: [...exported.recovery.organizationBatches].sort((left, right) => left.id.localeCompare(right.id)),
+        classificationAdjustments: [...(exported.recovery.classificationAdjustments ?? [])].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id)),
         tombstones: [...exported.recovery.tombstones].sort((left, right) => left.aid - right.aid)
       }
     } : {})
@@ -392,7 +401,9 @@ export function createFavoriteRepositoryArchiveExport(
           remoteTitle: shard.remoteTitle, bindingState: shard.bindingState
       })), ...(snapshot.workspace ? { workspace: portableWorkspace(snapshot.workspace) } : {}),
       syncRecords: snapshot.syncRecords.map(portableSyncRecord), organizationRecords: snapshot.organizationRecords.map(portableOrganizationRecord),
-      organizationBatches: snapshot.organizationBatches.map(portableOrganizationChange), organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
+      organizationBatches: snapshot.organizationBatches.map(portableOrganizationChange),
+      classificationAdjustments: (snapshot.classificationAdjustments ?? []).map(portableClassificationAdjustment),
+      organizationMigrationInitialized: snapshot.organizationMigrationInitialized,
       tombstones: Object.values(snapshot.tombstones).map((tombstone) => ({ ...tombstone }))
     }
   }
@@ -519,6 +530,8 @@ export type FavoriteRepositoryFrozenSyncOperation = {
   folderIds: string[]
   /** Trusted remote membership observed while the immutable plan was frozen. */
   beforeFolderIds?: string[]
+  /** Existing local classification/ownership audit to receive this remote result. */
+  classificationAdjustmentId?: string
 }
 
 export type FavoriteRepositoryFrozenSyncPlan = {
@@ -593,6 +606,23 @@ export type FavoriteRepositoryClassificationSource =
   | 'deepseek'
   | 'manual'
 
+export function deriveFavoriteRepositoryClassificationSource(
+  video: Pick<FavoriteRepositoryVideo, 'lastAdjustment' | 'classificationSource'>,
+  organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource'>
+): FavoriteRepositoryClassificationSource | undefined {
+  return video.classificationSource ?? (isClassificationSource(video.lastAdjustment?.kind)
+    ? video.lastAdjustment.kind
+    : organization?.classificationSource)
+}
+
+function portableClassificationAdjustment(record: FavoriteRepositoryClassificationAdjustment) {
+  return {
+    ...record,
+    beforeFolderIds: portableLogicalFolderIds(record.beforeFolderIds),
+    afterFolderIds: portableLogicalFolderIds(record.afterFolderIds)
+  }
+}
+
 /** Immutable, account-scoped recovery evidence; it never authorizes a remote write. */
 export type FavoriteRepositoryOrganizationChange = {
   id: string
@@ -606,6 +636,50 @@ export type FavoriteRepositoryOrganizationChange = {
   removedFolderIds: string[]
   status: 'succeeded' | 'failed' | 'result-unknown'
   recordedAt: string
+}
+
+/** User-visible audit of a classification or ownership adjustment. */
+export type FavoriteRepositoryClassificationAdjustment = {
+  id: string
+  accountMid: string
+  aid: number
+  occurredAt: string
+  operation: FavoriteRepositoryClassificationAdjustmentOperation
+  classificationSource?: FavoriteRepositoryClassificationSource
+  beforeFolderIds: string[]
+  afterFolderIds: string[]
+  addedToLibrary: boolean
+  bilibiliSync: {
+    attempted: boolean
+    status?: 'succeeded' | 'failed' | 'result-unknown' | 'queued'
+  }
+}
+
+export type FavoriteRepositoryClassificationAdjustmentOperation =
+  | 'review'
+  | 'organize-favorites'
+  | 'library-placement'
+  | 'copy'
+  | 'move'
+  | 'adopt-bilibili-placement'
+  | 'synchronize-bilibili'
+  | 'remove-bilimi-placement'
+
+export type FavoriteRepositoryClassificationAdjustmentAudit = {
+  operation: FavoriteRepositoryClassificationAdjustmentOperation
+  bilibiliSync?: FavoriteRepositoryClassificationAdjustment['bilibiliSync']
+}
+
+function classificationAdjustmentOperation(kind: FavoriteRepositoryAdjustmentKind): FavoriteRepositoryClassificationAdjustmentOperation {
+  if (isClassificationSource(kind)) return 'library-placement'
+  return ({
+    'local-copy': 'copy',
+    'local-move': 'move',
+    'adopt-remote': 'adopt-bilibili-placement',
+    'managed-placement-remove': 'remove-bilimi-placement',
+    'managed-folder-delete': 'remove-bilimi-placement',
+    'clear-organization-records': 'organize-favorites'
+  } as const)[kind]
 }
 
 export type FavoriteRepositoryPage<T> = {
@@ -766,6 +840,20 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'record-classification-adjustments'
+      payload: { records: FavoriteRepositoryClassificationAdjustment[] }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'update-classification-adjustment-sync'
+      payload: { adjustmentId: string; status: NonNullable<FavoriteRepositoryClassificationAdjustment['bilibiliSync']['status']> }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'record-organization-change'
       payload: { change: FavoriteRepositoryOrganizationChange }
     }
@@ -775,7 +863,10 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       expectedRevision?: number
       type: 'set-favorite-position' | 'set-favorite-placement'
-      payload: Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }
+      payload: Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & {
+        positionState?: FavoriteRepositoryPositionState
+        audit?: FavoriteRepositoryClassificationAdjustmentAudit
+      }
     }
   | {
       id: string
@@ -783,7 +874,10 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       expectedRevision?: number
       type: 'set-favorite-placements'
-      payload: { placements: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }> }
+      payload: {
+        placements: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & { positionState?: FavoriteRepositoryPositionState }>
+        audit?: FavoriteRepositoryClassificationAdjustmentAudit
+      }
     }
   | {
       id: string
@@ -907,6 +1001,7 @@ export type AccountFavoriteRepositorySnapshot = {
   syncRecords: FavoriteRepositorySyncRecord[]
   organizationRecords: FavoriteRepositoryOrganizationRecord[]
   organizationBatches: FavoriteRepositoryOrganizationChange[]
+  classificationAdjustments: FavoriteRepositoryClassificationAdjustment[]
   organizationMigrationInitialized: boolean
   positions: Record<string, FavoriteRepositoryPositionRecord>
   tombstones: Record<string, FavoriteRepositoryTombstone>
@@ -1001,7 +1096,8 @@ function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: strin
       !Number.isSafeInteger(record.aid) || Number(record.aid) <= 0 ||
       (record.kind !== 'append' && record.kind !== 'remove') || !Array.isArray(record.folderIds)) return false
     if (!record.folderIds.length || record.folderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim()) ||
-      (record.beforeFolderIds !== undefined && (!Array.isArray(record.beforeFolderIds) || record.beforeFolderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim())))) return false
+      (record.beforeFolderIds !== undefined && (!Array.isArray(record.beforeFolderIds) || record.beforeFolderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim()))) ||
+      (record.classificationAdjustmentId !== undefined && (typeof record.classificationAdjustmentId !== 'string' || !record.classificationAdjustmentId.trim()))) return false
     operationKeys.add(record.operationKey)
     return true
   })
@@ -1029,6 +1125,34 @@ function isClassificationSource(value: unknown): value is FavoriteRepositoryClas
   return value === 'system-high' || value === 'system-low' || value === 'deepseek' || value === 'manual'
 }
 
+function isClassificationAdjustmentOperation(value: unknown): value is FavoriteRepositoryClassificationAdjustmentOperation {
+  return value === 'review' || value === 'organize-favorites' || value === 'library-placement' || value === 'copy' ||
+    value === 'move' || value === 'adopt-bilibili-placement' || value === 'synchronize-bilibili' || value === 'remove-bilimi-placement'
+}
+
+function isClassificationAdjustmentAudit(value: unknown): value is FavoriteRepositoryClassificationAdjustmentAudit {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const audit = value as Record<string, unknown>
+  const sync = audit.bilibiliSync
+  return isClassificationAdjustmentOperation(audit.operation) && (sync === undefined || (
+    !!sync && typeof sync === 'object' && !Array.isArray(sync) && typeof (sync as Record<string, unknown>).attempted === 'boolean' &&
+    ((sync as Record<string, unknown>).status === undefined || ['succeeded', 'failed', 'result-unknown', 'queued'].includes(String((sync as Record<string, unknown>).status)))
+  ))
+}
+
+function isClassificationAdjustment(value: unknown, accountMid: string): value is FavoriteRepositoryClassificationAdjustment {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  const sync = record.bilibiliSync
+  return typeof record.id === 'string' && !!record.id.trim() && typeof record.accountMid === 'string' && normalizedAccountMid(record.accountMid) === accountMid &&
+    Number.isSafeInteger(record.aid) && Number(record.aid) > 0 && typeof record.occurredAt === 'string' && !Number.isNaN(Date.parse(record.occurredAt)) &&
+    isClassificationAdjustmentOperation(record.operation) && (record.classificationSource === undefined || isClassificationSource(record.classificationSource)) &&
+    ['beforeFolderIds', 'afterFolderIds'].every((key) => Array.isArray(record[key]) && (record[key] as unknown[]).every((folderId) => typeof folderId === 'string' && !!folderId.trim())) &&
+    typeof record.addedToLibrary === 'boolean' && !!sync && typeof sync === 'object' && !Array.isArray(sync) &&
+    typeof (sync as Record<string, unknown>).attempted === 'boolean' &&
+    ((sync as Record<string, unknown>).status === undefined || ['succeeded', 'failed', 'result-unknown', 'queued'].includes(String((sync as Record<string, unknown>).status)))
+}
+
 function isOrganizationChange(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
@@ -1044,10 +1168,11 @@ function isOrganizationChange(value: unknown) {
 function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const recovery = value as Record<string, unknown>
-  const allowed = new Set(['folders', 'memberships', 'physicalShards', 'workspace', 'syncRecords', 'organizationRecords', 'organizationBatches', 'organizationMigrationInitialized', 'tombstones'])
+  const allowed = new Set(['folders', 'memberships', 'physicalShards', 'workspace', 'syncRecords', 'organizationRecords', 'organizationBatches', 'classificationAdjustments', 'organizationMigrationInitialized', 'tombstones'])
   if (Object.keys(recovery).some((key) => !allowed.has(key)) || !Array.isArray(recovery.folders) ||
     !isRecord(recovery.memberships) || !Array.isArray(recovery.physicalShards) || !Array.isArray(recovery.syncRecords) ||
     !Array.isArray(recovery.organizationRecords) || !Array.isArray(recovery.organizationBatches) ||
+    (recovery.classificationAdjustments !== undefined && !Array.isArray(recovery.classificationAdjustments)) ||
     typeof recovery.organizationMigrationInitialized !== 'boolean' || !Array.isArray(recovery.tombstones)) return false
   const folderIds = new Set<string>()
   if (!recovery.folders.every((item) => isPortableRecoveryFolder(item, folderIds))) return false
@@ -1058,6 +1183,7 @@ function isPortableRepositoryRecovery(value: unknown, accountMid: string) {
   if (!recovery.syncRecords.every(isPortableRecoverySyncRecord) || !recovery.organizationRecords.every((record) =>
     isPortableRecoveryOrganizationRecord(record, accountMid)) ||
     !recovery.organizationBatches.every((record) => isPortableRecoveryOrganizationChange(record, accountMid)) ||
+    !((recovery.classificationAdjustments ?? []) as unknown[]).every((record) => isClassificationAdjustment(record, accountMid)) ||
     !recovery.tombstones.every((tombstone) => isPortableRecoveryTombstone(tombstone, accountMid))) return false
   return true
 }
@@ -1115,7 +1241,7 @@ function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceI
   if (!isFrozenSyncPlan(value, accountMid, workspaceId)) return false
   const plan = value as FavoriteRepositoryFrozenSyncPlan
   const planKeys = new Set(['id', 'accountMid', 'workspaceId', 'baselineRevision', 'createdAt', 'operations'])
-  const operationKeys = new Set(['operationKey', 'aid', 'kind', 'folderIds', 'beforeFolderIds'])
+  const operationKeys = new Set(['operationKey', 'aid', 'kind', 'folderIds', 'beforeFolderIds', 'classificationAdjustmentId'])
   return !Object.keys(plan).some((key) => !planKeys.has(key)) && plan.operations.every((operation) =>
     !Object.keys(operation).some((key) => !operationKeys.has(key)) && operation.folderIds.every(isPortableLogicalFolderId) &&
     (operation.beforeFolderIds === undefined || operation.beforeFolderIds.every(isPortableLogicalFolderId)))
@@ -1182,7 +1308,9 @@ function isRepositoryVideo(value: unknown) {
     (video.author === undefined || typeof video.author === 'string') &&
     (video.description === undefined || typeof video.description === 'string') &&
     (video.initialSource === undefined || isInitialSource(video.initialSource)) &&
-    (video.lastAdjustment === undefined || isLastAdjustment(video.lastAdjustment))
+    (video.lastAdjustment === undefined || isLastAdjustment(video.lastAdjustment)) &&
+    (video.classificationSource === undefined || isClassificationSource(video.classificationSource)) &&
+    (video.classificationAt === undefined || (typeof video.classificationAt === 'string' && !Number.isNaN(Date.parse(video.classificationAt))))
 }
 
 function isInitialSource(value: unknown): value is FavoriteRepositoryInitialSource {
@@ -1227,6 +1355,12 @@ function isPositionState(value: unknown): value is FavoriteRepositoryPositionSta
 }
 
 function isPositionPayload(value: Record<string, unknown>) {
+  const allowedKeys = new Set([
+    'aid', 'localDesiredFolderIds', 'remoteObservedPhysicalFolderIds', 'remoteObservedLogicalFolderIds',
+    'positionState', 'observedAt', 'reason', 'lifecycleState', 'sourceAuthority', 'observationEpoch', 'updatedAt',
+    'adjustmentKind', 'audit'
+  ])
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) return false
   return Number.isSafeInteger(value.aid) && Number(value.aid) > 0 &&
     ['localDesiredFolderIds', 'remoteObservedPhysicalFolderIds', 'remoteObservedLogicalFolderIds'].every((key) =>
       Array.isArray(value[key]) && (value[key] as unknown[]).every((folderId) => typeof folderId === 'string' && !!folderId.trim())) &&
@@ -1236,7 +1370,9 @@ function isPositionPayload(value: Record<string, unknown>) {
     (value.lifecycleState === undefined || ['active', 'source-pending', 'organization-conflict', 'recycled'].includes(String(value.lifecycleState))) &&
     (value.sourceAuthority === undefined || value.sourceAuthority === 'complete' || value.sourceAuthority === 'incomplete') &&
     (value.observationEpoch === undefined || (typeof value.observationEpoch === 'string' && !!value.observationEpoch.trim())) &&
-    (value.positionState === undefined || isPositionState(value.positionState))
+    (value.positionState === undefined || isPositionState(value.positionState)) &&
+    (value.adjustmentKind === undefined || isAdjustmentKind(value.adjustmentKind)) &&
+    (value.audit === undefined || isClassificationAdjustmentAudit(value.audit))
 }
 
 function isPlacementList(value: unknown) {
@@ -1291,6 +1427,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       if (payload.videos !== undefined && (!Array.isArray(payload.videos) || !payload.videos.every(isRepositoryVideo))) invalidCommand()
       if (payload.organizationRecords !== undefined && (!Array.isArray(payload.organizationRecords) ||
         !payload.organizationRecords.every(isOrganizationRecord))) invalidCommand()
+      if (payload.audit !== undefined && !isClassificationAdjustmentAudit(payload.audit)) invalidCommand()
       if (payload.placements !== undefined && (!Array.isArray(payload.placements) ||
         payload.placements.some((placement) => !placement || typeof placement !== 'object' || Array.isArray(placement) ||
           !isPositionPayload(placement as Record<string, unknown>)) ||
@@ -1398,6 +1535,13 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.markMigrationInitialized !== undefined && typeof payload.markMigrationInitialized !== 'boolean') ||
         (payload.replace !== undefined && typeof payload.replace !== 'boolean')) invalidCommand()
       return
+    case 'record-classification-adjustments':
+      if (!Array.isArray(payload.records) || !payload.records.every((record) => isClassificationAdjustment(record, normalizedAccountMid(record.accountMid)))) invalidCommand()
+      return
+    case 'update-classification-adjustment-sync':
+      if (typeof payload.adjustmentId !== 'string' || !payload.adjustmentId.trim() ||
+        !['succeeded', 'failed', 'result-unknown', 'queued'].includes(String(payload.status))) invalidCommand()
+      return
     case 'remove-physical-shard-binding':
       if (typeof payload.remoteFolderId !== 'string' || !payload.remoteFolderId.trim()) invalidCommand()
       return
@@ -1406,10 +1550,12 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'set-favorite-position':
     case 'set-favorite-placement':
-      if (!isPositionPayload(payload) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind))) invalidCommand()
+      if (!isPositionPayload(payload) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind)) ||
+        (payload.audit !== undefined && !isClassificationAdjustmentAudit(payload.audit))) invalidCommand()
       return
     case 'set-favorite-placements':
-      if (!isPlacementList(payload.placements) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind))) invalidCommand()
+      if (!isPlacementList(payload.placements) || (payload.adjustmentKind !== undefined && !isAdjustmentKind(payload.adjustmentKind)) ||
+        (payload.audit !== undefined && !isClassificationAdjustmentAudit(payload.audit))) invalidCommand()
       return
     case 'reconcile-scan-lifecycle':
       if (typeof payload.observationEpoch !== 'string' || !payload.observationEpoch.trim() ||
@@ -1492,6 +1638,7 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     syncRecords: [],
     organizationRecords: [],
     organizationBatches: [],
+    classificationAdjustments: [],
     organizationMigrationInitialized: false,
     positions: {},
     tombstones: {}
@@ -1520,6 +1667,7 @@ export function applyFavoriteRepositoryCommand(
   let syncRecords = [...snapshot.syncRecords]
   let organizationRecords = [...snapshot.organizationRecords]
   let organizationBatches = [...(snapshot.organizationBatches ?? [])]
+  let classificationAdjustments = [...(snapshot.classificationAdjustments ?? [])]
   let organizationMigrationInitialized = snapshot.organizationMigrationInitialized
   let videos = { ...snapshot.videos }
   let libraryMirrors = { ...snapshot.libraryMirrors }
@@ -1573,9 +1721,33 @@ export function applyFavoriteRepositoryCommand(
       if (!video) continue
       videos[String(aid)] = {
         ...video,
-        lastAdjustment: { kind, occurredAt: normalizedOccurredAt }
+        lastAdjustment: { kind, occurredAt: normalizedOccurredAt },
+        ...(isClassificationSource(kind) ? { classificationSource: kind, classificationAt: normalizedOccurredAt } : {})
       }
     }
+  }
+  const recordClassificationAdjustments = (
+    placements: Array<Pick<FavoriteRepositoryPositionRecord, 'aid' | 'localDesiredFolderIds'>>,
+    kind: FavoriteRepositoryAdjustmentKind,
+    occurredAt: string,
+    operation = classificationAdjustmentOperation(kind),
+    bilibiliSync: FavoriteRepositoryClassificationAdjustment['bilibiliSync'] = { attempted: false }
+  ) => {
+    const timestamp = normalizedTimestamp(occurredAt)
+    for (const placement of placements) {
+      const beforeFolderIds = normalizeFolderIds(positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, placement.aid)]?.localDesiredFolderIds ?? [])
+      const afterFolderIds = normalizeFolderIds(placement.localDesiredFolderIds)
+      if (beforeFolderIds.length === afterFolderIds.length && beforeFolderIds.every((id, index) => id === afterFolderIds[index]) && !isClassificationSource(kind)) continue
+      const id = `${command.id}:${placement.aid}`
+      if (classificationAdjustments.some((record) => record.id === id)) continue
+      classificationAdjustments.push({
+        id, accountMid: snapshot.accountMid, aid: placement.aid, occurredAt: timestamp, operation,
+        ...(isClassificationSource(kind) ? { classificationSource: kind } : {}), beforeFolderIds, afterFolderIds,
+        addedToLibrary: afterFolderIds.length > 0,
+        bilibiliSync: { ...bilibiliSync }
+      })
+    }
+    classificationAdjustments.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
   }
   const applyPhysicalShardBinding = (payload: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>['payload']) => {
     const logicalLedgerId = payload.logicalLedgerId.trim()
@@ -1682,7 +1854,14 @@ export function applyFavoriteRepositoryCommand(
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
         for (const record of command.payload.organizationRecords) {
-          recordLastAdjustment([record.aid], record.classificationSource ?? 'manual', record.completedAt)
+          if (!record.classificationSource) continue
+          recordClassificationAdjustments([{
+            aid: record.aid,
+            localDesiredFolderIds: record.targetFolderIds
+          }], record.classificationSource, record.completedAt, command.payload.audit?.operation ?? 'organize-favorites', command.payload.audit?.bilibiliSync)
+        }
+        for (const record of command.payload.organizationRecords) {
+          if (record.classificationSource) recordLastAdjustment([record.aid], record.classificationSource, record.completedAt)
         }
       }
       for (const placement of command.payload.placements ?? []) applyPlacement(placement)
@@ -1830,6 +2009,7 @@ export function applyFavoriteRepositoryCommand(
       syncRecords = []
       organizationRecords = []
       organizationBatches = []
+      classificationAdjustments = []
       organizationMigrationInitialized = false
       positions = {}
       if (!command.payload.preserveTombstones) tombstones = {}
@@ -1988,11 +2168,38 @@ export function applyFavoriteRepositoryCommand(
       }
       organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
       for (const record of command.payload.records) {
-        recordLastAdjustment([record.aid], record.classificationSource ?? 'manual', record.completedAt)
+        if (record.classificationSource) recordLastAdjustment([record.aid], record.classificationSource, record.completedAt)
       }
       removeFromLocalInbox(command.payload.records.map((record) => record.aid))
       organizationMigrationInitialized = organizationMigrationInitialized || command.payload.markMigrationInitialized === true
       affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
+      break
+    }
+    case 'record-classification-adjustments': {
+      const recordsById = new Map(classificationAdjustments.map((record) => [record.id, record]))
+      for (const record of command.payload.records) {
+        const normalized = {
+          ...record,
+          accountMid: snapshot.accountMid,
+          occurredAt: normalizedTimestamp(record.occurredAt),
+          beforeFolderIds: normalizeFolderIds(record.beforeFolderIds),
+          afterFolderIds: normalizeFolderIds(record.afterFolderIds),
+          bilibiliSync: { ...record.bilibiliSync }
+        }
+        if (!recordsById.has(normalized.id)) recordsById.set(normalized.id, normalized)
+      }
+      classificationAdjustments = [...recordsById.values()].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
+      affectedAids = uniquePositiveAids(command.payload.records.map((record) => record.aid))
+      break
+    }
+    case 'update-classification-adjustment-sync': {
+      const index = classificationAdjustments.findIndex((record) => record.id === command.payload.adjustmentId)
+      if (index < 0) throw new Error('Favorite repository classification adjustment was not found.')
+      const current = classificationAdjustments[index]
+      classificationAdjustments = classificationAdjustments.map((record, currentIndex) => currentIndex === index
+        ? { ...record, bilibiliSync: { attempted: true, status: command.payload.status } }
+        : record)
+      affectedAids = [current.aid]
       break
     }
     case 'remove-physical-shard-binding': {
@@ -2048,11 +2255,19 @@ export function applyFavoriteRepositoryCommand(
     }
     case 'set-favorite-position':
     case 'set-favorite-placement': {
+      if (command.payload.adjustmentKind) recordClassificationAdjustments(
+        [command.payload], command.payload.adjustmentKind, command.issuedAt,
+        command.payload.audit?.operation, command.payload.audit?.bilibiliSync
+      )
       applyPlacement(command.payload)
       if (command.payload.adjustmentKind) recordLastAdjustment([command.payload.aid], command.payload.adjustmentKind, command.issuedAt)
       break
     }
     case 'set-favorite-placements': {
+      if (command.payload.adjustmentKind) recordClassificationAdjustments(
+        command.payload.placements, command.payload.adjustmentKind, command.issuedAt,
+        command.payload.audit?.operation, command.payload.audit?.bilibiliSync
+      )
       for (const placement of command.payload.placements) applyPlacement(placement)
       if (command.payload.adjustmentKind) recordLastAdjustment(command.payload.placements.map((placement) => placement.aid), command.payload.adjustmentKind, command.issuedAt)
       break
@@ -2311,6 +2526,7 @@ export function applyFavoriteRepositoryCommand(
         if (before.includes(command.payload.aid)) memberships = { ...memberships, [folderId]: before.filter((aid) => aid !== command.payload.aid) }
       }
       organizationRecords = organizationRecords.filter((record) => record.aid !== command.payload.aid)
+      classificationAdjustments = classificationAdjustments.filter((record) => record.aid !== command.payload.aid)
       affectedAids = [command.payload.aid]
       break
     }
@@ -2329,6 +2545,7 @@ export function applyFavoriteRepositoryCommand(
     syncRecords,
     organizationRecords,
     organizationBatches,
+    classificationAdjustments,
     organizationMigrationInitialized,
     positions,
     tombstones,

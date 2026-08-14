@@ -1,6 +1,8 @@
 import {
   createAccountFavoriteRepositorySnapshot,
+  deriveFavoriteRepositoryClassificationSource,
   type AccountFavoriteRepositorySnapshot,
+  type FavoriteRepositoryClassificationAdjustment,
   type FavoriteRepositoryFrozenSyncOperation,
   type FavoriteRepositoryFrozenSyncPlan,
   type FavoriteRepositoryOrganizationChange,
@@ -690,23 +692,23 @@ export class FavoriteRepositorySyncService {
    * Applies already-persisted local intent. Unlike a frozen organization plan,
    * this never changes the workspace and always uses the account arbiter.
    */
-  async synchronizePlacements(accountMid: string, requestedAids: number[]): Promise<PlacementSyncResult> {
+  async synchronizePlacements(accountMid: string, requestedAids: number[], classificationAdjustmentIds?: Readonly<Record<number, string>>): Promise<PlacementSyncResult> {
     const account = normalizeAccountMid(accountMid)
     const aids = [...new Set(requestedAids)].sort((left, right) => left - right)
     if (!aids.length || aids.length > 100 || aids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
       throw new Error('Favorite placement selection is invalid.')
     }
-    const run = () => this.synchronizePlacementsNow(account, aids)
+    const run = () => this.synchronizePlacementsNow(account, aids, classificationAdjustmentIds)
     // User initiated batches must share the same serial remote lane as every
     // other Bilibili write; a later per-video intent supersedes only queued work.
     return this.options.remoteOperations
       ? Promise.all(aids.map((aid) => this.options.remoteOperations!.enqueue(account, {
         priority: aids.length === 1 ? 'user-single' : 'bulk', videoKey: `placement:${aid}`
-      }, async () => this.synchronizePlacementsNow(account, [aid])))).then((results) => this.mergePlacementResults(results))
+      }, async () => this.synchronizePlacementsNow(account, [aid], classificationAdjustmentIds)))).then((results) => this.mergePlacementResults(results))
       : run()
   }
 
-  private async synchronizePlacementsNow(account: string, aids: number[]): Promise<PlacementSyncResult> {
+  private async synchronizePlacementsNow(account: string, aids: number[], classificationAdjustmentIds?: Readonly<Record<number, string>>): Promise<PlacementSyncResult> {
     const snapshot = await this.options.repository.getSnapshot(account)
     const runId = `favorite-placement:${randomUUID()}`
     const bridge = this.pageBridge(account, runId)
@@ -718,6 +720,27 @@ export class FavoriteRepositorySyncService {
       if (!placement) {
         status = 'failed'
         continue
+      }
+      const linkedAdjustmentId = classificationAdjustmentIds?.[aid]?.trim()
+      if (linkedAdjustmentId && !current.classificationAdjustments.some((record) => record.id === linkedAdjustmentId && record.aid === aid)) {
+        throw new Error('Favorite placement classification adjustment is unavailable.')
+      }
+      const queuedAdjustmentId = linkedAdjustmentId || `favorite-placement-sync:${runId}:${aid}`
+      if (linkedAdjustmentId) {
+        await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'queued')
+      } else {
+        await this.options.repository.commit(account, {
+          id: `favorite-placement-sync-audit:${runId}:${aid}`,
+          accountMid: account,
+          issuedAt: this.now(),
+          type: 'record-classification-adjustments',
+          payload: { records: [{
+            id: queuedAdjustmentId, accountMid: account, aid, occurredAt: this.now(), operation: 'synchronize-bilibili',
+            ...(deriveFavoriteRepositoryClassificationSource(current.videos[String(aid)] ?? { lastAdjustment: undefined }) ? { classificationSource: deriveFavoriteRepositoryClassificationSource(current.videos[String(aid)] ?? { lastAdjustment: undefined }) } : {}),
+            beforeFolderIds: [...placement.localDesiredFolderIds], afterFolderIds: [...placement.localDesiredFolderIds],
+            addedToLibrary: placement.localDesiredFolderIds.length > 0, bilibiliSync: { attempted: true, status: 'queued' }
+          }] }
+        })
       }
       const desiredLogicalIds = new Set(placement.localDesiredFolderIds)
       // A logical warehouse can be represented by several physical shards, but
@@ -738,6 +761,7 @@ export class FavoriteRepositorySyncService {
         await this.writePlacement(account, placement, {
           positionState: 'target-missing', reason: 'logical-target-unbound'
         })
+        await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'failed')
         status = 'failed'
         continue
       }
@@ -761,6 +785,7 @@ export class FavoriteRepositorySyncService {
           remoteObservedLogicalFolderIds: [...desiredLogicalIds],
           positionState: 'aligned', observedAt: this.now(), reason: undefined
         })
+        await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'succeeded')
         completed++
       } catch (error) {
         const knownFailure = isConfirmedRemoteRejection(error)
@@ -768,6 +793,7 @@ export class FavoriteRepositorySyncService {
           positionState: knownFailure ? 'failed' : 'result-unknown',
           reason: error instanceof Error ? error.message : String(error)
         })
+        await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, knownFailure ? 'failed' : 'result-unknown')
         status = 'failed'
         // An unknown response cannot be followed by more writes in this user batch.
         if (!knownFailure) break
@@ -775,6 +801,17 @@ export class FavoriteRepositorySyncService {
     }
     this.options.pageBridgeManager?.release(account, runId)
     return { status, completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
+  }
+
+  private async writeClassificationAdjustmentSyncStatus(
+    accountMid: string,
+    adjustmentId: string,
+    status: NonNullable<FavoriteRepositoryClassificationAdjustment['bilibiliSync']['status']>
+  ) {
+    await this.options.repository.commit(accountMid, {
+      id: `favorite-placement-sync-audit-result:${adjustmentId}:${randomUUID()}`,
+      accountMid, issuedAt: this.now(), type: 'update-classification-adjustment-sync', payload: { adjustmentId, status }
+    })
   }
 
   private mergePlacementResults(results: PlacementSyncResult[]): PlacementSyncResult {
@@ -1054,6 +1091,27 @@ export class FavoriteRepositorySyncService {
       type: 'record-organization-change',
       payload: { change }
     })
+    if (operation.classificationAdjustmentId) {
+      await this.writeFrozenPlanClassificationAdjustmentSyncStatus(accountMid, plan, operation.classificationAdjustmentId)
+    }
+  }
+
+  private async writeFrozenPlanClassificationAdjustmentSyncStatus(
+    accountMid: string,
+    plan: FavoriteRepositoryFrozenSyncPlan,
+    adjustmentId: string
+  ) {
+    const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(accountMid, plan.id))
+    const related = plan.operations.filter((operation) => operation.classificationAdjustmentId === adjustmentId)
+      .map((operation) => records.get(operation.operationKey)?.status)
+    const status = related.every((current) => current === 'succeeded')
+      ? 'succeeded'
+      : related.some((current) => current === 'failed')
+        ? 'failed'
+        : related.some((current) => current === 'result-unknown')
+          ? 'result-unknown'
+          : 'queued'
+    await this.writeClassificationAdjustmentSyncStatus(accountMid, adjustmentId, status)
   }
 
   private async writeWorkspace(accountMid: string, workspace: FavoriteRepositoryWorkspace, suffix: string) {

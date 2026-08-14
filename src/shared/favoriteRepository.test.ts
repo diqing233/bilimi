@@ -10,6 +10,7 @@ import {
   deriveFavoriteRepositoryPositionState,
   isFavoriteRepositoryMetadataStale,
   mergeFavoriteRepositoryVideo,
+  deriveFavoriteRepositoryClassificationSource,
   type FavoriteRepositoryWorkspaceRef
 } from './favoriteRepository'
 
@@ -30,6 +31,153 @@ function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): 
 }
 
 describe('account favorite repository contracts', () => {
+  it('records structured classification adjustments for placement changes', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'manual-placement', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', expectedRevision: 0,
+      type: 'set-favorite-placement', payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual'
+      }
+    }, '2026-08-14T01:00:00.000Z')
+    expect(result.classificationAdjustments).toEqual([expect.objectContaining({ aid: 1, operation: 'library-placement', classificationSource: 'manual' })])
+  })
+
+  it('keeps a complete user-facing audit payload for a manual library placement', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'manual-audit', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', expectedRevision: 0,
+      type: 'set-favorite-placement', payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual'
+      }
+    }, '2026-08-14T01:00:00.000Z')
+
+    expect(result.classificationAdjustments).toEqual([expect.objectContaining({
+      operation: 'library-placement',
+      classificationSource: 'manual',
+      beforeFolderIds: [],
+      afterFolderIds: ['bilimi-logical:music'],
+      addedToLibrary: true,
+      bilibiliSync: { attempted: false }
+    })])
+  })
+
+  it('keeps a review classification and its confirmed B站 result in one audit record', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Reviewed video', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'review', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, adjustmentKind: 'system-high', localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['remote-music'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'],
+        positionState: 'aligned', updatedAt: '2026-08-14T01:00:00.000Z',
+        audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } }
+      }
+    } as never, '2026-08-14T01:00:00.000Z')
+
+    expect(result.classificationAdjustments).toEqual([expect.objectContaining({
+      operation: 'review', classificationSource: 'system-high',
+      bilibiliSync: { attempted: true, status: 'succeeded' }
+    })])
+  })
+
+  it('removes classification audit records when a recycled video is permanently cleared', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+    const classified = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'manual-placement', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', expectedRevision: 0,
+      type: 'set-favorite-placement', payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual'
+      }
+    }, '2026-08-14T01:00:00.000Z')
+    const recycled = applyFavoriteRepositoryCommand(classified, {
+      id: 'recycle', accountMid: '100', issuedAt: '2026-08-14T02:00:00.000Z', expectedRevision: 1,
+      type: 'recycle-favorites', payload: { aids: [1], deletedAt: '2026-08-14T02:00:00.000Z' }
+    }, '2026-08-14T02:00:00.000Z')
+
+    const cleared = applyFavoriteRepositoryCommand(recycled, {
+      id: 'clear', accountMid: '100', issuedAt: '2026-08-14T03:00:00.000Z', expectedRevision: 2,
+      type: 'clear-recycled-favorite', payload: { aid: 1 }
+    }, '2026-08-14T03:00:00.000Z')
+
+    expect(cleared.classificationAdjustments).toEqual([])
+  })
+  it('uses the latest valid classification adjustment before the persisted organization source', () => {
+    expect(deriveFavoriteRepositoryClassificationSource(
+      { aid: 1, title: 'Video', tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: '2026-07-24T01:00:00.000Z' } },
+      { classificationSource: 'system-high' }
+    )).toBe('manual')
+  })
+
+  it('falls back to the persisted classification source after a non-classification adjustment', () => {
+    expect(deriveFavoriteRepositoryClassificationSource(
+      { aid: 1, title: 'Video', tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'local-copy', occurredAt: '2026-07-24T01:00:00.000Z' } },
+      { classificationSource: 'deepseek' }
+    )).toBe('deepseek')
+  })
+
+  it('keeps the latest effective classification after a later copy adjustment', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+    const classified = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'classify', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual'
+      }
+    }, '2026-08-14T01:00:00.000Z')
+    const copied = applyFavoriteRepositoryCommand(classified, {
+      id: 'copy', accountMid: '100', issuedAt: '2026-08-14T02:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music', 'bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T02:00:00.000Z', adjustmentKind: 'local-copy',
+        audit: { operation: 'copy' }
+      }
+    } as never, '2026-08-14T02:00:00.000Z')
+
+    expect(copied.videos['1']).toMatchObject({ classificationSource: 'manual' })
+    expect(deriveFavoriteRepositoryClassificationSource(copied.videos['1'], undefined)).toBe('manual')
+  })
+
+  it('does not invent manual classification for organization records without a source', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'protection', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-14T01:00:00.000Z' }] }
+    }, '2026-08-14T01:00:00.000Z')
+
+    expect(result.videos['1']).not.toHaveProperty('classificationSource')
+    expect(result.classificationAdjustments).toEqual([])
+  })
+
+  it('changes the archive checksum when classification adjustments change', () => {
+    const base = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    const withAdjustment = { ...base, classificationAdjustments: [{
+      id: 'adjustment-1', accountMid: '100', aid: 1, occurredAt: '2026-08-14T01:00:00.000Z', operation: 'review' as const,
+      classificationSource: 'system-high' as const, beforeFolderIds: [], afterFolderIds: ['bilimi-logical:music'], addedToLibrary: true,
+      bilibiliSync: { attempted: false }
+    }] }
+    const first = createFavoriteRepositoryArchiveExport(base, { generatedAt: '2026-08-14T02:00:00.000Z' })
+    const second = createFavoriteRepositoryArchiveExport(withAdjustment, { generatedAt: '2026-08-14T02:00:00.000Z' })
+
+    expect(second.checksum).not.toBe(first.checksum)
+    expect(validateFavoriteRepositoryArchiveExport(second).recovery?.classificationAdjustments).toEqual(withAdjustment.classificationAdjustments)
+  })
+
+  it('does not invent a classification when neither source contains one', () => {
+    expect(deriveFavoriteRepositoryClassificationSource(
+      { aid: 1, title: 'Video', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' },
+      undefined
+    )).toBeUndefined()
+  })
+
   it('preserves migrated managed binding identity for live inventory verification', () => {
     const now = '2026-07-24T00:00:00.000Z'
     const base = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })

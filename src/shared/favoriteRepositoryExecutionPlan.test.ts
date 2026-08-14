@@ -17,6 +17,23 @@ describe('compileFrozenFavoriteSyncPlan', () => {
     }))
   })
 
+  it('keeps the local classification adjustment id on every remote side effect for that classification', () => {
+    const result = compileFrozenFavoriteSyncPlan({
+      accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,
+      createdAt: '2026-07-20T00:00:00.000Z', replaceManagedMemberships: true,
+      classifications: [{ aid: 1, targetLedgerIds: ['game'], classificationAdjustmentId: 'organize:1' }],
+      shards: [
+        { logicalLedgerId: 'music', remoteFolderId: 'managed-music', memberAids: [1] },
+        { logicalLedgerId: 'game', remoteFolderId: 'managed-game', memberAids: [] }
+      ]
+    })
+
+    expect(result.plan?.operations).toEqual([
+      expect.objectContaining({ kind: 'remove', classificationAdjustmentId: 'organize:1' }),
+      expect.objectContaining({ kind: 'append', classificationAdjustmentId: 'organize:1' })
+    ])
+  })
+
   it('captures the frozen trusted remote membership before any write is attempted', () => {
     const result = compileFrozenFavoriteSyncPlan({
       accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,

@@ -83,6 +83,9 @@ describe('FavoriteLibraryCommandService', () => {
       })] })
     }))
     expect(synchronizePlacements).toHaveBeenCalledAfter(repository.commit as never)
+    expect(synchronizePlacements).toHaveBeenCalledWith('100', [1], {
+      1: expect.stringMatching(/^favorite-library:placements:100:.+:1$/)
+    })
   })
 
   it('keeps a frozen workspace local-only and does not start remote placement sync', async () => {

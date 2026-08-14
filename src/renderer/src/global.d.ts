@@ -172,6 +172,11 @@ type BilimiDesktopApi = {
     aid: number,
     options: { limit: number; cursor?: string }
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>
+  getFavoriteRepositoryClassificationAdjustments?: (
+    accountMid: string,
+    aid: number,
+    options: { limit: number; cursor?: string }
+  ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryClassificationAdjustmentPage>
   getFavoriteRepositoryOrganizationChanges?: (accountMid: string) => Promise<FavoriteRepositoryOrganizationChanges>
   getLocalDataInfo?: () => Promise<{ path: string; accounts: Array<{ uid: string; nickname?: string; retained: boolean }> }>
   calculateLocalDataUsage?: () => Promise<{

@@ -6,6 +6,7 @@ import type { FavoriteRepositoryFrozenSyncPlan } from './favoriteRepository'
 export type FrozenPlanClassification = {
   aid: number
   targetLedgerIds: string[]
+  classificationAdjustmentId?: string
 }
 
 export type BoundRemoteShard = {
@@ -77,6 +78,7 @@ export function compileFrozenFavoriteSyncPlan(
   }
 
   const operations = new Map<number, Set<string>>()
+  const classificationAdjustmentIds = new Map<number, string>()
   const beforeFoldersByAid = new Map<number, Set<string>>()
   const occupiedAidsByFolder = new Map<string, Set<number>>()
   const occupiedCountsByFolder = new Map<string, number>()
@@ -92,11 +94,15 @@ export function compileFrozenFavoriteSyncPlan(
     }
   }
   for (const classification of [...input.classifications].sort((left, right) => left.aid - right.aid)) {
-    if (!Number.isSafeInteger(classification.aid) || classification.aid <= 0 || !Array.isArray(classification.targetLedgerIds)) {
+    if (!Number.isSafeInteger(classification.aid) || classification.aid <= 0 || !Array.isArray(classification.targetLedgerIds) ||
+      (classification.classificationAdjustmentId !== undefined && (!classification.classificationAdjustmentId || !classification.classificationAdjustmentId.trim()))) {
       return { allowed: false, reason: 'invalid-input', plan: null }
     }
     if (input.replaceManagedMemberships && !operations.has(classification.aid)) {
       operations.set(classification.aid, new Set())
+    }
+    if (classification.classificationAdjustmentId) {
+      classificationAdjustmentIds.set(classification.aid, classification.classificationAdjustmentId.trim())
     }
     for (const logicalLedgerId of normalizedLedgerIds(classification.targetLedgerIds)) {
       const shards = [...(shardsByLedger.get(logicalLedgerId) ?? [])].sort((left, right) =>
@@ -122,13 +128,15 @@ export function compileFrozenFavoriteSyncPlan(
   const compiledOperations = [...operations.entries()].sort(([left], [right]) => left - right).flatMap(([aid, folderIds]) => {
     const desiredFolderIds = [...folderIds].sort()
     const beforeFolderIds = [...(beforeFoldersByAid.get(aid) ?? [])].sort()
+    const classificationAdjustmentId = classificationAdjustmentIds.get(aid)
     if (!input.replaceManagedMemberships) {
       return [{
         operationKey: `append:${aid}:${desiredFolderIds.join(',')}`,
         aid,
         kind: 'append' as const,
         folderIds: desiredFolderIds,
-        beforeFolderIds
+        beforeFolderIds,
+        ...(classificationAdjustmentId ? { classificationAdjustmentId } : {})
       }]
     }
     const removedFolderIds = beforeFolderIds.filter((folderId) => !folderIds.has(folderId))
@@ -140,14 +148,16 @@ export function compileFrozenFavoriteSyncPlan(
         aid,
         kind: 'remove' as const,
         folderIds: removedFolderIds,
-        beforeFolderIds
+        beforeFolderIds,
+        ...(classificationAdjustmentId ? { classificationAdjustmentId } : {})
       }] : []),
       ...(appendedFolderIds.length ? [{
         operationKey: `append:${aid}:${appendedFolderIds.join(',')}`,
         aid,
         kind: 'append' as const,
         folderIds: appendedFolderIds,
-        beforeFolderIds: retainedFolderIds
+        beforeFolderIds: retainedFolderIds,
+        ...(classificationAdjustmentId ? { classificationAdjustmentId } : {})
       }] : [])
     ]
   })

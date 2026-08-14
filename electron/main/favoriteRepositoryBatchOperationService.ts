@@ -147,7 +147,7 @@ export class FavoriteRepositoryBatchOperationService {
       const issuedAt = this.now()
       result = await this.options.repository.commitWithAudit(normalizedAccount, {
         id: `favorite-batch:delete-local-placement:${randomUUID()}`, accountMid: normalizedAccount, issuedAt, expectedRevision: revision,
-        type: 'set-favorite-placements', payload: { adjustmentKind: 'managed-placement-remove', placements: placementChunk }
+        type: 'set-favorite-placements', payload: { adjustmentKind: 'managed-placement-remove', audit: { operation: 'remove-bilimi-placement' }, placements: placementChunk }
       }, this.events(placementChunk.map((placement) => placement.aid), 'batch-local-bilimi-placement-delete', issuedAt))
       revision = result.revision
     }
@@ -477,7 +477,7 @@ export class FavoriteRepositoryBatchOperationService {
       const chunkAids = placementChunk.map((placement) => placement.aid)
       result = await this.options.repository.commitWithAudit(normalizedAccount, {
         id: `favorite-batch:${action}:${randomUUID()}`, accountMid: normalizedAccount, issuedAt: timestamp, expectedRevision: revision,
-        type: 'set-favorite-placements', payload: { adjustmentKind: action === 'copy' ? 'local-copy' : 'local-move', placements: placementChunk }
+        type: 'set-favorite-placements', payload: { adjustmentKind: action === 'copy' ? 'local-copy' : 'local-move', audit: { operation: action }, placements: placementChunk }
       }, this.events(chunkAids, action === 'copy' ? 'batch-copy' : 'batch-move', timestamp))
       revision = result.revision
     }

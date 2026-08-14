@@ -227,6 +227,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('group', { name: '扫描概览视图' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数501')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理500')
     expect(screen.getByText('标签补取进行中：已处理 498 / 501 条。')).toBeInTheDocument()
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签498')
@@ -235,7 +236,10 @@ describe('OldFavoriteScanOverviewStep', () => {
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('已汇总 1/2 批')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('本批待整理')).toHaveTextContent('本批待整理500')
+    const currentMetrics = screen.getByLabelText('本批整理统计')
+    expect(currentMetrics).toHaveTextContent('本轮待整理500')
+    expect(currentMetrics).toHaveTextContent('本批待整理500')
+    expect(within(currentMetrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(screen.getByText('标签补取进行中：已处理 498 / 500 条。')).toBeInTheDocument()
     expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('本批来源关系')
     expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹5011')
@@ -283,14 +287,59 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     const metrics = screen.getByLabelText('本批整理统计')
-    expect(metrics).toHaveTextContent('本轮待整理500')
+    expect(metrics).toHaveTextContent('本轮待整理2552')
     expect(metrics).toHaveTextContent('本批待整理500')
+    expect(within(metrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()
     const table = screen.getByRole('table', { name: '用户收藏夹' })
     expect(within(table).getByRole('columnheader', { name: '总数（2866）' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: '本批来源关系（505）' })).toBeInTheDocument()
     expect(within(table).queryByRole('button', { name: '本批来源关系（505）' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the current multi-batch scan view to its two pending organization metrics', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const, mode: 'incremental' as const,
+      segmentSize: 2_000, hasMultipleSegments: true,
+      scan: { phase: 'inventory' as const, failureCount: 0, totalItemCount: 4_953, scannedItemCount: 40 },
+      inventoryMetrics: {
+        authority: 'incomplete' as const, relationshipCount: 4_953, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0,
+        sourceFolders: []
+      },
+      continuationCount: 0, sourceFolders: [],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'scanning' as const, itemCount: 40, readiness: 'waiting' as const, completedTagItemCount: 0, pendingTagItemCount: 40 },
+        { id: 'segment-2', index: 1, status: 'scanning' as const, itemCount: 0, readiness: 'waiting' as const, completedTagItemCount: 0, pendingTagItemCount: 0 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [], items: [] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const props = {
+      loading: false, scanStarting: false, scanStartFailure: null, onRetry: vi.fn(), onRetryDirect: vi.fn(),
+      onRebuild: vi.fn(), onSelectSourceFolders: vi.fn(), onPauseTagEnrichment: vi.fn(), onResumeTagEnrichment: vi.fn(),
+      onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn()
+    }
+    const { rerender } = render(<OldFavoriteScanOverviewStep snapshot={snapshot} viewScope="current" {...props} />)
+
+    const currentMetrics = screen.getByLabelText('本批整理统计')
+    expect(within(currentMetrics).getAllByRole('article').map((card) => card.getAttribute('aria-label')))
+      .toEqual(['本轮待整理', '本批待整理'])
+    expect(currentMetrics).toHaveTextContent('本轮待整理待确认')
+    expect(currentMetrics).toHaveTextContent('本批待整理待确认')
+    expect(within(currentMetrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
+    expect(within(currentMetrics).queryByLabelText('已保护跳过')).not.toBeInTheDocument()
+    expect(within(currentMetrics).queryByLabelText('失效视频')).not.toBeInTheDocument()
+
+    rerender(<OldFavoriteScanOverviewStep snapshot={snapshot} viewScope="all" {...props} />)
+
+    const allMetrics = screen.getByLabelText('本轮整理统计')
+    expect(within(allMetrics).getAllByRole('article').map((card) => card.getAttribute('aria-label')))
+      .toEqual(['扫描总数', '本轮待整理', '已保护跳过', '失效视频'])
+    expect(allMetrics).toHaveTextContent('扫描总数40')
+    expect(allMetrics).toHaveTextContent('本轮待整理待确认')
+    expect(allMetrics).toHaveTextContent('已保护跳过待确认')
+    expect(allMetrics).toHaveTextContent('失效视频待确认')
   })
 
   it('keeps the scan view mounted when a scan reports a rebuild-required recovery state', () => {
@@ -335,26 +384,27 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 3 条已保护视频')
   })
 
-  it('renders the four canonical inventory metrics with their exact counting tooltips', () => {
-    render(<OldFavoriteScanOverviewStep
-      snapshot={{
-        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
-        segmentSize: 2000, hasMultipleSegments: false,
-        scan: { phase: 'complete', failureCount: 0, totalItemCount: 999, scannedItemCount: 5 },
-        inventoryMetrics: {
-          authority: 'complete', relationshipCount: 7, plannedAidCount: 1, protectedAidCount: 2, unavailableAidCount: 1,
-          sourceFolders: []
-        },
-        protectedAidCount: 88, continuationCount: 66, sourceFolders: [], segments: [], currentSegment: null,
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
-      }}
-      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
-      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
-    />)
+  it('renders the four canonical inventory metrics with a completed scan total that stays independent from lifecycle projections', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 999, scannedItemCount: 5 },
+      inventoryMetrics: {
+        authority: 'complete' as const, relationshipCount: 7, plannedAidCount: 1, protectedAidCount: 2, unavailableAidCount: 1,
+        sourceFolders: []
+      },
+      protectedAidCount: 88, continuationCount: 66, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const props = {
+      loading: false, scanStarting: false, scanStartFailure: null, onRetry: vi.fn(), onRetryDirect: vi.fn(),
+      onRebuild: vi.fn(), onSelectSourceFolders: vi.fn(), onPauseTagEnrichment: vi.fn(),
+      onResumeTagEnrichment: vi.fn(), onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn()
+    }
+    const { rerender } = render(<OldFavoriteScanOverviewStep snapshot={snapshot} {...props} />)
 
-    expect(screen.getByLabelText('本轮视频')).toHaveTextContent('本轮视频7')
-    expect(screen.getByLabelText('本轮视频')).toHaveAttribute('title', 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。')
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数999')
+    expect(screen.getByLabelText('扫描总数')).toHaveAttribute('title', '本轮基本信息扫描完成时记录的最终扫描总数；标签补取、去重和保护判断不会改变它。')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理1')
     expect(screen.getByLabelText('本轮待整理')).toHaveAttribute('title', '已选来源中去重后，扣除失效视频和已保护视频的数量。')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过2')
@@ -363,6 +413,64 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('失效视频')).toHaveAttribute('title', '已确认失效或账号注销视频的去重数量，不参与整理和分类。')
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 2 条已保护视频')
     expect(screen.queryByText(/待续新增/)).not.toBeInTheDocument()
+
+    rerender(<OldFavoriteScanOverviewStep
+      snapshot={{
+        ...snapshot,
+        inventoryMetrics: {
+          authority: 'complete', relationshipCount: 7, plannedAidCount: 0, protectedAidCount: 4, unavailableAidCount: 3,
+          sourceFolders: []
+        },
+        tagEnrichment: { status: 'complete', totalItemCount: 5, completedItemCount: 5, pendingItemCount: 0, failedItemCount: 0 }
+      }}
+      {...props}
+    />)
+
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数999')
+  })
+
+  it('falls back to the scanned count when a legacy completed snapshot has no final scan total', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, scannedItemCount: 5 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数5')
+  })
+
+  it('uses a live scan tooltip before locking the final total across later projections', () => {
+    const base = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' as const, mode: 'full' as const,
+      segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0, totalItemCount: 4_953, scannedItemCount: 40 },
+      inventoryMetrics: { authority: 'incomplete' as const, relationshipCount: 4_953, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, sourceFolders: [] },
+      continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const props = {
+      loading: false, scanStarting: false, scanStartFailure: null, onRetry: vi.fn(), onRetryDirect: vi.fn(),
+      onRebuild: vi.fn(), onSelectSourceFolders: vi.fn(), onPauseTagEnrichment: vi.fn(), onResumeTagEnrichment: vi.fn(),
+      onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn()
+    }
+    const { rerender } = render(<OldFavoriteScanOverviewStep snapshot={base} {...props} />)
+
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数40')
+    expect(screen.getByLabelText('扫描总数')).toHaveAttribute('title', '当前基本信息扫描已累计发现的视频数量；扫描完成后会锁定最终扫描总数。')
+
+    rerender(<OldFavoriteScanOverviewStep snapshot={{ ...base, status: 'previewing', scan: { ...base.scan, phase: 'complete', scannedItemCount: 4_953 }, inventoryMetrics: { ...base.inventoryMetrics, authority: 'complete', plannedAidCount: 4_953 } }} {...props} />)
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数4953')
+    expect(screen.getByLabelText('扫描总数')).toHaveAttribute('title', '本轮基本信息扫描完成时记录的最终扫描总数；标签补取、去重和保护判断不会改变它。')
+
+    rerender(<OldFavoriteScanOverviewStep snapshot={{ ...base, status: 'previewing', scan: { ...base.scan, phase: 'complete', scannedItemCount: 4_953 }, inventoryMetrics: { ...base.inventoryMetrics, authority: 'complete', relationshipCount: 8_000, plannedAidCount: 4_000 } }} {...props} />)
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数4953')
   })
 
   it('keeps all four metrics labeled as this round when the organization has only one batch', () => {
@@ -385,7 +493,9 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     const metrics = screen.getByLabelText('本轮整理统计')
-    expect(metrics).toHaveTextContent('本轮视频40')
+    expect(within(metrics).getAllByRole('article').map((card) => card.getAttribute('aria-label')))
+      .toEqual(['扫描总数', '本轮待整理', '已保护跳过', '失效视频'])
+    expect(metrics).toHaveTextContent('扫描总数40')
     expect(metrics).toHaveTextContent('本轮待整理待确认')
     expect(metrics).toHaveTextContent('已保护跳过待确认')
     expect(metrics).toHaveTextContent('失效视频待确认')
@@ -409,7 +519,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮视频246')
+    expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('扫描总数246')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('本轮待整理25')
     expect(screen.getByLabelText('本轮整理统计')).toHaveTextContent('已保护跳过221')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签0')
@@ -652,7 +762,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('本轮视频')).toHaveTextContent('本轮视频0')
+    expect(screen.getByLabelText('扫描总数')).toHaveTextContent('扫描总数0')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理待确认')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过待确认')
     expect(screen.getByLabelText('失效视频')).toHaveTextContent('失效视频待确认')

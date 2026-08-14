@@ -246,7 +246,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(sync).toHaveBeenCalledWith(true)
   })
 
-  it('offers one end-round dialog that keeps the draft or clears it explicitly', () => {
+  it('offers one end-round dialog with the exact copy while preserving the draft and clear paths', () => {
     const abandon = vi.fn()
     const close = vi.fn()
     render(<OldFavoriteConfirmationStep
@@ -261,15 +261,17 @@ describe('OldFavoriteConfirmationStep', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
-    expect(screen.getByRole('dialog', { name: '结束本轮整理？' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: '结束本轮整理?' })
+    expect(dialog).toHaveTextContent('关闭整理只会隐藏当前整理界面，当前草稿、扫描和标签补取进度都会保留。下次点击“整理收藏”可继续本轮草稿；继续草稿不会自动加入新增收藏，如需处理新增收藏请重新扫描。')
+    expect(dialog).toHaveTextContent('确认结束会清空本轮草稿和进度，不影响已保存到收藏库的内容或 B 站收藏。下次点击“整理收藏”可重新扫描，并处理新增收藏。')
     expect(abandon).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '关闭整理，保留草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭整理' }))
     expect(close).toHaveBeenCalledOnce()
     expect(abandon).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
-    fireEvent.click(screen.getByRole('button', { name: '清空并结束' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认结束' }))
     expect(abandon).toHaveBeenCalledOnce()
   })
 

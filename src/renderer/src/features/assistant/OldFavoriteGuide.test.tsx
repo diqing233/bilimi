@@ -80,7 +80,7 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     />)
 
     const metrics = screen.getByLabelText('本轮整理统计')
-    expect(metrics).toHaveTextContent('本轮视频140')
+    expect(metrics).toHaveTextContent('扫描总数140')
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('待确认')
     expect(screen.queryByText('已扫描 140 条视频，待获取标签')).not.toBeInTheDocument()
   })

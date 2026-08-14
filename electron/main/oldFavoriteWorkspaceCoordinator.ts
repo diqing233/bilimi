@@ -3721,6 +3721,7 @@ export class OldFavoriteWorkspaceCoordinator {
             completedAt: this.now(),
             classificationSource: repositoryClassificationSource(assignment.source)
           })),
+          audit: { operation: 'organize-favorites' },
         }
       })
       await this.appendEvents(updated, currentSegmentId, [{ type: 'freeze', segmentId: currentSegmentId }])
@@ -3911,12 +3912,18 @@ export class OldFavoriteWorkspaceCoordinator {
           baselineRevision: workspace.baseline.revision,
           createdAt: this.now(),
           replaceManagedMemberships: workspace.scope.kind === 'selection',
-          classifications: classifications.map((classification) => ({
-            aid: classification.aid,
-            targetLedgerIds: options.includeInbox === true
-              ? classification.targetLedgerIds
-              : classification.targetLedgerIds.filter((id) => id !== 'inbox')
-          })),
+          classifications: classifications.map((classification) => {
+            const adjustment = [...snapshot.classificationAdjustments]
+              .filter((record) => record.aid === classification.aid && record.operation === 'organize-favorites')
+              .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))[0]
+            return {
+              aid: classification.aid,
+              targetLedgerIds: options.includeInbox === true
+                ? classification.targetLedgerIds
+                : classification.targetLedgerIds.filter((id) => id !== 'inbox'),
+              ...(adjustment ? { classificationAdjustmentId: adjustment.id } : {})
+            }
+          }),
           shards: boundShards
         })
         if (!result.allowed || !result.plan) {
@@ -4451,7 +4458,8 @@ export class OldFavoriteWorkspaceCoordinator {
             updatedAt: this.now()
           })),
           organizationRecords,
-          placements
+          placements,
+          audit: { operation: 'organize-favorites' }
         }
       })
   }

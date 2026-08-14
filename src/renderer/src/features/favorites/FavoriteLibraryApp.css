@@ -6,6 +6,10 @@
 .favorite-library__header p { margin: 5px 0 12px; color: #64748b; font-size: 13px; }
 .favorite-library__organization-history { margin: 10px 0; padding: 8px 10px; border: 1px solid #dbe7f7; border-radius: 8px; background: #fff; color: #475569; font-size: 13px; }
 .favorite-library__organization-history h2 { display: inline; margin: 0 8px 0 0; font-size: 14px; color: #1e3a8a; }.favorite-library__organization-history ul { display: inline-flex; gap: 10px; margin: 0; padding: 0; list-style: none; }.favorite-library__organization-history p { display: inline; margin: 0; }
+.favorite-library__classification-history { display: grid; gap: 8px; }
+.favorite-library__classification-history h3, .favorite-library__classification-history p { margin: 0; }
+.favorite-library__classification-adjustment, .favorite-library__classification-adjustment-list > li { display: grid; gap: 4px; padding: 8px; border-left: 2px solid #c9dcf5; background: #f8fbff; }
+.favorite-library__classification-adjustment-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .favorite-library__archive-tools { margin: 8px 0; font-size: 13px; }
 .favorite-library__archive-tools > button, .favorite-library__archive-panel button { padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; }
 .favorite-library__archive-panel { display: grid; gap: 7px; margin-top: 6px; max-width: 620px; padding: 9px; border: 1px solid #dbe7f7; border-radius: 8px; background: #fff; color: #475569; }

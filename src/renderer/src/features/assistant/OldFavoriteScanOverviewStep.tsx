@@ -143,11 +143,11 @@ export function OldFavoriteScanOverviewStep({
   const scanPaused = controlledScanPaused || Boolean(activeSnapshot?.scan.paused)
   const unstarted = !snapshot && !scanStarting
   const scanningBasicInformation = scanning && activeSnapshot?.scan.phase === 'inventory'
+  const hasFinalScanTotal = typeof snapshot?.scan.totalItemCount === 'number'
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
-  const scannedItemCount = Math.min(
-    snapshot?.scan.scannedItemCount ?? (snapshot?.scan.phase === 'complete' ? totalItemCount : 0),
-    totalItemCount
-  )
+  const reportedScannedItemCount = snapshot?.scan.scannedItemCount ?? (snapshot?.scan.phase === 'complete' ? totalItemCount : 0)
+  const scannedItemCount = hasFinalScanTotal ? Math.min(reportedScannedItemCount, totalItemCount) : reportedScannedItemCount
+  const scanTotalMetricCount = snapshot?.scan.phase === 'complete' && hasFinalScanTotal ? totalItemCount : scannedItemCount
   const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
@@ -160,7 +160,6 @@ export function OldFavoriteScanOverviewStep({
   const tagTotalItemCount = scopedTagEnrichment?.totalItemCount ?? tagEnrichment?.totalItemCount ?? 0
   const tagCompletedItemCount = scopedTagEnrichment?.completedItemCount ?? tagEnrichment?.completedItemCount ?? 0
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
-  const relationshipCount = inventoryMetrics?.relationshipCount ?? totalItemCount
   const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
   const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
@@ -196,6 +195,12 @@ export function OldFavoriteScanOverviewStep({
           : '本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。'
 
   const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview
+  const showWholeRunMetrics = isSingleRound || viewScope === 'all'
+  const wholeRunPlannedMetric = scanningBasicInformation || !lifecycleCountsConfirmed ? '待确认' : plannedAidCount
+  const currentSegmentPlannedMetric = scanningBasicInformation || !lifecycleCountsConfirmed ? '待确认' : currentSegmentPlannedAidCount
+  const scanTotalMetricTitle = snapshot?.scan.phase === 'complete'
+    ? '本轮基本信息扫描完成时记录的最终扫描总数；标签补取、去重和保护判断不会改变它。'
+    : '当前基本信息扫描已累计发现的视频数量；扫描完成后会锁定最终扫描总数。'
 
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <div className="favorite-ledger-panel__step-title-row">
@@ -232,22 +237,21 @@ export function OldFavoriteScanOverviewStep({
       <button type="button" disabled={loading || scanStarting} onClick={onFinishScan}>结束整理</button>
     </div> : null}
     {snapshot ? <>
-      <div className="favorite-ledger-panel__scan-metrics" aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮整理统计' : '本批整理统计'}>
-        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本轮待整理'} title={scanningBasicInformation
-          ? '当前本轮已完成基本信息扫描的视频数量。'
-          : viewScope === 'current'
-          ? '当前批次中实际进入整理流程的去重视频数量。'
-          : 'B站实际收藏关系总数；同一视频出现在多个收藏夹会重复计数，包含失效视频。'}>
-          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮视频' : '本轮待整理'}</span>
-          <strong>{scanningBasicInformation ? scannedItemCount : viewScope === 'current' ? currentSegmentPlannedAidCount : relationshipCount}</strong>
+      <div className="favorite-ledger-panel__scan-metrics" aria-label={showWholeRunMetrics ? '本轮整理统计' : '本批整理统计'}>
+        {showWholeRunMetrics ? <article aria-label="扫描总数" title={scanTotalMetricTitle}>
+          <span>扫描总数</span>
+          <strong>{scanTotalMetricCount}</strong>
+        </article> : <article aria-label="本轮待整理" title="本轮所有批次中实际进入整理流程的去重视频数量。">
+          <span>本轮待整理</span>
+          <strong>{wholeRunPlannedMetric}</strong>
+        </article>}
+        <article aria-label={showWholeRunMetrics ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
+          <span>{showWholeRunMetrics ? '本轮待整理' : '本批待整理'}</span><strong>{showWholeRunMetrics ? wholeRunPlannedMetric : currentSegmentPlannedMetric}</strong>
         </article>
-        <article aria-label={isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'} title="已选来源中去重后，扣除失效视频和已保护视频的数量。">
-          <span>{isSingleRound || scanningBasicInformation || viewScope === 'all' ? '本轮待整理' : '本批待整理'}</span><strong>{scanningBasicInformation ? '待确认' : lifecycleCountsConfirmed ? viewScope === 'current' && !isSingleRound ? currentSegmentPlannedAidCount : plannedAidCount : '待确认'}</strong>
-        </article>
-        {isSingleRound || viewScope === 'all' ? <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
+        {showWholeRunMetrics ? <article aria-label="已保护跳过" title="有效视频中已在收藏库完成整理并受保护的去重数量，本轮不会重复整理。">
           <span>已保护跳过</span><strong>{lifecycleCountsConfirmed ? protectedAidCount : '待确认'}</strong>
         </article> : null}
-        {isSingleRound || viewScope === 'all' ? <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
+        {showWholeRunMetrics ? <article aria-label="失效视频" title="已确认失效或账号注销视频的去重数量，不参与整理和分类。">
           <span>失效视频</span><strong>{lifecycleCountsConfirmed ? unavailableAidCount : '待确认'}</strong>
         </article> : null}
       </div>

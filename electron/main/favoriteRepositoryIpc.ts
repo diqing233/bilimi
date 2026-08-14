@@ -4,6 +4,7 @@ import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
   FavoriteRepositoryClassificationSource,
+  FavoriteRepositoryClassificationAdjustment,
   FavoriteRepositoryEvent,
   FavoriteRepositoryFolder,
   FavoriteRepositoryOrganizationChange,
@@ -128,6 +129,7 @@ export type FavoriteRepositoryLibraryRow = {
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
 export type FavoriteRepositoryOrganizationChanges = FavoriteRepositoryOrganizationChange[]
 export type FavoriteRepositoryEventPage = FavoriteRepositoryPage<FavoriteRepositoryEvent>
+export type FavoriteRepositoryClassificationAdjustmentPage = FavoriteRepositoryPage<FavoriteRepositoryClassificationAdjustment>
 export type FavoriteRepositoryArchiveRestorePreview = FavoriteRepositoryRestorePlan & {
   executionToken: string
   confirmationRequired: boolean
@@ -670,6 +672,14 @@ export function registerFavoriteRepositoryIpc(options: {
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return options.service.getEventPage(accountMid, videoAid(requestedAid), pageOptions(requestedOptions))
+  })
+  options.ipcMain.handle('favorite-repository:get-library-video-classification-adjustments', async (
+    event, requestedAccountMid: string, requestedAid: unknown, requestedOptions: FolderPageOptions
+  ) => {
+    assertReader(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.service.getClassificationAdjustmentPage(accountMid, videoAid(requestedAid), pageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:get-organization-changes', async (event, requestedAccountMid: string) => {
     assertReader(event)

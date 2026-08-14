@@ -30,7 +30,7 @@ export type FavoriteLibraryPlacementInput = { aid: number; folderIds: string[] }
 export type FavoriteLibraryTranscriptionTarget = { aid: number; cid?: number }
 
 export type FavoriteLibraryPlacementSync = {
-  synchronizePlacements(accountMid: string, aids: number[]): Promise<FavoriteLibraryCommandResult>
+  synchronizePlacements(accountMid: string, aids: number[], classificationAdjustmentIds?: Readonly<Record<number, string>>): Promise<FavoriteLibraryCommandResult>
 }
 
 /** Kept separate from local record lifecycle commands: it only changes Bilibili's favorite state. */
@@ -189,14 +189,16 @@ export class FavoriteLibraryCommandService {
     const snapshot = await this.options.repository.getSnapshot(account)
     if (snapshot.revision !== expectedRevision) throw new Error('已在其他页面调整，请重新加载。')
     const timestamp = this.now()
+    const commandId = `favorite-library:placements:${account}:${randomUUID()}`
     await this.options.repository.commit(account, {
-      id: `favorite-library:placements:${account}:${randomUUID()}`,
+      id: commandId,
       accountMid: account,
       issuedAt: timestamp,
       expectedRevision,
       type: 'set-favorite-placements',
       payload: {
         adjustmentKind: 'manual',
+        audit: { operation: 'library-placement', bilibiliSync: { attempted: synchronize, ...(synchronize ? { status: 'queued' as const } : {}) } },
         placements: placements.map((placement) => {
           const prior = snapshot.positions?.[`${account}:${placement.aid}`]
           return {
@@ -213,7 +215,9 @@ export class FavoriteLibraryCommandService {
     const affectedAids = placements.map((placement) => placement.aid).sort((left, right) => left - right)
     // A frozen old-favorite run owns remote writes until it has reached a terminal boundary.
     if (synchronize && this.options.placementSync && !['frozen', 'executing', 'reconciling'].includes(snapshot.workspace?.status ?? '')) {
-      return this.options.placementSync.synchronizePlacements(account, affectedAids)
+      const result = await this.options.placementSync.synchronizePlacements(account, affectedAids,
+        Object.fromEntries(affectedAids.map((aid) => [aid, `${commandId}:${aid}`])))
+      return result
     }
     return { status: synchronize ? 'queued' : 'succeeded', completedOperationCount: 0, totalOperationCount: affectedAids.length, affectedAids }
   }
@@ -234,6 +238,7 @@ export class FavoriteLibraryCommandService {
       type: 'set-favorite-placement',
       payload: {
         adjustmentKind: 'adopt-remote',
+        audit: { operation: 'adopt-bilibili-placement' },
         aid,
         localDesiredFolderIds: [...prior.remoteObservedLogicalFolderIds],
         remoteObservedPhysicalFolderIds: [...prior.remoteObservedPhysicalFolderIds],
@@ -317,7 +322,7 @@ export class FavoriteLibraryCommandService {
     for (let index = 0; index < selectedAids.length; index += PLACEMENT_SYNC_CHUNK_SIZE) {
       results.push(await this.options.placementSync.synchronizePlacements(account, selectedAids.slice(index, index + PLACEMENT_SYNC_CHUNK_SIZE)))
     }
-    return {
+    const result = {
       status: results.some((result) => result.status === 'result-unknown') ? 'result-unknown'
         : results.some((result) => result.status === 'failed') ? 'failed'
           : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded',
@@ -326,6 +331,7 @@ export class FavoriteLibraryCommandService {
       affectedAids: selectedAids,
       ...(results.find((result) => result.reason)?.reason ? { reason: results.find((result) => result.reason)!.reason } : {})
     }
+    return result
   }
 
   async enqueueTranscription(accountMid: string, requestedTargets: Array<number | FavoriteLibraryTranscriptionTarget>, summarizeWithDeepSeek = false): Promise<FavoriteLibraryCommandResult> {

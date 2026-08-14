@@ -25,6 +25,17 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryService', () => {
+  it('reads only one latest classification adjustment with detail and pages older records on request', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-14T00:00:00.000Z' })
+    await service.commit('100', { id: 'video', accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-video', payload: { aid: 1, title: 'Video', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } })
+    await service.commit('100', { id: 'first', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', expectedRevision: 1, type: 'set-favorite-placement', payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual' } })
+    await service.commit('100', { id: 'second', accountMid: '100', issuedAt: '2026-08-14T02:00:00.000Z', expectedRevision: 2, type: 'set-favorite-placement', payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T02:00:00.000Z', adjustmentKind: 'manual' } })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ latestClassificationAdjustment: { id: 'second:1', beforeFolderIds: ['bilimi-logical:music'], afterFolderIds: ['bilimi-logical:knowledge'] } })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 1 })).resolves.toMatchObject({ totalCount: 2, items: [{ id: 'second:1' }], nextCursor: 'second:1' })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 1, cursor: 'second:1' })).resolves.toMatchObject({ items: [{ id: 'first:1' }] })
+  })
   it('filters transcription states before pagination with strict account, video, and part identity', async () => {
     const root = await createRoot()
     const queueItems = [

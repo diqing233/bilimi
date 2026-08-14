@@ -179,6 +179,7 @@ function createConfirmedReviewFavoriteCommands(args: {
       type: 'set-favorite-position',
       payload: {
         adjustmentKind: args.classificationSource,
+        audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } },
         aid,
         localDesiredFolderIds,
         remoteObservedPhysicalFolderIds,
@@ -276,6 +277,7 @@ function createConfirmedDailyReviewCommands(args: {
         type: 'set-favorite-position',
         payload: {
           adjustmentKind: 'deepseek',
+          audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'result-unknown' } },
           aid: args.aid,
           localDesiredFolderIds,
           remoteObservedPhysicalFolderIds: Array.from(
@@ -317,6 +319,7 @@ function createConfirmedDailyReviewCommands(args: {
       type: 'set-favorite-position',
       payload: {
         adjustmentKind: 'deepseek',
+        audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } },
         aid: args.aid,
         localDesiredFolderIds,
         remoteObservedPhysicalFolderIds: targetLedgerIds.map(

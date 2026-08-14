@@ -5,6 +5,7 @@ import {
   applyFavoriteRepositoryCommand,
   createAccountFavoriteRepositorySnapshot,
   createFavoriteRepositoryPositionKey,
+  deriveFavoriteRepositoryClassificationSource,
   deriveFavoriteRepositoryPositionState,
   isFavoriteRepositoryRecycled,
   mergeFavoriteRepositoryVideo,
@@ -15,6 +16,7 @@ import {
   type FavoriteRepositoryCommandResult,
   type FavoriteRepositoryInitialSourceFilter,
   type FavoriteRepositoryClassificationSource,
+  type FavoriteRepositoryClassificationAdjustment,
   type FavoriteRepositoryEvent,
   type FavoriteRepositoryOrganizationRecord,
   type FavoriteRepositoryPage,
@@ -296,6 +298,7 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
     Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords) &&
     (snapshot.organizationRecords === undefined || Array.isArray(snapshot.organizationRecords)) &&
     (snapshot.organizationBatches === undefined || Array.isArray(snapshot.organizationBatches)) &&
+    (snapshot.classificationAdjustments === undefined || Array.isArray(snapshot.classificationAdjustments)) &&
     (snapshot.organizationMigrationInitialized === undefined || typeof snapshot.organizationMigrationInitialized === 'boolean')
 }
 
@@ -325,6 +328,7 @@ export type FavoriteRepositoryLibraryDetail = {
   libraryStates: FavoriteRepositoryLibraryStates
   protected: boolean
   organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource' | 'completedAt'>
+  latestClassificationAdjustment?: FavoriteRepositoryClassificationAdjustment
   position?: {
     state: NonNullable<AccountFavoriteRepositorySnapshot['positions'][string]>['positionState']
     localDesiredFolderIds: string[]
@@ -381,6 +385,7 @@ function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): Account
     libraryMirrors: snapshot.libraryMirrors ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
     organizationBatches: snapshot.organizationBatches ?? [],
+    classificationAdjustments: snapshot.classificationAdjustments ?? [],
     organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false,
     positions: snapshot.positions ?? {},
     tombstones: snapshot.tombstones ?? {}
@@ -704,6 +709,12 @@ export class FavoriteRepositoryService {
         const previous = batchesById.get(record.id)
         if (!previous || record.recordedAt >= previous.recordedAt) batchesById.set(record.id, clone(record))
       }
+      const adjustmentsById = new Map((mode === 'overwrite' ? [] : repository.snapshot.classificationAdjustments ?? [])
+        .map((record) => [record.id, record]))
+      for (const record of recovery?.classificationAdjustments ?? []) {
+        const previous = adjustmentsById.get(record.id)
+        if (!previous || record.occurredAt >= previous.occurredAt) adjustmentsById.set(record.id, clone(record))
+      }
       const tombstones = mode === 'overwrite' ? {} : { ...repository.snapshot.tombstones }
       for (const tombstone of recovery?.tombstones ?? []) {
         const key = createFavoriteRepositoryPositionKey(account, tombstone.aid)
@@ -733,6 +744,7 @@ export class FavoriteRepositoryService {
         positions,
         organizationRecords: [...protectionsByAid.values()].sort((left, right) => left.aid - right.aid),
         organizationBatches: [...batchesById.values()].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id)),
+        classificationAdjustments: [...adjustmentsById.values()].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id)),
         organizationMigrationInitialized: Boolean(repository.snapshot.organizationMigrationInitialized || recovery?.organizationMigrationInitialized),
         syncRecords: [...syncRecordsById.values()].sort((left, right) => left.id.localeCompare(right.id)),
         tombstones,
@@ -963,9 +975,9 @@ export class FavoriteRepositoryService {
           folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
           pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
           libraryStates: this.libraryStatesForAid(snapshot, index, aid),
-          ...(organization ? { organization: {
-            ...(organization.classificationSource ? { classificationSource: organization.classificationSource } : {}),
-            completedAt: organization.completedAt
+          ...(organization || video.lastAdjustment || video.classificationSource ? { organization: {
+            ...(deriveFavoriteRepositoryClassificationSource(video, organization) ? { classificationSource: deriveFavoriteRepositoryClassificationSource(video, organization) } : {}),
+            ...(organization ? { completedAt: organization.completedAt } : { completedAt: video.classificationAt ?? video.lastAdjustment?.occurredAt ?? video.updatedAt })
           } } : {})
         }]
       }),
@@ -1000,6 +1012,9 @@ export class FavoriteRepositoryService {
     const index = this.libraryIndex(cached, snapshot)
     const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
     const organization = snapshot.organizationRecords.find((record) => record.aid === aid)
+    const latestClassificationAdjustment = [...(snapshot.classificationAdjustments ?? [])]
+      .filter((record) => record.aid === aid)
+      .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))[0]
     return {
       version: 1,
       accountMid: account,
@@ -1009,10 +1024,11 @@ export class FavoriteRepositoryService {
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
       libraryStates: this.libraryStatesForAid(snapshot, index, aid),
       protected: snapshot.organizationRecords.some((record) => record.aid === aid),
-      ...(organization ? { organization: {
-        ...(organization.classificationSource ? { classificationSource: organization.classificationSource } : {}),
-        completedAt: organization.completedAt
+      ...(organization || video.lastAdjustment || video.classificationSource ? { organization: {
+        ...(deriveFavoriteRepositoryClassificationSource(video, organization) ? { classificationSource: deriveFavoriteRepositoryClassificationSource(video, organization) } : {}),
+        ...(organization ? { completedAt: organization.completedAt } : { completedAt: video.classificationAt ?? video.lastAdjustment?.occurredAt ?? video.updatedAt })
       } } : {}),
+      ...(latestClassificationAdjustment ? { latestClassificationAdjustment: clone(latestClassificationAdjustment) } : {}),
       ...(snapshot.positions[`${snapshot.accountMid}:${aid}`] ? {
         position: this.positionSummary(snapshot.positions[`${snapshot.accountMid}:${aid}`])
       } : {}),
@@ -1216,6 +1232,22 @@ export class FavoriteRepositoryService {
         items: page.map(clone),
         ...(start + limit < items.length ? { nextCursor: `${page.at(-1)!.sequence}:${page.at(-1)!.id}` } : {})
       }
+    })
+  }
+
+  async getClassificationAdjustmentPage(accountMid: string, aid: number, options: FolderPageOptions): Promise<FavoriteRepositoryPage<FavoriteRepositoryClassificationAdjustment>> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')
+    const limit = pageLimit(options.limit)
+    return this.queue(async () => {
+      const snapshot = (await this.load(account)).repository.snapshot
+      const items = [...(snapshot.classificationAdjustments ?? [])]
+        .filter((record) => record.aid === aid)
+        .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))
+      const start = options.cursor ? Math.max(0, items.findIndex((record) => record.id === options.cursor) + 1) : 0
+      const page = items.slice(start, start + limit)
+      return { version: 1, accountMid: account, revision: snapshot.revision, totalCount: items.length, items: page.map(clone),
+        ...(start + limit < items.length ? { nextCursor: page.at(-1)!.id } : {}) }
     })
   }
 
@@ -1577,7 +1609,7 @@ export class FavoriteRepositoryService {
       if (!matchesQuery) return false
       if (transcriptionFilters.size > 0 && ![...(transcriptionStatesByAid?.get(aid) ?? [])]
         .some((state) => transcriptionFilters.has(state))) return false
-      if (classificationSources.size > 0 && !classificationSources.has(organizationByAid?.get(aid)?.classificationSource ?? '')) return false
+      if (classificationSources.size > 0 && !classificationSources.has(deriveFavoriteRepositoryClassificationSource(video, organizationByAid?.get(aid)) ?? '')) return false
       const libraryStates = this.libraryStatesForAid(snapshot, index, aid)
       if (options.stateFilters?.sync && libraryStates.sync !== options.stateFilters.sync) return false
       if (options.stateFilters?.protection && libraryStates.protection !== options.stateFilters.protection) return false

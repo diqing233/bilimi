@@ -73,8 +73,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       [expect.objectContaining({ id: 'music' })],
       {
         deleteDisabled: false,
+        rediscoverDeletedRemoteDrafts: true,
         rebindRemoteFolderIds: { music: 'remote-music' },
-        rebindRemoteFolders: { music: [{ id: 'remote-music', title: 'bilimi·音乐' }] }
+        rebindRemoteFolders: { music: [{ id: 'remote-music', title: 'bilimi·音乐', memberCount: 4 }] }
       }
     )
     expect(ensure).not.toHaveBeenCalled()
@@ -623,7 +624,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '暂不同步，结束本轮整理' }))
-    fireEvent.click(screen.getByRole('button', { name: '关闭整理，保留草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭整理' }))
 
     await waitFor(() => expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument())
   })
@@ -685,7 +686,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'author' } })
     expect(screen.getByLabelText('UP 名字')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false })
+    expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
 
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.getByRole('dialog', { name: '重置收藏夹规则？' })).toBeInTheDocument()
@@ -3413,7 +3414,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const abandon = screen.getByRole('button', { name: '暂不同步，结束本轮整理' })
     expect(abandon).toBeEnabled()
     fireEvent.click(abandon)
-    fireEvent.click(screen.getByRole('button', { name: '清空并结束' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认结束' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'abandon-current-workspace'
     }))

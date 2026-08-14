@@ -239,6 +239,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-library-video-detail', accountMid, aid) as Promise<FavoriteRepositoryLibraryVideoDetail>,
   getFavoriteRepositoryVideoEvents: (accountMid: string, aid: number, options: { limit: number; cursor?: string }) =>
     ipcRenderer.invoke('favorite-repository:get-library-video-events', accountMid, aid, options) as Promise<import('../main/favoriteRepositoryIpc').FavoriteRepositoryEventPage>,
+  getFavoriteRepositoryClassificationAdjustments: (accountMid: string, aid: number, options: { limit: number; cursor?: string }) =>
+    ipcRenderer.invoke('favorite-repository:get-library-video-classification-adjustments', accountMid, aid, options) as Promise<import('../main/favoriteRepositoryIpc').FavoriteRepositoryClassificationAdjustmentPage>,
   getFavoriteRepositoryOrganizationChanges: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-organization-changes', accountMid) as Promise<FavoriteRepositoryOrganizationChanges>,
   getLocalDataInfo: () => ipcRenderer.invoke('local-data:get-info') as Promise<{ path: string; accounts: Array<{ uid: string; nickname?: string; retained: boolean }> }>,

@@ -835,7 +835,7 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain(".favorite-library[data-embedded='true'] { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;")
     expect(favoriteLibraryStyles).toContain(".favorite-library__layout > .favorite-library__footer { grid-column: 2; grid-row: 2;")
   })
-  it('shows source method and a readable source time in the selected video detail', async () => {
+  it('keeps legacy source facts out of the classification audit when no structured adjustment exists', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -847,10 +847,12 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('来源视频'))
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('来源与时间')
-    expect(detail).toHaveTextContent('B站收藏 · 2026-07-24 09:02')
+    expect(detail).toHaveTextContent('初始来源')
+    expect(detail).toHaveTextContent('未记录（旧记录不会以当前归属补写）')
+    expect(detail).toHaveTextContent('最近调整')
+    expect(detail).toHaveTextContent('未记录')
     const audioSection = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    const sourceSection = screen.getByRole('heading', { name: '来源与时间' }).closest('section')!
+    const sourceSection = screen.getByRole('heading', { name: '初始来源' }).closest('section')!
     expect(audioSection.compareDocumentPosition(sourceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(sourceSection).getByRole('button', { name: '查看完整处理记录' })).toBeInTheDocument()
   })
@@ -1000,7 +1002,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: '收藏夹来源筛选' }).closest('[data-testid="favorite-library-toolbar"]')).toBeNull()
     const headings = screen.getByTestId('favorite-library-column-headings')
     expect(Array.from(headings.children).map((child) => child.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类与来源（分类：全部；当前：全部；原始：全部）'
+      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类与归属（分类：全部；当前：全部）'
     ])
     expect(screen.getByText('转写（全部）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
@@ -1034,7 +1036,7 @@ describe('FavoriteLibraryApp', () => {
     const headings = screen.getByTestId('favorite-library-column-headings')
     expect(headings.querySelector('.favorite-library__header-filter-group')).toBeNull()
     expect(Array.from(headings.children).map((child) => child.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类与来源（分类：全部；当前：全部；原始：全部）'
+      '', '视频名称（最近更新）', '状态', '转写（全部）', '分类与归属（分类：全部；当前：全部）'
     ])
 
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
@@ -1054,15 +1056,14 @@ describe('FavoriteLibraryApp', () => {
     }))
   })
 
-  it('keeps current and original source filters in one history column', () => {
+  it('keeps current ownership and classification filters in one column', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'), 'utf8')
 
     expect(source).toContain('label="收藏夹来源筛选" portal')
-    expect(source).toContain('label="原始来源筛选" portal')
-    expect(source).toContain('原始：{initialSourceLabel}')
-    expect(source).toContain('调整：{adjustmentLabel}')
-    expect(source).toContain('当前：{sourceLabel}')
-    expect(source).toContain('分类与来源（分类：${classificationSources.length')
+    expect(source).not.toContain('label="原始来源筛选" portal')
+    expect(source).toContain('当前归属：{sourceLabel}')
+    expect(source).toContain('分类：{adjustmentLabel}')
+    expect(source).toContain('分类与归属（分类：${classificationSources.length')
     expect(favoriteLibraryStyles).toContain('.favorite-library__row-source { display: grid; align-items: center; justify-items: stretch;')
     expect(favoriteLibraryStyles).toContain('.favorite-library__history-heading { min-width: 0; white-space: normal; overflow-wrap: anywhere; }')
     expect(favoriteLibraryStyles).toContain('.favorite-library__row-source-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
@@ -1224,6 +1225,29 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: '其他收藏夹管理菜单' })).not.toBeInTheDocument()
     expect(screen.queryByRole('alertdialog', { name: '确认全部从收藏库删除' })).not.toBeInTheDocument()
     expect(window.bilimiDesktop?.dismissFavoriteLibraryOrdinaryFolder).toBeUndefined()
+  })
+
+  it('shows the latest classification adjustment and loads older adjustments only after expansion', async () => {
+    const getFavoriteRepositoryClassificationAdjustments = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, totalCount: 2, items: [{ id: 'first:1', accountMid: '100', aid: 1, occurredAt: '2026-08-13T01:00:00.000Z', operation: 'library-placement', classificationSource: 'manual', beforeFolderIds: [], afterFolderIds: ['bilimi-logical:music'], addedToLibrary: true, bilibiliSync: { attempted: false } }] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-13T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '历史视频', tags: [], updatedAt: '2026-08-13T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }]}),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, video: { aid: 1, title: '历史视频', tags: [], updatedAt: '2026-08-13T00:00:00.000Z', initialSource: { observedAt: '2026-08-13T00:00:00.000Z', folders: [{ folderId: 'bilibili:ordinary', title: '普通收藏', kind: 'ordinary' }] } }, folderIds: ['bilimi-logical:music'], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '暂无转写任务' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }, latestClassificationAdjustment: { id: 'second:1', accountMid: '100', aid: 1, occurredAt: '2026-08-13T02:00:00.000Z', operation: 'library-placement', classificationSource: 'manual', beforeFolderIds: ['bilimi-logical:knowledge'], afterFolderIds: ['bilimi-logical:music'], addedToLibrary: true } }),
+      getFavoriteRepositoryClassificationAdjustments,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: /历史视频/ }))
+    expect(await screen.findByText('最近调整')).toBeInTheDocument()
+    expect(screen.getByText(/分类方式：收藏库归属调整，手动调整/)).toBeInTheDocument()
+    expect(screen.queryByText(/B站同步/)).not.toBeInTheDocument()
+    expect(getFavoriteRepositoryClassificationAdjustments).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看完整记录' }))
+    await waitFor(() => expect(getFavoriteRepositoryClassificationAdjustments).toHaveBeenCalledWith('100', 1, { limit: 20 }))
+    expect(await screen.findByText('首次分类')).toBeInTheDocument()
+    expect(screen.getByText(/加入收藏库归属：音乐/)).toBeInTheDocument()
   })
 
   it('keeps ordinary-folder detail non-destructive while preserving refresh, organization, transcription, and archive access', async () => {
@@ -2342,16 +2366,14 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     const row = await screen.findByRole('button', { name: /历史视频/ })
-    expect(within(row).getByText(/原始：普通收藏（普通收藏夹）/)).toBeInTheDocument()
-    expect(within(row).getByText(/调整：本地移动/)).toBeInTheDocument()
-    expect(within(row).getByText(/当前：游戏/)).toBeInTheDocument()
+    expect(within(row).getByText(/当前归属：游戏/)).toBeInTheDocument()
+    expect(within(row).getByText(/分类：本地移动/)).toBeInTheDocument()
     fireEvent.click(row)
 
     const detail = await screen.findByRole('complementary')
-    expect(within(detail).getByText(/初始来源：普通收藏（普通收藏夹）/)).toBeInTheDocument()
-    expect(within(detail).getByText('最近调整方式：本地移动')).toBeInTheDocument()
-    expect(within(detail).queryByText(/初始来源：游戏/)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '原始来源筛选' })).toBeInTheDocument()
+    expect(within(detail).getByRole('heading', { name: '初始来源' }).parentElement).toHaveTextContent('普通收藏（普通收藏夹）')
+    expect(within(detail).getByRole('heading', { name: '最近调整' }).parentElement).toHaveTextContent('未记录')
+    expect(screen.queryByRole('button', { name: '原始来源筛选' })).not.toBeInTheDocument()
   })
 
   it('shows independent placement and metadata labels for an unavailable video', async () => {
@@ -2465,7 +2487,8 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('结构化详情'))
 
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('来源与时间')
+    expect(detail).toHaveTextContent('初始来源')
+    expect(detail).toHaveTextContent('最近调整')
     expect(detail).toHaveTextContent('音频与档案')
     expect(detail).toHaveTextContent('BV1xx')
     expect(detail).not.toHaveTextContent('分P')

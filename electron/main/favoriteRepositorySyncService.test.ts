@@ -88,8 +88,114 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      positions: { '100:1': expect.objectContaining({ positionState: 'aligned', remoteObservedPhysicalFolderIds: ['remote-music'] }) }
+      positions: { '100:1': expect.objectContaining({ positionState: 'aligned', remoteObservedPhysicalFolderIds: ['remote-music'] }) },
+      classificationAdjustments: [expect.objectContaining({
+        operation: 'synchronize-bilibili', bilibiliSync: { attempted: true, status: 'succeeded' }
+      })]
     })
+  })
+
+  it('updates the existing local placement adjustment instead of creating a second synchronization adjustment', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        adjustmentKind: 'manual', audit: { operation: 'library-placement', bilibiliSync: { attempted: true, status: 'queued' } },
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect((service.synchronizePlacements as (...args: unknown[]) => Promise<unknown>)('100', [1], { 1: 'local-placement:1' }))
+      .resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      classificationAdjustments: [{ id: 'local-placement:1', operation: 'library-placement', bilibiliSync: { attempted: true, status: 'succeeded' } }]
+    })
+  })
+
+  it('keeps an organize adjustment queued until every frozen remote operation for its aid succeeds', async () => {
+    const repository = await createRepository()
+    const frozenPlan: FrozenFavoriteSyncPlan = {
+      ...plan(),
+      operations: [
+        { operationKey: 'remove-1', aid: 1, kind: 'remove', folderIds: ['remote-old'], beforeFolderIds: ['remote-old'], classificationAdjustmentId: 'organize:1' },
+        { operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-new'], beforeFolderIds: [], classificationAdjustmentId: 'organize:1' }
+      ]
+    }
+    await repository.commit('100', {
+      id: 'organize-audit', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-classification-adjustments',
+      payload: { records: [{
+        id: 'organize:1', accountMid: '100', aid: 1, occurredAt: '2026-07-19T00:00:00.000Z', operation: 'organize-favorites',
+        classificationSource: 'manual', beforeFolderIds: ['remote-old'], afterFolderIds: ['remote-new'], addedToLibrary: true,
+        bilibiliSync: { attempted: true, status: 'queued' }
+      }] }
+    })
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    let resolveAppend: ((value: { observedAccountMid: string }) => void) | undefined
+    const append = vi.fn(() => new Promise<{ observedAccountMid: string }>((resolve) => { resolveAppend = resolve }))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    const execution = service.executeFrozenPlan('100', frozenPlan)
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      classificationAdjustments: [{ id: 'organize:1', bilibiliSync: { attempted: true, status: 'queued' } }]
+    })
+    resolveAppend?.({ observedAccountMid: '100' })
+    await expect(execution).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      classificationAdjustments: [{ id: 'organize:1', operation: 'organize-favorites', bilibiliSync: { attempted: true, status: 'succeeded' } }]
+    })
+  })
+
+  it('records a frozen remote rejection on the existing organize adjustment without a second audit record', async () => {
+    const repository = await createRepository()
+    const frozenPlan: FrozenFavoriteSyncPlan = {
+      ...plan(), operations: [{
+        operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-new'], classificationAdjustmentId: 'organize:1'
+      }]
+    }
+    await repository.commit('100', {
+      id: 'organize-audit', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-classification-adjustments',
+      payload: { records: [{
+        id: 'organize:1', accountMid: '100', aid: 1, occurredAt: '2026-07-19T00:00:00.000Z', operation: 'organize-favorites',
+        classificationSource: 'manual', beforeFolderIds: [], afterFolderIds: ['remote-new'], addedToLibrary: true,
+        bilibiliSync: { attempted: true, status: 'queued' }
+      }] }
+    })
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValue(new FavoriteRepositoryRemoteRejectedError('Bilibili rejected the request')),
+        remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+      },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'failed' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      classificationAdjustments: [{ id: 'organize:1', operation: 'organize-favorites', bilibiliSync: { attempted: true, status: 'failed' } }]
+    })
+    expect((await repository.getSnapshot('100')).classificationAdjustments).toHaveLength(1)
   })
 
   it('exposes an archive restore writer that resolves bound physical shards and never accepts renderer supplied folder ids', async () => {
@@ -204,7 +310,10 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'failed', affectedAids: [1] })
     expect(append).not.toHaveBeenCalled()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      positions: { '100:1': expect.objectContaining({ positionState: 'target-missing' }) }
+      positions: { '100:1': expect.objectContaining({ positionState: 'target-missing' }) },
+      classificationAdjustments: [expect.objectContaining({
+        operation: 'synchronize-bilibili', bilibiliSync: { attempted: true, status: 'failed' }
+      })]
     })
   })
 
