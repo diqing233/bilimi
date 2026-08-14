@@ -309,6 +309,27 @@ describe('assistant state', () => {
     )
   })
 
+  it('keeps a default folder deleted from the sidebar out of automatic targets', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => ledger.id === 'music'
+            ? { ...ledger, enabled: false, managedFolderDeletedByUser: true }
+            : { ...ledger, enabled: false })
+        }
+      }
+    })
+
+    const effective = effectiveFavoriteLedgersForAccount(preferences, '100')
+
+    expect(effective.find((ledger) => ledger.id === 'music')).toMatchObject({
+      enabled: false,
+      managedFolderDeletedByUser: true
+    })
+    expect(effective.find((ledger) => ledger.id === 'knowledge')).toMatchObject({ enabled: true })
+  })
+
   it('preserves persisted coin and comment choices', () => {
     expect(
       createInitialAssistantPreferences({
