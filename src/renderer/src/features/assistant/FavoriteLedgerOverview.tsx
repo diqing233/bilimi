@@ -13,11 +13,6 @@ import { createPortal } from 'react-dom'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
 import {
-  applyManagedFavoriteFolderDeletionToLedgers,
-  managedFavoriteFolderDeletionFailureMessage,
-  managedFavoriteFolderDeletionSucceeded
-} from './managedFavoriteFolderDeletionFeedback'
-import {
   FavoriteLedgerEnableButton,
   FavoriteLedgerEnableStore,
   FavoriteLedgerEnableSummary,
@@ -57,16 +52,6 @@ export type FavoriteLedgerOverviewHandle = {
   requestBackup: () => Promise<unknown>
 }
 
-type ManagedFolderDeletionCandidate = {
-  logicalLedgerId: string
-  remoteFolderId?: string
-  title: string
-  memberCount: number
-  state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'
-  requiresUnboundAcknowledgement: boolean
-}
-type ManagedDeletionScope = 'local-only' | 'bilibili'
-
 type RebindCandidateEntry = {
   ledgerId: string
   candidates: Array<{
@@ -82,7 +67,7 @@ const LEDGER_SYNC_HINTS = [
   { title: '自定义收藏夹：', detail: '点击收藏夹名称可以编辑；按住并拖动可调整顺序。' },
   { title: '勾选 bilimi 收藏夹：', detail: '勾选的收藏夹会用于批阅预分类和整理收藏分类。预分类会显示视频建议归类的位置；备册后才能将分类结果同步到 B 站。' },
   { title: '备册到 B 站：', detail: '备册会将已勾选的 bilimi 收藏夹创建或更新到 B 站，为将批阅和整理结果同步到 B 站做好准备。' },
-  { title: '删除 bilimi 收藏夹：', detail: '点击右侧“×”进入删除模式，勾选要删除的自建收藏夹或草稿后点击“删除”。这只会移除本地收藏夹配置，保留收藏库和 B 站收藏夹；默认收藏夹仍遵循原有的受保护删除流程。' },
+  { title: '删除 bilimi 收藏夹：', detail: '点击右侧“×”进入删除模式，勾选要删除的自建收藏夹或草稿后点击“删除”。这只会移除右侧本地收藏夹配置，保留收藏库和 B 站收藏夹；默认收藏夹请在左侧收藏库的工作夹菜单中处理。' },
   { title: '分类依据：', detail: '关键词、UP 名称和标签用于本地识别。DeepSeek 约束可用一句话描述你想把什么视频分类到这个收藏夹里，仅在启用 DeepSeek 后生效。' }
 ]
 const TYPES: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
@@ -204,7 +189,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
     enabled: enabledOverride?.get(ledger.id) ?? (deletionMode ? false : isDefaultSystemLocked(ledger) ? true : ledger.enabled),
-    operable: deletionMode ? (!ledger.isDefault || !isRecoveredRemoteDraft(ledger)) : isOperable(ledger),
+    operable: deletionMode ? !ledger.isDefault : isOperable(ledger),
     forceEnabledOnBulk: isRoundLocked(ledger)
   }))
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
@@ -222,14 +207,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   )
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [newLedger, setNewLedger] = useState(false)
-  const [deletionCandidates, setDeletionCandidates] = useState<ManagedFolderDeletionCandidate[] | null>(null)
   const [rebindCandidates, setRebindCandidates] = useState<RebindCandidateEntry[] | null>(null)
   const [rebindSelections, setRebindSelections] = useState<Record<string, string>>({})
   const [rebindSelectedFolderIds, setRebindSelectedFolderIds] = useState<Record<string, string[]>>({})
-  const [deletionConfirmed, setDeletionConfirmed] = useState(false)
-  const [deletionAcknowledgedUnbound, setDeletionAcknowledgedUnbound] = useState(false)
-  const [deletionScope, setDeletionScope] = useState<ManagedDeletionScope>('local-only')
-  const [deletionExecuting, setDeletionExecuting] = useState(false)
   const [deletionError, setDeletionError] = useState<string | null>(null)
   const [draftDeletionError, setDraftDeletionError] = useState<string | null>(null)
   const [deletionModeActive, setDeletionModeActive] = useState(false)
@@ -666,14 +646,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       await requestBackup()
       return
     }
-    const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id))
-    const selectedCustomLedgers = selectedLedgers.filter((ledger) => !ledger.isDefault)
-    if (selectedCustomLedgers.length && !await deleteLocalFavoriteLedgers(selectedCustomLedgers.map((ledger) => ledger.id), currentLedgers)) return
-    const selectedDefaultLedgerIds = selectedLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id)
-    if (selectedDefaultLedgerIds.length) {
-      await requestManagedDeletion(selectedDefaultLedgerIds)
-      return
-    }
+    const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id) && !ledger.isDefault)
+    if (selectedLedgers.length && !await deleteLocalFavoriteLedgers(selectedLedgers.map((ledger) => ledger.id), currentLedgers)) return
     setDeletionModeActive(false)
   }
   const deleteLocalFavoriteLedgers = async (ledgerIds: readonly string[], sourceLedgers = projectEnabled(draftLedgers)) => {
@@ -709,40 +683,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDraftDeletionError(null)
     for (const ledger of persistedLedgers) onDeleteLedger?.(ledger.id)
     return true
-  }
-  const requestManagedDeletion = async (ledgerIds: string[]) => {
-    if (draftMutationLocked) return
-    const deletedIds = new Set(ledgerIds)
-    if (!deletedIds.size) {
-      setDeletionError('请选择至少一个 bilimi 收藏夹后再删除。')
-      return
-    }
-    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
-    const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
-    const selectedLocalOnly = ledgerIds.every((ledgerId) => {
-      const ledger = draftLedgers.find((item) => item.id === ledgerId)
-      return Boolean(ledger) && !ledger.bilibiliFolderId && ledger.bindingState !== 'unbound'
-    })
-    try {
-      const candidates = accountMid && ledgerIds.length
-        ? await window.bilimiDesktop?.previewManagedFavoriteFolderDeletion?.(accountMid, ledgerIds, ledgerTitleHints)
-        : selectedLocalOnly
-          ? ledgerIds.map((logicalLedgerId) => ({
-            logicalLedgerId,
-            title: draftLedgers.find((ledger) => ledger.id === logicalLedgerId)?.displayName ?? logicalLedgerId,
-            memberCount: 0,
-            state: 'local-only' as const,
-            requiresUnboundAcknowledgement: false
-          }))
-          : []
-      setDeletionError(candidates?.length ? null : '没有可删除的 bilimi 收藏夹；请检查当前帐号和收藏夹状态后重试。')
-      setDeletionCandidates(candidates ?? [])
-      setDeletionScope('local-only')
-      setDeletionAcknowledgedUnbound(false)
-    } catch (error) {
-      setDeletionError(managedFavoriteFolderDeletionFailureMessage(error))
-      setDeletionCandidates([])
-    }
   }
   const deleteUnsavedDraft = async (ledger: FavoriteLedger) => {
     if (draftMutationLocked || !isDraftDirectlyDeletable(ledger)) return
@@ -799,95 +739,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setRebindSelectedFolderIds({})
     }
   }
-  const confirmManagedDeletion = async () => {
-    if (draftMutationLocked) return
-    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
-    if (!deletionCandidates || !deletionConfirmed ||
-      (deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)) return
-    const deletedIds = new Set(deletionCandidates.map((candidate) => candidate.logicalLedgerId))
-    if (deletionScope === 'local-only') {
-      if (!accountMid || !window.bilimiDesktop?.previewFavoriteLibraryManagedFolderDelete || !window.bilimiDesktop?.deleteFavoriteLibraryManagedFoldersLocal) {
-        setDeletionError('当前没有可用的收藏库账户，无法仅从 bilimi 删除。')
-        return
-      }
-      setDeletionExecuting(true)
-      setDeletionError(null)
-      try {
-        const previews = await Promise.all([...deletedIds].sort().map((logicalLedgerId) =>
-          window.bilimiDesktop!.previewFavoriteLibraryManagedFolderDelete!(accountMid, `bilimi-logical:${logicalLedgerId}`) as Promise<{ executionToken?: string }>
-        ))
-        const executionTokens = previews.map((preview) => preview.executionToken).filter((executionToken): executionToken is string => Boolean(executionToken)).sort()
-        if (executionTokens.length !== deletedIds.size) throw new Error('Managed folder deletion preview is unavailable.')
-        await window.bilimiDesktop.deleteFavoriteLibraryManagedFoldersLocal(accountMid, executionTokens)
-      } catch (error) {
-        setDeletionError(managedFavoriteFolderDeletionFailureMessage(error))
-        return
-      } finally {
-        setDeletionExecuting(false)
-      }
-      finalizeLedgerDeletion(deletedIds)
-      return
-    }
-    if (!accountMid) {
-      setDeletionError('当前没有可用的 B 站账户，无法核验远端收藏夹。')
-      return
-    }
-    setDeletionExecuting(true)
-    setDeletionError(null)
-    try {
-      const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
-      const expectedRemoteFolderIds = Object.fromEntries([...deletedIds].map((logicalLedgerId) => [
-        logicalLedgerId,
-        [...new Set(deletionCandidates
-          .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
-          .map((candidate) => candidate.remoteFolderId!))]
-      ]))
-      const result = await window.bilimiDesktop?.deleteManagedFavoriteFolders?.(accountMid, [...deletedIds], deletionAcknowledgedUnbound, ledgerTitleHints, expectedRemoteFolderIds)
-      if (!managedFavoriteFolderDeletionSucceeded(result)) {
-        setDeletionError('删除未成功，请稍后重试。')
-        return
-      }
-    } catch (error) {
-      setDeletionError(managedFavoriteFolderDeletionFailureMessage(error))
-      return
-    } finally {
-      setDeletionExecuting(false)
-    }
-    finalizeLedgerDeletion(deletedIds)
-  }
-  const finalizeLedgerDeletion = (deletedIds: ReadonlySet<string>) => {
-    const next = applyManagedFavoriteFolderDeletionToLedgers(draftLedgers, deletedIds).map((ledger) => ({
-      ...ledger,
-      enabled: deletedIds.has(ledger.id)
-        ? false
-        : isDefaultSystemLocked(ledger)
-          ? true
-          : enableStore.isEnabled(ledger.id)
-    }))
-    setDraftLedgers(next)
-    enableStore.reset(enableEntries(next, false))
-    deletionStore.reset(enableEntries(next, true))
-    setSavedLedgerSnapshots(Object.fromEntries(next.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
-    void Promise.resolve(onSaveLedgers(next, { deleteDisabled: false }))
-    for (const ledgerId of deletedIds) onDeleteLedger?.(ledgerId)
-    setDeletionModeActive(false)
-    setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionAcknowledgedUnbound(false)
-  }
   const duplicateLedgerTitleCounts = draftLedgers.reduce((counts, ledger) => {
     const title = displayTitle(ledger.displayName) || ledger.displayName
     counts.set(title, (counts.get(title) ?? 0) + 1)
     return counts
   }, new Map<string, number>())
   const duplicateLedgerTitleIndexes = new Map<string, number>()
-  const remoteDeletionSummaries = deletionCandidates
-    ? [...deletionCandidates.reduce((groups, candidate) => {
-      if (!candidate.remoteFolderId) return groups
-      const current = groups.get(candidate.logicalLedgerId) ?? { title: candidate.title, count: 0 }
-      current.count += 1
-      groups.set(candidate.logicalLedgerId, current)
-      return groups
-    }, new Map<string, { title: string; count: number }>()).values()]
-    : []
   return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
@@ -922,12 +779,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                 setNewLedger(false)
                 setDraftDeletionError(null)
               }}><span className="favorite-ledger-panel__chip-label">{ledgerLabel}</span>{bindingLabel ? <small className="favorite-ledger-panel__binding-status" data-binding-state={bindingStateForLedger(ledger, bindingLabel)}>{bindingLabel}</small> : null}</button>
-              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? (deletionModeActive ? '取消删除' : '移出同步') : (deletionModeActive ? '加入删除' : '加入同步')} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || (deletionModeActive ? (ledger.isDefault && isRecoveredRemoteDraft(ledger)) : !isOperable(ledger))} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
+              <button type="button" draggable={false} className="favorite-ledger-panel__chip-action" aria-label={`${enabled ? (deletionModeActive ? '取消删除' : '移出同步') : (deletionModeActive ? '加入删除' : '加入同步')} ${ledgerDisplayName}`} data-enabled={enabled && !disabledBySystem} disabled={draftMutationLocked || (deletionModeActive ? !deletionStore.isOperable(ledger.id) : !isOperable(ledger))} onDragStart={(event) => event.preventDefault()} onClick={toggleEnabled}>{enabled && !disabledBySystem ? '✓' : '+'}</button>
             </>
             }}</FavoriteLedgerEnableButton>
           </div>
         })}</div>
-        {deletionModeActive && deletionCandidates === null && deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
+        {deletionModeActive && deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
         {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={draftMutationLocked} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
@@ -959,16 +816,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         </label> : null}
         <p className="favorite-ledger-panel__keyword-hint">{ruleHint(active.ruleType)}</p>
       </section> : null}
-      {deletionCandidates !== null ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={deletionExecuting ? '删除中…' : '删除'} confirmDisabled={!deletionCandidates.length || !deletionConfirmed || deletionExecuting || (deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)} onCancel={() => { if (deletionExecuting) return; setDeletionCandidates(null); setDeletionConfirmed(false); setDeletionAcknowledgedUnbound(false); setDeletionScope('local-only'); setDeletionError(null) }} onConfirm={() => void confirmManagedDeletion()}>
-        <p>以下 {deletionCandidates.length} 个 bilimi 收藏夹将被删除：</p>
-        <ul className="favorite-ledger-panel__deletion-list">{deletionCandidates.map((candidate) => <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}（当前 {candidate.memberCount} 个视频）</li>)}</ul>
-        <fieldset className="favorite-ledger-panel__deletion-scope"><legend>删除范围</legend><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'local-only'} onChange={() => setDeletionScope('local-only')} /><span>仅从 bilimi 删除（保留 B 站收藏夹）</span></label><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'bilibili'} onChange={() => setDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹及其中分类视频</span></label></fieldset>
-        <p>{deletionScope === 'local-only' ? '仅移除本地 bilimi 收藏夹、收藏库分类关系和草稿；不会修改 B 站收藏夹、视频本体、档案库、转写或札记。' : '将移除本地 bilimi 收藏夹及其分类关系，并删除对应 B 站 bilimi 收藏夹；普通 B 站收藏夹不受影响。'}</p>
-        {deletionScope === 'bilibili' && remoteDeletionSummaries.length ? <p className="favorite-ledger-panel__delete-remote-summary">{remoteDeletionSummaries.map(({ title, count }) => `删除“${displayTitle(title)}”时，会同时从 B 站删除 ${count} 个实际收藏夹及其中分类视频。`).join(' ')}</p> : null}
-        <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
-        {deletionScope === 'bilibili' && deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
-        {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
-      </OldFavoriteModal> : null}
       {rebindCandidates ? <OldFavoriteModal title="确认绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
         <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>
         {rebindCandidates.map((entry) => {
