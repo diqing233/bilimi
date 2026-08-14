@@ -117,7 +117,7 @@ import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibrary
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
-import { removeUnsavedFavoriteLedgerDraft } from '../../src/shared/favoriteLedgerDraftDeletion'
+import { removeLocalFavoriteLedgers, removeUnsavedFavoriteLedgerDraft } from '../../src/shared/favoriteLedgerDraftDeletion'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -1312,6 +1312,36 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerId }
+  })
+  ipcMain.handle('assistant:delete-favorite-ledgers-local', async (event, accountMid: unknown, requestedLedgerIds: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (
+      typeof accountMid !== 'string' ||
+      !Array.isArray(requestedLedgerIds) ||
+      requestedLedgerIds.length === 0 ||
+      requestedLedgerIds.some((ledgerId) => typeof ledgerId !== 'string' || !ledgerId.trim()) ||
+      accountMid !== await readCurrentBilibiliAccountMid()
+    ) {
+      throw new Error('Favorite ledger local deletion is unavailable.')
+    }
+
+    const ledgerIds = [...new Set(requestedLedgerIds.map((ledgerId) => ledgerId.trim()))]
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+    const removedLedgers = current.favoriteLedgers.filter((ledger) => ledgerIds.includes(ledger.id) && !ledger.isDefault)
+    const favoriteLedgers = removeLocalFavoriteLedgers(current.favoriteLedgers, ledgerIds)
+    if (favoriteLedgers === current.favoriteLedgers) {
+      throw new Error('Favorite ledger local deletion is unavailable.')
+    }
+
+    const remoteFolderIds = [...new Set(removedLedgers.flatMap((ledger) => [
+      ledger.bilibiliFolderId,
+      ...(ledger.bilibiliFolderIds ?? [])
+    ]).map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+    markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    notifyFloatingAssistantSnapshotChanged()
+    return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }
   })
   ipcMain.handle('assistant:write-default-favorite-system-enabled', (event, accountMid: string, enabled: boolean) => {
     assertTrustedOldFavoriteAssistantSender(event)

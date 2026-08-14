@@ -23,3 +23,14 @@ export function removeUnsavedFavoriteLedgerDraft(
   if (!draft || !isUnsavedFavoriteLedgerDraft(draft)) return ledgers
   return ledgers.filter((ledger) => ledger.id !== ledgerId)
 }
+
+/** Removes only user-created local configurations; default rules retain their protected lifecycle. */
+export function removeLocalFavoriteLedgers(
+  ledgers: FavoriteLedger[],
+  ledgerIds: readonly string[]
+): FavoriteLedger[] {
+  const removableIds = new Set(ledgerIds.filter((ledgerId) =>
+    ledgers.some((ledger) => ledger.id === ledgerId && !ledger.isDefault)
+  ))
+  return removableIds.size ? ledgers.filter((ledger) => !removableIds.has(ledger.id)) : ledgers
+}

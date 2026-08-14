@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isUnsavedFavoriteLedgerDraft,
+  removeLocalFavoriteLedgers,
   removeUnsavedFavoriteLedgerDraft
 } from './favoriteLedgerDraftDeletion'
 
@@ -76,5 +77,37 @@ describe('favorite ledger draft deletion', () => {
     expect(isUnsavedFavoriteLedgerDraft(boundDraft)).toBe(false)
     expect(removeUnsavedFavoriteLedgerDraft(ledgers, 'recommended-up')).toBe(ledgers)
     expect(removeUnsavedFavoriteLedgerDraft(ledgers, 'bound-draft')).toBe(ledgers)
+  })
+
+  it('removes selected custom ledgers through the local configuration path while retaining defaults', () => {
+    const defaultLedger = {
+      id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 10,
+      isDefault: true
+    }
+    const savedLedger = {
+      id: 'saved', displayName: 'bilimi·已保存', keywords: [], enabled: true, priority: 20,
+      bilibiliFolderId: 'remote-saved', bindingState: 'bound' as const, isDefault: false
+    }
+    const remoteDraft = {
+      id: 'remote-draft', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 30,
+      bilibiliFolderId: 'remote-draft', bindingState: 'unbound' as const, syncState: 'local-draft' as const,
+      isDefault: false
+    }
+    const ledgers = [defaultLedger, savedLedger, remoteDraft]
+
+    const next = removeLocalFavoriteLedgers(ledgers, ['saved', 'remote-draft'])
+
+    expect(next).toEqual([defaultLedger])
+    expect(ledgers).toEqual([defaultLedger, savedLedger, remoteDraft])
+  })
+
+  it('does not remove a default ledger through the local configuration path', () => {
+    const defaultLedger = {
+      id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 10,
+      isDefault: true
+    }
+    const ledgers = [defaultLedger]
+
+    expect(removeLocalFavoriteLedgers(ledgers, ['knowledge'])).toBe(ledgers)
   })
 })

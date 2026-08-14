@@ -13,6 +13,12 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(rendererTypesSource).toContain('deleteFavoriteLedgerDraft?: (accountMid: string, ledgerId: string)')
   })
 
+  it('exposes a batched account-scoped local configuration deletion contract', () => {
+    expect(preloadSource).toContain('deleteFavoriteLedgersLocal: (accountMid: string, ledgerIds: string[])')
+    expect(preloadSource).toContain("ipcRenderer.invoke('assistant:delete-favorite-ledgers-local', accountMid, ledgerIds)")
+    expect(rendererTypesSource).toContain('deleteFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[])')
+  })
+
   it('exposes an account-scoped explicit-backup release contract', () => {
     expect(preloadSource).toContain('consumeFavoriteLedgerRemoteDraftRediscoveryPending: (accountMid: string)')
     expect(preloadSource).toContain("ipcRenderer.invoke('assistant:consume-favorite-ledger-remote-draft-rediscovery-pending', accountMid)")
@@ -37,6 +43,24 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).not.toContain('dismissFavoriteLedgerRemoteDraftReminder')
     expect(handler).not.toContain('clearFavoriteLedgerRemoteDraftReminder')
     expect(handler).not.toContain('requestMainAssistantRuntime')
+  })
+
+  it('removes selected custom configurations locally and leaves repository and B站 calls out of the handler', () => {
+    const handlerStart = mainSource.indexOf("ipcMain.handle('assistant:delete-favorite-ledgers-local'")
+    const handlerEnd = mainSource.indexOf("ipcMain.handle('assistant:write-default-favorite-system-enabled'", handlerStart)
+    const handler = mainSource.slice(handlerStart, handlerEnd)
+
+    expect(handlerStart).toBeGreaterThan(-1)
+    expect(handler).toContain('assertTrustedOldFavoriteAssistantSender(event)')
+    expect(handler).toContain('accountMid !== await readCurrentBilibiliAccountMid()')
+    expect(handler).toContain('removeLocalFavoriteLedgers(current.favoriteLedgers, ledgerIds)')
+    expect(handler).toContain('markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)')
+    expect(handler).toContain('saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })')
+    expect(handler).toContain('sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))')
+    expect(handler).toContain('notifyFloatingAssistantSnapshotChanged()')
+    expect(handler).not.toContain('favoriteRepository')
+    expect(handler).not.toContain('removeRemoteFolder')
+    expect(handler).not.toContain('deleteManagedFavoriteFolders')
   })
 
   it('consumes only pending remote drafts for a trusted current account', () => {
