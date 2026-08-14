@@ -120,7 +120,7 @@ describe('favorite library managed folder projection', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([{ id: '9', title: 'bilimi\u00b7\u97f3\u4e50' }]),
       ledgers: [{
-        id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: false, priority: 1,
+        id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 1,
         isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
       }],
       dismissedRemoteFolderIds: []

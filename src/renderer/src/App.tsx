@@ -2040,6 +2040,14 @@ export default function App() {
 
     const accountMid = await readBilibiliAccountMid()
     const ledgerId = logicalFolderId.trim().replace(/^bilimi-logical:/, '')
+    if (accountMid && preferencesRef.current.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled === false) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: [ledgerId],
+        message: '默认收藏夹体系已关闭，备册不会创建远端收藏夹。'
+      }
+    }
     const currentLedgers = favoriteLedgersForActiveAccount(accountMid)
     const targetLedger = currentLedgers.find((ledger) => ledger.id === ledgerId && ledger.enabled)
     if (!targetLedger) {

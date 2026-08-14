@@ -2727,6 +2727,43 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(false)
   })
 
+  it('does not back up one default folder when the active account disabled the default favorite system', async () => {
+    const accountMid = '100'
+    const accountLedgers = createDefaultFavoriteLedgers().map((ledger) => ledger.id === 'music'
+      ? { ...ledger, enabled: true, bindingState: 'unbound' as const, managedFolderDeletedByUser: true }
+      : ledger)
+    const music = accountLedgers.find((ledger) => ledger.id === 'music')!
+    const { requestRuntime, notifyPreferencesChanged } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    notifyPreferencesChanged(createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: false, favoriteLedgers: accountLedgers }
+      }
+    }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return {
+          ok: true,
+          ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+          steps: ['api:ledger:list', 'api:ledger:create:music'],
+          missingTargets: [],
+          message: '已备册'
+        }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'backup-one-disabled', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:music' }))
+      .resolves.toMatchObject({ ok: false, missingTargets: ['music'] })
+    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
   it('asks the user to log in before running Bilibili page actions', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {

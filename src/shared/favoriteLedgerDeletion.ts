@@ -25,7 +25,7 @@ export function applyManagedFavoriteLedgerDeletion(
     }
     return {
       ...ledgerWithoutRemoteBinding,
-      enabled: false,
+      enabled: true,
       bindingState: 'unbound',
       managedFolderDeletedByUser: true
     }

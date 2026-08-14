@@ -457,7 +457,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('已删除 · 未备册')
     expect(screen.getByRole('button', { name: '备册收藏夹' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: '恢复备册收藏夹' })).not.toBeInTheDocument()
-    expect(save).toHaveBeenCalledWith([expect.objectContaining({ id: 'game', enabled: false, managedFolderDeletedByUser: true })], { deleteDisabled: false })
+    expect(save).toHaveBeenCalledWith([expect.objectContaining({ id: 'game', enabled: true, managedFolderDeletedByUser: true })], { deleteDisabled: false })
   })
 
   it('deletes a default remote folder only after the Bilibili scope is selected without deleting the library work folder', async () => {
@@ -1139,6 +1139,18 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true, managedFolderDeletedByUser: true })
     ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+  })
+
+  it('keeps a deleted default ledger selected and locked while the default system is enabled', () => {
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已删除 · 未备册')
+    const toggle = screen.getByRole('button', { name: '移出同步 bilimi·音乐' })
+    expect(toggle).toHaveAttribute('data-enabled', 'true')
+    expect(toggle).toBeDisabled()
   })
 
   it('renders a deleted default ledger as unbound even when its previous Bilibili binding remains recorded', () => {

@@ -23,7 +23,7 @@ describe('persistConfirmedManagedFolderDeletion', () => {
 
     expect(save).toHaveBeenCalledWith('100', expect.objectContaining({
       favoriteLedgers: [expect.objectContaining({
-        id: 'music', enabled: false, bindingState: 'unbound', managedFolderDeletedByUser: true
+        id: 'music', enabled: true, bindingState: 'unbound', managedFolderDeletedByUser: true
       })]
     }))
     expect(publish).toHaveBeenCalledOnce()

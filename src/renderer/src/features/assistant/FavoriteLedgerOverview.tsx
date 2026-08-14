@@ -184,7 +184,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isDeletedDefaultLedger = (ledger: FavoriteLedger) => Boolean(ledger.isDefault && ledger.managedFolderDeletedByUser)
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
-  const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault && !isDeletedDefaultLedger(ledger)
+  const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const bindingLabelForLedger = (ledger: FavoriteLedger) => isDeletedDefaultLedger(ledger)
     ? '已删除 · 未备册'
     : ledger.bindingState === 'bound'
@@ -793,7 +793,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const deletedCustomIds = new Set([...plan.remoteCustomLedgerIds, ...plan.localCustomLedgerIds, ...plan.draftLedgerIds])
     const locallyDeletedDefaults = draftLedgers.map((ledger) => {
       if (!deletedDefaultIds.has(ledger.id) || remotelyDeletedDefaultIds.has(ledger.id)) return ledger
-      return { ...ledger, enabled: false, managedFolderDeletedByUser: true }
+      return { ...ledger, enabled: true, managedFolderDeletedByUser: true }
     })
     const next = (deletedDefaultIds.size
       ? applyManagedFavoriteFolderDeletionToLedgers(locallyDeletedDefaults, deletedDefaultIds, remotelyDeletedDefaultIds)
@@ -803,7 +803,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       .map((ledger) => ({
         ...ledger,
         enabled: deletedDefaultIds.has(ledger.id)
-          ? false
+          ? true
           : isDefaultSystemLocked(ledger)
             ? true
             : enableStore.isEnabled(ledger.id)

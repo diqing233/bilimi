@@ -76,13 +76,17 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     expect(enableDefaultLedgersForOrganization(saved, false)).toEqual(saved)
   })
 
-  it('does not automatically re-enable a default rule that the user deliberately deleted', () => {
+  it('keeps a user-deleted default rule selected when an organization round starts', () => {
     const saved = [{
       id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: false, priority: 10,
       isDefault: true, bindingState: 'unbound' as const, managedFolderDeletedByUser: true
     }]
 
-    expect(enableDefaultLedgersForOrganization(saved, true)).toEqual(saved)
+    expect(enableDefaultLedgersForOrganization(saved, true)).toEqual([
+      expect.objectContaining({
+        id: 'knowledge', enabled: true, managedFolderDeletedByUser: true
+      })
+    ])
   })
 
   it('excludes ordinary defaults but retains inbox staging when disabled', () => {

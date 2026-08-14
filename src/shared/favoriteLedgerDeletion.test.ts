@@ -17,7 +17,7 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
 
     expect(next).toEqual([
       {
-        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true,
+        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
         bindingState: 'unbound', managedFolderDeletedByUser: true, syncState: 'local-draft'
       },
       {

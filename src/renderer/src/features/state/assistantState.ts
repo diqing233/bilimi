@@ -295,7 +295,7 @@ export function effectiveFavoriteLedgersForAccount(
   const defaultsEnabled = preferences.favoriteAccountPreferences?.[accountMid]?.defaultFavoriteSystemEnabled !== false
   if (defaultsEnabled) {
     return ledgers.map((ledger) => ledger.isDefault
-      ? { ...ledger, enabled: !ledger.managedFolderDeletedByUser }
+      ? { ...ledger, enabled: true }
       : ledger)
   }
   return ledgers.map((ledger) => ledger.isDefault && ledger.id !== 'inbox'

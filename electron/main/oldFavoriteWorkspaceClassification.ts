@@ -48,7 +48,7 @@ export function enableDefaultLedgersForOrganization(
   defaultFavoriteSystemEnabled: boolean
 ) {
   if (!defaultFavoriteSystemEnabled) return savedLedgers
-  return savedLedgers.map((ledger) => ledger.isDefault && !ledger.managedFolderDeletedByUser
+  return savedLedgers.map((ledger) => ledger.isDefault
     ? { ...ledger, enabled: true, keywords: [...ledger.keywords] }
     : ledger)
 }

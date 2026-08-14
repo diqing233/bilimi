@@ -309,7 +309,7 @@ describe('assistant state', () => {
     )
   })
 
-  it('keeps a default folder deleted from the sidebar out of automatic targets', () => {
+  it('keeps a default folder selected after its Bilibili backup was deleted', () => {
     const preferences = createInitialAssistantPreferences({
       favoriteAccountPreferences: {
         '100': {
@@ -324,7 +324,7 @@ describe('assistant state', () => {
     const effective = effectiveFavoriteLedgersForAccount(preferences, '100')
 
     expect(effective.find((ledger) => ledger.id === 'music')).toMatchObject({
-      enabled: false,
+      enabled: true,
       managedFolderDeletedByUser: true
     })
     expect(effective.find((ledger) => ledger.id === 'knowledge')).toMatchObject({ enabled: true })
