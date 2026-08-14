@@ -1140,6 +1140,21 @@ describe('FavoriteLedgerOverview', () => {
       expect.objectContaining({ id: 'music', enabled: true, managedFolderDeletedByUser: true })
     ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
   })
+
+  it('renders a deleted default ledger as unbound even when its previous Bilibili binding remains recorded', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10,
+      isDefault: true, bindingState: 'bound', bilibiliFolderId: '9001', managedFolderDeletedByUser: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+
+    const status = screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')
+    expect(status).toHaveTextContent('已删除 · 未备册')
+    expect(status).toHaveAttribute('data-binding-state', 'unbound')
+  })
+
   it('shows the current backup state at the right of the folder-name label while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, bilibiliFolderVideoCount: 0, isDefault: false }

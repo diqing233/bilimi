@@ -198,9 +198,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           : ledger.bilibiliFolderId
             ? '已备册'
             : ''
-  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存') && !label.includes('未绑定')
-    ? 'local-draft'
-    : ledger.bindingState ?? (label === '已备册' ? 'bound' : label.includes('未绑定') ? 'unbound' : 'unbacked')
+  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未备册')
+    ? label.includes('已删除') ? 'unbound' : 'unbacked'
+    : label.includes('未绑定')
+      ? 'unbound'
+      : label.includes('未保存')
+        ? 'local-draft'
+        : ledger.bindingState ?? (label === '已备册' ? 'bound' : 'unbacked')
   const isRemoteOnlyDraft = (ledger: FavoriteLedger) => remoteOnlyDraftLedgerIds.includes(ledger.id) && isUnsavedFavoriteLedgerDraft(ledger)
   const isTransientNewDraft = (ledger: FavoriteLedger) => !ledgers.some((item) => item.id === ledger.id) &&
     ledger.syncState === 'local-draft' &&
