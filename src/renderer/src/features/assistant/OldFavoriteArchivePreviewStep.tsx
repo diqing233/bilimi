@@ -533,7 +533,7 @@ export function OldFavoriteArchivePreviewStep({
                 {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
               </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
                 disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || !hasPreviewItems} onClick={openDeepSeekDialog}>
-                DeepSeek 整理
+                开始整理
               </button>}
             </div>
           </div>

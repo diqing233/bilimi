@@ -5344,7 +5344,8 @@ body[data-floating-window="true"],
   white-space: nowrap;
 }
 .favorite-ledger-panel__deepseek-archive-actions {
-  flex: 1 1 176px;
+  flex: 0 1 auto;
+  margin-left: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

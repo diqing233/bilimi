@@ -259,14 +259,18 @@ describe('OldFavoriteArchivePreviewStep', () => {
     />)
 
     expect(screen.queryByRole('button', { name: '整理范围' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const deepSeekGroup = screen.getByRole('group', { name: 'DeepSeek 辅助整理' })
+    const startButton = within(deepSeekGroup).getByRole('button', { name: '开始整理' })
+    expect(startButton.closest('.favorite-ledger-panel__deepseek-archive-heading')).not.toBeNull()
+    expect(within(deepSeekGroup).queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
+    fireEvent.click(startButton)
     const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
     expect(within(dialog).getByLabelText('整理不确定项和【未分类】（推荐）')).toBeChecked()
     expect(within(dialog).getByLabelText('当前批次')).toBeChecked()
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(organize).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     const reopened = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
     fireEvent.click(within(reopened).getByLabelText('DeepSeek重新检查全部'))
     fireEvent.click(within(reopened).getByLabelText('本轮所有批次'))
@@ -378,7 +382,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
 
-    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '开始整理' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
     expect(within(screen.getByRole('group', { name: '未匹配到合适分类 13 条' })).getByRole('button', { name: '批量转移' })).toBeDisabled()
@@ -934,7 +938,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(cancelButton.closest('.favorite-ledger-panel__deepseek-archive-actions')).not.toBeNull()
     fireEvent.click(cancelButton)
     expect(onCancelDeepSeek).toHaveBeenCalledOnce()
-    expect(screen.queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始整理' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('DeepSeek 整理反馈')).not.toBeInTheDocument()
     rerender(<OldFavoriteArchivePreviewStep
       snapshot={{
