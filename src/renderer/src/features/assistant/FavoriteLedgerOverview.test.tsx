@@ -765,6 +765,32 @@ describe('FavoriteLedgerOverview', () => {
     expect(save).toHaveBeenCalledTimes(normalSaveCount)
   })
 
+  it('shows deletion visual state only for selected cards and clears it when deletion mode exits', () => {
+    const save = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    const modeToggle = screen.getByRole('button', { name: '展开删除模式' })
+    const actions = modeToggle.parentElement
+    const chip = screen.getByTestId('favorite-ledger-chip-music')
+    expect(actions).not.toHaveAttribute('data-deletion-mode')
+    expect(chip).not.toHaveAttribute('data-deletion-selected')
+
+    fireEvent.click(modeToggle)
+    expect(actions).toHaveAttribute('data-deletion-mode', 'true')
+    expect(chip).not.toHaveAttribute('data-deletion-selected')
+
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    expect(chip).toHaveAttribute('data-deletion-selected', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
+    expect(actions).not.toHaveAttribute('data-deletion-mode')
+    expect(chip).not.toHaveAttribute('data-deletion-selected')
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeEnabled()
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('keeps default ledgers checked and non-cancelable while the default system is enabled', () => {
     render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled ledgers={[
       { id: 'music', displayName: 'bilimi\u00b7音乐', keywords: [], enabled: false, priority: 10, isDefault: true },

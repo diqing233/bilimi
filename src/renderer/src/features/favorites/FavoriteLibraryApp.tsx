@@ -171,6 +171,11 @@ function favoriteLibraryActionFailureMessage(error: unknown) {
   return text.actionFailed
 }
 
+function isMissingRemoteUnfavoriteTarget(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  return /收藏未同步|managed placement removal has no matching placements/i.test(detail)
+}
+
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
   return page.items.map((item) => ({
     ...item.video,
@@ -490,6 +495,7 @@ export function FavoriteLibraryApp({
   const [deleteOtherWorkFolders, setDeleteOtherWorkFolders] = useState(false)
   const [batchDeleteOtherWorkFolders, setBatchDeleteOtherWorkFolders] = useState(false)
   const [removeManagedOtherFolders, setRemoveManagedOtherFolders] = useState(false)
+  const [remoteUnfavoriteDialog, setRemoteUnfavoriteDialog] = useState<'choice' | 'missing-target' | 'unverified'>()
   const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
   const [batchRemoteDeletionChoice, setBatchRemoteDeletionChoice] = useState<{
     selection: FavoriteLibraryOperationSelection
@@ -1345,8 +1351,7 @@ export function FavoriteLibraryApp({
     setBatchDeleteOtherWorkFolders(false)
     setBatchLocalDeleteConfirmationOpen(false)
   }
-  const beginRemoteUnfavorite = async () => {
-    const api = window.bilimiDesktop
+  const remoteUnfavoriteTarget = () => {
     const desiredFolderIds = (detailSnapshot?.position?.localDesiredFolderIds ?? []).filter((folderId) => folderId.startsWith('bilimi-logical:'))
     const remoteObservedLogicalFolderIds = detailSnapshot?.position?.remoteObservedLogicalFolderIds ?? []
     const remoteObservedPhysicalFolderIds = detailSnapshot?.position?.remoteObservedPhysicalFolderIds ?? []
@@ -1359,11 +1364,31 @@ export function FavoriteLibraryApp({
     const remotePlacementObserved = currentLogicalFolderId && !removeManagedOtherFolders
       ? remoteObservedLogicalFolderIds.includes(currentLogicalFolderId) || (desiredFolderIds.includes(currentLogicalFolderId) && remoteObservedPhysicalFolderIds.length > 0)
       : remoteObservedLogicalFolderIds.length > 0 || (desiredFolderIds.length > 0 && remoteObservedPhysicalFolderIds.length > 0)
-    if (currentLogicalFolderId && !remotePlacementObserved) {
-      setError('收藏未同步')
+    return { logicalFolderIds, remotePlacementObserved }
+  }
+  const closeRemoteUnfavoriteDialog = () => {
+    if (remoteUnfavoritePreparing || remoteUnfavoriteExecuting) return
+    setRemoteUnfavoriteDialog(undefined)
+    setRemoteUnfavoritePreview(undefined)
+    setRemoveManagedOtherFolders(false)
+  }
+  const openRemoteUnfavoriteDialog = () => {
+    setRemoteUnfavoritePreview(undefined)
+    setRemoveManagedOtherFolders(false)
+    const { remotePlacementObserved } = remoteUnfavoriteTarget()
+    setRemoteUnfavoriteDialog(remotePlacementObserved ? 'choice' : 'missing-target')
+  }
+  const beginRemoteUnfavorite = async () => {
+    const api = window.bilimiDesktop
+    const { logicalFolderIds, remotePlacementObserved } = remoteUnfavoriteTarget()
+    if (!remotePlacementObserved) {
+      setRemoteUnfavoriteDialog('missing-target')
       return
     }
-    if (!accountMid || !selected || !summary || (currentLogicalFolderId && !logicalFolderIds.length) || !api?.previewFavoriteLibraryManagedPlacementRemoval) throw new Error(text.unavailable)
+    if (!accountMid || !selected || !summary || (currentLogicalFolderId && !logicalFolderIds.length) || !api?.previewFavoriteLibraryManagedPlacementRemoval) {
+      setRemoteUnfavoriteDialog('unverified')
+      return
+    }
     setRemoteUnfavoritePreparing(true)
     try {
       const preview = await api.previewFavoriteLibraryManagedPlacementRemoval(accountMid, [selected.aid], logicalFolderIds, summary.revision, currentLogicalFolderId
@@ -1385,6 +1410,9 @@ export function FavoriteLibraryApp({
         recycleAids: preview.recycleAids ?? [],
         skippedUnmatchedAids: preview.skippedUnmatchedAids ?? []
       })
+      setRemoteUnfavoriteDialog(undefined)
+    } catch (error) {
+      setRemoteUnfavoriteDialog(isMissingRemoteUnfavoriteTarget(error) ? 'missing-target' : 'unverified')
     } finally {
       setRemoteUnfavoritePreparing(false)
     }
@@ -1797,10 +1825,8 @@ export function FavoriteLibraryApp({
   const detailSourceEligibility = selectionEligibility({ selectedAids: [], selectAllScope: false, excludedAids: [] })
   const detailIsOrdinarySource = detailSourceEligibility.sourceScopeKind === 'bilibili-default' || detailSourceEligibility.sourceScopeKind === 'bilibili-user-folder'
   const detailBilimiDeletionVisible = Boolean(currentLogicalFolderId || detailIsOrdinarySource || detailSourceEligibility.sourceScopeKind === 'mixed-virtual')
+  const detailRemoteDeletionVisible = Boolean(selected)
   const detailLocalDeletionAvailable = detailBilimiDeletionVisible
-  const detailRemoteDeletionAvailable = Boolean(detailBilimiDeletionVisible && accountMid && selected && summary && (
-    !currentLogicalFolderId || currentFolder?.syncState === 'bound'
-  ))
   const detailOrdinarySourceNames = detail?.folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.title) ?? []
   const detailSourceVideo = detailSnapshot && detailSnapshot.video.aid === selected?.aid ? detailSnapshot.video : selected
   const detailQueueItem = selected && detailSourceVideo
@@ -2443,12 +2469,23 @@ export function FavoriteLibraryApp({
             })()}</> : <><p>将按该视频已记录的 bilimi 工作夹归属处理；普通 B 站收藏夹不会修改，转写、档案、保护和处理记录会保留。</p>{workspaceDestinationOptions.length > 1 ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={deleteOtherWorkFolders} onChange={(event) => setDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}{deleteOtherWorkFolders ? <p>还会从该视频已记录的其他 bilimi 工作夹移除。</p> : null}{detailOrdinarySourceNames.length ? <p>普通 B 站收藏夹仍保留：{detailOrdinarySourceNames.join('、')}</p> : null}</>}<div className="favorite-library__dialog-actions"><button type="button" className="favorite-library__inline-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => void runDetailAction(deleteFromLibrary, true)}>确认从收藏库 bilimi 收藏夹删除</button></div></FavoriteLibraryConfirmationDialog> : null}</> : null}{(() => {
               const desiredLogicalFolderIds = (detailSnapshot?.position?.localDesiredFolderIds ?? []).filter((folderId) => folderId.startsWith('bilimi-logical:'))
               const otherLogicalFolderIds = desiredLogicalFolderIds.filter((folderId) => folderId !== currentLogicalFolderId)
-              const remoteRemovalAvailable = detailRemoteDeletionAvailable
-              return detailBilimiDeletionVisible ? <>
-                <button type="button" className="favorite-library__inline-action favorite-library__danger-action" disabled={!remoteRemovalAvailable || remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} aria-describedby="favorite-library-remote-unfavorite-note" onClick={() => void runDetailAction(beginRemoteUnfavorite)}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在删除 B 站 bilimi 收藏夹…' : '从 B 站 bilimi 收藏夹删除'}</button>
-                {(currentLogicalFolderId ? otherLogicalFolderIds.length > 0 : workspaceDestinationOptions.length > 1) ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={removeManagedOtherFolders} onChange={(event) => setRemoveManagedOtherFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}
-                <p id="favorite-library-remote-unfavorite-note" className="favorite-library__danger-note">{currentLogicalFolderId ? '只删除已同步的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。未同步的视频会提示“收藏未同步”，结果未知时不会自动重试。' : '只删除该视频已记录的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。未找到 bilimi 归属时会提示已跳过，结果未知时不会自动重试。'}</p>
-                {remoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={() => setRemoteUnfavoritePreview(undefined)}>
+              return detailRemoteDeletionVisible ? <>
+                <button type="button" className="favorite-library__inline-action favorite-library__danger-action" disabled={remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} onClick={openRemoteUnfavoriteDialog}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在删除 B 站 bilimi 收藏夹…' : '从 B 站 bilimi 收藏夹删除'}</button>
+                {remoteUnfavoriteDialog === 'choice' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoritePreparing} onClose={closeRemoteUnfavoriteDialog}>
+                  <p>{currentLogicalFolderId ? `只删除当前工作夹“${detailFolderName(currentLogicalFolderId)}”已同步的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。` : '只删除该视频已记录的 B 站 bilimi 收藏夹归属；不会修改普通 B 站收藏夹。'}</p>
+                  {(currentLogicalFolderId ? otherLogicalFolderIds.length > 0 : workspaceDestinationOptions.length > 1) ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={removeManagedOtherFolders} onChange={(event) => setRemoveManagedOtherFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}
+                  {removeManagedOtherFolders ? <p>{currentLogicalFolderId ? `还会从 ${otherLogicalFolderIds.length} 个其他 bilimi 工作夹移除。` : '还会从该视频已记录的其他 bilimi 工作夹移除。'}</p> : null}
+                  <div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoritePreparing} onClick={closeRemoteUnfavoriteDialog}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoritePreparing} onClick={() => void beginRemoteUnfavorite()}>{remoteUnfavoritePreparing ? '正在核验…' : '继续'}</button></div>
+                </FavoriteLibraryConfirmationDialog> : null}
+                {remoteUnfavoriteDialog === 'missing-target' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog}>
+                  <p>当前没有实际 B 站 bilimi 收藏夹，无法执行删除。</p>
+                  <div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>
+                </FavoriteLibraryConfirmationDialog> : null}
+                {remoteUnfavoriteDialog === 'unverified' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog}>
+                  <p>暂时无法核验 B 站收藏夹，请稍后重试。</p>
+                  <div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>
+                </FavoriteLibraryConfirmationDialog> : null}
+                {remoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={closeRemoteUnfavoriteDialog}>
                   <p>将从 B 站 bilimi 收藏夹删除“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的归属：{remoteUnfavoritePreview.affectedLogicalFolders.map((folder) => folder.title).join('、') || '所选 bilimi 工作夹'}。</p>
                   {remoteUnfavoritePreview.skippedUnmatchedAids.length ? <p role="alert">未找到 bilimi 收藏夹归属，已跳过 {remoteUnfavoritePreview.skippedUnmatchedAids.length} 个视频。</p> : null}
                   {remoteUnfavoritePreview.preservedOrdinarySources.length ? <p>普通 B 站收藏夹仍保留：{remoteUnfavoritePreview.preservedOrdinarySources.map((folder) => folder.title).join('、')}</p> : null}

@@ -4933,6 +4933,9 @@ body[data-floating-window="true"],
   font-size: 14px;
   line-height: 1;
 }
+.favorite-ledger-panel__category-actions[data-deletion-mode] > button:not(:first-child) {
+  color: #9d2e2e;
+}
 .favorite-ledger-panel__chips {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5044,6 +5047,13 @@ body[data-floating-window="true"],
   background: rgba(220, 238, 255, 0.78);
   color: var(--porcelain-deep);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+.favorite-ledger-panel__chip-item[data-deletion-selected] > button:first-child,
+.favorite-ledger-panel__chip-item[data-deletion-selected] > .favorite-ledger-panel__chip-action {
+  border-color: rgba(183, 62, 48, 0.72);
+  background: inherit;
+  color: var(--porcelain-text);
+  box-shadow: none;
 }
 .favorite-ledger-panel__chip-item > button:first-child[data-active="true"] {
   outline: 2px solid rgba(116, 199, 223, 0.72);
