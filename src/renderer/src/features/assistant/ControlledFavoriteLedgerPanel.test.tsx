@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
+import { canConfirmFullReorganization, ControlledFavoriteLedgerPanel, createRecommendationProjection, resolveRecommendationOpenLedgerId } from './ControlledFavoriteLedgerPanel'
 import { OldFavoriteWholeRunOverview } from './OldFavoriteOverviewControls'
 
 function deferred<T>() {
@@ -110,6 +110,60 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: /取消删除模式/ })).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /加入删除 bilimi·游戏专区/ })).toBeInTheDocument()
+  })
+
+  it('opens the real saved recommendation instead of an old candidate-ID draft', async () => {
+    const workspace = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {},
+      recommendations: {
+        candidates: [{ id: 'custom-author-honker233', displayName: 'bilimi·honker233', kind: 'author' as const, keywords: ['honker233'], count: 1, reason: '推荐 UP' }],
+        adoptedCandidateIds: ['custom-author-honker233']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(workspace),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({ ...workspace, recommendations: { ...workspace.recommendations, adoptedCandidateIds: [] } }),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      deleteFavoriteLedgersLocal: vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['custom-author-honker233-9.2d'] })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} openLedgerId="custom-author-honker233" openLedgerRequestVersion={1}
+      ledgers={[
+        { id: 'custom-author-honker233-9.2d', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false },
+        { id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 10_000, syncState: 'local-draft', isDefault: false }
+      ]} />)
+
+    await waitFor(() => expect(screen.getByRole('region', { name: '当前收藏夹' }))
+      .toHaveAttribute('data-ledger-id', 'custom-author-honker233-9.2d'))
+    expect(screen.queryByTestId('favorite-ledger-chip-custom-author-honker233')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(window.bilimiDesktop?.deleteFavoriteLedgersLocal)
+      .toHaveBeenCalledWith('100', ['custom-author-honker233-9.2d']))
+    expect(window.bilimiDesktop?.commandOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: []
+    })
+  })
+
+  it('does not project a candidate-only local draft as a saved recommendation', () => {
+    const projection = createRecommendationProjection([
+      { id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
+        syncState: 'local-draft', isDefault: false }
+    ], [{ id: 'candidate-only', displayName: 'bilimi·候选草稿', kind: 'author', keywords: ['候选草稿'], count: 1, reason: '推荐 UP' }])
+
+    expect(projection.candidateToLedgerId.has('candidate-only')).toBe(false)
+    expect(projection.ledgerToCandidateId.has('candidate-only')).toBe(false)
+  })
+
+  it('does not fall back to a candidate id when opening a temporary draft', () => {
+    expect(resolveRecommendationOpenLedgerId('candidate-only', [{
+      id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
+      syncState: 'local-draft', isDefault: false
+    }], [{ id: 'candidate-only', displayName: 'bilimi·候选草稿', kind: 'author', keywords: ['候选草稿'], count: 1, reason: '推荐 UP' }])).toBeUndefined()
   })
 
   it('keeps enabled archive targets and bilimi temporary storage visible at zero', () => {
@@ -2670,7 +2724,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     await screen.findByRole('region', { name: '归档预览' })
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     const firstDeepSeekDialog = await screen.findByRole('dialog', { name: 'DeepSeek 整理' })
     fireEvent.click(within(firstDeepSeekDialog).getByLabelText('只整理【未匹配到合适分类】'))
     fireEvent.click(within(firstDeepSeekDialog).getByRole('button', { name: '开始 DeepSeek 整理' }))
@@ -2679,14 +2733,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
     resolveDeepSeek?.({ snapshot: preview, referencedConstraintLedgerNames: ['bilimi·动画'], progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
     await screen.findByText('DeepSeek 整理完成，已更新当前批次。本次整理参考了 DeepSeek 约束收藏夹：bilimi·动画。')
     deepSeek.mockRejectedValueOnce(new Error('DeepSeek 服务暂时不可用'))
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '开始 DeepSeek 整理' }))
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 服务暂时不可用')
     deepSeek.mockRejectedValueOnce(new Error(
       "Error invoking remote method 'old-favorite-workspace-v1:deepseek-current-segment': DeepSeekServiceError: DeepSeek returned invalid JSON."
     ))
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '开始 DeepSeek 整理' }))
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 整理失败，请检查服务设置后重试。')
@@ -2740,7 +2794,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     const dialog = await screen.findByRole('dialog', { name: 'DeepSeek 整理' })
     expect(within(dialog).getByLabelText('当前批次')).toBeChecked()
     expect(within(dialog).getByLabelText('本轮所有批次')).not.toBeChecked()
@@ -3097,6 +3151,41 @@ describe('ControlledFavoriteLedgerPanel', () => {
       })
     ], { deleteDisabled: false }))
     expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
+  })
+
+  it('waits for a promoted recommendation save before deleting it', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [{ id: 'author-pending', displayName: 'bilimi·待保存', kind: 'author' as const, count: 2, reason: '待保存' }], adoptedCandidateIds: [] as string[] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn((_accountMid: string, input: { type: string; candidateIds?: string[] }) => Promise.resolve({
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: input.type === 'set-recommended-candidates' ? (input.candidateIds ?? []) : [] }
+    }))
+    const save = deferred<unknown>()
+    const onSaveLedgers = vi.fn(() => save.promise)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['author-pending'] })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={onSaveLedgers} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '待保存' }))
+    fireEvent.click(await screen.findByRole('button', { name: '待保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    await act(async () => save.resolve(undefined))
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-pending']))
   })
 
   it('projects a recommendation onto the existing logical ledger and preserves its real binding details', async () => {
@@ -3556,7 +3645,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '开始 DeepSeek 整理' }))
     expect(await screen.findByText(/已处理 20 条；1 条未应用/)).toBeInTheDocument()
     expect(screen.getByText('第 2 批：返回了已不可用的收藏夹目标，1 条未应用，可重试。')).toBeInTheDocument()
@@ -3828,7 +3917,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(await screen.findByRole('button', { name: '转移 Second' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '开始整理' })).toBeDisabled()
   })
 
   it('keeps navigation open but hides an incomplete batch recommendation and archive details', async () => {

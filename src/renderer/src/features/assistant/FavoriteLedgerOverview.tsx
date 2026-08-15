@@ -44,10 +44,11 @@ type FavoriteLedgerOverviewProps = {
     source?: 'editor-unsaved' | 'organization-selection'
   ) => void
   /** Active-round recommendations use workspace selection instead of the global enabled preference. */
-  onOrganizationRecommendationToggle?: (ledgerId: string, enabled: boolean) => boolean
+  onOrganizationRecommendationToggle?: (ledgerId: string, enabled: boolean) => boolean | Promise<boolean>
   /** Workspace recommendation selection projects onto candidate cards without persisting a global toggle. */
   organizationRecommendationEnabledById?: ReadonlyMap<string, boolean>
-  onDeleteLedger?: (ledgerId: string) => void
+  onDeleteLedger?: (ledgerId: string) => boolean | void | Promise<boolean | void>
+  onBeforeDeleteLedger?: (ledgerId: string) => Promise<void> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   draftRuleAnalysis?: {
     ledgerId: string
@@ -91,6 +92,7 @@ type ManagedDeletionPlan = {
   localCustomLedgerIds: string[]
   localDefaultLedgerIds: string[]
   draftLedgerIds: string[]
+  recommendationCancellationLedgerIds: string[]
   candidates: ManagedFolderDeletionCandidate[]
 }
 
@@ -241,7 +243,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -272,6 +274,22 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !ledger.bilibiliFolderId &&
     ledger.bindingState === undefined
   const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
+  const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
+    ledger.bindingState !== 'unbacked' && !missingLedgerIds.includes(ledger.id) &&
+    organizationRecommendationEnabledById?.get(ledger.id) === true &&
+    Boolean(onOrganizationRecommendationToggle)
+  const cancelRecommendation = async (ledgerId: string) => {
+    if (!onOrganizationRecommendationToggle) return false
+    try {
+      const result = await onOrganizationRecommendationToggle(ledgerId, false)
+      if (result === false) throw new Error('Recommendation cancellation failed.')
+      return true
+    } catch {
+      setDeletionError('删除未成功，请稍后重试。')
+      setDraftDeletionError('删除未成功，请稍后重试。')
+      return false
+    }
+  }
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [ledgerHintVisible, setLedgerHintVisible] = useState(false)
   const [ledgerHintPosition, setLedgerHintPosition] = useState({ top: 0, left: 0 })
@@ -606,7 +624,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const previousEnabled = enableStore.isEnabled(id)
-    if (onOrganizationRecommendationToggle?.(id, !previousEnabled)) return
+    if (organizationRecommendationEnabledById?.has(id) && onOrganizationRecommendationToggle) {
+      void onOrganizationRecommendationToggle(id, !previousEnabled)
+      return
+    }
     if (!enableStore.toggle(id)) return
     const version = (toggleVersionsRef.current.get(id) ?? 0) + 1
     toggleVersionsRef.current.set(id, version)
@@ -806,9 +827,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id))
-    const draftLedgerIds = selectedLedgers.filter(isDraftDirectlyDeletable).map((ledger) => ledger.id)
-    const selectedCustomLedgers = selectedLedgers.filter((ledger) => !ledger.isDefault && !draftLedgerIds.includes(ledger.id))
-    const selectedDefaultLedgers = selectedLedgers.filter((ledger) => ledger.isDefault)
+    const recommendationCancellationLedgerIds = selectedLedgers.filter(isRecommendationCancellationOnly).map((ledger) => ledger.id)
+    const deletionLedgers = selectedLedgers.filter((ledger) => !recommendationCancellationLedgerIds.includes(ledger.id))
+    const draftLedgerIds = deletionLedgers.filter(isDraftDirectlyDeletable).map((ledger) => ledger.id)
+    const selectedCustomLedgers = deletionLedgers.filter((ledger) => !ledger.isDefault && !draftLedgerIds.includes(ledger.id))
+    const selectedDefaultLedgers = deletionLedgers.filter((ledger) => ledger.isDefault)
     const remoteCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
@@ -821,7 +844,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const localDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
-    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, candidates: [] }
+    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
     if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length) {
       await requestManagedDeletion(plan)
       return
@@ -835,6 +858,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const persistedLedgers = selectedLedgers.filter((ledger) => ledgers.some((item) => item.id === ledger.id))
     if (persistedLedgers.length) {
       try {
+        for (const ledger of persistedLedgers) await onBeforeDeleteLedger?.(ledger.id)
         const accountMid = window.bilimiDesktop?.readBilibiliAccountMid
           ? await window.bilimiDesktop.readBilibiliAccountMid()
           : ''
@@ -860,7 +884,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
     setDeletionError(null)
     setDraftDeletionError(null)
-    for (const ledger of persistedLedgers) onDeleteLedger?.(ledger.id)
+    for (const ledger of persistedLedgers) {
+      const result = await onDeleteLedger?.(ledger.id)
+      if (result === false) {
+        setDeletionError('删除未成功，请稍后重试。')
+        setDraftDeletionError('删除未成功，请稍后重试。')
+        return false
+      }
+    }
     return true
   }
   const deleteUnsavedDraft = async (ledger: FavoriteLedger) => {
@@ -887,7 +918,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setActiveLedgerId(null)
     setNewLedger(false)
     setDraftDeletionError(null)
-    if (wasPersisted) onDeleteLedger?.(ledger.id)
+    if (wasPersisted) {
+      const result = await onDeleteLedger?.(ledger.id)
+      if (result === false) setDraftDeletionError('删除未成功，请稍后重试。')
+    }
   }
   const requestManagedDeletion = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
     if (destructiveActionLocked) return
@@ -926,6 +960,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     await window.bilimiDesktop.deleteFavoriteLedgersLocal(accountMid, persisted.map((ledger) => ledger.id))
   }
   const finalizeManagedDeletionPlan = async (plan: ManagedDeletionPlan, accountMid = '') => {
+    for (const ledgerId of plan.recommendationCancellationLedgerIds) {
+      const result = await onOrganizationRecommendationToggle?.(ledgerId, false)
+      if (result === false) throw new Error('Recommendation cancellation failed.')
+    }
     const locallyReleasedDefaultLedgerIds = deletionScope === 'local-only'
       ? plan.remoteDefaultLedgerIds
       : []
@@ -1124,7 +1162,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       </section>
       {backupSkipNotice ? <p className="favorite-ledger-panel__notice" role="alert">{backupSkipNotice}</p> : null}
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => { if (isDraftDirectlyDeletable(active)) { void deleteUnsavedDraft(active); return }; void deleteLocalFavoriteLedgers([active.id]) }}>删除</button> : null}</div></div>
+      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => { if (isRecommendationCancellationOnly(active)) { void cancelRecommendation(active.id); return }; if (isDraftDirectlyDeletable(active)) { void deleteUnsavedDraft(active); return }; void deleteLocalFavoriteLedgers([active.id]) }}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, [...new Set([
