@@ -3,6 +3,88 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('opens the DeepSeek range dialog with current-batch defaults and does nothing when canceled', () => {
+    const onOrganizeWithDeepSeek = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing', readiness: 'ready' },
+          { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing', readiness: 'ready' }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable deepSeekFeedback={null} viewScope="current"
+      onOrganizeWithDeepSeek={onOrganizeWithDeepSeek} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    expect(within(dialog).getByRole('radio', { name: '整理不确定项和【未分类】（推荐）' })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: '当前批次' })).toBeChecked()
+    fireEvent.click(within(dialog).getByRole('radio', { name: '只整理【未匹配到合适分类】' }))
+    fireEvent.click(within(dialog).getByRole('radio', { name: '本轮所有批次' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(onOrganizeWithDeepSeek).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const reopenedDialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    expect(within(reopenedDialog).getByRole('radio', { name: '整理不确定项和【未分类】（推荐）' })).toBeChecked()
+    expect(within(reopenedDialog).getByRole('radio', { name: '当前批次' })).toBeChecked()
+  })
+
+  it('defaults the DeepSeek range dialog to all batches from the whole-run overview', () => {
+    const onOrganizeWithDeepSeek = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing', readiness: 'ready' },
+          { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing', readiness: 'ready' }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        overview: { available: true, completedSegmentCount: 2, totalSegmentCount: 2, sourceFolders: [], unavailableItemCount: 0, recommendationCounts: [], archiveTargets: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable deepSeekFeedback={null} viewScope="all"
+      onOrganizeWithDeepSeek={onOrganizeWithDeepSeek} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    expect(within(dialog).getByRole('radio', { name: '整理不确定项和【未分类】（推荐）' })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: '本轮所有批次' })).toBeChecked()
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始 DeepSeek 整理' }))
+    expect(onOrganizeWithDeepSeek).toHaveBeenCalledWith('low-confidence-and-unclassified', 'all')
+  })
+
+  it('keeps the DeepSeek batch range out of the dialog for a single batch', () => {
+    const onOrganizeWithDeepSeek = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={onOrganizeWithDeepSeek} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    expect(within(dialog).queryByText('批次范围')).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('radio', { name: '当前批次' })).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始 DeepSeek 整理' }))
+    expect(onOrganizeWithDeepSeek).toHaveBeenCalledWith('low-confidence-and-unclassified', 'current')
+  })
+
   it('removes a disabled ordinary ledger from the current archive preview', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
