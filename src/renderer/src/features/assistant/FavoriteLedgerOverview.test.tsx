@@ -433,6 +433,40 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '加入删除 bilimi·自建' })).toBeEnabled()
   })
 
+  it('releases a default physical binding before persisting a local-only reset', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false }
+    ])
+    const releaseDefaultFavoriteLedgerBindings = vi.fn().mockResolvedValue({
+      status: 'succeeded', ledgerIds: ['music'], remoteFolderIds: ['remote-music']
+    })
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        releaseDefaultFavoriteLedgerBindings
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], enabled: true, priority: 10,
+      bilibiliFolderId: 'remote-music', bilibiliFolderIds: ['remote-music'], bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(releaseDefaultFavoriteLedgerBindings).toHaveBeenCalledWith('100', ['music']))
+    expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'music', bindingState: 'unbound', managedFolderDeletedByUser: true })
+    ], { deleteDisabled: false })
+  })
+
   it('offers a Bilibili scope for a saved custom ledger without deleting its library folder', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'custom', remoteFolderId: '9', title: 'bilimi\u00b7自建', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false }
@@ -599,7 +633,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('progressbar', { name: '收藏夹规则分析进度' })).toHaveAttribute('aria-valuenow', '128')
     expect(screen.getByRole('textbox', { name: '关键词' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·音乐' })).toBeEnabled()
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '最终规则' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(save).toHaveBeenLastCalledWith([
@@ -1219,6 +1253,72 @@ describe('FavoriteLedgerOverview', () => {
     expect(toggle).toBeDisabled()
   })
 
+  it('shows an edited backed default as unsaved while the organization card hides only its backup state', () => {
+    render(<FavoriteLedgerOverview hasExpandedOrganizationGuide defaultFavoriteSystemEnabled ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['旧规则'], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'bound', bilibiliFolderId: '9001'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '新规则' } })
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未保存')
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('已备册')
+    expect(screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status'))
+      .toHaveTextContent('未保存 · 已备册')
+  })
+
+  it('skips an unsaved default during backup while backing up another saved selected ledger', async () => {
+    const sync = vi.fn().mockResolvedValue({ ok: true })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['旧规则'], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'bound', bilibiliFolderId: '9001'
+    }, {
+      id: 'saved-custom', displayName: 'bilimi·已保存', keywords: ['已保存'], enabled: true, priority: 20,
+      isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '新规则' } })
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'saved-custom', enabled: true })
+    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    expect(screen.getByRole('alert')).toHaveTextContent('音乐尚未保存，已跳过本次备册，请先保存后再备册。')
+  })
+
+  it('keeps bilimi temporary storage checked even when the default system is closed', () => {
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: false, priority: 10,
+      isDefault: true, bindingState: 'unbacked'
+    }]} missingLedgerIds={['inbox']} onSaveLedgers={vi.fn()} />)
+
+    const toggle = screen.getByRole('button', { name: '移出同步 bilimi·暂存' })
+    expect(toggle).toHaveAttribute('data-enabled', 'true')
+    expect(toggle).toBeDisabled()
+  })
+
+  it('does not let bulk selection re-enable an edited custom ledger before it is saved', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'custom', displayName: 'bilimi·自建', keywords: ['旧规则'], enabled: true, priority: 10,
+      isDefault: false, bindingState: 'bound', bilibiliFolderId: '9001'
+    }, {
+      id: 'other', displayName: 'bilimi·其他', keywords: ['其他'], enabled: false, priority: 20,
+      isDefault: false, bindingState: 'bound', bilibiliFolderId: '9002'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '自建' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '新规则' } })
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·自建' })).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·自建' })).toHaveAttribute('data-enabled', 'false')
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·其他' })).toHaveAttribute('data-enabled', 'true')
+  })
+
   it('renders a default ledger from its actual retained Bilibili binding', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10,
@@ -1388,7 +1488,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')
   })
 
-  it('backs up the full local configuration without previewing disabled ledgers for deletion', async () => {
+  it('backs up only saved selected ledgers without previewing disabled or unsaved rules for deletion', async () => {
     const sync = vi.fn().mockResolvedValue(undefined)
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3 }
@@ -1409,16 +1509,14 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByRole('button', { name: '检查待删除收藏夹' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'music', enabled: true }),
-      expect.objectContaining({ id: 'reading', enabled: false }),
-      expect.objectContaining({ id: 'recommended-up', syncState: 'local-draft' })
-    ]), { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    await waitFor(() => expect(sync).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'music', enabled: true })
+    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
 
-  it('disables backup when no saved and enabled ledger is available', () => {
+  it('explains which selected unsaved ledgers must be saved before backup can proceed', () => {
     const sync = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: false, priority: 10, isDefault: true },
@@ -1426,10 +1524,10 @@ describe('FavoriteLedgerOverview', () => {
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
 
     const backupButton = screen.getByRole('button', { name: '备册收藏夹' })
-    expect(backupButton).toBeDisabled()
-    expect(backupButton).toHaveAttribute('title', '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。')
+    expect(backupButton).toBeEnabled()
     fireEvent.click(backupButton)
     expect(sync).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('推荐 UP尚未保存，已跳过本次备册，请先保存后再备册。')
   })
 
   it('keeps default ledgers selectable only in deletion mode while preserving normal selection', () => {
@@ -1646,12 +1744,16 @@ describe('FavoriteLedgerOverview', () => {
       { logicalLedgerId: 'knowledge', remoteFolderId: 'remote-knowledge', title: 'bilimi·知识', memberCount: 1 }
     ])
     const deleteManagedFavoriteFolders = vi.fn()
+    const releaseDefaultFavoriteLedgerBindings = vi.fn().mockResolvedValue({
+      status: 'succeeded', ledgerIds: ['knowledge'], remoteFolderIds: ['remote-knowledge']
+    })
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
         previewManagedFavoriteFolderDeletion,
-        deleteManagedFavoriteFolders
+        deleteManagedFavoriteFolders,
+        releaseDefaultFavoriteLedgerBindings
       }
     })
     render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
@@ -1728,7 +1830,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '科技' })).toBeInTheDocument()
   })
 
-  it('backs up eligible ledgers without dropping unchecked rules or unsaved drafts', async () => {
+  it('backs up only saved selected ledgers', async () => {
     const sync = vi.fn().mockResolvedValue({ ok: true })
     render(<FavoriteLedgerOverview ledgers={[
       { id: 'enabled', displayName: 'bilimi·已勾选', keywords: [], enabled: true, priority: 10, isDefault: false },
@@ -1738,11 +1840,9 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: 'enabled' }),
-      expect.objectContaining({ id: 'unchecked', enabled: false }),
-      expect.objectContaining({ id: 'draft', syncState: 'local-draft' })
-    ]), { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    await waitFor(() => expect(sync).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'enabled', enabled: true })
+    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
   })
 
   it('keeps a selected default card while deleting its actual Bilibili folder', async () => {

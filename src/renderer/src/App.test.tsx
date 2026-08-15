@@ -1650,7 +1650,7 @@ describe('App runtime integration', () => {
       ...(ledger.id === 'music' ? { managedFolderDeletedByUser: true, bindingState: 'unbound' as const } : {}),
       enabled: true
     }))
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
         favoriteAccountPreferences: {
           [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
@@ -2432,6 +2432,91 @@ describe('App runtime integration', () => {
               expect.objectContaining({ id: recoveredLedgers[0].id, bilibiliFolderId: '9001' }),
               expect.objectContaining({ id: recoveredLedgers[1].id, bilibiliFolderId: '9002' })
             ])
+          }
+        }
+      }
+    })
+  })
+
+  it('keeps an explicitly reset default ledger unbound while an older repository shard still exists', async () => {
+    const accountMid = '100'
+    const ledger = {
+      ...createDefaultFavoriteLedgers()[0],
+      bindingState: 'unbound' as const,
+      managedFolderDeletedByUser: true
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [ledger]
+        }
+      }
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1,
+        accountMid,
+        revision: 4,
+        updatedAt: '2026-08-16T00:00:00.000Z',
+        videoCount: 0,
+        folderCount: 1,
+        folders: [],
+        folderCounts: {},
+        scopeCounts: {},
+        physicalShardCount: 1,
+        syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 },
+        pendingAidCount: 0,
+        remoteReconciliations: [],
+        physicalShards: [{
+          logicalLedgerId: ledger.id,
+          shardNumber: 1,
+          remoteFolderId: 'older-bound-folder',
+          bindingState: 'bound'
+        }]
+      })
+    })
+    notifyPreferencesChanged(initialPreferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          const oldBindingWasReintroduced = script.includes('older-bound-folder')
+          return oldBindingWasReintroduced
+            ? {
+                ok: true,
+                ledgers: [{ ...ledger, bilibiliFolderId: 'older-bound-folder', bindingState: 'bound' as const }],
+                missingLedgerIds: [],
+                backupConflictLedgerIds: [],
+                unboundLedgerIds: [],
+                message: '旧绑定被错误恢复。'
+              }
+            : {
+                ok: false,
+                ledgers: [ledger],
+                missingLedgerIds: [],
+                backupConflictLedgerIds: [],
+                unboundLedgerIds: [ledger.id],
+                message: '等待主人主动备册确认。'
+              }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-with-explicit-local-reset', type: 'snapshot' })
+
+    expect(snapshot).toMatchObject({
+      favoriteLedgerStatus: { ok: false, unboundLedgerIds: [ledger.id] },
+      preferences: {
+        favoriteAccountPreferences: {
+        [accountMid]: {
+            favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: ledger.id, bindingState: 'unbound' })])
           }
         }
       }

@@ -10,7 +10,7 @@ function normalizedRemoteFolderIds(ledger: FavoriteLedger) {
 export function restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger: FavoriteLedger): FavoriteLedger {
   const template = createDefaultFavoriteLedgers().find((candidate) => candidate.id === ledger.id)
   if (!ledger.isDefault || !template) return ledger
-  return { ...template, bindingState: 'unbound' }
+  return { ...template, bindingState: 'unbound', managedFolderDeletedByUser: true }
 }
 
 /**

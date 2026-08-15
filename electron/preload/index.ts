@@ -654,6 +654,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:delete-favorite-ledger-draft', accountMid, ledgerId) as Promise<{ status: 'succeeded'; ledgerId: string }>,
   deleteFavoriteLedgersLocal: (accountMid: string, ledgerIds: string[]) =>
     ipcRenderer.invoke('assistant:delete-favorite-ledgers-local', accountMid, ledgerIds) as Promise<{ status: 'succeeded'; ledgerIds: string[] }>,
+  releaseDefaultFavoriteLedgerBindings: (accountMid: string, ledgerIds: string[]) =>
+    ipcRenderer.invoke('assistant:release-default-favorite-ledger-bindings', accountMid, ledgerIds) as Promise<{ status: 'succeeded'; ledgerIds: string[]; remoteFolderIds: string[] }>,
   consumeFavoriteLedgerRemoteDraftRediscoveryPending: (accountMid: string) =>
     ipcRenderer.invoke('assistant:consume-favorite-ledger-remote-draft-rediscovery-pending', accountMid) as Promise<string[]>,
   writeDefaultFavoriteSystemEnabled: (accountMid: string, enabled: boolean) =>

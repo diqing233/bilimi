@@ -1575,6 +1575,13 @@ export default function App() {
       trustedRemoteFolderIds,
       trustedRemoteShardNumbers,
       ledgers: favoriteLedgers.map((ledger) => {
+        // A right-side local deletion deliberately resets a default rule while
+        // preserving its Bilibili folder. Until a later backup explicitly
+        // confirms a binding, an older repository snapshot must not silently
+        // restore that physical association.
+        if (ledger.managedFolderDeletedByUser && ledger.bindingState === 'unbound') {
+          return ledger
+        }
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
         if (trustedFolderIds.length) {
           const legacyPendingRemoteFolderId = ledger.pendingRemoteBinding && !ledger.pendingRemoteFolderId && ledger.bilibiliFolderId && !trustedFolderIds.includes(ledger.bilibiliFolderId)
@@ -2579,6 +2586,19 @@ export default function App() {
       !(status.unboundLedgerIds?.length) &&
       areFavoriteTargetsWriteAuthorized(ledgerIds)
     )
+    const hasMatchingLocalDraftTarget = () =>
+      actionFavoriteLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState === 'local-draft')
+        .some((localDraftLedger) =>
+          classifyVideoContent(
+            videoContentContext,
+            actionFavoriteLedgers.map((ledger) =>
+              ledger.id === localDraftLedger.id
+                ? { ...ledger, syncState: undefined }
+                : ledger
+            )
+          ).ledgerId === localDraftLedger.id
+        )
     const dailyDeepSeekReviewRequested =
       actionUsesFavorite(action) &&
       preferences.deepseekEnabled &&
@@ -2597,7 +2617,7 @@ export default function App() {
       dailyDeepSeekReviewAllowed = isFavoriteWriteProvisioned(
         favoriteLedgerStatus,
         localTargetLedgerIds
-      )
+      ) && !hasMatchingLocalDraftTarget()
     }
 
     if (dailyDeepSeekReviewRequested && dailyDeepSeekReviewAllowed) {

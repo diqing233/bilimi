@@ -14,7 +14,7 @@ import {
   webContents
 } from 'electron'
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -1342,6 +1342,43 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }
+  })
+  ipcMain.handle('assistant:release-default-favorite-ledger-bindings', async (event, accountMid: unknown, requestedLedgerIds: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (
+      typeof accountMid !== 'string' ||
+      !Array.isArray(requestedLedgerIds) ||
+      requestedLedgerIds.length === 0 ||
+      requestedLedgerIds.some((ledgerId) => typeof ledgerId !== 'string' || !ledgerId.trim()) ||
+      accountMid !== await readCurrentBilibiliAccountMid()
+    ) {
+      throw new Error('Default favorite ledger binding release is unavailable.')
+    }
+
+    const requestedIds = new Set(requestedLedgerIds.map((ledgerId) => ledgerId.trim()))
+    const selectedLedgerIds = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => ledger.isDefault && requestedIds.has(ledger.id))
+      .map((ledger) => ledger.id)
+    if (!selectedLedgerIds.length || !favoriteRepositoryService) {
+      throw new Error('Default favorite ledger binding release is unavailable.')
+    }
+
+    const selectedIds = new Set(selectedLedgerIds)
+    const snapshot = await favoriteRepositoryService!.getSnapshot(accountMid)
+    const remoteFolderIds = [...new Set(snapshot.physicalShards
+      .filter((shard) => selectedIds.has(shard.logicalLedgerId) && shard.bindingState === 'bound' && shard.remoteFolderId)
+      .map((shard) => shard.remoteFolderId!))]
+    for (const remoteFolderId of remoteFolderIds) {
+      await favoriteRepositoryService!.commit(accountMid, {
+        id: `favorite-release-default-binding:${randomUUID()}`,
+        accountMid,
+        issuedAt: new Date().toISOString(),
+        type: 'remove-physical-shard-binding',
+        payload: { remoteFolderId }
+      })
+    }
+    notifyFloatingAssistantSnapshotChanged()
+    return { status: 'succeeded' as const, ledgerIds: selectedLedgerIds, remoteFolderIds }
   })
   ipcMain.handle('assistant:write-default-favorite-system-enabled', (event, accountMid: string, enabled: boolean) => {
     assertTrustedOldFavoriteAssistantSender(event)
