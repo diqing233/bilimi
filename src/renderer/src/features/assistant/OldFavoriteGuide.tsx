@@ -74,6 +74,7 @@ type OldFavoriteGuideProps = {
   onAcknowledgeCompletion?: () => void
   onConfirmAndSync: (includeInbox?: boolean) => void
   onExecuteFrozenPlan: () => void
+  onPauseBilibiliSync?: () => Promise<boolean> | void
   onStopSyncAndFinish?: () => Promise<boolean> | void
   onReconcile: () => void
 }
@@ -171,6 +172,7 @@ export function OldFavoriteGuide({
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
   onExecuteFrozenPlan,
+  onPauseBilibiliSync = () => undefined,
   onStopSyncAndFinish = () => undefined,
   onReconcile
 }: OldFavoriteGuideProps) {
@@ -380,6 +382,7 @@ export function OldFavoriteGuide({
       onAcknowledgeCompletion={onAcknowledgeCompletion}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}
+      onPauseBilibiliSync={onPauseBilibiliSync}
       onStopSyncAndFinish={onStopSyncAndFinish}
       onReconcile={onReconcile}
       recommendedCandidateIds={recommendedCandidateIds}

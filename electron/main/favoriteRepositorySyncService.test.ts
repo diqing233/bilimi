@@ -871,6 +871,49 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: undefined })
   })
 
+  it('finishes the active write then freezes the remaining plan for user continuation', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(2)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    let finishFirstAppend!: (value: { observedAccountMid: string }) => void
+    const firstAppend = new Promise<{ observedAccountMid: string }>((resolve) => { finishFirstAppend = resolve })
+    const append = vi.fn()
+      .mockImplementationOnce(() => firstAppend)
+      .mockResolvedValueOnce({ observedAccountMid: '100' })
+    const release = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn(),
+        release,
+        pageBridge: vi.fn(() => ({ append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }))
+      },
+      now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+    })
+
+    await service.claimFrozenPlan('100', frozenPlan)
+    const execution = service.executeFrozenPlan('100', frozenPlan)
+    await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
+    const pause = service.pauseFrozenPlan('100')
+    finishFirstAppend({ observedAccountMid: '100' })
+
+    await expect(execution).resolves.toMatchObject({ completedOperationCount: 1, totalOperationCount: 2 })
+    await expect(pause).resolves.toBeUndefined()
+    expect(append).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledWith('100', frozenPlan.id)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'frozen', workspaceRef: { currentStep: 'sync-paused' }, frozenSyncPlan: frozenPlan }
+    })
+    await expect(service.getRun('100', frozenPlan.id)).resolves.toMatchObject({ status: 'ready-to-resume', completedOperationCount: 1, totalOperationCount: 2 })
+
+    await expect(service.resume('100', frozenPlan.id)).resolves.toMatchObject({ status: 'succeeded', completedOperationCount: 2, totalOperationCount: 2 })
+    expect(append).toHaveBeenCalledTimes(2)
+    expect(append).toHaveBeenLastCalledWith(expect.objectContaining({ operationKey: 'append-2', aid: 2 }))
+  })
+
   it('retries an unknown append once only after automatic reconciliation confirms it is absent', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

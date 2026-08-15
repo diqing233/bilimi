@@ -76,12 +76,19 @@ function projectRecommendedLedgerDrafts(
 ) {
   if (!snapshot || 'recovery' in snapshot || !snapshot.recommendations?.candidates) return ledgers
   const selectedIds = new Set(candidateIds)
+  const candidateIdsById = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+  const isUnbackedRecommendationDraft = (ledger: FavoriteLedger) =>
+    ledger.syncState === 'local-draft' &&
+    !ledger.bilibiliFolderId?.trim() &&
+    !(ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
   // Keep the persisted ledger array intact. Selection changes only the enabled
   // state; filtering unselected drafts and appending selected candidates made
   // the grid reorder and visibly jump after a checkbox click.
-  const existingIds = new Set(ledgers.map((ledger) => ledger.id))
+  const retainedLedgers = ledgers.filter((ledger) =>
+    selectedIds.has(ledger.id) || !candidateIdsById.has(ledger.id) || !isUnbackedRecommendationDraft(ledger))
+  const existingIds = new Set(retainedLedgers.map((ledger) => ledger.id))
   return [
-    ...ledgers,
+    ...retainedLedgers,
     ...snapshot.recommendations.candidates
       .filter((candidate) => selectedIds.has(candidate.id) && !existingIds.has(candidate.id))
       .map((candidate, index) => ({
@@ -151,7 +158,6 @@ export function ControlledFavoriteLedgerPanel({
   const ledgerEnabledByIdRef = useRef(ledgerEnabledById)
   const accountKey = normalizeAccountMid(currentAccountMid)
   const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
-  const recommendationLedgerSyncWorkspaceIdRef = useRef<string | null>(null)
   const updateLedgerEnabledById = useCallback((next: ReadonlyMap<string, boolean>) => {
     const normalized = new Map(next)
     if (enabledMapsMatch(ledgerEnabledByIdRef.current, normalized)) return
@@ -165,16 +171,40 @@ export function ControlledFavoriteLedgerPanel({
     if (enabledStateAccountKey === accountKey) return
     updateLedgerEnabledById(new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
     setEnabledStateAccountKey(accountKey)
-    recommendationLedgerSyncWorkspaceIdRef.current = null
   }, [accountKey, enabledStateAccountKey, ledgers, updateLedgerEnabledById])
+  const setOrganizationRecommendedCandidates = useCallback((candidateIds: string[]) => {
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') {
+      workspace.setRecommendedCandidates(candidateIds)
+      return
+    }
+    const knownCandidateIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+    const nextCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter((id) => knownCandidateIds.has(id)))].sort()
+    const selectedCandidateIds = new Set(nextCandidateIds)
+    const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
+    for (const candidate of snapshot.recommendations.candidates) {
+      if (ledgers.some((ledger) => ledger.id === candidate.id)) {
+        nextEnabledById.set(candidate.id, selectedCandidateIds.has(candidate.id))
+      }
+    }
+    updateLedgerEnabledById(nextEnabledById)
+    workspace.setRecommendedCandidates(nextCandidateIds)
+  }, [ledgers, updateLedgerEnabledById, workspace.setRecommendedCandidates, workspace.snapshot])
+  const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
+    setOrganizationRecommendedCandidates(update(workspace.recommendedCandidateIds))
+  }, [setOrganizationRecommendedCandidates, workspace.recommendedCandidateIds])
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>) => {
     const previousEnabledById = ledgerEnabledByIdRef.current
     updateLedgerEnabledById(next)
+    const recommendationCandidateIds = new Set(
+      workspace.snapshot && !('recovery' in workspace.snapshot) && workspace.snapshot.status === 'previewing'
+        ? workspace.snapshot.recommendations.candidates.map((candidate) => candidate.id)
+        : [])
     for (const ledger of ledgers) {
       const previousEnabled = previousEnabledById.get(ledger.id) ?? ledger.enabled
       const enabled = next.get(ledger.id) ?? ledger.enabled
       const ruleType = ledger.ruleType ?? 'keyword'
-      if (previousEnabled === enabled || ruleType === 'deepseek') continue
+      if (previousEnabled === enabled || ruleType === 'deepseek' || recommendationCandidateIds.has(ledger.id)) continue
       const rules = parseFavoriteLedgerRules(ledger)
       workspace.queueDraftLedgerRuleAnalysis({
         ledgerId: ledger.id,
@@ -184,38 +214,32 @@ export function ControlledFavoriteLedgerPanel({
         ...(enabled ? {} : { adopt: false })
       })
     }
+  }, [ledgers, updateLedgerEnabledById, workspace.queueDraftLedgerRuleAnalysis, workspace.snapshot])
+  const handleOrganizationRecommendationToggle = useCallback((ledgerId: string, enabled: boolean) => {
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
+      !snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId)) return false
+    updateOrganizationRecommendedCandidates((current) => enabled
+      ? [...current, ledgerId]
+      : current.filter((candidateId) => candidateId !== ledgerId))
+    return true
+  }, [updateOrganizationRecommendedCandidates, workspace.snapshot])
+  useEffect(() => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
-    const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
-    const isInitialWorkspaceSync = recommendationLedgerSyncWorkspaceIdRef.current !== snapshot.workspaceId
-    const hasUpperEnabledChange = snapshot.recommendations.candidates.some((candidate) => {
-      const ledger = ledgerById.get(candidate.id)
-      if (!ledger) return false
-      const previousEnabled = previousEnabledById.get(candidate.id) ?? ledger.enabled
-      const nextEnabled = next.get(candidate.id) ?? ledger.enabled
-      return previousEnabled !== nextEnabled
-    })
-    if (!isInitialWorkspaceSync && !hasUpperEnabledChange) return
-    recommendationLedgerSyncWorkspaceIdRef.current = snapshot.workspaceId
-    // On the first restored render, the hook copies adopted ids into local state in a later effect.
-    // Read the snapshot directly so we only repair a real mismatch instead of overwriting an existing choice.
-    const selectedIds = new Set(isInitialWorkspaceSync
-      ? snapshot.recommendations.adoptedCandidateIds
-      : workspace.recommendedCandidateIds)
+    const selectedCandidateIds = new Set(workspace.recommendedCandidateIds)
+    const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
     let changed = false
     for (const candidate of snapshot.recommendations.candidates) {
-      const ledger = ledgerById.get(candidate.id)
-      if (!ledger) continue
-      const enabled = next.get(candidate.id) ?? ledger.enabled
-      if (enabled && !selectedIds.has(candidate.id)) {
-        selectedIds.add(candidate.id)
-        changed = true
-      } else if (!enabled && selectedIds.delete(candidate.id)) {
+      if (!ledgers.some((ledger) => ledger.id === candidate.id)) continue
+      const enabled = selectedCandidateIds.has(candidate.id)
+      if (nextEnabledById.get(candidate.id) !== enabled) {
+        nextEnabledById.set(candidate.id, enabled)
         changed = true
       }
     }
-    if (changed) workspace.setRecommendedCandidates([...selectedIds])
-  }, [ledgers, updateLedgerEnabledById, workspace.queueDraftLedgerRuleAnalysis, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot])
+    if (changed) updateLedgerEnabledById(nextEnabledById)
+  }, [ledgers, updateLedgerEnabledById, workspace.recommendedCandidateIds, workspace.snapshot])
   const handleDeleteLedger = useCallback((ledgerId: string) => {
     if (workspace.recommendedCandidateIds.includes(ledgerId)) {
       workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== ledgerId))
@@ -318,19 +342,6 @@ export function ControlledFavoriteLedgerPanel({
     return () => { active = false }
   }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids, openOrganizationSelection])
 
-  useEffect(() => {
-    if (!snapshot || scanStartingRef.current) return
-    if (!('recovery' in snapshot) && dismissedGuideWorkspaceIdRef.current === snapshot.workspaceId) return
-    setGuideOpen(true)
-    setStep((currentStep) => {
-      if ('recovery' in snapshot) return 'scan'
-      if (snapshot.status === 'scanning') return 'scan'
-      if (snapshot.executionIntent) return 'confirm'
-      if (snapshot.status !== 'previewing') return 'confirm'
-      return currentStep
-    })
-  }, [recovery, scanStarting, snapshot?.accountMid, snapshotStatus, activeSnapshot?.executionIntent])
-
   const startScan = async (mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => {
     if (scanStarting) return
     dismissedGuideWorkspaceIdRef.current = null
@@ -406,7 +417,9 @@ export function ControlledFavoriteLedgerPanel({
     dismissedGuideWorkspaceIdRef.current = null
     const isCurrentRequest = () => organizationRequestVersion.current === requestVersion &&
       activeAccountMid.current === requestedAccountMid
-    setGuideOpen(true)
+    // A recovered draft stays collapsed until the user chooses how to resume it.
+    // The resume dialog is the only UI shown between the toolbar click and that choice.
+    setGuideOpen(false)
     setStep('scan')
     setScanStartFailure(null)
     setRecoveryDecisionError(null)
@@ -419,6 +432,11 @@ export function ControlledFavoriteLedgerPanel({
     }
     const authoritativeSnapshot = snapshot || await workspace.refresh()
     if (!isCurrentRequest()) return
+    if (authoritativeSnapshot && 'recovery' in authoritativeSnapshot) {
+      setGuideOpen(true)
+      setStep('scan')
+      return
+    }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status !== 'scanning' && authoritativeSnapshot.status !== 'completed') {
       setResumeDialogOpen(true)
@@ -426,6 +444,8 @@ export function ControlledFavoriteLedgerPanel({
     }
     if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
       authoritativeSnapshot.status === 'scanning') {
+      setGuideOpen(true)
+      setStep('scan')
       return
     }
     void startScan('incremental')
@@ -438,6 +458,8 @@ export function ControlledFavoriteLedgerPanel({
       activeAccountMid.current === requestedAccountMid
     setRecoveryDecisionPending(choice)
     setRecoveryDecisionError(null)
+    setGuideOpen(true)
+    setStep('scan')
     const recoveryFailureMessage = choice === 'continue-original' && recoverySummary.recoveryChoices.includes('merge-latest')
       ? '按原草稿继续失败，草稿不会丢失。检测到收藏夹、备册状态或扫描资料可能已有变化，可尝试点击上方“合并最新变化”继续。已选推荐收藏夹和人工调整会保留。'
       : '恢复整理草稿失败，请重试。'
@@ -633,6 +655,7 @@ export function ControlledFavoriteLedgerPanel({
         onSaveLedgers={onSaveLedgers}
         onSaveLedgerEnabled={onSaveLedgerEnabled}
         onEnabledStateChange={handleEnabledStateChange}
+        onOrganizationRecommendationToggle={handleOrganizationRecommendationToggle}
         onDeleteLedger={handleDeleteLedger}
         onSyncLedgers={onSyncLedgers}
         draftRuleAnalysis={workspace.draftRuleAnalysis}
@@ -670,7 +693,11 @@ export function ControlledFavoriteLedgerPanel({
       {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
-          <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>
+          <button type="button" onClick={() => {
+            setResumeDialogOpen(false)
+            setGuideOpen(true)
+            setStep(activeSnapshot?.executionIntent || activeSnapshot?.status !== 'previewing' ? 'confirm' : 'scan')
+          }}>继续上次整理</button>
           {canRestartFromResume ? <button type="button" onClick={() => {
             setResumeDialogOpen(false)
             setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
@@ -720,8 +747,8 @@ export function ControlledFavoriteLedgerPanel({
         onResumeTagEnrichment={() => void workspace.resumeTagEnrichment()}
         onRetryFailedTagEnrichment={() => void workspace.retryFailedTagEnrichment()}
         onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
-        onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
-        onUpdateRecommendedCandidates={workspace.updateRecommendedCandidates}
+        onSetRecommendedCandidates={setOrganizationRecommendedCandidates}
+        onUpdateRecommendedCandidates={updateOrganizationRecommendedCandidates}
         recommendedCandidateIds={workspace.recommendedCandidateIds}
         recommendationSaving={workspace.recommendationSaving}
         recommendationError={workspace.recommendationError}
@@ -763,6 +790,7 @@ export function ControlledFavoriteLedgerPanel({
         onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
+        onPauseBilibiliSync={workspace.pauseBilibiliSync}
         onStopSyncAndFinish={workspace.stopBilibiliSyncAndFinish}
         onReconcile={() => void reconcile()}
       /> : null}

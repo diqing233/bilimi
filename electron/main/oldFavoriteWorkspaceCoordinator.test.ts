@@ -7748,6 +7748,58 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('pauses an executing Bilibili run without abandoning its frozen plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const pauseFrozenPlan = vi.fn(async () => {
+      const persisted = await repository.getSnapshot('100')
+      const workspace = persisted.workspace!
+      await repository.commit('100', {
+        id: 'paused-run', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+        payload: {
+          ...workspace,
+          status: 'frozen',
+          workspaceRef: { ...workspace.workspaceRef, status: 'frozen', currentStep: 'sync-paused' }
+        }
+      })
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings,
+      syncService: createSyncService({
+        pauseFrozenPlan,
+        getRun: vi.fn().mockResolvedValue({
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', status: 'running',
+          completedOperationCount: 0, totalOperationCount: 1
+        })
+      }), now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+    const frozen = await coordinator.freezeForBilibiliExecution('100')
+    await repository.commit('100', {
+      id: 'executing-run', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...frozen, status: 'executing', workspaceRef: { ...frozen.workspaceRef, status: 'executing' }, frozenSyncPlan: frozen.frozenSyncPlan! }
+    })
+
+    await expect(coordinator.pauseBilibiliSync('100')).resolves.toMatchObject({
+      status: 'frozen',
+      executionProgress: { syncPaused: true }
+    })
+    expect(pauseFrozenPlan).toHaveBeenCalledWith('100')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'frozen', frozenSyncPlan: frozen.frozenSyncPlan }
+    })
+  })
+
   it('commits the complete local organization result before the first Bilibili write starts', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

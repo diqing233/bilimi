@@ -116,3 +116,75 @@
 - 因此 I003、I004 在原索引表中的“已实施待验证”状态已被本记录明确替代为“已回退，待重新讨论”；不得据原状态宣称仍已实现。
 - 回退后执行 `npm test -- src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.test.tsx src/renderer/src/features/assistant/OldFavoriteArchivePreviewStep.test.tsx`，159/159 通过。
 - I005 的范围保持待讨论：关闭整理后“打开草稿合并新分支”的精确既有语义尚未重新确认，讨论阶段不对该路径作任何设计或改动。
+
+## 后续补充原文区
+
+### R009
+
+截图文件：`C:/Users/diqing/AppData/Local/Temp/codex-clipboard-2ae85686-53ec-4a93-b680-2fda380d0278.png`。
+截图目标区域：右侧 bilimi 面板顶部“收藏夹”卡片与下方“整理收藏 > 推荐收藏夹”区域。顶部卡片在整理草稿可见时显示多个“已备册”及“未备册”；下方推荐列表中 `honker233` 已勾选。待界面验收：顶部状态与下方推荐勾选的联动。
+
+用户原文：
+> 当前这个草稿恢复啥情况为什么又出问题了，你检查下以前的版本不是说好整理时已备册已绑定信息消失，
+> 而且推荐收藏夹勾选怎么跟上面的联系丢失了
+
+### R010
+
+用户原文：
+> 如果未备册可以直接删除，已备册只取消勾选
+
+### R011
+
+用户原文：
+> 可以
+
+### R012
+
+用户原文：
+> 确认执行，同步到b站也是，执行过程中除了进度条，以前不是说有两个按钮，暂停/继续是一个按钮。还有一个是结束按钮，我怎么没看到暂停/继续
+
+### R013
+
+用户原文：
+> ok只适用于**已经开始逐项写入 B 站的阶段**
+> 另外整理收藏草稿还有一个设计我看你没提到，就是关闭应用，或者关闭草稿之后一般都是需要点击整理收藏选择恢复草稿的，这时下面应该看不到整理收藏卡片，看不到的情况下，备册绑定信息正常显示，下面整理收藏卡片能看到的情况下，备册绑定信息不显示，只显示未保存
+
+### R014
+
+用户原文：
+> 是的
+
+### R015
+
+用户原文：
+> 无论单批还是多批都要正常
+
+### R016
+
+用户原文：
+> 好开始
+
+## 后续补充逐项索引
+
+| 条目 | 原文依据 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I006 | R009、R013、R014、R015、R016 | 未完成草稿仅在用户点击“整理收藏”并选定恢复后才显示下方整理收藏卡片；卡片可见时顶部收藏夹卡片仅保留“未保存”提示，隐藏已备册、未备册和未绑定；卡片不可见时恢复显示真实备册/绑定信息；收藏夹详情始终显示真实 B 站状态。 | `ControlledFavoriteLedgerPanel` 的 `guideOpen`/恢复入口；`FavoriteLedgerOverview` 顶部卡片和详情状态标签。 | 应用重新打开、或用户关闭草稿后，未展开整理卡片时显示真实状态；选择继续草稿或新开整理卡片可见时仅显示未保存；整理结束、关闭卡片或关闭应用后恢复真实状态。单批、多批一致。 | 初始加载不得因发现草稿自动展开向导；点击整理收藏才显示恢复选择；用户取消恢复继续保持卡片隐藏。 | 仅 UI 展示状态；不修改草稿、分类、绑定、备册、收藏库或 B 站。 | 不改变 R007、R008 所保护的关闭整理后草稿恢复语义、DeepSeek 恢复决策、扫描、备册、删除或默认收藏夹业务规则。 | 活动工作区快照、`guideOpen`、恢复弹窗、收藏夹本地未保存快照、B 站绑定状态。 | 实施中（R016 已授权） | 待新增单批/多批渲染测试、恢复入口测试、真实 Electron 草稿恢复验收。 |
+| I007 | R009、R010、R011、R015、R016 | 推荐收藏夹勾选与顶部对应收藏夹的“本轮参与整理”状态双向一致；取消未备册推荐项时删除本地草稿/规则和顶部卡片，取消已备册推荐项时仅取消勾选；未绑定但 B 站仍有实际同名收藏夹时仅取消勾选。 | `OldFavoriteRecommendationStep`、`ControlledFavoriteLedgerPanel` 的推荐项状态、临时收藏夹投影和顶部启用状态。 | 仅推荐候选与其对应的顶部收藏夹参与联动；非推荐收藏夹不新增到推荐区。单批、多批的当前批次/本轮总览视图均一致。 | 下方勾选/取消立即更新上方；上方勾选/取消立即更新下方；未备册取消后删除本地候选，不写 B 站；已备册或未绑定取消后保留卡片与规则。 | 推荐采用状态与临时本地草稿按现有工作区持久化；不得删除收藏库、视频成员或 B 站收藏夹。 | 不扩大至右侧/左侧删除模式、备册流程、B 站删除、默认收藏夹或非推荐收藏夹。 | 推荐候选 ID、上方 `enabled` 状态、工作区推荐持久化、预览和确认执行的目标集合。 | 实施中（R016 已授权） | 待新增双向同步、三种取消状态、单批/多批目标集合回归测试和界面验收。 |
+| I008 | R012、R013、R015、R016 | B 站逐项写入执行中，除进度条外提供一个切换式“暂停同步/继续同步”按钮和独立“结束本轮整理”按钮。 | `OldFavoriteConfirmationStep` 执行态、`useOldFavoriteWorkspace`、主进程工作区协调器和 B 站同步服务。 | 仅实际逐项写入 B 站的执行阶段显示；本地收藏库原子保存不增加中途暂停。单批、多批均适用；批次视图切换不改变执行范围。 | 暂停等待当前远端请求完成、保留草稿/冻结计划/完成进度，随后显示继续；继续仅执行未完成项；结束等待当前请求完成、保留已保存及已同步结果、放弃剩余远端同步并关闭草稿。远端错误的暂停保留失败原因及冷却限制。 | 需持久化可恢复的暂停计划及进度；暂停和继续不得重复已确认 B 站操作；结束沿用现有放弃剩余远端计划语义。 | 不改变 B 站请求幂等、未知结果对账、失败冷却、已同步结果、收藏库保存或 DeepSeek/扫描流程。 | 冻结同步计划、远端操作检查点、主进程执行锁、工作区快照、单批/多批汇总。 | 实施中（R016 已授权） | 待新增服务级暂停/继续、协调器命令、单批/多批 UI 和真实 Electron B 站执行验收。 |
+
+## R016 实施与验收记录（2026-08-15）
+
+### I008 暂停状态投影审查修复补充（2026-08-15）
+
+- I008 的跨层暂停状态投影已补齐：electron/main/oldFavoriteWorkspaceCoordinator.ts:6092-6130 从持久化 workspace.workspaceRef.currentStep 计算 syncPaused，不再读取运行时 OldFavoriteWorkspace 中不存在的字段；electron/main/oldFavoriteWorkspaceCoordinator.test.ts:7751-7798 新增持久化 sync-paused 标记并断言暂停返回快照包含 executionProgress.syncPaused: true。
+- 回归测试按 TDD 先红后绿：新增断言首次运行失败（executionProgress.syncPaused 缺失），修复后该用例通过。
+- 本轮定向集合重新执行：8 个测试文件、703/703 项通过；npm run build 退出码 0。输出含既有 React act(...) 警告及故意构造的绑定失败日志，无断言失败。
+- I006/I007/I008 仍为“已实施待验证”：隔离 Electron 开发版被启动前 Windows 网络权限检查遮罩阻断，未登录、未执行真实扫描/备册/删除/B站写入，也未修改真实账号数据；因此真实 Electron/B站暂停、继续、结束和草稿恢复仍需人工验收。
+
+本节更新上表 I006–I008 的实施状态；原文区及原索引内容均未改写。
+
+| 条目 | 状态 | 实际代码位置 | 自动化证据 | 真实界面验收与限制 |
+|---|---|---|---|---|
+| I006 | 已实施待验证 | `src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:255-510,649` 将向导可见性保留为 `guideOpen`，不因初始草稿快照自动展开；`src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx:453-459,1000` 在向导可见时仅显示“未保存”，详情仍用真实绑定状态。 | `ControlledFavoriteLedgerPanel.test.tsx` 的 `keeps a recovered draft hidden until the user opens organize favorites and chooses resume`，以及 `FavoriteLedgerOverview.test.tsx:164-181` 的卡片/详情状态用例；本轮 8 个定向文件共 703/703 通过。 | 使用 `BILIMI_TEST_USER_DATA` 隔离 profile 启动开发版后被“启动前权限检查”拦截；未点击会触发 Windows 网络权限的“打开 bilimi”，故未对真实草稿做恢复或截图验收。 |
+| I007 | 已实施待验证 | `ControlledFavoriteLedgerPanel.tsx:72-103,175-242,586-593,750` 以同一推荐候选集合同步推荐勾选与顶部参与状态，并仅在本地草稿且没有远端文件夹 ID 时移除卡片。 | `ControlledFavoriteLedgerPanel.test.tsx:3174-3241` 覆盖未备册移除、未绑定但有实际 B 站收藏夹时仅取消勾选、以及已绑定卡片不持久化切换；`OldFavoriteRecommendationStep.test.tsx` 同属 703/703 定向通过。 | 同 I006：隔离开发版在未授权网络权限遮罩前无法进入包含推荐项的真实工作区；未写 B 站、收藏库或本地账号数据。 |
+| I008 | 已实施待验证 | `favoriteRepositorySyncService.ts:273-282,436-459,1358-1368` 在当前远端请求完成后持久化 `frozen`/`sync-paused` 计划；`oldFavoriteWorkspaceCoordinator.ts:4972-4985,6087-6136`、IPC `oldFavoriteWorkspaceCoordinatorIpc.ts:531`、hook `useOldFavoriteWorkspace.ts:943-952` 贯通暂停；`OldFavoriteConfirmationStep.tsx:212-257` 仅在逐项 B 站执行时提供“暂停同步/继续同步”与独立“结束本轮整理”。 | `favoriteRepositorySyncService.test.ts:845-912` 覆盖当前写入完成后暂停、持久化进度及不重放继续；`oldFavoriteWorkspaceCoordinator.test.ts:7751` 覆盖保留冻结计划；IPC/hook 用例覆盖严格命令；`OldFavoriteConfirmationStep.test.tsx:366-436` 覆盖执行态、暂停态及结束按钮与暂停请求并列可用。`npm run build` 成功。 | 未在真实 B 站执行写入、暂停、继续或结束；隔离开发版被权限遮罩阻断。测试使用 mock/fixture，只能证明逻辑与渲染，不能替代真实远端验收。 |

@@ -800,7 +800,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'pauseFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (
       items: CurrentSegmentItem[],
@@ -4968,6 +4968,23 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Preserves the frozen remote plan after the current request reaches its durable checkpoint. */
+  async pauseBilibiliSync(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    const execution = await this.queue(async () => {
+      const persisted = await this.options.repository.getSnapshot(accountMid)
+      if (persisted.workspace?.status !== 'executing' || !persisted.workspace.frozenSyncPlan) {
+        throw new Error('Old favorite workspace is not executing a Bilibili sync.')
+      }
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      return persisted.accountMid
+    })
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    await this.options.syncService.pauseFrozenPlan(execution)
+    const snapshot = await this.getSnapshot(execution)
+    if (!snapshot || isRecoveryRequired(snapshot)) throw new Error('Old favorite workspace is unavailable after pausing Bilibili sync.')
+    return snapshot
+  }
+
   private assertCurrentSegmentTagReady(workspace: OldFavoriteWorkspace) {
     this.assertSegmentTagReady(workspace, this.currentSegment(workspace))
   }
@@ -6074,6 +6091,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
       const plan = persisted.workspace?.frozenSyncPlan
       if (!plan || !['frozen', 'executing', 'reconciling'].includes(persisted.workspace?.status ?? '')) return snapshot
+      const syncPaused = persisted.workspace?.workspaceRef.currentStep === 'sync-paused'
       const run = await this.options.syncService.getRun(workspace.accountMid, plan.id)
       if (workspace.status === 'executing' && run.status === 'ready-to-resume') {
         const frozen = { ...workspace, status: 'frozen' as const }
@@ -6098,6 +6116,7 @@ export class OldFavoriteWorkspaceCoordinator {
           executionProgress: {
             completedOperationCount: run.completedOperationCount,
             totalOperationCount: run.totalOperationCount,
+            ...(syncPaused ? { syncPaused: true } : {}),
             ...(run.lastFailureReason ? { lastFailureReason: run.lastFailureReason } : {}),
             ...(run.retryAvailableAt ? { retryAvailableAt: run.retryAvailableAt } : {})
           }
@@ -6108,6 +6127,7 @@ export class OldFavoriteWorkspaceCoordinator {
         executionProgress: {
           completedOperationCount: run.completedOperationCount,
           totalOperationCount: run.totalOperationCount,
+          ...(syncPaused ? { syncPaused: true } : {}),
           ...(run.lastFailureReason ? { lastFailureReason: run.lastFailureReason } : {}),
           ...(run.retryAvailableAt ? { retryAvailableAt: run.retryAvailableAt } : {})
         }

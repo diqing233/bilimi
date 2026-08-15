@@ -23,6 +23,7 @@ type OldFavoriteConfirmationStepProps = {
   onConfirmAndSync: (includeInbox?: boolean) => void
   onUseOriginalClassifications?: () => void
   onExecuteFrozenPlan: () => void
+  onPauseBilibiliSync?: () => Promise<boolean> | void
   onStopSyncAndFinish?: () => Promise<boolean> | void
   onReconcile: () => void
   recommendedCandidateIds?: string[]
@@ -95,6 +96,7 @@ export function OldFavoriteConfirmationStep({
   onConfirmAndSync,
   onUseOriginalClassifications = () => undefined,
   onExecuteFrozenPlan,
+  onPauseBilibiliSync = () => undefined,
   onStopSyncAndFinish = () => undefined,
   onReconcile,
   recommendedCandidateIds,
@@ -123,11 +125,13 @@ export function OldFavoriteConfirmationStep({
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [includeInbox, setIncludeInbox] = useState(false)
   const [stopSyncDialogOpen, setStopSyncDialogOpen] = useState(false)
+  const [pauseRequested, setPauseRequested] = useState(false)
   const [stopRequested, setStopRequested] = useState(false)
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
+  const userPausedBilibiliSync = snapshot.executionProgress?.syncPaused === true
   const failedDeepSeekCount = snapshot.deepSeekRun?.failedVideoCount ?? 0
   const canceledDeepSeekPendingCount = snapshot.deepSeekRun?.status === 'canceled'
     ? snapshot.deepSeekRun.pendingVideoCount ?? 0
@@ -139,6 +143,12 @@ export function OldFavoriteConfirmationStep({
     if (window.confirm(`确认让 ${deepSeekFallbackCount} 条 DeepSeek ${statusLabel}视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。`)) {
       onUseOriginalClassifications()
     }
+  }
+  const requestPauseBilibiliSync = () => {
+    setPauseRequested(true)
+    void Promise.resolve(onPauseBilibiliSync()).then((paused) => {
+      if (paused === false) setPauseRequested(false)
+    }).catch(() => setPauseRequested(false))
   }
   const isMultiSegment = snapshot.hasMultipleSegments
   const currentSegmentSummary = snapshot.currentSegment
@@ -202,10 +212,13 @@ export function OldFavoriteConfirmationStep({
         {total > 0 ? <p>已完成 {completed} / {total} 条</p> : null}
         <progress aria-label="正在同步到 B 站" value={completed} max={Math.max(total, 1)} />
       </div>
-      <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '停止同步并结束本轮整理'}</button>
+      <div className="favorite-ledger-panel__confirm-actions">
+        <button type="button" disabled={loading || pauseRequested || stopRequested} onClick={requestPauseBilibiliSync}>{pauseRequested ? '正在暂停…' : '暂停同步'}</button>
+        <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '结束本轮整理'}</button>
+      </div>
       {stopSyncDialogOpen ? <OldFavoriteModal
-        title="停止同步并结束本轮整理"
-        confirmLabel="确认停止并结束本轮"
+        title="结束本轮整理"
+        confirmLabel="确认结束本轮"
         confirmDisabled={stopRequested}
         onCancel={() => setStopSyncDialogOpen(false)}
         onConfirm={() => {
@@ -224,6 +237,31 @@ export function OldFavoriteConfirmationStep({
   if (snapshot.status === 'frozen') {
     const completed = snapshot.executionProgress?.completedOperationCount ?? 0
     const total = snapshot.executionProgress?.totalOperationCount ?? 0
+    if (userPausedBilibiliSync) {
+      return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+        <h4>确认执行</h4>
+        <div className="favorite-ledger-panel__old-favorite-progress" role="status">
+          <p>B 站同步已暂停。</p>
+          {total > 0 ? <p>已完成 {completed} / {total} 条；继续时只处理剩余项目。</p> : null}
+          {total > 0 ? <progress aria-label="同步到 B 站进度" value={completed} max={Math.max(total, 1)} /> : null}
+        </div>
+        <div className="favorite-ledger-panel__confirm-actions">
+          <button type="button" disabled={loading} onClick={onExecuteFrozenPlan}>继续同步</button>
+          <button type="button" disabled={loading} onClick={() => setStopSyncDialogOpen(true)}>结束本轮整理</button>
+        </div>
+        {stopSyncDialogOpen ? <OldFavoriteModal
+          title="结束本轮整理"
+          confirmLabel="确认结束本轮"
+          onCancel={() => setStopSyncDialogOpen(false)}
+          onConfirm={() => {
+            setStopSyncDialogOpen(false)
+            onAbandonCurrentWorkspace()
+          }}
+        >
+          <p>同步已暂停，未同步的分类结果已保存在收藏库；确认结束会放弃剩余 B 站同步并关闭本轮草稿，已同步到 B 站的内容会保留。</p>
+        </OldFavoriteModal> : null}
+      </section>
+    }
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
       <h4>确认执行</h4>
       {failureReason ? <div className="favorite-ledger-panel__old-favorite-progress" role="status">

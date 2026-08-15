@@ -1311,6 +1311,21 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'executing' })
   })
 
+  it('pauses an active Bilibili plan only through the payload-free workspace command', async () => {
+    const paused = {
+      ...workspace('100'), status: 'frozen' as const,
+      executionProgress: { completedOperationCount: 1, totalOperationCount: 3, syncPaused: true }
+    }
+    const command = vi.fn().mockResolvedValue(paused)
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await expect(result.current.pauseBilibiliSync()).resolves.toBe(true) })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'pause-bilibili-sync' })
+    expect(result.current.snapshot).toMatchObject({ status: 'frozen', executionProgress: { syncPaused: true } })
+  })
+
   it('requests a safe Bilibili stop through a payload-free workspace command', async () => {
     const command = vi.fn().mockResolvedValue(null)
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop

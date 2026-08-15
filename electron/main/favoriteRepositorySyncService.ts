@@ -170,6 +170,7 @@ export class FavoriteRepositorySyncService {
   private readonly claimedExecutionRuns = new Set<string>()
   private readonly activeRemoteRequests = new Set<string>()
   private readonly stopRequestedRuns = new Set<string>()
+  private readonly pauseRequestedRuns = new Set<string>()
   private readonly executingPlanIds = new Map<string, string>()
 
   constructor(private readonly options: {
@@ -268,6 +269,23 @@ export class FavoriteRepositorySyncService {
     }
   }
 
+  /** Lets the active remote request finish, then preserves the remaining plan for an explicit user continuation. */
+  async pauseFrozenPlan(accountMid: string): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    const { workspace } = await this.options.repository.getSnapshot(account)
+    const plan = workspace?.frozenSyncPlan
+    if (!workspace || !plan || workspace.status !== 'executing') return
+    const key = this.runKey(account, plan.id)
+    this.pauseRequestedRuns.add(key)
+    try {
+      await this.runRemote(account, () => this.withRunLock(account, plan.id, async () => {
+        await this.pauseFrozenPlanUnderLock(account, plan.id)
+      }))
+    } finally {
+      this.pauseRequestedRuns.delete(key)
+    }
+  }
+
   /** Persists the user-confirmed execution boundary before any remote bind begins. */
   async claimFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
@@ -351,7 +369,10 @@ export class FavoriteRepositorySyncService {
     const { workspace } = await this.options.repository.getSnapshot(account)
     const plan = workspace?.frozenSyncPlan
     if (!plan || plan.id !== runId) throw new Error('Favorite sync run was not found.')
-    return this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
+    const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
+    return workspace.status === 'frozen' && run.status === 'running'
+      ? { ...run, status: 'ready-to-resume' }
+      : run
   }
 
   async resume(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
@@ -415,6 +436,10 @@ export class FavoriteRepositorySyncService {
         await this.abandonFrozenPlanUnderLock(accountMid, plan.id)
         return this.summarize(plan, Array.from(records.values()))
       }
+      if (this.isPauseRequested(accountMid, plan.id)) {
+        await this.pauseFrozenPlanUnderLock(accountMid, plan.id)
+        return this.summarize(plan, Array.from(records.values()))
+      }
       const operation = plan.operations[index]
       const record = records.get(operation.operationKey)
       if (record?.status === 'succeeded') continue
@@ -428,6 +453,10 @@ export class FavoriteRepositorySyncService {
       if (completedCount > 0) await this.sleep(completedCount)
       if (this.isStopRequested(accountMid, plan.id)) {
         await this.abandonFrozenPlanUnderLock(accountMid, plan.id)
+        return this.summarize(plan, Array.from(records.values()))
+      }
+      if (this.isPauseRequested(accountMid, plan.id)) {
+        await this.pauseFrozenPlanUnderLock(accountMid, plan.id)
         return this.summarize(plan, Array.from(records.values()))
       }
       const attempt = (record?.attempt ?? 0) + 1
@@ -1320,6 +1349,22 @@ export class FavoriteRepositorySyncService {
 
   private isStopRequested(accountMid: string, runId: string) {
     return this.stopRequestedRuns.has(this.runKey(accountMid, runId))
+  }
+
+  private isPauseRequested(accountMid: string, runId: string) {
+    return this.pauseRequestedRuns.has(this.runKey(accountMid, runId))
+  }
+
+  private async pauseFrozenPlanUnderLock(accountMid: string, expectedPlanId: string) {
+    const current = await this.options.repository.getSnapshot(accountMid)
+    const workspace = current.workspace
+    const plan = workspace?.frozenSyncPlan
+    if (!workspace || !plan || plan.id !== expectedPlanId || workspace.status !== 'executing') return false
+    await this.writeWorkspace(accountMid, withWorkspaceStatus(workspace, 'frozen', plan, 'sync-paused'), `pause:${plan.id}`)
+    this.claimedExecutionRuns.delete(this.runKey(accountMid, plan.id))
+    if (this.executingPlanIds.get(accountMid) === plan.id) this.executingPlanIds.delete(accountMid)
+    this.options.pageBridgeManager?.release(accountMid, plan.id)
+    return true
   }
 
   private async abandonFrozenPlanUnderLock(accountMid: string, expectedPlanId: string) {

@@ -89,6 +89,21 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(pauseScan).toHaveBeenCalledWith('100')
   })
 
+  it('routes only the exact Bilibili sync pause command through the coordinator', async () => {
+    const ipcMain = new FakeIpcMain()
+    const paused = { ...snapshot, status: 'frozen' as const, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 } }
+    const coordinator = { pauseBilibiliSync: vi.fn().mockResolvedValue(paused), getSnapshot: vi.fn().mockResolvedValue(paused) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'pause-bilibili-sync' })).resolves.toEqual(paused)
+    expect(coordinator.pauseBilibiliSync).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'pause-bilibili-sync', extra: true }))
+      .rejects.toThrow('command is invalid')
+  })
+
   it('returns an account-validated recovery summary without starting scan or remote execution', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

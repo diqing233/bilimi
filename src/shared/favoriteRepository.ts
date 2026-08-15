@@ -557,7 +557,7 @@ export type FavoriteRepositoryWorkspaceRef = {
   journalCursor: number
   checksum: string
   /** Optional persisted progress summary; full workspace data stays outside this snapshot. */
-  currentStep?: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'confirmation' | 'result-unknown' | 'completed'
+  currentStep?: 'scanning' | 'previewing' | 'frozen' | 'sync-paused' | 'executing' | 'reconciling' | 'confirmation' | 'result-unknown' | 'completed'
   plannedCount?: number
   classifiedCount?: number
   unclassifiedCount?: number
@@ -1075,7 +1075,7 @@ function isWorkspaceRef(
     typeof ref.currentSegmentId !== 'string' || !Number.isSafeInteger(ref.overlayRevision) ||
     Number(ref.overlayRevision) < 0 || !Number.isSafeInteger(ref.journalCursor) || Number(ref.journalCursor) < 0 ||
     typeof ref.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(ref.checksum) ||
-    (ref.currentStep !== undefined && !['scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'confirmation', 'result-unknown', 'completed'].includes(String(ref.currentStep))) ||
+    (ref.currentStep !== undefined && !['scanning', 'previewing', 'frozen', 'sync-paused', 'executing', 'reconciling', 'confirmation', 'result-unknown', 'completed'].includes(String(ref.currentStep))) ||
     ['plannedCount', 'classifiedCount', 'unclassifiedCount'].some((key) => ref[key] !== undefined && (!Number.isSafeInteger(ref[key]) || Number(ref[key]) < 0)) ||
     (ref.updatedAt !== undefined && (typeof ref.updatedAt !== 'string' || Number.isNaN(Date.parse(ref.updatedAt)))) ||
     (ref.lastCommittedId !== undefined && (typeof ref.lastCommittedId !== 'string' || !ref.lastCommittedId.trim()))) return false

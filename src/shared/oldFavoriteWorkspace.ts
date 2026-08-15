@@ -321,6 +321,8 @@ export type OldFavoriteWorkspaceSnapshot = {
   executionProgress?: {
     completedOperationCount: number
     totalOperationCount: number
+    /** User explicitly paused after Bilibili execution began; the frozen plan is resumable. */
+    syncPaused?: boolean
     lastFailureReason?: string
     retryAvailableAt?: string
   }
@@ -419,7 +421,7 @@ export type OldFavoriteWorkspaceRecoverySummary = {
   workspaceId: string
   status: OldFavoriteWorkspaceStatus | 'rebuild-required'
   currentSegmentId?: string
-  currentStep: OldFavoriteWorkspaceStatus | 'confirmation' | 'result-unknown' | 'rebuild-required'
+  currentStep: OldFavoriteWorkspaceStatus | 'sync-paused' | 'confirmation' | 'result-unknown' | 'rebuild-required'
   plannedCount?: number
   classifiedCount?: number
   unclassifiedCount?: number

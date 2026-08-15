@@ -364,6 +364,7 @@ describe('OldFavoriteConfirmationStep', () => {
   })
 
   it('shows main-process execution progress while the frozen plan is syncing', () => {
+    const pause = vi.fn()
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
@@ -377,7 +378,7 @@ describe('OldFavoriteConfirmationStep', () => {
           recommendationCounts: [], archiveTargets: [] },
         history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
       }}
-      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onPauseBilibiliSync={pause} onReconcile={vi.fn()}
     />)
 
     expect(screen.getByRole('group', { name: '确认执行视图' })).toBeInTheDocument()
@@ -386,6 +387,9 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByText('已完成 3 / 8 条')).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('value', '3')
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('max', '8')
+    fireEvent.click(screen.getByRole('button', { name: '暂停同步' }))
+    expect(pause).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '结束本轮整理' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
   })
 
@@ -402,11 +406,33 @@ describe('OldFavoriteConfirmationStep', () => {
       onStopSyncAndFinish={stop}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '停止同步并结束本轮整理' }))
-    expect(screen.getByRole('dialog', { name: '停止同步并结束本轮整理' })).toHaveTextContent('正在发送的操作会完成后再停止')
-    fireEvent.click(screen.getByRole('button', { name: '确认停止并结束本轮' }))
+    fireEvent.click(screen.getByRole('button', { name: '结束本轮整理' }))
+    expect(screen.getByRole('dialog', { name: '结束本轮整理' })).toHaveTextContent('正在发送的操作会完成后再停止')
+    fireEvent.click(screen.getByRole('button', { name: '确认结束本轮' }))
     expect(stop).toHaveBeenCalledOnce()
     expect(screen.getByRole('button', { name: '正在停止…' })).toBeDisabled()
+  })
+
+  it('offers continue and end controls for a user-paused Bilibili plan', () => {
+    const resume = vi.fn()
+    const abandon = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'frozen', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3, syncPaused: true }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={resume} onAbandonCurrentWorkspace={abandon} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('B 站同步已暂停')
+    fireEvent.click(screen.getByRole('button', { name: '继续同步' }))
+    expect(resume).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '结束本轮整理' }))
+    expect(screen.getByRole('dialog', { name: '结束本轮整理' })).toHaveTextContent('未同步的分类结果已保存在收藏库')
+    fireEvent.click(screen.getByRole('button', { name: '确认结束本轮' }))
+    expect(abandon).toHaveBeenCalledOnce()
   })
 
   it('offers reconciliation only after the main process marks the remote result uncertain', () => {

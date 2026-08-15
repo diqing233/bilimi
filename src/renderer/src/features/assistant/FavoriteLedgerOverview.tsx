@@ -40,6 +40,8 @@ type FavoriteLedgerOverviewProps = {
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onSaveLedgerEnabled?: (ledgerId: string, enabled: boolean) => Promise<unknown> | void
   onEnabledStateChange?: (enabledById: ReadonlyMap<string, boolean>) => void
+  /** Active-round recommendations use workspace selection instead of the global enabled preference. */
+  onOrganizationRecommendationToggle?: (ledgerId: string, enabled: boolean) => boolean
   onDeleteLedger?: (ledgerId: string) => void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   draftRuleAnalysis?: {
@@ -224,7 +226,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, onDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -449,8 +451,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     !savedLedgerSnapshots[ledger.id] || JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedLedgerSnapshots[ledger.id])
   const statusLabelForLedger = (ledger: FavoriteLedger) => {
-    const bindingLabel = bindingLabelForLedger(ledger)
     const unsaved = ledgerHasUnsavedChanges(ledger)
+    if (hasExpandedOrganizationGuide) return unsaved ? '未保存' : ''
+    const bindingLabel = bindingLabelForLedger(ledger)
     return bindingLabel === '未绑定' && unsaved ? '未保存 · 未绑定' : bindingLabel || (unsaved ? '未保存' : '')
   }
   const editorStatusLabelForLedger = (ledger: FavoriteLedger) => {
@@ -539,6 +542,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const previousEnabled = enableStore.isEnabled(id)
+    if (onOrganizationRecommendationToggle?.(id, !previousEnabled)) return
     if (!enableStore.toggle(id)) return
     const version = (toggleVersionsRef.current.get(id) ?? 0) + 1
     toggleVersionsRef.current.set(id, version)
