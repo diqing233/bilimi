@@ -2166,6 +2166,46 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     )
   })
 
+  it('keeps a running tag-enrichment queue running when switching batches', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source',
+        page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: `Video ${offset + index + 1}`,
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+
+    await coordinator.selectSegment('100', 'segment-2')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        status: 'running',
+        scopes: {
+          wholeRun: { pendingItemCount: 501 },
+          currentSegment: { pendingItemCount: 1 }
+        }
+      }
+    })
+    await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual(
+      Array.from({ length: 500 }, (_unused, index) => index + 1)
+    )
+  })
+
   it('enriches tags in frozen batch order instead of globally sorting aids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

@@ -2861,7 +2861,9 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.appendEvents(workspace, segmentId, [])
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       if (!snapshot.workspace) throw new Error('Old favorite workspace was not found.')
-      const restored = await this.restoreFromStore(snapshot.workspace, snapshot.updatedAt, snapshot)
+      const restored = await this.restoreFromStore(snapshot.workspace, snapshot.updatedAt, snapshot, {
+        pauseRunningTagEnrichment: false
+      })
       if (isRecoveryRequired(restored)) throw new Error('Old favorite workspace requires rebuild.')
       return clone(restored)
     })
@@ -4581,7 +4583,8 @@ export class OldFavoriteWorkspaceCoordinator {
   private async restoreFromStore(
     marker: FavoriteRepositoryWorkspace,
     updatedAt: string,
-    repositorySnapshot: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>
+    repositorySnapshot: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
+    options: { pauseRunningTagEnrichment?: boolean } = {}
   ): Promise<OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired> {
     if (marker.status === 'draft') {
       this.workspaces.delete(marker.accountMid)
@@ -4718,7 +4721,8 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       if (recovered.tagEnrichment) {
         const normalizedTagEnrichment = normalizeTagEnrichment(recovered.tagEnrichment)
-        if (normalizedTagEnrichment.status === 'running' && normalizedTagEnrichment.pendingAids.length) {
+        if (options.pauseRunningTagEnrichment !== false &&
+          normalizedTagEnrichment.status === 'running' && normalizedTagEnrichment.pendingAids.length) {
           await this.options.workspaceStore.appendTagEnrichmentDelta(marker.accountMid, marker.id, {
             currentSegmentId: recovered.currentSegmentId, kind: 'status', status: 'paused'
           })
@@ -4877,7 +4881,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
       const normalizedTagEnrichment = normalizeTagEnrichment(recovered.tagEnrichment)
-      if (normalizedTagEnrichment.status === 'running' && normalizedTagEnrichment.pendingAids.length) {
+      if (options.pauseRunningTagEnrichment !== false &&
+        normalizedTagEnrichment.status === 'running' && normalizedTagEnrichment.pendingAids.length) {
         await this.options.workspaceStore.appendTagEnrichmentDelta(marker.accountMid, marker.id, {
           currentSegmentId: recovered.currentSegmentId, kind: 'status', status: 'paused'
         })
