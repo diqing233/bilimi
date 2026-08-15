@@ -5103,12 +5103,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       '100',
       [expect.objectContaining({
         id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-        ruleType: 'author', enabled: true, isDefault: false
+        ruleType: 'author', enabled: true, isDefault: false, syncState: 'local-draft'
       })],
       ['custom-author-up-alpha']
     )
     expect(saved.mock.calls[0]?.[1][0]?.bilibiliFolderId).toBeUndefined()
-    expect(saved.mock.calls[0]?.[1][0]?.syncState).toBeUndefined()
+    expect(saved.mock.calls[0]?.[1][0]?.syncState).toBe('local-draft')
     expect(published).toHaveBeenCalledTimes(1)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
@@ -5123,7 +5123,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       '100',
       [expect.objectContaining({
         id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-        ruleType: 'author', enabled: true, isDefault: false
+        ruleType: 'author', enabled: true, isDefault: false, syncState: 'local-draft'
       })],
       ['custom-author-up-alpha']
     )

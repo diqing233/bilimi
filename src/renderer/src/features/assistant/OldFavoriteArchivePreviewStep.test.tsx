@@ -239,6 +239,41 @@ describe('OldFavoriteArchivePreviewStep', () => {
       .toHaveClass('favorite-ledger-panel__deepseek-archive-disabled--warning')
   })
 
+  it('opens one DeepSeek range dialog with confirmed defaults and does not run on cancel', () => {
+    const organize = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+        segments: [
+          { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing', readiness: 'ready' },
+          { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing', readiness: 'ready' }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={organize} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('button', { name: '整理范围' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    expect(within(dialog).getByLabelText('整理不确定项和【未分类】（推荐）')).toBeChecked()
+    expect(within(dialog).getByLabelText('当前批次')).toBeChecked()
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(organize).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const reopened = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
+    fireEvent.click(within(reopened).getByLabelText('DeepSeek重新检查全部'))
+    fireEvent.click(within(reopened).getByLabelText('本轮所有批次'))
+    fireEvent.click(within(reopened).getByRole('button', { name: '开始 DeepSeek 整理' }))
+    expect(organize).toHaveBeenCalledWith('all', 'all')
+  })
+
   it('places a full-width dashed divider between DeepSeek organization and change history', () => {
     const { container } = render(<OldFavoriteArchivePreviewStep
       snapshot={{

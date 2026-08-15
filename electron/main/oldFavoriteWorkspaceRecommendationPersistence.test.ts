@@ -75,6 +75,18 @@ describe('old favorite workspace recommendation persistence', () => {
     )).toEqual([...defaults, disabled, reprioritized, promoted])
   })
 
+  it('removes a generated recommendation without a remote binding even when its legacy record lacks syncState', () => {
+    const legacyGenerated = { ...recommendation }
+    const bound = { ...recommendation, id: 'custom-author-bound', bilibiliFolderId: '42', bindingState: 'bound' as const }
+    const unboundWithRemote = { ...recommendation, id: 'custom-author-unbound', bilibiliFolderId: '43', bindingState: 'unbound' as const }
+
+    expect(reconcileRecommendedLedgers(
+      [...defaults, legacyGenerated, bound, unboundWithRemote],
+      [recommendation, bound, unboundWithRemote],
+      []
+    )).toEqual([...defaults, bound, unboundWithRemote])
+  })
+
   it('does not overwrite edited or bound fields when an existing recommendation stays selected', () => {
     const edited = {
       ...recommendation,

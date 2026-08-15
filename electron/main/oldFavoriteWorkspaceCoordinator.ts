@@ -610,6 +610,8 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
     ruleType: candidate.kind === 'author' ? 'author' : candidate.kind === 'tag' ? 'tag' : 'keyword',
     enabled: true,
     priority,
+    syncState: 'local-draft',
+    bindingState: 'unbacked',
     isDefault: false
   }
 }

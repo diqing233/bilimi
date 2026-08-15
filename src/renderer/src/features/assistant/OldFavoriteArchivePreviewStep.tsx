@@ -8,6 +8,7 @@ import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
+import { OldFavoriteModal } from './OldFavoriteModal'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
@@ -65,7 +66,7 @@ function deepSeekFailureMessage(message: string, affectedVideoCount: number) {
 }
 
 const DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
-  { value: 'low-confidence-and-unclassified', label: '整理不确定和【未分类】（推荐）' },
+  { value: 'low-confidence-and-unclassified', label: '整理不确定项和【未分类】（推荐）' },
   { value: 'unclassified-only', label: '只整理【未匹配到合适分类】' },
   { value: 'all', label: 'DeepSeek重新检查全部' }
 ]
@@ -346,8 +347,8 @@ export function OldFavoriteArchivePreviewStep({
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
-  const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('all')
-  const [deepSeekScopeOpen, setDeepSeekScopeOpen, deepSeekScopeMenuScope] = useExclusiveMenu()
+  const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('current')
+  const [deepSeekDialogOpen, setDeepSeekDialogOpen] = useState(false)
   const [deepSeekDetailsOpen, setDeepSeekDetailsOpen] = useState(false)
   const [historyOpen, setHistoryOpen, historyMenuScope] = useExclusiveMenu()
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
@@ -488,6 +489,15 @@ export function OldFavoriteArchivePreviewStep({
     return (snapshot.currentSegment?.items ?? []).some((item) =>
       !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
   }, [snapshot])
+  const openDeepSeekDialog = () => {
+    setDeepSeekMode('low-confidence-and-unclassified')
+    setDeepSeekScope(viewScope === 'all' ? 'all' : 'current')
+    setDeepSeekDialogOpen(true)
+  }
+  const confirmDeepSeekDialog = () => {
+    setDeepSeekDialogOpen(false)
+    onOrganizeWithDeepSeek(deepSeekMode, hasMultipleSegments ? deepSeekScope : 'current')
+  }
 
   if (!contentAvailable) {
     return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
@@ -517,39 +527,12 @@ export function OldFavoriteArchivePreviewStep({
           <div className="favorite-ledger-panel__deepseek-archive-heading">
             <strong>DeepSeek 辅助整理</strong>
             <div className="favorite-ledger-panel__deepseek-archive-actions">
-              <div {...deepSeekScopeMenuScope} className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeepSeekScopeOpen(false)
-              }}>
-                <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
-                  title={`整理模式：${DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === deepSeekMode)?.label ?? ''}；批次范围：${deepSeekScope === 'all' ? '本轮所有批次' : '当前批次'}`}
-                  disabled={loading || deepSeekCancellationAction} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
-                  <span>整理范围</span><span className="disclosure-arrow favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
-                </button>
-                {deepSeekScopeOpen ? <div className="favorite-ledger-panel__deepseek-archive-scope-menu" role="menu" aria-label="DeepSeek 处理对象">
-                  {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitemradio"
-                    aria-checked={deepSeekMode === option.value} onClick={() => { setDeepSeekMode(option.value); setDeepSeekScopeOpen(false) }}>
-                    {option.label}
-                  </button>)}
-                  {snapshot.hasMultipleSegments ? <>
-                    <div className="favorite-ledger-panel__deepseek-archive-scope-menu-divider" aria-hidden="true" />
-                    <div className="favorite-ledger-panel__deepseek-archive-batch-scope" role="group" aria-label="DeepSeek 批次范围">
-                      <span>批次范围</span>
-                      <div className="favorite-ledger-panel__deepseek-archive-batch-scope-options">
-                        <button type="button" role="menuitemradio" aria-checked={deepSeekScope === 'current'}
-                          onClick={() => { setDeepSeekScope('current'); setDeepSeekScopeOpen(false) }}>当前批次</button>
-                        <button type="button" role="menuitemradio" aria-checked={deepSeekScope === 'all'}
-                          onClick={() => { setDeepSeekScope('all'); setDeepSeekScopeOpen(false) }}>本轮所有批次</button>
-                      </div>
-                    </div>
-                  </> : null}
-                </div> : null}
-              </div>
               {deepSeekCancellationAction ? <button
                 type="button" className="favorite-ledger-panel__deepseek-archive-run-button" data-action="cancel"
                 disabled={deepSeekFeedbackView.action === 'cancelling'} onClick={onCancelDeepSeek}>
                 {deepSeekFeedbackView.action === 'cancelling' ? '正在取消' : '取消整理'}
               </button> : <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
-                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || !hasPreviewItems} onClick={() => onOrganizeWithDeepSeek(deepSeekMode, snapshot.hasMultipleSegments ? deepSeekScope : 'current')}>
+                disabled={!deepSeekAvailable || loading || mutationLocked || deepSeekFeedbackView?.kind === 'running' || !hasPreviewItems} onClick={openDeepSeekDialog}>
                 DeepSeek 整理
               </button>}
             </div>
@@ -634,5 +617,26 @@ export function OldFavoriteArchivePreviewStep({
         onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications}
         recommendedCandidateIds={recommendedCandidateIds} enabledLedgerIds={enabledLedgerIds} />
     </div>
+    {deepSeekDialogOpen ? <OldFavoriteModal
+      title="DeepSeek 整理"
+      confirmLabel="开始 DeepSeek 整理"
+      confirmDisabled={loading || mutationLocked || !deepSeekAvailable || !hasPreviewItems}
+      onCancel={() => setDeepSeekDialogOpen(false)}
+      onConfirm={confirmDeepSeekDialog}
+      extraActions={<button type="button" onClick={() => setDeepSeekDialogOpen(false)}>取消</button>}
+    >
+      <fieldset className="favorite-ledger-panel__deepseek-dialog-options">
+        <legend>整理对象</legend>
+        {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => <label key={option.value}>
+          <input type="radio" name="deepseek-archive-mode" aria-label={option.label} checked={deepSeekMode === option.value} onChange={() => setDeepSeekMode(option.value)} />
+          <span>{option.label}</span>
+        </label>)}
+      </fieldset>
+      {hasMultipleSegments ? <fieldset className="favorite-ledger-panel__deepseek-dialog-options">
+        <legend>批次范围</legend>
+        <label><input type="radio" name="deepseek-archive-scope" aria-label="当前批次" checked={deepSeekScope === 'current'} onChange={() => setDeepSeekScope('current')} /><span>当前批次</span></label>
+        <label><input type="radio" name="deepseek-archive-scope" aria-label="本轮所有批次" checked={deepSeekScope === 'all'} onChange={() => setDeepSeekScope('all')} /><span>本轮所有批次</span></label>
+      </fieldset> : null}
+    </OldFavoriteModal> : null}
   </section>
 }

@@ -14,7 +14,8 @@ import type {
   OldFavoriteWorkspaceDeepSeekProcessedItem,
   OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   OldFavoriteWorkspaceDeepSeekResult,
-  OldFavoriteWorkspaceSnapshot
+  OldFavoriteWorkspaceSnapshot,
+  OldFavoriteWorkspaceRecoveryRequired
 } from '../../src/shared/oldFavoriteWorkspace'
 
 type ArchiveRequest = Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>
@@ -89,12 +90,31 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
   constructor(private readonly options: {
   coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
-    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment' | 'getDeepSeekRunCheckpoint' | 'setDeepSeekRunCheckpoint'>>
+    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment' | 'getDeepSeekRunCheckpoint' | 'setDeepSeekRunCheckpoint' | 'getRecoverySummary' | 'selectRecoveryDecision'>>
     preferences: () => DeepSeekPreferences
     ledgersForAccount?: (accountMid: string, preferences: Pick<DeepSeekPreferences, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest, signal?: AbortSignal) => Promise<DeepSeekGenerateResult>
     retryDelay?: (milliseconds: number) => Promise<void>
   }) {}
+
+  /** DeepSeek may acknowledge a safe latest-facts merge, but never rescans or resumes other flows. */
+  private async recoverSnapshotForDeepSeek(
+    accountMid: string,
+    snapshot: OldFavoriteWorkspaceRecoveryRequired
+  ) {
+    const getRecoverySummary = this.options.coordinator.getRecoverySummary
+    const selectRecoveryDecision = this.options.coordinator.selectRecoveryDecision
+    if (!getRecoverySummary || !selectRecoveryDecision) return snapshot
+    const summary = await getRecoverySummary.call(this.options.coordinator, accountMid)
+    if (!summary || !summary.recoveryChoices.includes('merge-latest')) return snapshot
+    await selectRecoveryDecision.call(this.options.coordinator, accountMid, {
+      workspaceId: summary.workspaceId,
+      choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+    return this.options.coordinator.getSnapshot(accountMid)
+  }
 
   async organizeCurrentSegment(
     accountMid: string,
@@ -113,7 +133,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     if (!this.options.coordinator.selectSegment) throw new Error('Old favorite workspace batch selection is unavailable.')
     if (this.destructiveMaintenance) throw new Error('DeepSeek organization is unavailable during destructive maintenance.')
     if (this.activeRuns.has(accountMid)) throw new Error('DeepSeek is already organizing this old favorite workspace.')
-    const initial = await this.options.coordinator.getSnapshot(accountMid)
+    const initialRead = await this.options.coordinator.getSnapshot(accountMid)
+    const initial = initialRead && 'recovery' in initialRead
+      ? await this.recoverSnapshotForDeepSeek(accountMid, initialRead)
+      : initialRead
     if (!initial || 'recovery' in initial || initial.status !== 'previewing') {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     }
@@ -732,7 +755,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
   ): Promise<SegmentOrganizeResult> {
     const preferences = frozenPreferences ?? this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
-    const snapshot = await this.options.coordinator.getSnapshot(accountMid)
+    const snapshotRead = await this.options.coordinator.getSnapshot(accountMid)
+    const snapshot = snapshotRead && 'recovery' in snapshotRead
+      ? await this.recoverSnapshotForDeepSeek(accountMid, snapshotRead)
+      : snapshotRead
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
     }

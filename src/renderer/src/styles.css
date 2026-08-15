@@ -8221,6 +8221,33 @@ body[data-floating-window="true"],
 .old-favorite-modal__body p {
   margin: 0;
 }
+.favorite-ledger-panel__deepseek-dialog-options {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+.favorite-ledger-panel__deepseek-dialog-options:last-child {
+  margin-bottom: 0;
+}
+.favorite-ledger-panel__deepseek-dialog-options legend {
+  margin-bottom: 6px;
+  color: var(--porcelain-deep);
+  font-size: 13px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__deepseek-dialog-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--porcelain-text);
+  font-size: 13px;
+}
+.favorite-ledger-panel__deepseek-dialog-options input {
+  margin: 0;
+}
 .favorite-ledger-panel__preview-videos--virtual {
   position: relative;
   display: block;

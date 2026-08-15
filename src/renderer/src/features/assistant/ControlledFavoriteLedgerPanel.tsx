@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import type { OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceRecommendationCandidate, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -69,6 +69,42 @@ function enabledMapsMatch(left: ReadonlyMap<string, boolean>, right: ReadonlyMap
   return [...left].every(([id, enabled]) => right.get(id) === enabled)
 }
 
+type RecommendationProjection = {
+  candidateToLedgerId: Map<string, string>
+  ledgerToCandidateId: Map<string, string>
+}
+
+function recommendationRuleType(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
+  return candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const
+}
+
+function normalizedRuleKeywords(values: readonly string[] | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim().toLocaleLowerCase()).filter(Boolean))].sort()
+}
+
+function sameRecommendationRule(ledger: FavoriteLedger, candidate: OldFavoriteWorkspaceRecommendationCandidate) {
+  return (ledger.ruleType ?? 'keyword') === recommendationRuleType(candidate) &&
+    JSON.stringify(normalizedRuleKeywords(ledger.keywords)) === JSON.stringify(normalizedRuleKeywords(candidate.keywords))
+}
+
+function createRecommendationProjection(
+  ledgers: readonly FavoriteLedger[],
+  candidates: readonly OldFavoriteWorkspaceRecommendationCandidate[]
+): RecommendationProjection {
+  const candidateToLedgerId = new Map<string, string>()
+  const ledgerToCandidateId = new Map<string, string>()
+  const matchedLedgerIds = new Set<string>()
+  for (const candidate of candidates) {
+    const exact = ledgers.find((ledger) => ledger.id === candidate.id)
+    const logical = exact ?? ledgers.find((ledger) => !matchedLedgerIds.has(ledger.id) && sameRecommendationRule(ledger, candidate))
+    if (!logical) continue
+    matchedLedgerIds.add(logical.id)
+    candidateToLedgerId.set(candidate.id, logical.id)
+    ledgerToCandidateId.set(logical.id, candidate.id)
+  }
+  return { candidateToLedgerId, ledgerToCandidateId }
+}
+
 function projectRecommendedLedgerDrafts(
   ledgers: FavoriteLedger[],
   snapshot: ReturnType<typeof useOldFavoriteWorkspace>['snapshot'],
@@ -76,28 +112,34 @@ function projectRecommendedLedgerDrafts(
 ) {
   if (!snapshot || 'recovery' in snapshot || !snapshot.recommendations?.candidates) return ledgers
   const selectedIds = new Set(candidateIds)
-  const candidateIdsById = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+  const candidates = snapshot.recommendations.candidates
+  const projection = createRecommendationProjection(ledgers, candidates)
   const isUnbackedRecommendationDraft = (ledger: FavoriteLedger) =>
-    ledger.syncState === 'local-draft' &&
+    (ledger.syncState === 'local-draft' || ledger.syncState === undefined) &&
+    ledger.bindingState !== 'unbound' &&
     !ledger.bilibiliFolderId?.trim() &&
     !(ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
   // Keep the persisted ledger array intact. Selection changes only the enabled
   // state; filtering unselected drafts and appending selected candidates made
   // the grid reorder and visibly jump after a checkbox click.
   const retainedLedgers = ledgers.filter((ledger) =>
-    selectedIds.has(ledger.id) || !candidateIdsById.has(ledger.id) || !isUnbackedRecommendationDraft(ledger))
+    !projection.ledgerToCandidateId.has(ledger.id) ||
+    selectedIds.has(projection.ledgerToCandidateId.get(ledger.id)!) ||
+    !isUnbackedRecommendationDraft(ledger))
   const existingIds = new Set(retainedLedgers.map((ledger) => ledger.id))
   return [
     ...retainedLedgers,
-    ...snapshot.recommendations.candidates
-      .filter((candidate) => selectedIds.has(candidate.id) && !existingIds.has(candidate.id))
+    ...candidates
+      .filter((candidate) => selectedIds.has(candidate.id) && !projection.candidateToLedgerId.has(candidate.id) && !existingIds.has(candidate.id))
       .map((candidate, index) => ({
         id: candidate.id,
         displayName: candidate.displayName,
         keywords: [...(candidate.keywords ?? [])],
-        ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
+        ruleType: recommendationRuleType(candidate),
         enabled: true,
         priority: 10_000 + index,
+        syncState: 'local-draft' as const,
+        bindingState: 'unbacked' as const,
         isDefault: false
       }))
   ]
@@ -178,14 +220,14 @@ export function ControlledFavoriteLedgerPanel({
       workspace.setRecommendedCandidates(candidateIds)
       return
     }
-    const knownCandidateIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
+    const candidates = snapshot.recommendations.candidates
+    const knownCandidateIds = new Set(candidates.map((candidate) => candidate.id))
     const nextCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter((id) => knownCandidateIds.has(id)))].sort()
     const selectedCandidateIds = new Set(nextCandidateIds)
     const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
-    for (const candidate of snapshot.recommendations.candidates) {
-      if (ledgers.some((ledger) => ledger.id === candidate.id)) {
-        nextEnabledById.set(candidate.id, selectedCandidateIds.has(candidate.id))
-      }
+    const projection = createRecommendationProjection(ledgers, candidates)
+    for (const [candidateId, ledgerId] of projection.candidateToLedgerId) {
+      nextEnabledById.set(ledgerId, selectedCandidateIds.has(candidateId))
     }
     updateLedgerEnabledById(nextEnabledById)
     workspace.setRecommendedCandidates(nextCandidateIds)
@@ -198,7 +240,7 @@ export function ControlledFavoriteLedgerPanel({
     updateLedgerEnabledById(next)
     const recommendationCandidateIds = new Set(
       workspace.snapshot && !('recovery' in workspace.snapshot) && workspace.snapshot.status === 'previewing'
-        ? workspace.snapshot.recommendations.candidates.map((candidate) => candidate.id)
+        ? createRecommendationProjection(ledgers, workspace.snapshot.recommendations.candidates).ledgerToCandidateId.keys()
         : [])
     for (const ledger of ledgers) {
       const previousEnabled = previousEnabledById.get(ledger.id) ?? ledger.enabled
@@ -217,34 +259,40 @@ export function ControlledFavoriteLedgerPanel({
   }, [ledgers, updateLedgerEnabledById, workspace.queueDraftLedgerRuleAnalysis, workspace.snapshot])
   const handleOrganizationRecommendationToggle = useCallback((ledgerId: string, enabled: boolean) => {
     const snapshot = workspace.snapshot
-    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
-      !snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId)) return false
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return false
+    const candidateId = createRecommendationProjection(ledgers, snapshot.recommendations.candidates)
+      .ledgerToCandidateId.get(ledgerId)
+    if (!candidateId) return false
     updateOrganizationRecommendedCandidates((current) => enabled
-      ? [...current, ledgerId]
-      : current.filter((candidateId) => candidateId !== ledgerId))
+      ? [...current, candidateId]
+      : current.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return true
-  }, [updateOrganizationRecommendedCandidates, workspace.snapshot])
+  }, [ledgers, updateOrganizationRecommendedCandidates, workspace.snapshot])
   useEffect(() => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
     const selectedCandidateIds = new Set(workspace.recommendedCandidateIds)
     const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
     let changed = false
-    for (const candidate of snapshot.recommendations.candidates) {
-      if (!ledgers.some((ledger) => ledger.id === candidate.id)) continue
-      const enabled = selectedCandidateIds.has(candidate.id)
-      if (nextEnabledById.get(candidate.id) !== enabled) {
-        nextEnabledById.set(candidate.id, enabled)
+    const projection = createRecommendationProjection(ledgers, snapshot.recommendations.candidates)
+    for (const [candidateId, ledgerId] of projection.candidateToLedgerId) {
+      const enabled = selectedCandidateIds.has(candidateId)
+      if (nextEnabledById.get(ledgerId) !== enabled) {
+        nextEnabledById.set(ledgerId, enabled)
         changed = true
       }
     }
     if (changed) updateLedgerEnabledById(nextEnabledById)
   }, [ledgers, updateLedgerEnabledById, workspace.recommendedCandidateIds, workspace.snapshot])
   const handleDeleteLedger = useCallback((ledgerId: string) => {
-    if (workspace.recommendedCandidateIds.includes(ledgerId)) {
-      workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== ledgerId))
+    const snapshot = workspace.snapshot
+    const candidateId = snapshot && !('recovery' in snapshot)
+      ? createRecommendationProjection(ledgers, snapshot.recommendations.candidates).ledgerToCandidateId.get(ledgerId)
+      : undefined
+    if (candidateId && workspace.recommendedCandidateIds.includes(candidateId)) {
+      workspace.updateRecommendedCandidates((current) => current.filter((id) => id !== candidateId))
     }
-  }, [workspace.recommendedCandidateIds, workspace.updateRecommendedCandidates])
+  }, [ledgers, workspace.recommendedCandidateIds, workspace.snapshot, workspace.updateRecommendedCandidates])
   const applyManualClassification = useCallback((aid: number, targetLedgerIds: string[]) => {
     void workspace.applyManualClassifications([{ aid, targetLedgerIds }])
   }, [workspace.applyManualClassifications])
