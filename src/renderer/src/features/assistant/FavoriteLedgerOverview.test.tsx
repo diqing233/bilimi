@@ -181,6 +181,32 @@ describe('FavoriteLedgerOverview', () => {
       .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('未保存 · 未绑定')
   })
 
+  it('keeps the actual backup state in a requested detail editor while organizing', async () => {
+    const initialLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'bound' as const, bilibiliFolderId: 'remote-music', isDefault: false
+    }
+    const props = {
+      ledgers: [initialLedger],
+      missingLedgerIds: [],
+      organizationActive: true,
+      hasExpandedOrganizationGuide: true,
+      openLedgerId: 'music',
+      openLedgerRequestVersion: 1,
+      onSaveLedgers: vi.fn()
+    }
+    const view = render(<FavoriteLedgerOverview {...props} />)
+
+    const editor = await waitFor(() => screen.getByRole('region', { name: '当前收藏夹' }))
+    expect(editor.querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('已备册')
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('已备册')
+
+    view.rerender(<FavoriteLedgerOverview {...props} ledgers={[{ ...props.ledgers[0], bilibiliFolderTitle: 'bilimi·音乐（远端）' }]} />)
+    await waitFor(() => expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument())
+    expect(screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('已备册')
+  })
+
   it('shows the remote-only binding reminder beside the editor status with one dismissal action', () => {
     const onDismiss = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{

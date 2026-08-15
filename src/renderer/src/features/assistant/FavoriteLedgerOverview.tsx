@@ -334,7 +334,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     deletionStore.reset(enableEntries(nextLedgers, true))
     setDraftLedgers(nextLedgers)
     setSavedLedgerSnapshots(Object.fromEntries(nextLedgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
-    setActiveLedgerId(null)
+    const requestedEditorId = organizationActive && openLedgerId && nextLedgers.some((ledger) => ledger.id === openLedgerId)
+      ? openLedgerId
+      : null
+    setActiveLedgerId(requestedEditorId)
     setNewLedger(false)
     setDeletionModeActive(false)
     setDraftDeletionError(null)

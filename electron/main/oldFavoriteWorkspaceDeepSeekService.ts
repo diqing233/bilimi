@@ -281,13 +281,12 @@ export class OldFavoriteWorkspaceDeepSeekService {
         if (failedSegmentAids.length) failedSegments.push({ segmentId, aids: this.normalizeAids(failedSegmentAids) })
         segmentResult.referencedConstraintLedgerNames.forEach((name) => referencedConstraintLedgerNames.add(name))
         const segmentFailedAids = new Set(segmentResult.failures.flatMap((failure) => failure.aids))
-        remainingAids.filter((aid) => !segmentFailedAids.has(aid)).forEach((aid) => successfulAids.add(aid))
         segmentFailedAids.forEach((aid) => failedAids.add(aid))
         aggregate.completedChunks = Math.min(aggregate.totalChunks, aggregate.completedChunks + segmentResult.progress.completedChunks)
         aggregate.successfulVideoCount = successfulAids.size
         aggregate.failedVideoCount = failedAids.size
         this.mergeRequestGroupUpdates(plan.requestGroups, segmentResult.requestGroupUpdates ?? [])
-        if (!segmentFailedAids.size) completedSegmentIds.add(segmentId)
+        if (!segmentResult.canceled && !segmentFailedAids.size) completedSegmentIds.add(segmentId)
         await persistCheckpoint(readinessSnapshot.segments
           .filter((segment) => !completedSegmentIds.has(segment.id) && segment.status !== 'frozen' && segment.readiness !== 'ready' && segment.readiness !== 'saved')
           .map((segment) => segment.id))
