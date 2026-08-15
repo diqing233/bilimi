@@ -412,21 +412,6 @@ export function ControlledFavoriteLedgerPanel({
     setRecoveryDecisionError(null)
     const summary = await workspace.getRecoverySummary()
     if (!isCurrentRequest()) return
-    if (summary?.recoveryChoices.includes('merge-latest')) {
-      await restoreRecoveryDecision(summary, 'merge-latest')
-      return
-    }
-    if (summary?.recoveryChoices.includes('continue-original')) {
-      const restored = await workspace.refresh(true)
-      if (!isCurrentRequest()) return
-      if (!restored || 'recovery' in restored) {
-        reportScanStartFailure('恢复整理草稿失败，请重试。')
-        return
-      }
-      setGuideOpen(true)
-      setStep(restored.status === 'previewing' ? 'preview' : 'scan')
-      return
-    }
     if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
       setRecoverySummary(summary)
       setResumeDialogOpen(true)
@@ -445,22 +430,19 @@ export function ControlledFavoriteLedgerPanel({
     }
     void startScan('incremental')
   }
-  const restoreRecoveryDecision = async (
-    summary: OldFavoriteWorkspaceRecoverySummary,
-    choice: 'continue-original' | 'merge-latest' | 'rescan'
-  ) => {
-    if (recoveryDecisionPending) return
+  const selectRecoveryDecision = async (choice: 'continue-original' | 'merge-latest' | 'rescan') => {
+    if (!recoverySummary || recoveryDecisionPending) return
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++recoveryDecisionRequestVersion.current
     const isCurrentRequest = () => recoveryDecisionRequestVersion.current === requestVersion &&
       activeAccountMid.current === requestedAccountMid
     setRecoveryDecisionPending(choice)
     setRecoveryDecisionError(null)
-    const recoveryFailureMessage = choice === 'continue-original' && summary.recoveryChoices.includes('merge-latest')
+    const recoveryFailureMessage = choice === 'continue-original' && recoverySummary.recoveryChoices.includes('merge-latest')
       ? '按原草稿继续失败，草稿不会丢失。检测到收藏夹、备册状态或扫描资料可能已有变化，可尝试点击上方“合并最新变化”继续。已选推荐收藏夹和人工调整会保留。'
       : '恢复整理草稿失败，请重试。'
     try {
-      const result = await workspace.sendRecoveryDecision?.(summary, choice)
+      const result = await workspace.sendRecoveryDecision?.(recoverySummary, choice)
       if (!isCurrentRequest()) return
       if (!result) {
         setRecoveryDecisionError(recoveryFailureMessage)
@@ -481,14 +463,10 @@ export function ControlledFavoriteLedgerPanel({
       setRecoverySummary(null)
       setResumeDialogOpen(false)
       setGuideOpen(true)
-      setStep(restored.status === 'previewing' ? 'preview' : 'scan')
+      setStep('scan')
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
-  }
-  const selectRecoveryDecision = async (choice: 'continue-original' | 'merge-latest' | 'rescan') => {
-    if (!recoverySummary) return
-    await restoreRecoveryDecision(recoverySummary, choice)
   }
   const openReconciliationDraft = async () => {
     if (!recoverySummary || recoveryDecisionPending) return

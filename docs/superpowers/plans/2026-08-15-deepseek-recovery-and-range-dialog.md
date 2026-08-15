@@ -163,3 +163,7 @@ Expected: PASS，证明恢复合并、手动分类保留、DeepSeek 参数映射
 Run: `git diff --check; git status --short; git diff --stat`
 
 Expected: 仅本轮代码、测试、计划和账本将被暂存。明确排除 `docs/requirement-ledgers/2026-08-15-local-only-deletion-binding-state-persistence.md`。
+
+## 回退记录（2026-08-15）
+
+用户在 R007、R008 中指出：本计划的自动恢复实现扩大到了关闭整理后的既有草稿／增量路径，超出仅修复 DeepSeek 旧决策过期的范围。产品代码与测试已恢复为 `a4d31986^`，本计划不得再被视作已执行；后续必须重新讨论并将触发条件限定在 DeepSeek 问题内。
