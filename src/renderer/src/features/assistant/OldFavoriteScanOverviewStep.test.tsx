@@ -572,6 +572,29 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
   })
 
+  it('hides current-tag acceptance after the current segment is already ready', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 501, scannedItemCount: 501, taggedItemCount: 499, untaggedItemCount: 2 },
+        continuationCount: 0, sourceFolders: [],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Current', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: { status: 'running', totalItemCount: 501, completedItemCount: 500, pendingItemCount: 1, failedItemCount: 0 }
+      }}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
+  })
+
   it('lets adopted current tags resume later and retries only failed tag reads', () => {
     const resume = vi.fn()
     const retryFailed = vi.fn()

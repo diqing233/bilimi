@@ -557,6 +557,21 @@ describe('useOldFavoriteWorkspace', () => {
     expect(open).toHaveBeenCalledExactlyOnceWith('100')
   })
 
+  it('surfaces tag command failures through the existing workspace error state', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('tag command failed'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+    await act(async () => { await result.current.acceptCurrentTags() })
+
+    await waitFor(() => expect(result.current.lastError).toBe('tag command failed'))
+    expect(command).toHaveBeenCalledWith('100', { type: 'accept-current-tags' })
+  })
+
   it('clears its snapshot without an account or desktop bridge', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop

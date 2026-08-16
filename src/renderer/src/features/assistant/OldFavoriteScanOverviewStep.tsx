@@ -152,6 +152,7 @@ export function OldFavoriteScanOverviewStep({
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
   const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
+  const currentSegmentReady = currentSegmentSummary?.readiness === 'ready' || currentSegmentSummary?.readiness === 'saved'
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
   const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
@@ -269,7 +270,7 @@ export function OldFavoriteScanOverviewStep({
         {tagEnrichment.status === 'running'
           ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
           : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+        {tagEnrichment.status !== 'accepted' && !currentSegmentReady ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>

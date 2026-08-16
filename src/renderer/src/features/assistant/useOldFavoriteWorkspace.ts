@@ -679,7 +679,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       setSnapshot(next)
       return next
-    } catch {
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : 'Old favorite workspace tag command failed.')
       return null
     } finally {
       if (accountGeneration.current === generation) setTagEnrichmentUpdating(false)

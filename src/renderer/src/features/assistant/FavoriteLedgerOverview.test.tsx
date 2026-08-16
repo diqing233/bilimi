@@ -495,6 +495,34 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
   })
 
+  it('waits for unbacked recommendation cleanup before leaving deletion mode', async () => {
+    const cleanup = deferred<boolean>()
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-unbacked'] })
+    const onDeleteLedger = vi.fn(() => cleanup.promise)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-unbacked', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword',
+      enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger}
+      organizationRecommendationEnabledById={new Map([['recommended-unbacked', true]])}
+      onOrganizationRecommendationToggle={vi.fn(() => true)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未备册推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(onDeleteLedger).toHaveBeenCalledWith('recommended-unbacked'))
+    expect(screen.getByRole('button', { name: '取消删除模式' })).toBeInTheDocument()
+    await act(async () => cleanup.resolve(true))
+    await waitFor(() => expect(screen.getByRole('button', { name: '展开删除模式' })).toBeInTheDocument())
+  })
+
   it('keeps a saved custom ledger when local configuration deletion fails', async () => {
     const onDeleteLedger = vi.fn()
     const deleteFavoriteLedgersLocal = vi.fn().mockRejectedValue(new Error('local delete failed'))
@@ -1647,6 +1675,37 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
     expect(screen.getByRole('button', { name: '移出同步 bilimi:音乐' })).toBeEnabled()
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('includes protected default ledgers in deletion-mode single and bulk selection', () => {
+    render(<FavoriteLedgerOverview
+      organizationActive
+      defaultFavoriteSystemEnabled
+      ledgers={[
+        { id: 'music', displayName: 'bilimi:音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: true },
+        { id: 'custom', displayName: 'bilimi:自建', keywords: ['自建'], ruleType: 'keyword', enabled: true, priority: 20, isDefault: false }
+      ]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    const music = screen.getByRole('button', { name: '加入删除 bilimi:音乐' })
+    expect(music).toBeEnabled()
+    fireEvent.click(music)
+    expect(screen.getByRole('button', { name: '取消删除 bilimi:音乐' })).toBeEnabled()
+
+    const bulk = screen.getByTestId('favorite-ledger-cancel-all')
+    fireEvent.click(bulk)
+    expect(bulk).toHaveTextContent('取消全选')
+    expect(screen.getByRole('button', { name: '取消删除 bilimi:音乐' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '取消删除 bilimi:自建' })).toBeEnabled()
+    fireEvent.click(bulk)
+    expect(bulk).toHaveTextContent('全选')
+    expect(screen.getByRole('button', { name: '加入删除 bilimi:音乐' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '取消删除模式' }))
+    expect(screen.getByRole('button', { name: '移出同步 bilimi:音乐' })).toBeDisabled()
   })
 
   it('starts the ledger list expanded and folds it with the existing toggle', () => {

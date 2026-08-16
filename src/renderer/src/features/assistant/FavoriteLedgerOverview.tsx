@@ -311,8 +311,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>, unsavedLedgerIds = locallyUnsavedLedgerIds): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
     enabled: enabledOverride?.get(ledger.id) ?? (deletionMode ? false : isForcedEnabled(ledger) ? true : ledger.enabled),
-    operable: deletionMode ? !isRoundLocked(ledger) : isOperable(ledger, unsavedLedgerIds),
-    forceEnabledOnBulk: isRoundLocked(ledger) || (!deletionMode && isForcedEnabled(ledger))
+    operable: deletionMode || isOperable(ledger, unsavedLedgerIds),
+    forceEnabledOnBulk: !deletionMode && (isRoundLocked(ledger) || isForcedEnabled(ledger))
   }))
   const [enableStore] = useState(() => new FavoriteLedgerEnableStore(enableEntries(ledgers)))
   const [deletionStore] = useState(() => new FavoriteLedgerEnableStore(enableEntries(ledgers, true)))
@@ -1002,7 +1002,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setSavedLedgerSnapshots(Object.fromEntries(next.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
     for (const ledger of draftLedgers) {
       if (!deletedCustomIds.has(ledger.id) || !ledgers.some((item) => item.id === ledger.id)) continue
-      onDeleteLedger?.(ledger.id)
+      const result = await onDeleteLedger?.(ledger.id)
+      if (result === false) throw new Error('Recommendation cancellation failed.')
     }
     setDeletionModeActive(false)
     setDeletionPlan(null)

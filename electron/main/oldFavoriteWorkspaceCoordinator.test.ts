@@ -1953,6 +1953,82 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItem).not.toHaveBeenCalledWith(expect.objectContaining({ aid: 501 }))
   })
 
+  it('rebuilds recommendations immediately when the current batch accepts known tags', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: offset + index < 3 ? 'Tagged after accept' : offset + index === 3 ? 'Still pending' : `Video ${offset + index + 1}`,
+          ...((offset + index >= 4 && offset + index < 500) ? { tags: ['Existing'] } : {}),
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await coordinator.recordTagEnrichment('100', 1, ['Focus'], workspaceId)
+    await coordinator.recordTagEnrichment('100', 2, ['Focus'], workspaceId)
+    await coordinator.recordTagEnrichment('100', 3, ['Focus'], workspaceId)
+    await coordinator.acceptCurrentTags('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 2 },
+      recommendations: {
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ id: 'custom-tag-focus', kind: 'tag', count: 3 })
+        ])
+      }
+    })
+  })
+
+  it('refreshes the round overview when a non-current batch becomes ready', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 503; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 503 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: offset + index >= 500 ? 'Later batch' : `Already tagged ${offset + index + 1}`,
+          ...(offset + index >= 500 ? {} : { tags: ['Existing'] }),
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await coordinator.recordTagEnrichment('100', 501, ['Focus'], workspaceId)
+    await coordinator.recordTagEnrichment('100', 502, ['Focus'], workspaceId)
+    await coordinator.recordTagEnrichment('100', 503, ['Focus'], workspaceId)
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      segments: [
+        { id: 'segment-1', readiness: 'ready' },
+        { id: 'segment-2', readiness: 'ready' }
+      ],
+      overview: {
+        recommendationCounts: expect.arrayContaining([
+          expect.objectContaining({ id: 'custom-tag-focus', count: 3 })
+        ])
+      }
+    })
+  })
+
   it('does not publish a high-frequency tag recommendation while the current batch is still enriching', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

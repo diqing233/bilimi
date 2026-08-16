@@ -4020,6 +4020,7 @@ export class OldFavoriteWorkspaceCoordinator {
         })
         this.tagEnrichments.set(workspace.accountMid, { ...enrichment, acceptedSegmentIds, status })
       }
+      this.rebuildRecommendationsAfterTagBatch(workspace)
       await this.refreshRecommendationsAfterTagEnrichment(workspace)
       if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
         await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
@@ -4117,17 +4118,17 @@ export class OldFavoriteWorkspaceCoordinator {
       this.updateRecommendationIndexTags(workspace, aid, normalizedTags)
       this.tagEnrichments.set(workspace.accountMid, next)
       if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
-      if (workspace.status === 'previewing' && !pendingAids.length) {
+      const currentSegmentCompleted = this.completedCurrentSegmentTagEnrichment(workspace, enrichment.pendingAids, pendingAids)
+      if (workspace.status === 'previewing' && (readySegmentIds.length || !pendingAids.length || currentSegmentCompleted)) {
         this.rebuildRecommendationsAfterTagBatch(workspace)
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
         if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyAllSegmentsUnsafe(workspace, true))
-        }
-      } else if (workspace.status === 'previewing' && this.completedCurrentSegmentTagEnrichment(workspace, enrichment.pendingAids, pendingAids)) {
-        this.rebuildRecommendationsAfterTagBatch(workspace)
-        await this.refreshRecommendationsAfterTagEnrichment(workspace)
-        if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
+          const segmentIds = !pendingAids.length
+            ? workspace.segments.map((segment) => segment.id)
+            : readySegmentIds.length
+              ? readySegmentIds
+              : [this.currentSegment(workspace)]
+          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true))
         }
       }
       return true
@@ -4163,17 +4164,17 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: this.currentSegment(workspace), kind: 'failed', aid
       })
       this.tagEnrichments.set(workspace.accountMid, next)
-      if (workspace.status === 'previewing' && !pendingAids.length) {
+      const currentSegmentCompleted = this.completedCurrentSegmentTagEnrichment(workspace, enrichment.pendingAids, pendingAids)
+      if (workspace.status === 'previewing' && (readySegmentIds.length || !pendingAids.length || currentSegmentCompleted)) {
         this.rebuildRecommendationsAfterTagBatch(workspace)
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
         if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyAllSegmentsUnsafe(workspace, true))
-        }
-      } else if (workspace.status === 'previewing' && this.completedCurrentSegmentTagEnrichment(workspace, enrichment.pendingAids, pendingAids)) {
-        this.rebuildRecommendationsAfterTagBatch(workspace)
-        await this.refreshRecommendationsAfterTagEnrichment(workspace)
-        if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
+          const segmentIds = !pendingAids.length
+            ? workspace.segments.map((segment) => segment.id)
+            : readySegmentIds.length
+              ? readySegmentIds
+              : [this.currentSegment(workspace)]
+          await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true))
         }
       }
       return true
