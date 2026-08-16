@@ -1,6 +1,10 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
-import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import {
+  oldFavoriteFolderIsScanEligible,
+  type OldFavoriteWorkspaceDeepSeekProcessedItem,
+  type OldFavoriteWorkspaceSnapshot
+} from '@shared/oldFavoriteWorkspace'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
@@ -118,10 +122,10 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const batchTargetMenuRef = useRef<HTMLDivElement>(null)
   const pendingMoveFocusRef = useRef<{ aid: number; sourceLedgerId: string; targetLedgerId: string } | null>(null)
   const sourceFolderTitles = new Map(snapshot.sourceFolders
-    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
     .map((folder) => [folder.id, folder.title]))
   const selectedSourceIds = new Set(snapshot.sourceFolders
-    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
     .map((folder) => folder.id))
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
@@ -484,7 +488,7 @@ export function OldFavoriteArchivePreviewStep({
   }, [historyOpen])
   const hasPreviewItems = useMemo(() => {
     const selectedSourceIds = new Set(snapshot.sourceFolders
-      .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+      .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
       .map((folder) => folder.id))
     return (snapshot.currentSegment?.items ?? []).some((item) =>
       !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))

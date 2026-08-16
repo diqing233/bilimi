@@ -617,8 +617,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '重新补取失败标签' })).toBeInTheDocument()
   })
 
-  it('offers current-batch tag continuation after every tag has already been adopted', () => {
-    const resume = vi.fn()
+  it('hides tag continuation after every tag has already been adopted', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -628,7 +627,34 @@ describe('OldFavoriteScanOverviewStep', () => {
         recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
         tagEnrichment: {
           status: 'accepted', totalItemCount: 1, completedItemCount: 1, pendingItemCount: 0, failedItemCount: 0,
-          currentSegmentCanResumeTagEnrichment: true
+          currentSegmentCanContinueTagEnrichment: false
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('button', { name: '继续扫描标签' })).not.toBeInTheDocument()
+  })
+
+  it('offers scan continuation only after adoption has paused other batches', () => {
+    const resume = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 501, scannedItemCount: 501, taggedItemCount: 500, untaggedItemCount: 1 },
+        continuationCount: 0, sourceFolders: [],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: '当前批', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'paused', totalItemCount: 501, completedItemCount: 500, pendingItemCount: 1, failedItemCount: 0,
+          currentSegmentCanContinueTagEnrichment: true
         }
       } as never}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
@@ -636,7 +662,11 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={resume} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
     />)
 
-    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeInTheDocument()
+    expect(screen.getByText('标签补取已暂停：已处理 500 / 501 条。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '继续扫描标签' }))
+    expect(resume).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '暂停补取标签' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '继续补取标签' })).not.toBeInTheDocument()
   })
 
   it('offers current-tag adoption only when the re-read reports changed tag content', () => {
@@ -792,21 +822,21 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
     expect(within(remoteTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
     const boundRemoteRow = within(remoteTable).getByText(/bilimi·知识学习/).closest('[role="row"]')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）20')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）20')
     expect(within(remoteTable).getByLabelText('选择来源 bilimi·知识学习')).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: '本轮待整理（1）' }))
     expect(screen.getByRole('button', { name: '已保护（3）' })).toBeInTheDocument()
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）22')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）22')
 
     fireEvent.click(screen.getByRole('button', { name: '已保护（3）' }))
     expect(screen.getByRole('button', { name: '失效视频（1）' })).toBeInTheDocument()
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）20')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）20')
   })
 
-  it('keeps every remote folder in the user area while showing relationship state and local workspace cards separately', () => {
+  it('keeps every remote folder in the user area with short relationship states and no local workspace table', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -846,17 +876,15 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(userFolders).toHaveTextContent('bilimi·只是同名')
     expect(userFolders).toHaveTextContent('已绑定的远端收藏夹')
     expect(userFolders).toHaveTextContent('待对账的远端收藏夹')
-    expect(within(userFolders).getByText(/已绑定的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('已绑定')
-    expect(within(userFolders).getByText(/待对账的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('待对账')
+    expect(within(userFolders).getByText(/已绑定的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('已备册')
+    expect(within(userFolders).getByText(/待对账的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('未绑定')
     expect(within(userFolders).getByLabelText('选择来源 已绑定的远端收藏夹')).toBeDisabled()
     expect(within(userFolders).getByLabelText('选择来源 待对账的远端收藏夹')).toBeDisabled()
-
-    const localWorkspace = screen.getByRole('table', { name: 'bilimi 本地工作区' })
-    expect(localWorkspace).toHaveTextContent('音乐整理规则')
-    expect(localWorkspace).toHaveTextContent('学习整理规则')
-    expect(localWorkspace).toHaveTextContent('bilimi·暂存')
-    expect(localWorkspace).toHaveTextContent('已备册')
-    expect(localWorkspace).toHaveTextContent('待重新备册/绑定/对账')
+    expect(within(userFolders).getByLabelText('选择来源 普通收藏夹')).toBeEnabled()
+    expect(within(userFolders).getByLabelText('选择来源 bilimi·只是同名')).toBeEnabled()
+    expect(screen.queryByRole('table', { name: 'bilimi 本地工作区' })).not.toBeInTheDocument()
+    expect(screen.queryByText('本地数量')).not.toBeInTheDocument()
+    expect(screen.queryByText('待重新备册/绑定/对账')).not.toBeInTheDocument()
   })
 
   it('shows incomplete lifecycle projections as pending confirmation instead of zero', () => {

@@ -464,7 +464,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('删除未成功，请稍后重试。')
   })
 
-  it('splits bulk recommendation deletion by the actual unbacked status', async () => {
+  it('cancels every selected recommendation in bulk before any local or remote deletion', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-missing'] })
     const onOrganizationRecommendationToggle = vi.fn(() => true)
     const onDeleteLedger = vi.fn()
@@ -476,9 +476,9 @@ describe('FavoriteLedgerOverview', () => {
       }
     })
     render(<FavoriteLedgerOverview ledgers={[
-      { id: 'recommended-missing', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false },
+      { id: 'recommended-missing', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false },
       { id: 'recommended-unbound-mixed', displayName: 'bilimi·未绑定推荐', keywords: ['未绑定推荐'], ruleType: 'keyword', enabled: true, priority: 20, bindingState: 'unbound', isDefault: false }
-    ]} missingLedgerIds={['recommended-missing']} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger}
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger}
       organizationRecommendationEnabledById={new Map([['recommended-missing', true], ['recommended-unbound-mixed', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
 
@@ -487,37 +487,27 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未绑定推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
-    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-missing']))
-    expect(onDeleteLedger).toHaveBeenCalledWith('recommended-missing')
+    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-missing', false))
     expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound-mixed', false)
-    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalledWith('recommended-missing', false)
-    expect(screen.queryByRole('button', { name: '未备册推荐' })).not.toBeInTheDocument()
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    expect(onDeleteLedger).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '未备册推荐' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
   })
 
-  it('waits for unbacked recommendation cleanup before leaving deletion mode', async () => {
+  it('waits for unbacked recommendation cancellation before leaving deletion mode', async () => {
     const cleanup = deferred<boolean>()
-    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-unbacked'] })
-    const onDeleteLedger = vi.fn(() => cleanup.promise)
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-        deleteFavoriteLedgersLocal
-      }
-    })
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-unbacked', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword',
       enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false
-    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger}
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
       organizationRecommendationEnabledById={new Map([['recommended-unbacked', true]])}
-      onOrganizationRecommendationToggle={vi.fn(() => true)} />)
+      onOrganizationRecommendationToggle={vi.fn(() => cleanup.promise)} />)
 
     fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未备册推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
-    await waitFor(() => expect(onDeleteLedger).toHaveBeenCalledWith('recommended-unbacked'))
     expect(screen.getByRole('button', { name: '取消删除模式' })).toBeInTheDocument()
     await act(async () => cleanup.resolve(true))
     await waitFor(() => expect(screen.getByRole('button', { name: '展开删除模式' })).toBeInTheDocument())

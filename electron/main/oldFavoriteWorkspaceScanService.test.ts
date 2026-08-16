@@ -1104,6 +1104,49 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).not.toHaveBeenCalledWith({ type: 'old-favorite-workspace-read-video-tags', accountMid: '100', target, aid: 1 })
   })
 
+  it('finishes an in-flight tag request after adoption pauses the queue without starting another', async () => {
+    let releaseFirstResponse: ((value: unknown) => void) | undefined
+    let tagStatus: 'running' | 'paused' = 'running'
+    const claims = [1, 2]
+    const coordinator = {
+      claimNextPendingTagEnrichmentAid: vi.fn().mockImplementation(async () =>
+        tagStatus === 'running' ? claims.shift() : undefined),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([]),
+      getSnapshot: vi.fn().mockImplementation(async () => ({
+        workspaceId: 'workspace-1', tagEnrichment: { status: tagStatus }
+      })),
+      releaseClaimedTagEnrichmentAid: vi.fn(),
+      recordTagEnrichment: vi.fn().mockResolvedValue(true)
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn((request: { type: string; aid?: number }) => {
+      if (request.type === 'old-favorite-workspace-read-video-tags' && request.aid === 1) {
+        return new Promise((resolve) => { releaseFirstResponse = resolve })
+      }
+      throw new Error(`Unexpected runtime request: ${request.type}:${request.aid ?? ''}`)
+    })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined)
+    })
+
+    void (service as never as { runTagEnrichment: (accountMid: string, target: typeof target, workspaceId: string) => Promise<void> })
+      .runTagEnrichment('100', target, 'workspace-1')
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags', aid: 1 })
+    ))
+
+    tagStatus = 'paused'
+    releaseFirstResponse?.({ status: 'ok', observedAccountMid: '100', aid: 1, tags: ['Technology'] })
+
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith(
+      '100', 1, ['Technology'], 'workspace-1'
+    ))
+    await vi.waitFor(() => expect(coordinator.claimNextPendingTagEnrichmentAid).toHaveBeenCalledTimes(2))
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-video-tags', aid: 2
+    }))
+  })
+
   it('hands tag enrichment to a newer workspace after the older queued run exits', async () => {
     let releaseFirstWait: (() => void) | undefined
     let activeWorkspaceId = 'workspace-1'

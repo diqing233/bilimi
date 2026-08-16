@@ -275,7 +275,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ledger.bindingState === undefined
   const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
   const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
-    ledger.bindingState !== 'unbacked' && !missingLedgerIds.includes(ledger.id) &&
     organizationRecommendationEnabledById?.get(ledger.id) === true &&
     Boolean(onOrganizationRecommendationToggle)
   const cancelRecommendation = async (ledgerId: string) => {

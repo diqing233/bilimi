@@ -209,6 +209,36 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(ensureFunction).not.toContain('requestAssistantSnapshot')
   })
 
+  it('refreshes the authoritative relationship projection after successful backup and workspace reconciliation', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const relationshipRefresh = source.slice(
+      source.indexOf('const refreshFavoriteOrganizationRelationshipProjection'),
+      source.indexOf('async function ensureFavoriteLedgers()')
+    )
+    const ensureFunction = source.slice(
+      source.indexOf('async function ensureFavoriteLedgers()'),
+      source.indexOf('async function saveFavoriteLedgers(')
+    )
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgers('),
+      source.indexOf('async function syncFavoriteLedgers(')
+    )
+    const reconciliationRefresh = source.slice(
+      source.indexOf('const refreshOrganizationState'),
+      source.indexOf('async function openFavoritePage()')
+    )
+
+    expect(relationshipRefresh).toContain("type: 'refresh-relationship-projection'")
+    expect(relationshipRefresh).toContain('setFavoriteOrganizationSnapshot(workspace)')
+    expect(reconciliationRefresh).toContain('refreshFavoriteOrganizationRelationshipProjection')
+    expect(reconciliationRefresh).not.toContain('openOldFavoriteWorkspaceV1')
+    expect(ensureFunction).toContain('if (result.ok)')
+    expect(ensureFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
+    expect(ensureFunction).toContain('await loadSnapshot()')
+    expect(saveFunction).toContain('if (result.ok)')
+    expect(saveFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
+  })
+
   it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(

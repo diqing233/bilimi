@@ -4833,11 +4833,29 @@ export function FloatingAssistantApp({
     saveSessionVideoNoteArchiveSelection(selection)
   }
 
+  const refreshFavoriteOrganizationRelationshipProjection = useCallback(async () => {
+    const accountMid = resolvedSnapshot.accountMid
+    if (!accountMid) return null
+
+    const workspace = await window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(
+      accountMid,
+      { type: 'refresh-relationship-projection' }
+    )
+    if (workspace && !('recovery' in workspace)) {
+      setFavoriteOrganizationSnapshot(workspace)
+    }
+    return workspace ?? null
+  }, [resolvedSnapshot.accountMid])
 
   async function ensureFavoriteLedgers() {
     tellPet('progress', '小咪正在检查 bilimi 分册是否齐全。')
     const result =
       (await window.bilimiDesktop?.ensureFavoriteLedgers?.()) ?? createDefaultResult('册目已备齐。')
+
+    if (result.ok) {
+      await refreshFavoriteOrganizationRelationshipProjection()
+      await loadSnapshot()
+    }
 
     tellPet(result.ok ? 'success' : 'error', result.message)
     return result
@@ -4853,18 +4871,10 @@ export function FloatingAssistantApp({
         ? window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)
         : window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers, options))) ??
       createDefaultResult('掌库已同步。')
-    const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
 
-    if (nextSnapshot) {
-      setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
-      setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
-    } else {
-      const accountMid = resolvedSnapshot.accountMid
-      await persistPreferences({
-        ...(accountMid
-          ? withFavoriteLedgersForAccount(preferencesRef.current, accountMid, favoriteLedgers)
-          : { ...preferencesRef.current, favoriteLedgers })
-      })
+    if (result.ok) {
+      await refreshFavoriteOrganizationRelationshipProjection()
+      await loadSnapshot()
     }
 
     tellPet(result.ok ? 'success' : 'error', result.message)
@@ -5065,13 +5075,9 @@ export function FloatingAssistantApp({
   }
 
   const refreshOrganizationState = useCallback(async () => {
-    const accountMid = resolvedSnapshot.accountMid
-    if (accountMid && window.bilimiDesktop?.openOldFavoriteWorkspaceV1) {
-      const workspace = await window.bilimiDesktop.openOldFavoriteWorkspaceV1(accountMid)
-      if (workspace && !('recovery' in workspace)) setFavoriteOrganizationSnapshot(workspace)
-    }
+    await refreshFavoriteOrganizationRelationshipProjection()
     await loadSnapshot()
-  }, [loadSnapshot, resolvedSnapshot.accountMid])
+  }, [loadSnapshot, refreshFavoriteOrganizationRelationshipProjection])
 
   async function openFavoritePage() {
     tellPet('progress', '小咪正在打开 B 站收藏夹。')

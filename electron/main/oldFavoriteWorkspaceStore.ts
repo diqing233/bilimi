@@ -83,7 +83,7 @@ type OverviewSegmentSummary = {
   selectedItemCount?: number
 }
 type TagEnrichmentDelta =
-  | { kind: 'tagged'; aid: number; tags: string[]; segmentId?: string; tagChanged?: boolean }
+  | { kind: 'tagged'; aid: number; tags: string[]; segmentId?: string; tagChanged?: boolean; unacceptedSegmentId?: string }
   | { kind: 'failed'; aid: number }
   | { kind: 'retry-failed' }
   | { kind: 'accept-segment'; segmentId: string; acceptedTagVersion?: number; status?: 'running' | 'paused' | 'accepted' | 'complete' }
@@ -713,6 +713,14 @@ export class OldFavoriteWorkspaceStore {
                 ...normalizeTagVersions(tagEnrichment.tagVersionsBySegment),
                 [delta.segmentId]: (tagEnrichment.tagVersionsBySegment?.[delta.segmentId] ?? 0) + 1
               }
+            }
+            if (delta.unacceptedSegmentId) {
+              if (delta.unacceptedSegmentId !== delta.segmentId ||
+                !tagEnrichment.acceptedSegmentIds?.includes(delta.unacceptedSegmentId)) {
+                throw new Error('tag enrichment unaccepted segment delta is invalid')
+              }
+              tagEnrichment.acceptedSegmentIds = tagEnrichment.acceptedSegmentIds
+                .filter((segmentId) => segmentId !== delta.unacceptedSegmentId)
             }
             tagUpdates.set(delta.aid, tags)
             tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length

@@ -644,6 +644,26 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
   })
 
+  it('refreshes relationship projections only through an exact payload-free command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      refreshRelationshipProjection: vi.fn().mockResolvedValue(snapshot),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'refresh-relationship-projection'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.refreshRelationshipProjection).toHaveBeenCalledExactlyOnceWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'refresh-relationship-projection', sourceFolders: ['renderer-forged']
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('forwards only main-process DeepSeek chunk progress to the requesting renderer', async () => {
     const ipcMain = new FakeIpcMain()
     const deepSeekService = {

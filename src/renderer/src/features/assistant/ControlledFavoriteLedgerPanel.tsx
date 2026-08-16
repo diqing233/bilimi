@@ -142,6 +142,12 @@ function savedRecommendationLedger(candidate: OldFavoriteWorkspaceRecommendation
   }
 }
 
+function isPureLocalGeneratedRecommendation(ledger: FavoriteLedger) {
+  return ledger.bindingState === 'unbacked' &&
+    !ledger.bilibiliFolderId &&
+    !(ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
+}
+
 function confirmationNeedsBackup(
   snapshot: Exclude<ReturnType<typeof useOldFavoriteWorkspace>['snapshot'], null>,
   ledgers: FavoriteLedger[],
@@ -197,17 +203,22 @@ export function ControlledFavoriteLedgerPanel({
   const promotedRecommendationLedgersRef = useRef<FavoriteLedger[]>([])
   const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
   const [promotedRecommendationAccountKey, setPromotedRecommendationAccountKey] = useState(accountKey)
+  const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [dismissedRecommendationAccountKey, setDismissedRecommendationAccountKey] = useState(accountKey)
   const [ledgerEnabledById, setLedgerEnabledById] = useState<ReadonlyMap<string, boolean>>(() =>
     new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
   const ledgerEnabledByIdRef = useRef(ledgerEnabledById)
   const visiblePromotedRecommendationLedgers = promotedRecommendationAccountKey === accountKey
     ? promotedRecommendationLedgers
     : []
+  const visibleDismissedGeneratedRecommendationLedgerIds = dismissedRecommendationAccountKey === accountKey
+    ? dismissedGeneratedRecommendationLedgerIds
+    : new Set<string>()
   const mergedEffectiveLedgers = mergePromotedRecommendationLedgers(ledgers, visiblePromotedRecommendationLedgers)
   const previewRecommendationSnapshot = workspace.snapshot && !('recovery' in workspace.snapshot) && workspace.snapshot.status === 'previewing'
     ? workspace.snapshot
     : null
-  const effectiveLedgers = previewRecommendationSnapshot
+  const effectiveLedgersBeforeDismissal = previewRecommendationSnapshot
     ? (() => {
         const projection = createRecommendationProjection(mergedEffectiveLedgers, previewRecommendationSnapshot.recommendations.candidates)
         const candidateIds = new Set(previewRecommendationSnapshot.recommendations.candidates.map((candidate) => candidate.id))
@@ -215,6 +226,7 @@ export function ControlledFavoriteLedgerPanel({
           !candidateIds.has(ledger.id) || projection.candidateToLedgerId.get(ledger.id) === ledger.id)
       })()
     : mergedEffectiveLedgers
+  const effectiveLedgers = effectiveLedgersBeforeDismissal.filter((ledger) => !visibleDismissedGeneratedRecommendationLedgerIds.has(ledger.id))
   const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
   const updateLedgerEnabledById = useCallback((next: ReadonlyMap<string, boolean>) => {
     const normalized = new Map(next)
@@ -236,6 +248,17 @@ export function ControlledFavoriteLedgerPanel({
     setPromotedRecommendationLedgers([])
     setPromotedRecommendationAccountKey(accountKey)
   }, [accountKey, promotedRecommendationAccountKey])
+  useEffect(() => {
+    if (dismissedRecommendationAccountKey === accountKey) return
+    setDismissedGeneratedRecommendationLedgerIds(new Set())
+    setDismissedRecommendationAccountKey(accountKey)
+  }, [accountKey, dismissedRecommendationAccountKey])
+  const removePromotedRecommendationLedger = useCallback((ledgerId: string) => {
+    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => ledger.id !== ledgerId)
+    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
+    promotedRecommendationLedgersRef.current = nextPromoted
+    setPromotedRecommendationLedgers(nextPromoted)
+  }, [])
   const promoteSelectedRecommendationLedgers = useCallback((candidateIds: readonly string[]) => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
@@ -264,20 +287,46 @@ export function ControlledFavoriteLedgerPanel({
       }
     })
   }, [ledgers, onSaveLedgers, workspace.snapshot])
-  const setOrganizationRecommendedCandidates = useCallback((candidateIds: string[]) => {
+  const setOrganizationRecommendedCandidates = useCallback(async (candidateIds: string[]) => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') {
       workspace.setRecommendedCandidates(candidateIds)
-      return
+      return workspace.waitForRecommendationQueue()
     }
     const candidates = snapshot.recommendations.candidates
     const knownCandidateIds = new Set(candidates.map((candidate) => candidate.id))
     const nextCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter((id) => knownCandidateIds.has(id)))].sort()
+    const previousCandidateIds = new Set(workspace.recommendedCandidateIds)
+    const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
+    const projection = createRecommendationProjection(currentLedgers, candidates)
+    const ledgerById = new Map(currentLedgers.map((ledger) => [ledger.id, ledger]))
     promoteSelectedRecommendationLedgers(nextCandidateIds)
     workspace.setRecommendedCandidates(nextCandidateIds)
-  }, [promoteSelectedRecommendationLedgers, workspace.setRecommendedCandidates, workspace.snapshot])
+    const committedCandidateIds = new Set(await workspace.waitForRecommendationQueue())
+    const dismissedLedgerIds = candidates
+      .filter((candidate) => previousCandidateIds.has(candidate.id) && !nextCandidateIds.includes(candidate.id) && !committedCandidateIds.has(candidate.id))
+      .map((candidate) => projection.candidateToLedgerId.get(candidate.id))
+      .filter((ledgerId): ledgerId is string => Boolean(ledgerId))
+      .filter((ledgerId) => {
+        const ledger = ledgerById.get(ledgerId)
+        return ledger ? isPureLocalGeneratedRecommendation(ledger) : false
+      })
+    if (dismissedLedgerIds.length) {
+      for (const ledgerId of dismissedLedgerIds) removePromotedRecommendationLedger(ledgerId)
+      setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, ...dismissedLedgerIds]))
+    }
+    const restoredLedgerIds = candidates
+      .filter((candidate) => !previousCandidateIds.has(candidate.id) && nextCandidateIds.includes(candidate.id) && committedCandidateIds.has(candidate.id))
+      .map((candidate) => projection.candidateToLedgerId.get(candidate.id))
+      .filter((ledgerId): ledgerId is string => Boolean(ledgerId))
+    if (restoredLedgerIds.length) {
+      const restoredIds = new Set(restoredLedgerIds)
+      setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current].filter((ledgerId) => !restoredIds.has(ledgerId))))
+    }
+    return [...committedCandidateIds]
+  }, [ledgers, promoteSelectedRecommendationLedgers, removePromotedRecommendationLedger, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot, workspace.waitForRecommendationQueue])
   const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
-    setOrganizationRecommendedCandidates(update(workspace.recommendedCandidateIds))
+    void setOrganizationRecommendedCandidates(update(workspace.recommendedCandidateIds))
   }, [setOrganizationRecommendedCandidates, workspace.recommendedCandidateIds])
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>, source?: 'editor-unsaved' | 'organization-selection') => {
     const previousEnabledById = ledgerEnabledByIdRef.current
@@ -308,33 +357,17 @@ export function ControlledFavoriteLedgerPanel({
     const candidateId = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
       .ledgerToCandidateId.get(ledgerId)
     if (!candidateId) return false
-    updateOrganizationRecommendedCandidates((current) => enabled
-      ? [...current, candidateId]
-      : current.filter((currentCandidateId) => currentCandidateId !== candidateId))
-    const committedIds = await workspace.waitForRecommendationQueue()
+    const committedIds = await setOrganizationRecommendedCandidates(enabled
+      ? [...workspace.recommendedCandidateIds, candidateId]
+      : workspace.recommendedCandidateIds.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return enabled ? committedIds.includes(candidateId) : !committedIds.includes(candidateId)
-  }, [effectiveLedgers, updateOrganizationRecommendedCandidates, workspace.snapshot, workspace.waitForRecommendationQueue])
+  }, [effectiveLedgers, setOrganizationRecommendedCandidates, workspace.recommendedCandidateIds, workspace.snapshot])
   useEffect(() => {
     promoteSelectedRecommendationLedgers(workspace.recommendedCandidateIds)
   }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds])
-  const removePromotedRecommendationLedger = useCallback((ledgerId: string) => {
-    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => ledger.id !== ledgerId)
-    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
-    promotedRecommendationLedgersRef.current = nextPromoted
-    setPromotedRecommendationLedgers(nextPromoted)
-  }, [])
   const handleDeleteLedger = useCallback(async (ledgerId: string) => {
-    const snapshot = workspace.snapshot
-    const candidateId = snapshot && !('recovery' in snapshot)
-      ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates).ledgerToCandidateId.get(ledgerId)
-      : undefined
-    if (candidateId && workspace.recommendedCandidateIds.includes(candidateId)) {
-      const cancelled = await handleOrganizationRecommendationToggle(ledgerId, false)
-      if (!cancelled) return false
-      removePromotedRecommendationLedger(ledgerId)
-    }
     return true
-  }, [effectiveLedgers, handleOrganizationRecommendationToggle, removePromotedRecommendationLedger, workspace.recommendedCandidateIds, workspace.snapshot])
+  }, [])
   const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
     await pendingRecommendationSavesRef.current.get(ledgerId)
   }, [])

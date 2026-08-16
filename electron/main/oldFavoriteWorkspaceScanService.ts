@@ -93,6 +93,8 @@ export class OldFavoriteWorkspaceScanService {
   constructor(private readonly options: {
     coordinator: OldFavoriteWorkspaceCoordinator & {
       recordTagEnrichmentFailure?: (accountMid: string, aid: number, reason: string, expectedWorkspaceId?: string) => Promise<boolean>
+      claimNextPendingTagEnrichmentAid?: (accountMid: string) => Promise<number | undefined>
+      releaseClaimedTagEnrichmentAid?: (accountMid: string, aid: number) => Promise<void>
       /** A name is only a recovery candidate; bound IDs are scan authority. */
       getFormallyBoundRemoteFolderIds?: (accountMid: string) => Promise<ReadonlySet<string>>
       /** Remote IDs come from durable local bindings, never from folder names. */
@@ -602,43 +604,85 @@ export class OldFavoriteWorkspaceScanService {
     let activeTarget = target
     try {
       while (true) {
-        const aids = await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
-        if (!isCurrent()) return
+        const claimedAid = typeof this.options.coordinator.claimNextPendingTagEnrichmentAid === 'function'
+          ? await this.options.coordinator.claimNextPendingTagEnrichmentAid(accountMid)
+          : undefined
+        const aids = claimedAid === undefined
+          ? await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
+          : [claimedAid]
+        if (!isCurrent()) {
+          if (claimedAid !== undefined && typeof this.options.coordinator.releaseClaimedTagEnrichmentAid === 'function') {
+            await this.options.coordinator.releaseClaimedTagEnrichmentAid(accountMid, claimedAid)
+          }
+          return
+        }
         if (!aids.length) return
         const aid = aids.find((candidate) => !skipTaggedAids?.has(candidate))
-        if (aid === undefined) return
+        if (aid === undefined) {
+          if (claimedAid !== undefined && typeof this.options.coordinator.releaseClaimedTagEnrichmentAid === 'function') {
+            await this.options.coordinator.releaseClaimedTagEnrichmentAid(accountMid, claimedAid)
+          }
+          return
+        }
+        const releaseClaim = async () => {
+          if (claimedAid === aid && typeof this.options.coordinator.releaseClaimedTagEnrichmentAid === 'function') {
+            await this.options.coordinator.releaseClaimedTagEnrichmentAid(accountMid, aid)
+          }
+        }
         let result!: RuntimeInventoryResult
         let recoverableFailure: RuntimeInventoryResult | undefined
         for (let attempt = 0; attempt < 3; attempt += 1) {
           await this.waitForTagRequest()
-          if (!isCurrent()) return
+          if (!isCurrent()) {
+            await releaseClaim()
+            return
+          }
           const read = await this.requestCurrentTagWithTargetRetry(accountMid, workspaceId, activeTarget, aid)
           const next = read.result
           activeTarget = read.target
-          if (!isCurrent()) return
-          if (!next) return
+          if (!isCurrent()) {
+            await releaseClaim()
+            return
+          }
+          if (!next) {
+            await releaseClaim()
+            return
+          }
           result = next
           if (!isRecoverableTagReadFailure(result, accountMid)) break
           recoverableFailure = result
           if (attempt < 2) await new Promise<void>((resolve) => setTimeout(resolve, this.options.tagRetryDelayMs ?? 750))
         }
         if (recoverableFailure && isRecoverableTagReadFailure(result, accountMid)) {
-          if (!isCurrent()) return
+          if (!isCurrent()) {
+            await releaseClaim()
+            return
+          }
           if (this.options.coordinator.recordTagEnrichmentFailure) {
-            await this.options.coordinator.recordTagEnrichmentFailure(accountMid, aid, tagReadFailureReason(result), workspaceId)
+            const recorded = await this.options.coordinator.recordTagEnrichmentFailure(accountMid, aid, tagReadFailureReason(result), workspaceId)
+            if (recorded === false) await releaseClaim()
             continue
           }
+          await releaseClaim()
           await this.options.coordinator.pauseTagEnrichment(accountMid)
           return
         }
         if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
           normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) {
-          if (!isCurrent()) return
+          if (!isCurrent()) {
+            await releaseClaim()
+            return
+          }
+          await releaseClaim()
           await this.options.coordinator.pauseTagEnrichment(accountMid)
           return
         }
-        if (!isCurrent()) return
-        await this.options.coordinator.recordTagEnrichment(accountMid, aid, result.tags, workspaceId)
+        if (!isCurrent()) {
+          await releaseClaim()
+          return
+        }
+        const recorded = await this.options.coordinator.recordTagEnrichment(accountMid, aid, result.tags, workspaceId)
+        if (recorded === false) await releaseClaim()
       }
     } finally {
       if (this.enrichmentRuns.get(accountMid) !== run) return

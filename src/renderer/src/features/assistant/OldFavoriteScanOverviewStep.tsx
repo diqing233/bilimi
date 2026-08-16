@@ -145,7 +145,6 @@ export function OldFavoriteScanOverviewStep({
   // badges change its scan eligibility, never its display area.
   const userFolders = folders
   const selectableUserFolders = userFolders.filter(oldFavoriteFolderIsScanEligible)
-  const localWorkspaceFolders = activeSnapshot?.localWorkspaceFolders ?? []
   const selectedSourceIds = new Set(userFolders
     .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
     .map((folder) => folder.id))
@@ -165,12 +164,12 @@ export function OldFavoriteScanOverviewStep({
   const tagEnrichment = snapshot?.tagEnrichment
   const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
   const currentSegmentReady = currentSegmentSummary?.readiness === 'ready' || currentSegmentSummary?.readiness === 'saved'
-  const currentSegmentCanResumeTagEnrichment = tagEnrichment?.currentSegmentCanResumeTagEnrichment === true
+  const currentSegmentCanContinueTagEnrichment = tagEnrichment?.currentSegmentCanContinueTagEnrichment === true
   const currentSegmentHasUnacceptedTagChanges = tagEnrichment?.currentSegmentHasUnacceptedTagChanges === true
   const shouldOfferCurrentTagAcceptance = currentSegmentHasUnacceptedTagChanges ||
     (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted' && !currentSegmentReady)
   const showTagEnrichmentActions = Boolean(tagEnrichment?.pendingItemCount) ||
-    currentSegmentCanResumeTagEnrichment || shouldOfferCurrentTagAcceptance
+    currentSegmentCanContinueTagEnrichment || shouldOfferCurrentTagAcceptance
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
   const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
@@ -285,8 +284,8 @@ export function OldFavoriteScanOverviewStep({
         <span><small>读取失败</small><strong>{failedTagItemCount}</strong></span>
       </div>
       {showTagEnrichmentActions ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
-        {currentSegmentCanResumeTagEnrichment
-          ? <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>
+        {currentSegmentCanContinueTagEnrichment
+          ? <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续扫描标签</button>
           : tagEnrichment.pendingItemCount > 0
             ? tagEnrichment.status === 'running'
               ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
@@ -297,7 +296,7 @@ export function OldFavoriteScanOverviewStep({
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
-      {tagEnrichment.pendingItemCount > 0 || currentSegmentCanResumeTagEnrichment || currentSegmentHasUnacceptedTagChanges ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
+      {tagEnrichment.pendingItemCount > 0 || currentSegmentCanContinueTagEnrichment || currentSegmentHasUnacceptedTagChanges ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' && !scanning ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>
@@ -351,7 +350,7 @@ export function OldFavoriteScanOverviewStep({
         {userFolders.map((folder) => {
           const scanEligible = oldFavoriteFolderIsScanEligible(folder)
           const relationship = oldFavoriteRemoteRelationship(folder)
-          const relationshipLabel = relationship === 'bound' ? '已绑定' : relationship === 'reconcile-required' ? '待对账' : undefined
+          const relationshipLabel = relationship === 'bound' ? '已备册' : relationship === 'reconcile-required' ? '未绑定' : undefined
           return <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
           <label className="favorite-ledger-panel__source-row-content">
             <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
@@ -366,23 +365,6 @@ export function OldFavoriteScanOverviewStep({
           </label>
         </li>
         })}
-      </ul>
-    </div> : null}
-    {localWorkspaceFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 本地工作区">
-      <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
-        <span role="columnheader" aria-label="本地状态" /><span role="columnheader" className="favorite-ledger-panel__source-heading">bilimi 本地工作区</span>
-        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading">本地数量</span><span role="columnheader" className="favorite-ledger-panel__source-metric-heading">关系状态</span>
-      </div>
-      <ul role="rowgroup" className="favorite-ledger-panel__source-list">
-        {localWorkspaceFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi favorite-ledger-panel__source-row-content">
-          <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{folder.kind === 'draft'
-            ? '本地草稿'
-            : folder.relationship === 'bound'
-              ? '已备册'
-              : '待重新备册/绑定/对账'}</span>
-        </li>)}
       </ul>
     </div> : null}
   </section>

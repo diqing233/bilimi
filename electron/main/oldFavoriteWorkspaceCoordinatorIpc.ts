@@ -52,6 +52,7 @@ type WorkspaceCommand =
   | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
   | { type: 'reclassify-favorite-configuration' }
+  | { type: 'refresh-relationship-projection' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
   | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
   | { type: 'cancel-recommendation-preview-preparation' }
@@ -198,6 +199,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'reclassify-favorite-configuration' && Object.keys(candidate).length === 1) {
     return { type: 'reclassify-favorite-configuration' }
+  }
+  if (candidate.type === 'refresh-relationship-projection' && Object.keys(candidate).length === 1) {
+    return { type: 'refresh-relationship-projection' }
   }
   if (candidate.type === 'set-recommended-candidates' && Array.isArray(candidate.candidateIds) &&
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
@@ -436,6 +440,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
       ? options.rebuildAndStartScan(accountMid)
       : options.coordinator.rebuildAfterRecovery(accountMid)
+    if (requested.type === 'refresh-relationship-projection') return options.coordinator.refreshRelationshipProjection(accountMid)
     if (requested.type === 'select-source-folders') await options.coordinator.selectSourceFolders(accountMid, requested.folderIds)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'view-segment') return options.coordinator.getSegmentSnapshot(accountMid, requested.segmentId)
