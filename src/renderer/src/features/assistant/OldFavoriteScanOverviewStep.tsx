@@ -165,6 +165,12 @@ export function OldFavoriteScanOverviewStep({
   const tagEnrichment = snapshot?.tagEnrichment
   const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
   const currentSegmentReady = currentSegmentSummary?.readiness === 'ready' || currentSegmentSummary?.readiness === 'saved'
+  const currentSegmentCanResumeTagEnrichment = tagEnrichment?.currentSegmentCanResumeTagEnrichment === true
+  const currentSegmentHasUnacceptedTagChanges = tagEnrichment?.currentSegmentHasUnacceptedTagChanges === true
+  const shouldOfferCurrentTagAcceptance = currentSegmentHasUnacceptedTagChanges ||
+    (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted' && !currentSegmentReady)
+  const showTagEnrichmentActions = Boolean(tagEnrichment?.pendingItemCount) ||
+    currentSegmentCanResumeTagEnrichment || shouldOfferCurrentTagAcceptance
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
   const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
@@ -271,23 +277,27 @@ export function OldFavoriteScanOverviewStep({
       <p className="favorite-ledger-panel__scan-explanation">先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。</p>
     </> : null}
     {tagEnrichment && !scanning ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p className="favorite-ledger-panel__scan-enrichment-summary">标签补取{tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
+      <p className="favorite-ledger-panel__scan-enrichment-summary">标签补取{currentSegmentHasUnacceptedTagChanges ? '发现新增或变化标签，待采用' : tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
       <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
         <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
         <span><small>本轮获取标签</small><strong>{fetchedTagItemCount}</strong></span>
         <span><small>本轮确认无标签</small><strong>{confirmedUntaggedItemCount}</strong></span>
         <span><small>读取失败</small><strong>{failedTagItemCount}</strong></span>
       </div>
-      {tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
-        {tagEnrichment.status === 'running'
-          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-          : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>}
-        {tagEnrichment.status !== 'accepted' && !currentSegmentReady ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
+      {showTagEnrichmentActions ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
+        {currentSegmentCanResumeTagEnrichment
+          ? <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>
+          : tagEnrichment.pendingItemCount > 0
+            ? tagEnrichment.status === 'running'
+              ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+              : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>
+            : null}
+        {shouldOfferCurrentTagAcceptance ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
       </div> : null}
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
-      {tagEnrichment.pendingItemCount > 0 ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
+      {tagEnrichment.pendingItemCount > 0 || currentSegmentCanResumeTagEnrichment || currentSegmentHasUnacceptedTagChanges ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' && !scanning ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <>

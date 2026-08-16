@@ -617,6 +617,52 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '重新补取失败标签' })).toBeInTheDocument()
   })
 
+  it('offers current-batch tag continuation after every tag has already been adopted', () => {
+    const resume = vi.fn()
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 1, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'accepted', totalItemCount: 1, completedItemCount: 1, pendingItemCount: 0, failedItemCount: 0,
+          currentSegmentCanResumeTagEnrichment: true
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={resume} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeInTheDocument()
+  })
+
+  it('offers current-tag adoption only when the re-read reports changed tag content', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 1, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'complete', totalItemCount: 1, completedItemCount: 1, pendingItemCount: 0, failedItemCount: 0,
+          currentSegmentCanResumeTagEnrichment: false,
+          currentSegmentHasUnacceptedTagChanges: true
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+    />)
+
+    expect(screen.getByText('标签补取发现新增或变化标签，待采用：已处理 1 / 1 条。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '继续补取标签' })).not.toBeInTheDocument()
+  })
+
   it('keeps classified source folders selectable and makes the header control select all only', () => {
     const selectSourceFolders = vi.fn()
     render(<OldFavoriteScanOverviewStep

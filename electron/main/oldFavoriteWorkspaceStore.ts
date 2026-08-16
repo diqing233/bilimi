@@ -83,11 +83,11 @@ type OverviewSegmentSummary = {
   selectedItemCount?: number
 }
 type TagEnrichmentDelta =
-  | { kind: 'tagged'; aid: number; tags: string[] }
+  | { kind: 'tagged'; aid: number; tags: string[]; segmentId?: string; tagChanged?: boolean }
   | { kind: 'failed'; aid: number }
   | { kind: 'retry-failed' }
-  | { kind: 'accept-segment'; segmentId: string; status?: 'running' | 'paused' | 'accepted' | 'complete' }
-  | { kind: 'resume-segment'; segmentId: string; status?: 'running' | 'paused' | 'accepted' | 'complete' }
+  | { kind: 'accept-segment'; segmentId: string; acceptedTagVersion?: number; status?: 'running' | 'paused' | 'accepted' | 'complete' }
+  | { kind: 'resume-segment'; segmentId: string; requeuedAids?: number[]; status?: 'running' | 'paused' | 'accepted' | 'complete' }
   | { kind: 'status'; status: 'running' | 'paused' | 'accepted' | 'complete' }
 type Overlay = {
   currentSegmentId: string
@@ -124,6 +124,8 @@ type Overlay = {
     taggedAids?: number[]
     confirmedUntaggedAids?: number[]
     acceptedSegmentIds?: string[]
+    tagVersionsBySegment?: Record<string, number>
+    acceptedTagVersionsBySegment?: Record<string, number>
   }
   tagUpdates?: Array<{ aid: number; tags: string[] }>
   tagEnrichmentDelta?: TagEnrichmentDelta
@@ -132,6 +134,13 @@ type Overlay = {
   executionIntent?: OldFavoriteWorkspaceExecutionIntent | null
   overview?: { segments: OverviewSegmentSummary[]; unavailableItemCount: number }
 }
+
+function normalizeTagVersions(value: Record<string, number> | undefined) {
+  return Object.fromEntries(Object.entries(value ?? {}).flatMap(([segmentId, version]) =>
+    segmentId && Number.isSafeInteger(version) && version >= 0 ? [[segmentId, version]] : []
+  )) as Record<string, number>
+}
+
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
 type Manifest = {
   version: 1
@@ -662,6 +671,13 @@ export class OldFavoriteWorkspaceStore {
           }
         }
         if (overlay.tagEnrichment) {
+          const tagVersionsBySegment = normalizeTagVersions(overlay.tagEnrichment.tagVersionsBySegment)
+          const acceptedTagVersionsBySegment = normalizeTagVersions(overlay.tagEnrichment.acceptedTagVersionsBySegment)
+          for (const segmentId of overlay.tagEnrichment.acceptedSegmentIds ?? []) {
+            if (acceptedTagVersionsBySegment[segmentId] === undefined) {
+              acceptedTagVersionsBySegment[segmentId] = tagVersionsBySegment[segmentId] ?? 0
+            }
+          }
           tagEnrichment = {
             ...clone(overlay.tagEnrichment),
             completedItemCount: Number.isSafeInteger(overlay.tagEnrichment.completedItemCount)
@@ -671,7 +687,9 @@ export class OldFavoriteWorkspaceStore {
             reusedTagItemCount: overlay.tagEnrichment.reusedTagItemCount ?? 0,
             taggedAids: [...new Set(overlay.tagEnrichment.taggedAids ?? [])],
             confirmedUntaggedAids: [...new Set(overlay.tagEnrichment.confirmedUntaggedAids ?? [])],
-            acceptedSegmentIds: [...new Set(overlay.tagEnrichment.acceptedSegmentIds ?? [])]
+            acceptedSegmentIds: [...new Set(overlay.tagEnrichment.acceptedSegmentIds ?? [])],
+            tagVersionsBySegment,
+            acceptedTagVersionsBySegment
           }
         }
         if (overlay.tagEnrichmentDelta) {
@@ -690,6 +708,12 @@ export class OldFavoriteWorkspaceStore {
             tagEnrichment.confirmedUntaggedAids = tags.length
               ? (tagEnrichment.confirmedUntaggedAids ?? []).filter((aid) => aid !== delta.aid)
               : [...new Set([...(tagEnrichment.confirmedUntaggedAids ?? []), delta.aid])].sort((left, right) => left - right)
+            if (delta.tagChanged && delta.segmentId) {
+              tagEnrichment.tagVersionsBySegment = {
+                ...normalizeTagVersions(tagEnrichment.tagVersionsBySegment),
+                [delta.segmentId]: (tagEnrichment.tagVersionsBySegment?.[delta.segmentId] ?? 0) + 1
+              }
+            }
             tagUpdates.set(delta.aid, tags)
             tagEnrichment.completedItemCount = tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length
             tagEnrichment.status = tagEnrichment.pendingAids.length ? 'running' : 'complete'
@@ -715,8 +739,27 @@ export class OldFavoriteWorkspaceStore {
               throw new Error('tag enrichment segment delta is invalid')
             }
             const acceptedSegmentIds = new Set(tagEnrichment.acceptedSegmentIds ?? [])
-            if (delta.kind === 'accept-segment') acceptedSegmentIds.add(delta.segmentId)
-            else acceptedSegmentIds.delete(delta.segmentId)
+            if (delta.kind === 'accept-segment') {
+              acceptedSegmentIds.add(delta.segmentId)
+              tagEnrichment.acceptedTagVersionsBySegment = {
+                ...normalizeTagVersions(tagEnrichment.acceptedTagVersionsBySegment),
+                [delta.segmentId]: Number.isSafeInteger(delta.acceptedTagVersion) && delta.acceptedTagVersion >= 0
+                  ? delta.acceptedTagVersion
+                  : tagEnrichment.tagVersionsBySegment?.[delta.segmentId] ?? 0
+              }
+            } else {
+              acceptedSegmentIds.delete(delta.segmentId)
+              const requeuedAids = [...new Set(delta.requeuedAids ?? [])]
+              if (requeuedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
+                throw new Error('tag enrichment resume delta is invalid')
+              }
+              if (requeuedAids.length) {
+                tagEnrichment.pendingAids = [...new Set([...tagEnrichment.pendingAids, ...requeuedAids])]
+                  .sort((left, right) => left - right)
+                tagEnrichment.completedItemCount = Math.max(0, tagEnrichment.totalItemCount - tagEnrichment.pendingAids.length)
+                tagEnrichment.status = 'running'
+              }
+            }
             tagEnrichment.acceptedSegmentIds = [...acceptedSegmentIds]
             if (delta.status) tagEnrichment.status = delta.status
           } else {

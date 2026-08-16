@@ -261,6 +261,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+    currentSegmentCanResumeTagEnrichment?: boolean
+    currentSegmentHasUnacceptedTagChanges?: boolean
     scopes?: {
       currentSegment: OldFavoriteTagScopeStatistics
       wholeRun: OldFavoriteTagScopeStatistics

@@ -803,6 +803,54 @@ describe('OldFavoriteWorkspaceStore', () => {
     })
   })
 
+  it('persists a later re-read of an accepted segment even when no tag read was pending', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'accepted', totalItemCount: 1, completedItemCount: 1,
+        pendingAids: [], failedAids: [], reusedTagItemCount: 0, taggedAids: [1],
+        acceptedSegmentIds: ['segment-1']
+      }
+    })
+    await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', kind: 'resume-segment', segmentId: 'segment-1', requeuedAids: [1]
+    } as never)
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingAids: [1], acceptedSegmentIds: [] }
+    })
+  })
+
+  it('reads a legacy accepted tag segment as version zero without forcing another adoption', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'accepted', totalItemCount: 1, completedItemCount: 1,
+        pendingAids: [], failedAids: [], reusedTagItemCount: 0, taggedAids: [1],
+        acceptedSegmentIds: ['segment-1']
+      }
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      tagEnrichment: {
+        tagVersionsBySegment: {},
+        acceptedTagVersionsBySegment: { 'segment-1': 0 }
+      }
+    })
+  })
+
   it('atomically compacts a large legacy tag journal before committing the next delta', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

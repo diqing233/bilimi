@@ -90,11 +90,11 @@ Expected: PASS。
 - Read/align: `src/renderer/src/features/favorites/favoriteLibraryModel.ts`, `src/renderer/src/features/favorites/FavoriteLibraryApp.tsx`
 - Tests: `src/shared/oldFavoriteWorkspace.test.ts`, `electron/main/oldFavoriteWorkspaceStore.test.ts`, `electron/main/oldFavoriteWorkspaceScanService.test.ts`, `electron/main/oldFavoriteWorkspaceCoordinator.test.ts`, `src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
-- [ ] **Step 1: 为三维投影写失败测试。**
+- [x] **Step 1: 为三维投影写失败测试。**
 
 覆盖四种实体：普通远端夹（用户区、可扫描）、名称含 bilimi 但无关系的远端夹（用户区、可扫描）、已绑定远端夹（用户区、关系徽标、不可扫描）、本地规则存在而远端关系待对账的夹（用户区关系徽标 + 工作区待对账卡、不可扫描）。旧工作区缺少新字段时必须读取为现有的兼容行为。
 
-- [ ] **Step 2: 验证失败并加入可迁移的类型字段。**
+- [x] **Step 2: 验证失败并加入可迁移的类型字段。**
 
 Run: `npx vitest run src/shared/oldFavoriteWorkspace.test.ts electron/main/oldFavoriteWorkspaceStore.test.ts electron/main/oldFavoriteWorkspaceScanService.test.ts electron/main/oldFavoriteWorkspaceCoordinator.test.ts src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
@@ -102,11 +102,11 @@ Expected: 新断言先失败。
 
 定义 `remoteRelationship: 'none' | 'bound' | 'reconcile-required'` 与独立的 `scanEligible: boolean`；保留 `isBilimiWorkFolder` 的旧数据读取兼容但不再作为 UI 分组依据。store 缺字段时从可靠本地 rule/folder 关系导出并保存新投影，不因名称推断。
 
-- [ ] **Step 3: 将扫描器和 UI 切至新投影。**
+- [x] **Step 3: 将扫描器和 UI 切至新投影。**
 
 扫描器只接收 `scanEligible` 的远端夹；UI 将远端夹全部渲染到用户区，并将本地规则/草稿/关系状态渲染为工作区卡片。关系徽标不能移动远端实体；无关系夹永远不因为名字成为工作区。
 
-- [ ] **Step 4: 运行定向、完整及迁移回归。**
+- [x] **Step 4: 运行定向、完整及迁移回归。**
 
 Run: `npx vitest run src/shared/oldFavoriteWorkspace.test.ts electron/main/oldFavoriteWorkspaceStore.test.ts electron/main/oldFavoriteWorkspaceScanService.test.ts electron/main/oldFavoriteWorkspaceCoordinator.test.ts src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
@@ -126,11 +126,11 @@ Expected: PASS。
 - Modify: `src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.tsx:261-280`
 - Tests: `electron/main/oldFavoriteWorkspaceCoordinator.test.ts`, `electron/main/oldFavoriteWorkspaceStore.test.ts`, `electron/main/oldFavoriteWorkspaceScanService.test.ts`, `src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
-- [ ] **Step 1: 写可重复采用的失败测试。**
+- [x] **Step 1: 写可重复采用的失败测试。**
 
 断言已采用批在没有 `pendingAids` 时仍可继续补取；扫描出新增或内容变化标签后显示“采用当前标签”；再次采用只改变系统分类/推荐/预览，人工分类和已勾选推荐不变；无新增/变化时不显示再次采用；旧持久化对象缺少版本字段可读。
 
-- [ ] **Step 2: 验证失败并实现版本化状态。**
+- [x] **Step 2: 验证失败并实现版本化状态。**
 
 Run: `npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts electron/main/oldFavoriteWorkspaceStore.test.ts electron/main/oldFavoriteWorkspaceScanService.test.ts src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
@@ -138,7 +138,7 @@ Expected: 继续操作因没有 `pendingAids` 被拒绝，新增采用按钮断�
 
 持久化每批标签内容版本和 `acceptedTagVersion`；继续补取读取所有已完成/可重试条目而不是仅 pending；仅 `tagVersion > acceptedTagVersion` 使状态成为 `awaiting-adoption`。采用后更新 accepted 版本、重建系统派生结果并合并回人工覆盖与推荐选择。
 
-- [ ] **Step 3: 运行定向和完整回归。**
+- [x] **Step 3: 运行定向和完整回归。**
 
 Run: `npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts electron/main/oldFavoriteWorkspaceStore.test.ts electron/main/oldFavoriteWorkspaceScanService.test.ts src/renderer/src/features/assistant/OldFavoriteScanOverviewStep.test.tsx`
 
