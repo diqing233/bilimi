@@ -3175,7 +3175,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       deleteFavoriteLedgersLocal
     } as unknown as typeof window.bilimiDesktop
 
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    const { rerender } = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={onSaveLedgers} />)
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
@@ -3186,6 +3186,53 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
     await act(async () => save.resolve(undefined))
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-pending']))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: []
+    }))
+    expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '待保存', checked: true })).not.toBeInTheDocument()
+
+    rerender(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'unrelated', displayName: 'bilimi·其他收藏', keywords: [], enabled: true, priority: 1, isDefault: false }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={onSaveLedgers} />)
+
+    expect(screen.getByRole('button', { name: '其他收藏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a promoted recommendation and its selection when local deletion fails', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [{ id: 'author-failed-delete', displayName: 'bilimi·删除失败', kind: 'author' as const, count: 2, reason: '删除失败' }], adoptedCandidateIds: [] as string[] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn((_accountMid: string, input: { type: string; candidateIds?: string[] }) => Promise.resolve({
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: input.type === 'set-recommended-candidates' ? (input.candidateIds ?? []) : [] }
+    }))
+    const deleteFavoriteLedgersLocal = vi.fn().mockRejectedValue(new Error('local deletion failed'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn().mockResolvedValue(undefined)} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '删除失败' }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除失败' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-failed-delete']))
+    expect(await screen.findByText('删除未成功，请稍后重试。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除失败' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '删除失败' })).toBeChecked()
+    expect(command).not.toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: [] })
   })
 
   it('projects a recommendation onto the existing logical ledger and preserves its real binding details', async () => {

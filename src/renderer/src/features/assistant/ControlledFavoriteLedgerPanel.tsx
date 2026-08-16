@@ -317,16 +317,24 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     promoteSelectedRecommendationLedgers(workspace.recommendedCandidateIds)
   }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds])
-  const handleDeleteLedger = useCallback((ledgerId: string) => {
+  const removePromotedRecommendationLedger = useCallback((ledgerId: string) => {
+    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => ledger.id !== ledgerId)
+    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
+    promotedRecommendationLedgersRef.current = nextPromoted
+    setPromotedRecommendationLedgers(nextPromoted)
+  }, [])
+  const handleDeleteLedger = useCallback(async (ledgerId: string) => {
     const snapshot = workspace.snapshot
     const candidateId = snapshot && !('recovery' in snapshot)
       ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates).ledgerToCandidateId.get(ledgerId)
       : undefined
     if (candidateId && workspace.recommendedCandidateIds.includes(candidateId)) {
-      return handleOrganizationRecommendationToggle(ledgerId, false)
+      const cancelled = await handleOrganizationRecommendationToggle(ledgerId, false)
+      if (!cancelled) return false
+      removePromotedRecommendationLedger(ledgerId)
     }
     return true
-  }, [effectiveLedgers, handleOrganizationRecommendationToggle, workspace.recommendedCandidateIds, workspace.snapshot])
+  }, [effectiveLedgers, handleOrganizationRecommendationToggle, removePromotedRecommendationLedger, workspace.recommendedCandidateIds, workspace.snapshot])
   const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
     await pendingRecommendationSavesRef.current.get(ledgerId)
   }, [])

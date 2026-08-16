@@ -241,7 +241,7 @@ export function OldFavoriteGuide({
     : snapshot
   const segmentContentAvailable = !displayedSnapshot || 'recovery' in displayedSnapshot || (() => {
     const enrichmentActive = displayedSnapshot.tagEnrichment?.status === 'running' || displayedSnapshot.tagEnrichment?.status === 'paused'
-    if (viewScope === 'all') return !enrichmentActive
+    if (viewScope === 'all') return displayedSnapshot.segments.some((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
     const segment = displayedSnapshot.segments.find((candidate) => candidate.id === displayedSnapshot.currentSegment?.id)
     if (segment?.readiness) return segment.readiness !== 'tagging' && segment.readiness !== 'waiting'
     return !enrichmentActive

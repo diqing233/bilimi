@@ -152,6 +152,46 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(screen.getByText('已汇总 2/2 批')).toBeInTheDocument()
   })
 
+  it('shows ready-batch recommendations in the whole-run view while another batch still enriches tags', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [
+        { id: 'segment-ready', index: 0, status: 'previewing' as const, itemCount: 500, readiness: 'ready' as const, completedTagItemCount: 500, pendingTagItemCount: 0 },
+        { id: 'segment-enriching', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
+      ], currentSegment: { id: 'segment-ready', aids: [], items: [] }, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'tag-ready', displayName: '已就绪标签', kind: 'tag' as const, count: 12, currentSegmentCount: 12, reason: 'ready' }],
+        adoptedCandidateIds: []
+      },
+      tagEnrichment: { status: 'running' as const, totalItemCount: 501, completedItemCount: 500, pendingItemCount: 1, failedItemCount: 0 },
+      history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 0, sourceFolders: [], archiveTargets: [],
+        recommendationCounts: [{ id: 'tag-ready', count: 12 }]
+      }
+    }
+
+    render(<OldFavoriteGuide
+      snapshot={snapshot} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="generated" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: '整理批次' }), { target: { value: '__whole-run__' } })
+
+    expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '已就绪标签' })).toBeInTheDocument()
+    expect(screen.queryByText('本轮仍有标签补取中，完成批次会在就绪后汇总到推荐收藏夹。')).not.toBeInTheDocument()
+  })
+
   it('keeps four top-level steps and switches confirmation scope inside the confirmation page', () => {
     const onStepChange = vi.fn()
     const snapshot = {
