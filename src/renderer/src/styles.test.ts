@@ -462,7 +462,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__deepseek-archive-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
+      '.favorite-ledger-panel__deepseek-archive-actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__deepseek-archive-actions > button, .favorite-ledger-panel__deepseek-archive-scope { flex: 0 0 auto;'
@@ -983,7 +983,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #7ea8d8; background-clip: padding-box; }')
     expectStyleSnippet('border: 1px solid #c9dcf5; border-radius: 8px; background: #ffffff;')
     expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto; display: grid; width: min(220px, calc(100vw - 40px)); max-height: 240px; box-sizing: border-box; overflow: auto; border: 1px solid #c9dcf5;')
-    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-arrow { font-size: 10px; line-height: 1;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-menu { position: absolute; z-index: 10;')

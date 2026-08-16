@@ -17,7 +17,11 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
     ], ['music', 'games'], ['music', 'games'])
 
     expect(next).toEqual([
-      { ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!, bindingState: 'unbacked' },
+      {
+        ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!,
+        bindingState: 'unbacked',
+        managedFolderDeletedByUser: true
+      },
       {
         id: 'games', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 20, isDefault: false,
         bindingState: 'unbacked', syncState: 'bound'

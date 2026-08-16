@@ -511,7 +511,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('checkbox', { name: 'Saved UP' })).toBeDisabled()
 
     rerender(<OldFavoriteGuide {...props} step="preview" />)
-    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '开始整理' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '转移 Saved item' })).toBeDisabled()
   })
 
@@ -632,7 +632,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(onSelectSegment).toHaveBeenCalledWith('segment-2')
 
     rerender(<SavedGuide step="preview" />)
-    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '开始整理' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '转移 Saved item' })).toBeEnabled()

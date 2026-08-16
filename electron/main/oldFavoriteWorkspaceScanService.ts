@@ -471,6 +471,17 @@ export class OldFavoriteWorkspaceScanService {
             page += 1
             continue
           }
+          if (folder.mediaCount === 0) {
+            runtimeStage = 'record-empty-source-page'
+            await this.options.coordinator.recordScanPage(accountMid, {
+              folderId: folder.id,
+              page,
+              hasMore: false,
+              items: []
+            }, runId)
+            hasMore = false
+            continue
+          }
           if (requestedSourcePageCount > 0 && requestedSourcePageCount % sourcePageBatchSize === 0) {
             await this.waitForSourcePageBatchPause()
             if (!isCurrent()) return

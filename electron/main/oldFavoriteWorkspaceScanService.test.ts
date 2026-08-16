@@ -370,6 +370,54 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-source-page' }))
   })
 
+  it('records an inventory-confirmed empty source folder without requesting its resource page', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn((request: { type: string; folderId?: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const,
+          observedAccountMid: '100',
+          folders: [
+            { id: 'empty-source', title: 'bilimi·暂存', mediaCount: 0 },
+            { id: 'source-1', title: 'Source', mediaCount: 1 }
+          ]
+        })
+      }
+      if (request.type === 'old-favorite-workspace-read-source-page' && request.folderId === 'source-1') {
+        return Promise.resolve({
+          status: 'ok' as const,
+          observedAccountMid: '100',
+          items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }],
+          hasMore: false
+        })
+      }
+      return Promise.resolve({ status: 'unknown' as const, observedAccountMid: '100', reason: 'unexpected-request' })
+    })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', folderId: 'empty-source'
+    }))
+    expect(coordinator.recordScanPage).toHaveBeenCalledWith('100', {
+      folderId: 'empty-source', page: 1, hasMore: false, items: []
+    }, 'scan-run-1')
+    expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page', folderId: 'source-1', page: 1
+    }))
+    expect(coordinator.recordScanFailure).not.toHaveBeenCalled()
+  })
+
   it('cancels an active DeepSeek organization before a full reorganization replaces its workspace', async () => {
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),

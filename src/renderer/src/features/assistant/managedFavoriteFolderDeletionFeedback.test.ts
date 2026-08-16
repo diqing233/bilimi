@@ -60,7 +60,7 @@ describe('managed favorite folder deletion rule projection', () => {
       expect.objectContaining({ id: 'music', enabled: true, bilibiliFolderId: 'remote-music' })
     ])
     expect(result[0]).not.toHaveProperty('bilibiliFolderId')
-    expect(result[0]).toHaveProperty('syncState', 'local-draft')
+    expect(result[0]).not.toHaveProperty('syncState')
     expect(result[1]).not.toHaveProperty('bilibiliFolderId')
   })
 
