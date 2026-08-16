@@ -4,6 +4,7 @@ import {
   completeWorkspaceScan,
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
+  oldFavoriteFolderIsScanEligible,
   projectOldFavoriteInventoryMetrics,
   recordDiscoveredFavorites,
   redoWorkspaceChange,
@@ -12,6 +13,30 @@ import {
 } from './oldFavoriteWorkspace'
 
 describe('old favorite workspace', () => {
+  it('treats every observed Bilibili folder as a selectable scan source regardless of local relationship', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'complete',
+      sourceFolders: [
+        { id: 'ordinary', title: '普通收藏夹', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true },
+        { id: 'bound', title: 'bilimi·已备册', itemCount: 1, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, selected: true },
+        { id: 'reconcile', title: 'bilimi·待对账', itemCount: 1, isBilimiWorkFolder: true, remoteRelationship: 'reconcile-required', scanEligible: false, selected: true }
+      ],
+      items: [
+        { aid: 1, sourceFolderIds: ['ordinary'], protected: false, unavailable: false },
+        { aid: 2, sourceFolderIds: ['bound'], protected: false, unavailable: false },
+        { aid: 3, sourceFolderIds: ['reconcile'], protected: true, unavailable: false }
+      ]
+    })
+
+    expect(oldFavoriteFolderIsScanEligible({ isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false })).toBe(true)
+    expect(projection.plannedAidCount).toBe(2)
+    expect(projection.sourceFolders).toMatchObject([
+      { id: 'ordinary', scanEligible: true, selected: true, plannedAidCount: 1 },
+      { id: 'bound', scanEligible: true, selected: true, plannedAidCount: 1 },
+      { id: 'reconcile', scanEligible: true, selected: true, plannedAidCount: 0, protectedAidCount: 1 }
+    ])
+  })
+
   it('projects Bilibili relationship totals separately from unique organization lifecycle counts', () => {
     const projection = projectOldFavoriteInventoryMetrics({
       authority: 'complete',
@@ -39,7 +64,7 @@ describe('old favorite workspace', () => {
     expect(projection.sourceFolders).toEqual([
       { id: 'ordinary-a', title: '默认收藏夹', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, confirmed: true },
       { id: 'ordinary-b', title: '自建收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, confirmed: true },
-      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, confirmed: true }
+      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: true, confirmed: true }
     ])
   })
 
@@ -61,7 +86,7 @@ describe('old favorite workspace', () => {
     })
   })
 
-  it('uses explicit remote relationships and scan eligibility instead of the legacy work-folder flag', () => {
+  it('keeps explicit remote relationships without using them to remove scan eligibility', () => {
     const projection = projectOldFavoriteInventoryMetrics({
       authority: 'complete',
       sourceFolders: [
@@ -98,8 +123,8 @@ describe('old favorite workspace', () => {
     expect(projection.sourceFolders).toMatchObject([
       { id: 'ordinary', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
       { id: 'name-only', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
-      { id: 'bound', remoteRelationship: 'bound', scanEligible: false, plannedAidCount: 0 },
-      { id: 'reconcile', remoteRelationship: 'reconcile-required', scanEligible: false, plannedAidCount: 0 }
+      { id: 'bound', remoteRelationship: 'bound', scanEligible: true, plannedAidCount: 0 },
+      { id: 'reconcile', remoteRelationship: 'reconcile-required', scanEligible: true, plannedAidCount: 0 }
     ])
   })
 

@@ -44,9 +44,11 @@ export function oldFavoriteRemoteRelationship(folder: OldFavoriteRemoteSourceFol
 }
 
 export function oldFavoriteFolderIsScanEligible(folder: OldFavoriteRemoteSourceFolder): boolean {
-  return typeof folder.scanEligible === 'boolean'
-    ? folder.scanEligible
-    : oldFavoriteRemoteRelationship(folder) === 'none'
+  // A scan overview is a Bilibili fact table, not a local-rule chooser. Every
+  // source folder in this domain has already been observed remotely, so local
+  // binding/reconciliation state must never take away the user's source choice.
+  void folder
+  return true
 }
 
 export type OldFavoriteWorkspaceBaseline = {
@@ -261,6 +263,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     reusedTagItemCount?: number
     fetchedTagItemCount?: number
     confirmedUntaggedItemCount?: number
+    /** Every scanned batch has an unchanged, user-adopted tag cutoff for complete-round execution. */
+    wholeRunTagCutoffAccepted?: boolean
     currentSegmentCanContinueTagEnrichment?: boolean
     currentSegmentHasUnacceptedTagChanges?: boolean
     scopes?: {

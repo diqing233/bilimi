@@ -554,7 +554,7 @@ describe('OldFavoriteWorkspaceStore', () => {
     ])
   })
 
-  it('recovers compact scan folders including an empty Bilimi work folder', async () => {
+  it('recovers compact scan folders with every observed remote folder selectable', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })
     await store.create({
@@ -573,7 +573,7 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
       sourceFolders: [
         { id: 'source-1', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true },
-        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false }
+        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: true }
       ],
       loadedSegmentItems: [{ aid: 1, title: '视频 1', author: 'UP 主', sourceFolderIds: ['source-1'] }]
     })

@@ -1787,13 +1787,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'start-scan', mode: 'incremental'
     }))
     expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
-    const userTable = screen.getByRole('table', { name: '用户收藏夹' })
-    const boundRemoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(boundRemoteRow).toHaveTextContent('Bilimi Inbox（已备册）')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeDisabled()
+    const userTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
+    expect(remoteRow).toHaveTextContent('Bilimi Inbox')
+    expect(remoteRow).not.toHaveTextContent('已备册')
+    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
   })
 
-  it('shows normal source selection but keeps bound remote folders read-only', async () => {
+  it('shows every observed remote source as selectable during an incomplete scan', async () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1819,13 +1820,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-source-folders', folderIds: []
     }))
-    const userTable = screen.getByRole('table', { name: '用户收藏夹' })
-    const boundRemoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(boundRemoteRow).toHaveTextContent('Bilimi Inbox（已备册）')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeDisabled()
+    const userTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
+    expect(remoteRow).toHaveTextContent('Bilimi Inbox')
+    expect(remoteRow).not.toHaveTextContent('已备册')
+    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
   })
 
-  it('keeps incomplete source tables selectable for users and read-only for bound remote folders', async () => {
+  it('keeps incomplete Bilibili fact tables selectable regardless of a local work-folder marker', async () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1847,12 +1849,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
 
-    const userTable = await screen.findByRole('table', { name: '用户收藏夹' })
-    expect(within(userTable).getByRole('columnheader', { name: /本批来源关系.*待确认/ })).toBeInTheDocument()
+    const userTable = await screen.findByRole('table', { name: 'B站收藏夹' })
     expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
-    const boundRemoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(boundRemoteRow).toHaveTextContent('Bilimi Inbox（已备册）7待确认')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeDisabled()
+    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
+    expect(remoteRow).toHaveTextContent('Bilimi Inbox7')
+    expect(remoteRow).not.toHaveTextContent('已备册')
+    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
   })
 
   it('rebuilds a corrupt workspace and restores the persisted snapshot after remount', async () => {

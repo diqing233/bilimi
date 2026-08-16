@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  oldFavoriteFolderIsScanEligible,
-  oldFavoriteRemoteRelationship,
   type OldFavoriteInventoryMetricProjection,
   type OldFavoriteWorkspaceView
 } from '@shared/oldFavoriteWorkspace'
@@ -25,7 +23,7 @@ function sourceProjectionValue(
   mode: SourceCountMode,
   currentSegmentPlannedCounts?: ReadonlyMap<string, number>
 ): number | '—' | '待确认' {
-  if (mode === 'planned' && oldFavoriteFolderIsScanEligible(folder) && !folder.selected) return '—'
+  if (mode === 'planned' && !folder.selected) return '—'
   if (mode === 'planned' && currentSegmentPlannedCounts) return currentSegmentPlannedCounts.get(folder.id) ?? 0
   const value = folder[SOURCE_COUNT_MODES[mode].field]
   return folder.confirmed && value !== null ? value : '待确认'
@@ -131,22 +129,20 @@ export function OldFavoriteScanOverviewStep({
     title: folder.title,
     relationshipCount: folder.itemCount,
     plannedAidCount: legacyProjectionConfirmed
-      ? folder.selected && oldFavoriteFolderIsScanEligible(folder) ? folder.itemCount : 0
+      ? folder.selected ? folder.itemCount : 0
       : null,
     protectedAidCount: legacyProjectionConfirmed ? 0 : null,
     unavailableAidCount: legacyProjectionConfirmed ? folder.invalidItemCount ?? 0 : null,
     selected: Boolean(folder.selected),
     isBilimiWorkFolder: folder.isBilimiWorkFolder,
-    remoteRelationship: oldFavoriteRemoteRelationship(folder),
-    scanEligible: oldFavoriteFolderIsScanEligible(folder),
     confirmed: legacyProjectionConfirmed
   }))
-  // Every entry in this list is a real remote Bilibili folder. Relationship
-  // badges change its scan eligibility, never its display area.
+  // Every entry in this list is a current remote Bilibili fact. Local rules
+  // and relationships are deliberately absent from this source-selection UI.
   const userFolders = folders
-  const selectableUserFolders = userFolders.filter(oldFavoriteFolderIsScanEligible)
+  const selectableUserFolders = userFolders
   const selectedSourceIds = new Set(userFolders
-    .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
+    .filter((folder) => folder.selected)
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const resumableFailedScan = snapshot?.status === 'scanning' && snapshot.scan.phase === 'failed'
@@ -163,13 +159,12 @@ export function OldFavoriteScanOverviewStep({
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const tagEnrichment = snapshot?.tagEnrichment
   const currentSegmentSummary = snapshot?.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
-  const currentSegmentReady = currentSegmentSummary?.readiness === 'ready' || currentSegmentSummary?.readiness === 'saved'
   const currentSegmentCanContinueTagEnrichment = tagEnrichment?.currentSegmentCanContinueTagEnrichment === true
   const currentSegmentHasUnacceptedTagChanges = tagEnrichment?.currentSegmentHasUnacceptedTagChanges === true
-  const shouldOfferCurrentTagAcceptance = currentSegmentHasUnacceptedTagChanges ||
-    (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted' && !currentSegmentReady)
-  const showTagEnrichmentActions = Boolean(tagEnrichment?.pendingItemCount) ||
-    currentSegmentCanContinueTagEnrichment || shouldOfferCurrentTagAcceptance
+  const canContinueTagEnrichment = tagEnrichment?.status !== 'running' &&
+    (currentSegmentCanContinueTagEnrichment || Boolean(tagEnrichment?.pendingItemCount))
+  const canAcceptCurrentTags = currentSegmentHasUnacceptedTagChanges ||
+    (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted')
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
   const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
@@ -283,16 +278,12 @@ export function OldFavoriteScanOverviewStep({
         <span><small>本轮确认无标签</small><strong>{confirmedUntaggedItemCount}</strong></span>
         <span><small>读取失败</small><strong>{failedTagItemCount}</strong></span>
       </div>
-      {showTagEnrichmentActions ? <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
-        {currentSegmentCanContinueTagEnrichment
-          ? <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续扫描标签</button>
-          : tagEnrichment.pendingItemCount > 0
-            ? tagEnrichment.status === 'running'
-              ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
-              : <button type="button" disabled={tagControlsLoading} onClick={onResumeTagEnrichment}>继续补取标签</button>
-            : null}
-        {shouldOfferCurrentTagAcceptance ? <button type="button" disabled={tagControlsLoading} onClick={onAcceptCurrentTags}>采用当前标签</button> : null}
-      </div> : null}
+      <div className="favorite-ledger-panel__scan-enrichment-actions" data-testid="tag-enrichment-actions">
+        {tagEnrichment.status === 'running' && tagEnrichment.pendingItemCount > 0
+          ? <button type="button" disabled={tagControlsLoading} onClick={onPauseTagEnrichment}>暂停补取标签</button>
+          : <button type="button" disabled={tagControlsLoading || !canContinueTagEnrichment} onClick={onResumeTagEnrichment}>继续补取标签</button>}
+        <button type="button" disabled={tagControlsLoading || !canAcceptCurrentTags} onClick={onAcceptCurrentTags}>采用当前标签</button>
+      </div>
       {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
         ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
         : null}
@@ -321,14 +312,14 @@ export function OldFavoriteScanOverviewStep({
     {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
       ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
       : null}
-    {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
+    {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="B站收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading">
           <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
             disabled={loading || overviewReadOnly || selectableUserFolders.length === 0}
             onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} /><span>全选</span></label>
           <span className="favorite-ledger-panel__source-heading-separator" aria-hidden="true">·</span>
-          <span className="favorite-ledger-panel__source-heading-title">用户收藏夹</span>
+          <span className="favorite-ledger-panel__source-heading-title">B站收藏夹</span>
           <small>（{userFolders.length}）</small>
         </span>
         <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
@@ -348,18 +339,15 @@ export function OldFavoriteScanOverviewStep({
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
         {userFolders.map((folder) => {
-          const scanEligible = oldFavoriteFolderIsScanEligible(folder)
-          const relationship = oldFavoriteRemoteRelationship(folder)
-          const relationshipLabel = relationship === 'bound' ? '已备册' : relationship === 'reconcile-required' ? '未绑定' : undefined
           return <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
           <label className="favorite-ledger-panel__source-row-content">
             <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
-              disabled={loading || overviewReadOnly || !scanEligible} onChange={(event) => {
+              disabled={loading || overviewReadOnly} onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
                 onSelectSourceFolders([...next])
               }} /></span>
-            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}{relationshipLabel ? <small>（{relationshipLabel}）</small> : null}</span>
+            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
           </label>

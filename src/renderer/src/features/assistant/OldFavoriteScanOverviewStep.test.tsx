@@ -231,7 +231,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理500')
     expect(screen.getByText('标签补取进行中：已处理 498 / 501 条。')).toBeInTheDocument()
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签498')
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹501500')
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toHaveTextContent('默认收藏夹501500')
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
@@ -241,8 +241,8 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(currentMetrics).toHaveTextContent('本批待整理500')
     expect(within(currentMetrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(screen.getByText('标签补取进行中：已处理 498 / 500 条。')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('本批来源关系')
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('默认收藏夹5011')
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toHaveTextContent('本批来源关系')
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toHaveTextContent('默认收藏夹5011')
 
     rendered.rerender(<OldFavoriteScanOverviewStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
     expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
@@ -292,7 +292,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(within(metrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()
-    const table = screen.getByRole('table', { name: '用户收藏夹' })
+    const table = screen.getByRole('table', { name: 'B站收藏夹' })
     expect(within(table).getByRole('columnheader', { name: '总数（2866）' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: '本批来源关系（505）' })).toBeInTheDocument()
     expect(within(table).queryByRole('button', { name: '本批来源关系（505）' })).not.toBeInTheDocument()
@@ -526,7 +526,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签25')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮确认无标签0')
     expect(screen.getByText('先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: '用户收藏夹' })).toHaveTextContent('全选·用户收藏夹（1）总数（246）本轮待整理⇄（246）默认收藏夹246246')
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toHaveTextContent('全选·B站收藏夹（1）总数（246）本轮待整理⇄（246）默认收藏夹246246')
   })
 
   it('shows tag enrichment once and keeps its actions in one equal-width row', () => {
@@ -572,7 +572,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
   })
 
-  it('hides current-tag acceptance after the current segment is already ready', () => {
+  it('keeps current-tag acceptance available while another batch still has tag work', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -592,7 +592,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
   })
 
   it('lets adopted current tags resume later and retries only failed tag reads', () => {
@@ -613,11 +613,11 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '采用当前标签' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '重新补取失败标签' })).toBeInTheDocument()
   })
 
-  it('hides tag continuation after every tag has already been adopted', () => {
+  it('keeps tag actions visible but disabled after every tag has already been adopted', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -635,7 +635,8 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
     />)
 
-    expect(screen.queryByRole('button', { name: '继续扫描标签' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
   })
 
   it('offers scan continuation only after adoption has paused other batches', () => {
@@ -663,10 +664,10 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     expect(screen.getByText('标签补取已暂停：已处理 500 / 501 条。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '继续扫描标签' }))
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '继续补取标签' }))
     expect(resume).toHaveBeenCalledOnce()
     expect(screen.queryByRole('button', { name: '暂停补取标签' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '继续补取标签' })).not.toBeInTheDocument()
   })
 
   it('offers current-tag adoption only when the re-read reports changed tag content', () => {
@@ -689,8 +690,8 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     expect(screen.getByText('标签补取发现新增或变化标签，待采用：已处理 1 / 1 条。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '继续补取标签' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeDisabled()
   })
 
   it('keeps classified source folders selectable and makes the header control select all only', () => {
@@ -790,7 +791,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(rows[1]).toHaveTextContent('收藏夹 B22')
   })
 
-  it('uses compact ordinary and managed folder projections for the three source metrics', () => {
+  it('uses compact Bilibili source facts for the three source metrics', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -817,26 +818,28 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    const remoteTable = screen.getByRole('table', { name: '用户收藏夹' })
+    const remoteTable = screen.getByRole('table', { name: 'B站收藏夹' })
     expect(within(remoteTable).getByRole('columnheader', { name: '总数（7）' })).toBeInTheDocument()
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
     expect(within(remoteTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
     const boundRemoteRow = within(remoteTable).getByText(/bilimi·知识学习/).closest('[role="row"]')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）20')
-    expect(within(remoteTable).getByLabelText('选择来源 bilimi·知识学习')).toBeDisabled()
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习2—')
+    expect(boundRemoteRow).not.toHaveTextContent('已备册')
+    expect(within(remoteTable).getByLabelText('选择来源 bilimi·知识学习')).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: '本轮待整理（1）' }))
     expect(screen.getByRole('button', { name: '已保护（3）' })).toBeInTheDocument()
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）22')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习22')
 
     fireEvent.click(screen.getByRole('button', { name: '已保护（3）' }))
     expect(screen.getByRole('button', { name: '失效视频（1）' })).toBeInTheDocument()
     expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已备册）20')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习20')
   })
 
-  it('keeps every remote folder in the user area with short relationship states and no local workspace table', () => {
+  it('keeps every remote folder in the Bilibili fact table without local relationship states', () => {
+    const selectSourceFolders = vi.fn()
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -867,21 +870,23 @@ describe('OldFavoriteScanOverviewStep', () => {
         recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
       } as never}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
-      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={selectSourceFolders} onPauseTagEnrichment={vi.fn()}
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    const userFolders = screen.getByRole('table', { name: '用户收藏夹' })
+    const userFolders = screen.getByRole('table', { name: 'B站收藏夹' })
     expect(userFolders).toHaveTextContent('普通收藏夹')
     expect(userFolders).toHaveTextContent('bilimi·只是同名')
     expect(userFolders).toHaveTextContent('已绑定的远端收藏夹')
     expect(userFolders).toHaveTextContent('待对账的远端收藏夹')
-    expect(within(userFolders).getByText(/已绑定的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('已备册')
-    expect(within(userFolders).getByText(/待对账的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('未绑定')
-    expect(within(userFolders).getByLabelText('选择来源 已绑定的远端收藏夹')).toBeDisabled()
-    expect(within(userFolders).getByLabelText('选择来源 待对账的远端收藏夹')).toBeDisabled()
+    expect(userFolders).not.toHaveTextContent('已备册')
+    expect(userFolders).not.toHaveTextContent('未绑定')
+    expect(within(userFolders).getByLabelText('选择来源 已绑定的远端收藏夹')).toBeEnabled()
+    expect(within(userFolders).getByLabelText('选择来源 待对账的远端收藏夹')).toBeEnabled()
     expect(within(userFolders).getByLabelText('选择来源 普通收藏夹')).toBeEnabled()
     expect(within(userFolders).getByLabelText('选择来源 bilimi·只是同名')).toBeEnabled()
+    fireEvent.click(within(userFolders).getByLabelText('选择来源 已绑定的远端收藏夹'))
+    expect(selectSourceFolders).toHaveBeenLastCalledWith(['ordinary', 'name-only', 'bound'])
     expect(screen.queryByRole('table', { name: 'bilimi 本地工作区' })).not.toBeInTheDocument()
     expect(screen.queryByText('本地数量')).not.toBeInTheDocument()
     expect(screen.queryByText('待重新备册/绑定/对账')).not.toBeInTheDocument()

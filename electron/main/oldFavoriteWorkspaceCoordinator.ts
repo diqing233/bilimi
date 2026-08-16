@@ -3872,12 +3872,13 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async saveWholeRunToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
-    await this.assertDeepSeekExecutionReadyForAccount(accountMid)
+    await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      this.assertDeepSeekExecutionReady(workspace)
+      this.assertWholeRunTagCutoffAccepted(workspace)
+    })
     const snapshot = await this.getSnapshot(accountMid)
     if (!snapshot || 'recovery' in snapshot) throw new Error('Old favorite workspace is not ready for local saving.')
-    if (snapshot.segments.some((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting')) {
-      throw new Error('Old favorite workspace whole-run tag enrichment is not complete.')
-    }
     const originalSegmentId = snapshot.currentSegment?.id
     let final: OldFavoriteWorkspace | null = null
     for (const segment of snapshot.segments) {
@@ -3929,6 +3930,7 @@ export class OldFavoriteWorkspaceCoordinator {
     // committing the local result or asking Bilibili to bind a target.
     await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertWholeRunTagCutoffAccepted(workspace)
       await this.persistRecommendedLedgersUnsafe(workspace, await this.ensureRecommendations(workspace))
     })
     // Establish the local archive boundary before provisioning or inspecting
@@ -4113,36 +4115,36 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment) return
-      const segmentId = this.currentSegment(workspace)
-      const tagVersion = enrichment.tagVersionsBySegment[segmentId] ?? 0
-      const acceptedTagVersion = enrichment.acceptedTagVersionsBySegment[segmentId] ?? 0
-      const needsAcceptance = !enrichment.acceptedSegmentIds.includes(segmentId) &&
-        (!hasTagVersion(enrichment.acceptedTagVersionsBySegment, segmentId) || tagVersion > acceptedTagVersion)
-      if (needsAcceptance) {
-        const acceptedSegmentIds = [...new Set([...enrichment.acceptedSegmentIds, segmentId])]
-        const acceptedTagVersionsBySegment = {
-          ...enrichment.acceptedTagVersionsBySegment,
-          [segmentId]: tagVersion
-        }
-        const status = this.hasUnacceptedPendingTagEnrichment(workspace, enrichment, acceptedSegmentIds)
-          ? 'paused' as const
-          : 'accepted' as const
+      let next = enrichment
+      let changed = false
+      for (const segmentId of this.tagEnrichmentSegmentIds(workspace)) {
+        const tagVersion = next.tagVersionsBySegment[segmentId] ?? 0
+        const acceptedTagVersion = next.acceptedTagVersionsBySegment[segmentId] ?? 0
+        const alreadyAcceptedAtCurrentVersion = next.acceptedSegmentIds.includes(segmentId) &&
+          hasTagVersion(next.acceptedTagVersionsBySegment, segmentId) && tagVersion === acceptedTagVersion
+        if (alreadyAcceptedAtCurrentVersion) continue
+        const acceptedSegmentIds = [...new Set([...next.acceptedSegmentIds, segmentId])]
+        const acceptedTagVersionsBySegment = { ...next.acceptedTagVersionsBySegment, [segmentId]: tagVersion }
+        const candidate: TagEnrichment = { ...next, acceptedSegmentIds, acceptedTagVersionsBySegment }
+        const status = this.hasWholeRunTagCutoffAccepted(workspace, candidate)
+          ? 'accepted' as const
+          : 'paused' as const
         await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
           currentSegmentId: segmentId, kind: 'accept-segment', segmentId, acceptedTagVersion: tagVersion, status
         })
-        this.tagEnrichments.set(workspace.accountMid, {
-          ...enrichment,
-          acceptedSegmentIds,
-          acceptedTagVersionsBySegment,
-          status
-        })
-      } else {
-        return
+        next = { ...candidate, status }
+        this.tagEnrichments.set(workspace.accountMid, next)
+        changed = true
       }
+      if (!changed) return
       await this.rebuildRecommendationsAfterTagBatch(workspace)
       await this.refreshRecommendationsAfterTagEnrichment(workspace)
       if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
-        await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(workspace, true))
+        await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifySegmentsUnsafe(
+          workspace,
+          this.tagEnrichmentSegmentIds(workspace),
+          true
+        ))
       }
     })
   }
@@ -4418,6 +4420,31 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  private tagEnrichmentSegmentIds(workspace: OldFavoriteWorkspace) {
+    return (this.segmentDescriptors.get(workspace.accountMid) ??
+      workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
+      .map((segment) => segment.id)
+  }
+
+  private hasWholeRunTagCutoffAccepted(workspace: OldFavoriteWorkspace, enrichment = this.tagEnrichments.get(workspace.accountMid)) {
+    if (!enrichment || enrichment.pendingAids.length === 0) return true
+    const accepted = new Set(enrichment.acceptedSegmentIds)
+    return this.tagEnrichmentSegmentIds(workspace).length > 0 && this.tagEnrichmentSegmentIds(workspace).every((segmentId) =>
+      accepted.has(segmentId) &&
+      hasTagVersion(enrichment.acceptedTagVersionsBySegment, segmentId) &&
+      (enrichment.tagVersionsBySegment[segmentId] ?? 0) === (enrichment.acceptedTagVersionsBySegment[segmentId] ?? 0)
+    )
+  }
+
+  private assertWholeRunTagCutoffAccepted(workspace: OldFavoriteWorkspace) {
+    const scan = this.scanOverviews.get(workspace.accountMid)?.scan
+    if (scan && scan.phase !== 'complete') throw new Error('Old favorite workspace is not ready for local saving.')
+    if (!scan && workspace.status === 'scanning') throw new Error('Old favorite workspace is not ready for local saving.')
+    if (!this.hasWholeRunTagCutoffAccepted(workspace)) {
+      throw new Error('Old favorite workspace whole-run tag enrichment is not complete.')
+    }
+  }
+
   private releaseClaimedTagEnrichmentAidUnsafe(accountMid: string, aid: number) {
     const inFlight = this.inFlightTagEnrichmentAids.get(accountMid)
     if (!inFlight) return
@@ -4431,6 +4458,17 @@ export class OldFavoriteWorkspaceCoordinator {
     const current = this.tagEnrichments.get(workspace.accountMid)
     if (!current || (current.status === 'accepted' && status !== 'running')) return false
     const segmentId = this.currentSegment(workspace)
+    if (status === 'running' && this.hasWholeRunTagCutoffAccepted(workspace, current) && current.pendingAids.length) {
+      let next = current
+      for (const acceptedSegmentId of [...current.acceptedSegmentIds]) {
+        await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+          currentSegmentId: acceptedSegmentId, kind: 'resume-segment', segmentId: acceptedSegmentId, status: 'running'
+        })
+        next = { ...next, acceptedSegmentIds: next.acceptedSegmentIds.filter((id) => id !== acceptedSegmentId), status: 'running' }
+        this.tagEnrichments.set(workspace.accountMid, next)
+      }
+      return current.acceptedSegmentIds.length > 0
+    }
     if (status === 'running' && current.acceptedSegmentIds.includes(segmentId)) {
       if (!this.hasUnacceptedPendingTagEnrichment(workspace, current)) return false
       const next: TagEnrichment = { ...current, status }
@@ -4606,6 +4644,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private async commitCompleteLocalResultForRemoteExecutionUnsafe(workspace: OldFavoriteWorkspace) {
       this.assertDeepSeekExecutionReady(workspace)
+      this.assertWholeRunTagCutoffAccepted(workspace)
       if (!['previewing', 'frozen', 'executing', 'reconciling'].includes(workspace.status)) {
         throw new Error('Old favorite workspace is not ready for local saving.')
       }
@@ -6005,13 +6044,16 @@ export class OldFavoriteWorkspaceCoordinator {
           shard.bindingState === 'bound' && shard.remoteFolderId === folder.id)
           ? 'bound'
           : 'reconcile-required'
-      const scanEligible = relationship === 'none'
+      // Relationship data remains useful to the library, but the scan
+      // overview is an observed-remote source table. A local binding must not
+      // erase either its source eligibility or a user's existing selection.
+      const scanEligible = true
       return {
         ...folder,
         isBilimiWorkFolder: relationship !== 'none',
         remoteRelationship: relationship,
         scanEligible,
-        selected: scanEligible ? Boolean(folder.selected) : false
+        selected: Boolean(folder.selected)
       }
     })
     const localWorkspaceFolders = this.projectLocalWorkspaceFolders(repository)
@@ -6107,22 +6149,6 @@ export class OldFavoriteWorkspaceCoordinator {
     const confirmedUntaggedTagAids = new Set(tagEnrichment?.confirmedUntaggedAids ?? [])
     const workspaceSegmentsById = new Map(workspace.segments.map((segment) => [segment.id, segment]))
     const overviewRuntime = this.overviewRuntimes.get(workspace.accountMid)
-    const acceptedTagAids = new Set<number>()
-    for (const segmentId of acceptedTagSegments) {
-      const loadedAids = workspaceSegmentsById.get(segmentId)?.aids
-      if (loadedAids) {
-        for (const aid of loadedAids) acceptedTagAids.add(aid)
-        continue
-      }
-      const segmentAids = overviewRuntime?.segmentAidsBySegment.get(segmentId)
-      if (segmentAids?.size) {
-        for (const aid of pendingTagAids) if (segmentAids.has(aid)) acceptedTagAids.add(aid)
-      } else {
-        const range = overviewRuntime?.aidRangeBySegment.get(segmentId)
-        if (range?.firstAid === undefined || range.lastAid === undefined) continue
-        for (const aid of pendingTagAids) if (aid >= range.firstAid && aid <= range.lastAid) acceptedTagAids.add(aid)
-      }
-    }
     this.captureCurrentSegmentOverviewClassifications(workspace)
     const segmentProgress =
       (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
@@ -6139,7 +6165,7 @@ export class OldFavoriteWorkspaceCoordinator {
             const sourceSelectionKnown = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
               .some(scanSourceIsEligible)
             const isSelected = (aid: number) => !sourceSelectionKnown || !selectedAids || selectedAids.has(aid)
-            const pendingTagItemCount = acceptedTagSegments.has(segment.id) ? 0 : knownSegmentAids
+            const pendingTagItemCount = knownSegmentAids
               ? knownSegmentAids.reduce((count, aid) => count + Number(isSelected(aid) && pendingTagAids.has(aid)), 0)
               : segmentAids?.size
                 ? [...pendingTagAids].reduce((count, aid) => count + Number(isSelected(aid) && segmentAids.has(aid)), 0)
@@ -6240,7 +6266,7 @@ export class OldFavoriteWorkspaceCoordinator {
           const createTagScope = (aids: readonly number[], isCurrentSegment = false) => {
             const scopeAids = new Set(aids)
             const pendingItemCount = aids.reduce((count, aid) =>
-              count + Number(pendingTagAids.has(aid) && !acceptedTagAids.has(aid)), 0)
+              count + Number(pendingTagAids.has(aid)), 0)
             const failedItemCount = aids.reduce((count, aid) => count + Number(failedTagAids.has(aid)), 0)
             const fetchedTagItemCount = aids.reduce((count, aid) => count + Number(fetchedTagAids.has(aid)), 0)
             const confirmedUntaggedItemCount = aids.reduce((count, aid) => count + Number(confirmedUntaggedTagAids.has(aid)), 0)
@@ -6299,6 +6325,7 @@ export class OldFavoriteWorkspaceCoordinator {
              ,reusedTagItemCount: enrichment.reusedTagItemCount
              ,fetchedTagItemCount: enrichment.taggedAids.length
              ,confirmedUntaggedItemCount: enrichment.confirmedUntaggedAids.length
+             ,wholeRunTagCutoffAccepted: this.hasWholeRunTagCutoffAccepted(workspace, enrichment)
              ,currentSegmentCanContinueTagEnrichment
              ,currentSegmentHasUnacceptedTagChanges
              ,scopes: {

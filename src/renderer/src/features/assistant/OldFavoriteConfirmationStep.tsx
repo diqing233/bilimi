@@ -161,6 +161,8 @@ export function OldFavoriteConfirmationStep({
   const readySegmentCount = snapshot.segments.filter((segment) => ['ready', 'saved'].includes(segment.readiness)).length
   const allSegmentsReadyForWholeSave = snapshot.segments.length > 0 && snapshot.segments
     .every((segment) => ['ready', 'saved'].includes(segment.readiness))
+  const wholeRunTagCutoffAccepted = snapshot.tagEnrichment?.wholeRunTagCutoffAccepted === true
+  const wholeRunReadyForExecution = allSegmentsReadyForWholeSave || wholeRunTagCutoffAccepted
   const allSegmentsSaved = snapshot.segments.length > 0 && snapshot.segments.every((segment) => segment.readiness === 'saved')
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
@@ -335,7 +337,6 @@ export function OldFavoriteConfirmationStep({
       <h4>确认执行</h4>
       {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
     </div>
-    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
     {isMultiSegment && viewScope === 'current' && currentSegmentSummary
       ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
       : null}
@@ -364,8 +365,8 @@ export function OldFavoriteConfirmationStep({
       {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
         <strong>本轮操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !allSegmentsReadyForWholeSave || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
-          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment && !allSegmentsReadyForWholeSave) || deepSeekBlocksExecution || loading} onClick={() => {
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment && !wholeRunReadyForExecution) || deepSeekBlocksExecution || loading} onClick={() => {
             if (unmatchedCount > 0) setSyncDialogOpen(true)
             else onConfirmAndSync(false)
           }}>确认并同步到 B 站</button>
@@ -373,6 +374,7 @@ export function OldFavoriteConfirmationStep({
         </div>
       </section> : null}
     </div>
+    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
     {syncDialogOpen ? <BilimiModal title="同步选项" className="favorite-ledger-panel__sync-dialog" onClose={() => setSyncDialogOpen(false)} actions={<>
       <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
     </>}>

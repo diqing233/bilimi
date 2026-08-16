@@ -1981,7 +1981,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.acceptCurrentTags('100')
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      tagEnrichment: { status: 'paused', pendingItemCount: 2 },
+      tagEnrichment: { status: 'accepted', pendingItemCount: 2 },
       recommendations: {
         candidates: expect.arrayContaining([
           expect.objectContaining({ id: 'custom-tag-focus', kind: 'tag', count: 3 })
@@ -2120,7 +2120,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('current batch tag enrichment is not complete')
   })
 
-  it('rejects a whole-run local save before it can partially save an earlier ready batch', async () => {
+  it('saves the complete scanned range after accepting the current tag cutoff', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
@@ -2143,15 +2143,66 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       })
     }
     await coordinator.finishScan('100')
+    await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow(
+      'Old favorite workspace whole-run tag enrichment is not complete.'
+    )
     await coordinator.acceptCurrentTags('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'accepted', pendingItemCount: 1 },
+      segments: [
+        { id: 'segment-1', readiness: 'ready' },
+        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+      ]
+    })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
 
+    await expect(coordinator.saveWholeRunToLocalLibrary('100')).resolves.toBeDefined()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: {
+        'local:knowledge': [1],
+        'local:inbox': expect.arrayContaining([501])
+      }
+    })
+  })
+
+  it('invalidates the complete-round tag cutoff before resuming tag enrichment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return {
+            aid,
+            title: `Video ${aid}`,
+            ...(aid <= 500 ? { tags: ['TypeScript'] } : {}),
+            sourceFolderIds: ['source']
+          }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+
+    await expect(coordinator.resumeTagEnrichment('100')).resolves.toBe(true)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 1 },
+      segments: [
+        { id: 'segment-1', readiness: 'ready' },
+        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+      ]
+    })
     await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow(
       'Old favorite workspace whole-run tag enrichment is not complete.'
     )
-    expect((await repository.getSnapshot('100')).memberships['local:knowledge']).toBeUndefined()
   })
 
   it('classifies an already-ready first batch when a later batch still needs tags', async () => {
@@ -2195,7 +2246,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('pauses later batches when the current tags are adopted and resumes only their checkpoint after restart', async () => {
+  it('persists the complete tag cutoff and resumes the full range in batch order after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
@@ -2214,17 +2265,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       })
     }
     await coordinator.finishScan('100')
-    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
-
     await coordinator.acceptCurrentTags('100')
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        status: 'paused', pendingItemCount: 501,
-        currentSegmentCanContinueTagEnrichment: true
+        status: 'accepted', pendingItemCount: 501,
+        wholeRunTagCutoffAccepted: true,
+        currentSegmentCanContinueTagEnrichment: false
       },
       segments: [
-        { id: 'segment-1', readiness: 'ready', pendingTagItemCount: 0 },
-        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
+        { id: 'segment-1', readiness: 'tagging', pendingTagItemCount: 500 },
+        { id: 'segment-2', readiness: 'waiting', pendingTagItemCount: 1 }
       ]
     })
     await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual([])
@@ -2233,23 +2283,23 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toEqual([])
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        status: 'paused',
-        currentSegmentCanContinueTagEnrichment: true,
+        status: 'accepted',
+        wholeRunTagCutoffAccepted: true,
+        currentSegmentCanContinueTagEnrichment: false,
         scopes: {
-          wholeRun: { totalItemCount: 501, completedItemCount: 500, pendingItemCount: 1 },
-          currentSegment: { totalItemCount: 500, completedItemCount: 500, pendingItemCount: 0 }
+          wholeRun: { totalItemCount: 501, completedItemCount: 0, pendingItemCount: 501 },
+          currentSegment: { totalItemCount: 500, completedItemCount: 0, pendingItemCount: 500 }
         }
       }
     })
-    await restarted.resumeTagEnrichment('100')
-    await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toEqual([501])
-    await expect(restarted.recordTagEnrichment('100', 501, ['React'], workspaceId)).resolves.toBe(true)
+    await expect(restarted.resumeTagEnrichment('100')).resolves.toBe(true)
+    await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toHaveLength(500)
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
-      tagEnrichment: {
-        status: 'accepted',
-        scopes: { wholeRun: { pendingItemCount: 0 }, currentSegment: { pendingItemCount: 0 } }
-      }
+      tagEnrichment: { status: 'running', wholeRunTagCutoffAccepted: false, pendingItemCount: 501 }
     })
+    const pendingAids = await restarted.getPendingTagEnrichmentAids('100')
+    expect(pendingAids).toContain(1)
+    expect(pendingAids).not.toContain(501)
   })
 
   it('keeps a running tag-enrichment queue running when switching batches', async () => {
@@ -3041,7 +3091,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('does not resume remaining tag reads from an accepted current batch', async () => {
+  it('resumes remaining tag reads after invalidating an accepted complete-round cutoff', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3057,15 +3107,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.acceptCurrentTags('100')
     const classificationCountAfterAccepting = classifyCurrentItem.mock.calls.length
-    await expect(coordinator.resumeTagEnrichment('100')).resolves.toBe(false)
+    await expect(coordinator.resumeTagEnrichment('100')).resolves.toBe(true)
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        status: 'accepted', pendingItemCount: 1, failedItemCount: 0,
-        currentSegmentCanContinueTagEnrichment: false
+        status: 'running', pendingItemCount: 1, failedItemCount: 0,
+        currentSegmentCanContinueTagEnrichment: false,
+        wholeRunTagCutoffAccepted: false
       }
     })
-    expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([])
+    expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
     expect(classifyCurrentItem).toHaveBeenCalledTimes(classificationCountAfterAccepting)
   })
 
@@ -7408,7 +7459,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['inbox'] }]
     })
-
     await coordinator.freezeForBilibiliExecution('100')
 
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
@@ -7507,6 +7557,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       folderId: 'source', page: 1, items: [{ aid: 1, title: 'Pending', sourceFolderIds: ['source'] }]
     })
     await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
     await bindings.preparePhysicalShard('100', {
       logicalLedgerId: 'inbox', logicalTitle: 'bilimi·暂存', shardNumber: 1, memberAids: [], observedAccountMid: '100',
       remoteFolderId: 'remote-inbox', inventory: [{
@@ -8586,7 +8637,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('uses scan eligibility instead of the legacy work-folder flag when selecting remote scan sources', async () => {
+  it('keeps every observed remote folder selectable regardless of its local relationship', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -8609,11 +8660,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       sourceFolders: [
         { id: 'name-only', remoteRelationship: 'none', scanEligible: true, selected: true },
-        { id: 'bound', remoteRelationship: 'bound', scanEligible: false, selected: false }
+        { id: 'bound', remoteRelationship: 'bound', scanEligible: true, selected: true }
       ]
     })
     await expect(coordinator.selectSourceFolders('100', ['name-only'])).resolves.toBeUndefined()
-    await expect(coordinator.selectSourceFolders('100', ['bound'])).rejects.toThrow('source selection is invalid')
+    await expect(coordinator.selectSourceFolders('100', ['bound'])).resolves.toBeUndefined()
   })
 
   it('refreshes scanned source relationships from authoritative repository bindings and persists the projection', async () => {
@@ -8636,8 +8687,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'bound', isBilimiWorkFolder: true, scanEligible: false, selected: false }],
-      inventoryMetrics: { sourceFolders: [{ id: 'remote-learning', selected: false, scanEligible: false }] },
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'bound', isBilimiWorkFolder: true, scanEligible: true, selected: true }],
+      inventoryMetrics: { sourceFolders: [{ id: 'remote-learning', selected: true, scanEligible: true }] },
       localWorkspaceFolders: [{ id: 'bilimi-logical:learning', relationship: 'bound' }]
     })
 
@@ -8650,7 +8701,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'reconcile-required', isBilimiWorkFolder: true, scanEligible: false, selected: false }],
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'reconcile-required', isBilimiWorkFolder: true, scanEligible: true, selected: true }],
       localWorkspaceFolders: [{ id: 'bilimi-logical:learning', relationship: 'reconcile-required' }]
     })
 
@@ -8660,14 +8711,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: false }]
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: true }]
     })
     await expect(createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
       { initializeOnOpen: false }
     ).getSnapshot('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: false }]
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: true }]
     })
   })
 

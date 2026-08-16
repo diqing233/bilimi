@@ -61,7 +61,10 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByText('知识学习')).toBeInTheDocument()
     expect(screen.queryByText('knowledge')).not.toBeInTheDocument()
 
-    expect(screen.getByRole('group', { name: '本轮操作' })).toBeInTheDocument()
+    const wholeRunActions = screen.getByRole('group', { name: '本轮操作' })
+    const wholeRunSummary = screen.getByText('已汇总 1/2 批')
+    expect(wholeRunActions).toBeInTheDocument()
+    expect(wholeRunActions.compareDocumentPosition(wholeRunSummary)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(screen.queryByRole('group', { name: '本批操作' })).not.toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} {...props} recommendedCandidateIds={[]} viewScope="all" />)
@@ -69,6 +72,30 @@ describe('OldFavoriteConfirmationStep', () => {
 
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} ledgers={ledgers} {...props} />)
     expect(screen.queryByRole('group', { name: '确认执行视图' })).not.toBeInTheDocument()
+  })
+
+  it('enables complete-round save and sync after the accepted tag cutoff while retaining pending tag facts', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        tagEnrichment: {
+          status: 'accepted', totalItemCount: 501, completedItemCount: 500, pendingItemCount: 1, failedItemCount: 0,
+          wholeRunTagCutoffAccepted: true
+        },
+        planReadiness: { selectedAidCount: 501, classifiedAidCount: 500, unclassifiedAidCount: 1 },
+        history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 
   it('lets the user acknowledge a completed Bilibili sync', () => {
