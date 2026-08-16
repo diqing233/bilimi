@@ -92,10 +92,15 @@ export function FavoriteLibraryNavigation({
   />, [closeManagedMenu, handleManagedFolderMenu, managedMenuIdStore])
   const [localCollapsedGroups, setLocalCollapsedGroups] = useState(collapsedGroups)
   const [localSelectedId, setLocalSelectedId] = useState(selectedId)
+  const previousUidRef = useRef(uid)
   const selectionAttemptRef = useRef(0)
   useEffect(() => setLocalCollapsedGroups(collapsedGroups), [collapsedGroups, uid])
   useEffect(() => setLocalSelectedId(selectedId), [selectedId, uid])
-  useEffect(() => closeManagedMenu(), [closeManagedMenu, uid])
+  useEffect(() => {
+    if (previousUidRef.current === uid) return
+    previousUidRef.current = uid
+    closeManagedMenu()
+  }, [closeManagedMenu, uid])
   const toggleGroup = useCallback((groupId: string, collapsed: boolean) => {
     setLocalCollapsedGroups((current) => ({ ...current, [groupId]: collapsed }))
     if (collapsed && groupId === 'workspace') closeManagedMenu()
