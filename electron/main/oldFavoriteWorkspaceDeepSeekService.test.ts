@@ -1091,6 +1091,174 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(generate.mock.calls.slice(2).map(([request]) => request.videos.map((video) => video.aid))).toEqual([[21], [22]])
   })
 
+  it('keeps an all-batch cancellation pending until its inter-batch cancellation checkpoint is durable', async () => {
+    let currentSegmentId = 'segment-1'
+    let checkpoint: any = null
+    let firstSegmentCheckpointStartedResolve: (() => void) | undefined
+    const firstSegmentCheckpointStarted = new Promise<void>((resolve) => { firstSegmentCheckpointStartedResolve = resolve })
+    let releaseFirstSegmentCheckpoint: (() => void) | undefined
+    const firstSegmentCheckpointRelease = new Promise<void>((resolve) => { releaseFirstSegmentCheckpoint = resolve })
+    let canceledCheckpointStartedResolve: (() => void) | undefined
+    const canceledCheckpointStarted = new Promise<void>((resolve) => { canceledCheckpointStartedResolve = resolve })
+    let releaseCanceledCheckpoint: (() => void) | undefined
+    const canceledCheckpointRelease = new Promise<void>((resolve) => { releaseCanceledCheckpoint = resolve })
+    const segmentItems = new Map([
+      ['segment-1', [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }]],
+      ['segment-2', [{ aid: 2, title: 'Video 2', sourceFolderIds: ['source'] }]]
+    ])
+    const coordinator = {
+      getSnapshot: vi.fn(async () => ({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+        sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+        segments: [...segmentItems.keys()].map((id, index) => ({ id, index, status: 'previewing' as const, readiness: 'ready' as const })),
+        currentSegment: { id: currentSegmentId, items: segmentItems.get(currentSegmentId) ?? [] }, classifications: {}
+      })),
+      selectSegment: vi.fn(async (_accountMid: string, segmentId: string) => { currentSegmentId = segmentId }),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(undefined),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: any) => {
+        if (next?.completedSegmentIds?.includes('segment-1') && !next.canceled) {
+          firstSegmentCheckpointStartedResolve?.()
+          await firstSegmentCheckpointRelease
+        }
+        if (next?.canceled) {
+          canceledCheckpointStartedResolve?.()
+          await canceledCheckpointRelease
+        }
+        checkpoint = next ? structuredClone(next) : null
+      })
+    }
+    const generate = vi.fn(async (request: { videos: Array<{ aid: number }> }) => ({
+      kind: 'favorite-archive-organize' as const,
+      results: request.videos.map((video) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })),
+      keywordSuggestions: [] as never[]
+    }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const organizing = service.organizeAllSegments('100')
+    await firstSegmentCheckpointStarted
+    const cancellation = service.cancelPendingAllSegments('100')
+    let cancellationSettled = false
+    void cancellation.then(() => { cancellationSettled = true })
+    releaseFirstSegmentCheckpoint?.()
+    await canceledCheckpointStarted
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    try {
+      expect(cancellationSettled).toBe(false)
+    } finally {
+      releaseCanceledCheckpoint?.()
+    }
+    await expect(cancellation).resolves.toBe(true)
+    await expect(organizing).resolves.toMatchObject({ canceled: true })
+    expect(generate.mock.calls.map(([request]) => request.videos.map((video) => video.aid))).toEqual([[1]])
+    expect(checkpoint).toMatchObject({ canceled: true, successfulAids: [1], pendingAids: [2] })
+  })
+
+  it('cancels an all-batch run before its startup snapshot can begin a provider request', async () => {
+    let resolveInitialSnapshot: ((snapshot: any) => void) | undefined
+    const initialSnapshot = new Promise<any>((resolve) => { resolveInitialSnapshot = resolve })
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const generate = vi.fn()
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: {
+        getSnapshot: vi.fn().mockReturnValueOnce(initialSnapshot).mockResolvedValue(snapshot),
+        selectSegment: vi.fn(),
+        applyDeepSeekClassificationBatch: vi.fn(),
+        getDeepSeekRunCheckpoint: vi.fn(),
+        setDeepSeekRunCheckpoint: vi.fn()
+      } as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const organizing = service.organizeAllSegments('100')
+    const cancellation = service.cancelPendingAllSegments('100')
+    resolveInitialSnapshot?.(snapshot)
+
+    await expect(cancellation).resolves.toBe(true)
+    await expect(organizing).resolves.toMatchObject({ canceled: true, snapshot })
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('rejects cancellation when its all-batch cancellation checkpoint cannot be persisted', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const generate = vi.fn((_request, signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: {
+        getSnapshot: vi.fn().mockResolvedValue(snapshot),
+        selectSegment: vi.fn(),
+        applyDeepSeekClassificationBatch: vi.fn(),
+        getDeepSeekRunCheckpoint: vi.fn(),
+        setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, checkpoint: { canceled?: boolean } | null) => {
+          if (checkpoint?.canceled) throw new Error('cancel checkpoint unavailable')
+        })
+      } as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const organizing = service.organizeAllSegments('100')
+    const organizingRejection = expect(organizing).rejects.toThrow('cancel checkpoint unavailable')
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+
+    await expect(service.cancelPendingAllSegments('100')).rejects.toThrow('cancel checkpoint unavailable')
+    await organizingRejection
+  })
+
+  it('allows a failed cancellation checkpoint to be retried without leaving the run active', async () => {
+    let rejectCanceledCheckpoint = true
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const generate = vi.fn((_request, signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: {
+        getSnapshot: vi.fn().mockResolvedValue(snapshot),
+        selectSegment: vi.fn(),
+        applyDeepSeekClassificationBatch: vi.fn(),
+        getDeepSeekRunCheckpoint: vi.fn(),
+        setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, checkpoint: { canceled?: boolean } | null) => {
+          if (checkpoint?.canceled && rejectCanceledCheckpoint) throw new Error('cancel checkpoint unavailable')
+        })
+      } as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    const firstRun = service.organizeAllSegments('100')
+    const firstRunRejection = expect(firstRun).rejects.toThrow('cancel checkpoint unavailable')
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    await expect(service.cancelPendingAllSegments('100')).rejects.toThrow('cancel checkpoint unavailable')
+    await firstRunRejection
+
+    rejectCanceledCheckpoint = false
+    const secondRun = service.organizeAllSegments('100')
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2))
+    await expect(service.cancelPendingAllSegments('100')).resolves.toBe(true)
+    await expect(secondRun).resolves.toMatchObject({ canceled: true })
+  })
+
   it('clears historical cancellation before restart and sends only unfinished aids', async () => {
     let checkpoint: any = {
       version: 1, workspaceId: 'workspace-1', mode: 'all', scope: 'all', sourceFolderRevision: 'source',
