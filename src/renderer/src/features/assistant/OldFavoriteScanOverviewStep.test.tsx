@@ -741,26 +741,76 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    const ordinaryTable = screen.getByRole('table', { name: '用户收藏夹' })
-    const managedTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
-    expect(within(ordinaryTable).getByRole('columnheader', { name: '总数（5）' })).toBeInTheDocument()
-    expect(within(managedTable).getByRole('columnheader', { name: 'bilimi 工作夹' })).toHaveClass('favorite-ledger-panel__source-heading')
-    expect(within(managedTable).getByRole('columnheader', { name: '总数' })).toHaveClass('favorite-ledger-panel__source-metric-heading')
-    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(within(ordinaryTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
-    const managedRow = within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')
-    expect(managedRow).toHaveClass('favorite-ledger-panel__source-row-content')
-    expect(managedRow).toHaveTextContent('bilimi·知识学习20')
+    const remoteTable = screen.getByRole('table', { name: '用户收藏夹' })
+    expect(within(remoteTable).getByRole('columnheader', { name: '总数（7）' })).toBeInTheDocument()
+    expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(within(remoteTable).getByText('收藏夹 B').closest('[role="row"]')).toHaveTextContent('收藏夹 B2—')
+    const boundRemoteRow = within(remoteTable).getByText(/bilimi·知识学习/).closest('[role="row"]')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）20')
+    expect(within(remoteTable).getByLabelText('选择来源 bilimi·知识学习')).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: '本轮待整理（1）' }))
-    expect(screen.getByRole('button', { name: '已保护（1）' })).toBeInTheDocument()
-    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习22')
+    expect(screen.getByRole('button', { name: '已保护（3）' })).toBeInTheDocument()
+    expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）22')
 
-    fireEvent.click(screen.getByRole('button', { name: '已保护（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '已保护（3）' }))
     expect(screen.getByRole('button', { name: '失效视频（1）' })).toBeInTheDocument()
-    expect(within(ordinaryTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
-    expect(within(managedTable).getByText('bilimi·知识学习').closest('[role="row"]')).toHaveTextContent('bilimi·知识学习20')
+    expect(within(remoteTable).getByText('收藏夹 A').closest('[role="row"]')).toHaveTextContent('收藏夹 A31')
+    expect(boundRemoteRow).toHaveTextContent('bilimi·知识学习（已绑定）20')
+  })
+
+  it('keeps every remote folder in the user area while showing relationship state and local workspace cards separately', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 8 },
+        inventoryMetrics: {
+          authority: 'complete', relationshipCount: 8, plannedAidCount: 4, protectedAidCount: 0, unavailableAidCount: 0,
+          sourceFolders: [
+            { id: 'ordinary', title: '普通收藏夹', relationshipCount: 2, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 0, selected: true, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, confirmed: true },
+            { id: 'name-only', title: 'bilimi·只是同名', relationshipCount: 2, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 0, selected: true, isBilimiWorkFolder: true, remoteRelationship: 'none', scanEligible: true, confirmed: true },
+            { id: 'bound', title: '已绑定的远端收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, confirmed: true },
+            { id: 'reconcile', title: '待对账的远端收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, remoteRelationship: 'reconcile-required', scanEligible: false, confirmed: true }
+          ]
+        },
+        localWorkspaceFolders: [
+          { id: 'local:music', title: '音乐整理规则', kind: 'rule', relationship: 'bound', itemCount: 2 },
+          { id: 'local:learning', title: '学习整理规则', kind: 'rule', relationship: 'reconcile-required', itemCount: 2 },
+          { id: 'local:inbox', title: 'bilimi·暂存', kind: 'draft', relationship: 'none', itemCount: 1 }
+        ],
+        continuationCount: 0,
+        sourceFolders: [
+          { id: 'ordinary', title: '普通收藏夹', itemCount: 2, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true },
+          { id: 'name-only', title: 'bilimi·只是同名', itemCount: 2, isBilimiWorkFolder: true, remoteRelationship: 'none', scanEligible: true, selected: true },
+          { id: 'bound', title: '已绑定的远端收藏夹', itemCount: 2, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, selected: false },
+          { id: 'reconcile', title: '待对账的远端收藏夹', itemCount: 2, isBilimiWorkFolder: true, remoteRelationship: 'reconcile-required', scanEligible: false, selected: false }
+        ],
+        segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const userFolders = screen.getByRole('table', { name: '用户收藏夹' })
+    expect(userFolders).toHaveTextContent('普通收藏夹')
+    expect(userFolders).toHaveTextContent('bilimi·只是同名')
+    expect(userFolders).toHaveTextContent('已绑定的远端收藏夹')
+    expect(userFolders).toHaveTextContent('待对账的远端收藏夹')
+    expect(within(userFolders).getByText(/已绑定的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('已绑定')
+    expect(within(userFolders).getByText(/待对账的远端收藏夹/).closest('[role="row"]')).toHaveTextContent('待对账')
+    expect(within(userFolders).getByLabelText('选择来源 已绑定的远端收藏夹')).toBeDisabled()
+    expect(within(userFolders).getByLabelText('选择来源 待对账的远端收藏夹')).toBeDisabled()
+
+    const localWorkspace = screen.getByRole('table', { name: 'bilimi 本地工作区' })
+    expect(localWorkspace).toHaveTextContent('音乐整理规则')
+    expect(localWorkspace).toHaveTextContent('学习整理规则')
+    expect(localWorkspace).toHaveTextContent('bilimi·暂存')
+    expect(localWorkspace).toHaveTextContent('已备册')
+    expect(localWorkspace).toHaveTextContent('待重新备册/绑定/对账')
   })
 
   it('shows incomplete lifecycle projections as pending confirmation instead of zero', () => {

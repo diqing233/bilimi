@@ -12,6 +12,42 @@ export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | '
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
 export type OldFavoriteWorkspaceScope = { kind: 'account' } | { kind: 'selection'; aids: number[] }
 export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'fallback' | 'deepseek' | 'system-high' | 'system-low'
+/**
+ * Relationship to a locally known Bilimi rule. This is intentionally separate
+ * from how a remote Bilibili folder is displayed and whether it can be scanned.
+ */
+export type OldFavoriteRemoteRelationship = 'none' | 'bound' | 'reconcile-required'
+
+export type OldFavoriteWorkspaceLocalWorkspaceFolder = {
+  id: string
+  title: string
+  kind: 'rule' | 'draft'
+  relationship: OldFavoriteRemoteRelationship
+  itemCount: number
+}
+
+type OldFavoriteRemoteSourceFolder = {
+  isBilimiWorkFolder: boolean
+  remoteRelationship?: OldFavoriteRemoteRelationship
+  scanEligible?: boolean
+}
+
+/**
+ * Old persisted workspaces only have `isBilimiWorkFolder`. Treat it as a
+ * compatibility witness of a formal binding, never as a name-based inference.
+ */
+export function oldFavoriteRemoteRelationship(folder: OldFavoriteRemoteSourceFolder): OldFavoriteRemoteRelationship {
+  if (folder.remoteRelationship === 'bound' || folder.remoteRelationship === 'reconcile-required' || folder.remoteRelationship === 'none') {
+    return folder.remoteRelationship
+  }
+  return folder.isBilimiWorkFolder ? 'bound' : 'none'
+}
+
+export function oldFavoriteFolderIsScanEligible(folder: OldFavoriteRemoteSourceFolder): boolean {
+  return typeof folder.scanEligible === 'boolean'
+    ? folder.scanEligible
+    : oldFavoriteRemoteRelationship(folder) === 'none'
+}
 
 export type OldFavoriteWorkspaceBaseline = {
   revision: number
@@ -57,7 +93,10 @@ export type OldFavoriteInventoryMetricProjection = {
     protectedAidCount: number | null
     unavailableAidCount: number | null
     selected: boolean
+    /** Compatibility only. New grouping must use `remoteRelationship`. */
     isBilimiWorkFolder: boolean
+    remoteRelationship?: OldFavoriteRemoteRelationship
+    scanEligible?: boolean
     confirmed: boolean
   }>
 }
@@ -71,6 +110,8 @@ export function projectOldFavoriteInventoryMetrics(input: {
     isBilimiWorkFolder: boolean
     /** Name-shaped recovery candidate; no protection is implied. */
     isBilimiWorkFolderCandidate?: boolean
+    remoteRelationship?: OldFavoriteRemoteRelationship
+    scanEligible?: boolean
     selected?: boolean
     observationComplete?: boolean
   }>
@@ -82,7 +123,7 @@ export function projectOldFavoriteInventoryMetrics(input: {
   }>
 }): OldFavoriteInventoryMetricProjection {
   const selectedSourceIds = new Set(input.sourceFolders
-    .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+    .filter((folder) => oldFavoriteFolderIsScanEligible(folder) && folder.selected)
     .map((folder) => folder.id))
   const uniqueItems = new Map<number, typeof input.items[number]>()
   for (const item of input.items) {
@@ -111,12 +152,14 @@ export function projectOldFavoriteInventoryMetrics(input: {
     sourceFolders: input.sourceFolders.map((folder) => {
       const confirmed = input.authority === 'complete' && folder.observationComplete !== false
       const folderItems = items.filter((item) => item.sourceFolderIds.includes(folder.id))
+      const remoteRelationship = oldFavoriteRemoteRelationship(folder)
+      const scanEligible = oldFavoriteFolderIsScanEligible(folder)
       return {
         id: folder.id,
         title: folder.title,
         relationshipCount: Math.max(0, folder.itemCount),
         plannedAidCount: confirmed
-          ? folder.selected && !folder.isBilimiWorkFolder
+          ? folder.selected && scanEligible
             ? folderItems.filter((item) => !item.unavailable && !item.protected).length
             : 0
           : null,
@@ -128,6 +171,8 @@ export function projectOldFavoriteInventoryMetrics(input: {
           : null,
         selected: Boolean(folder.selected),
         isBilimiWorkFolder: folder.isBilimiWorkFolder,
+        remoteRelationship,
+        scanEligible,
         confirmed
       }
     })
@@ -255,9 +300,14 @@ export type OldFavoriteWorkspaceSnapshot = {
     title: string
     itemCount: number
     invalidItemCount?: number
+    /** Compatibility only. New grouping must use `remoteRelationship`. */
     isBilimiWorkFolder: boolean
+    remoteRelationship?: OldFavoriteRemoteRelationship
+    scanEligible?: boolean
     selected?: boolean
   }>
+  /** Local Bilimi rules and drafts; never a second list of Bilibili folders. */
+  localWorkspaceFolders?: OldFavoriteWorkspaceLocalWorkspaceFolder[]
   continuationCount: number
   protectedAidCount?: number
   segments: Array<{

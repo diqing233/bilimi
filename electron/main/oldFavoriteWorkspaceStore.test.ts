@@ -572,8 +572,8 @@ describe('OldFavoriteWorkspaceStore', () => {
 
     await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
       sourceFolders: [
-        { id: 'source-1', itemCount: 1, isBilimiWorkFolder: false },
-        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true }
+        { id: 'source-1', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true },
+        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false }
       ],
       loadedSegmentItems: [{ aid: 1, title: '视频 1', author: 'UP 主', sourceFolderIds: ['source-1'] }]
     })

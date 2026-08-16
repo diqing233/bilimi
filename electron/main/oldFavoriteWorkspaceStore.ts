@@ -3,7 +3,10 @@ import { appendFile, mkdir, readFile, rename, truncate, unlink, writeFile } from
 import { dirname, join } from 'node:path'
 import {
   isValidOldFavoriteWorkspaceSegmentSize,
+  oldFavoriteFolderIsScanEligible,
+  oldFavoriteRemoteRelationship,
   type OldFavoriteInventoryMetricProjection,
+  type OldFavoriteWorkspaceLocalWorkspaceFolder,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -47,6 +50,8 @@ type SourceFolder = {
   itemCount: number
   invalidItemCount?: number
   isBilimiWorkFolder: boolean
+  remoteRelationship?: 'none' | 'bound' | 'reconcile-required'
+  scanEligible?: boolean
   selected?: boolean
 }
 type Classification = { aid: number; targetLedgerIds: string[]; source: string }
@@ -96,6 +101,7 @@ type Overlay = {
   planReadiness?: { selectedAidCount: number; classifiedAidCount: number }
   scanMetadata?: {
     sourceFolders?: SourceFolder[]
+    localWorkspaceFolders?: OldFavoriteWorkspaceLocalWorkspaceFolder[]
     phase?: 'inventory' | 'failed' | 'complete'
     failureCount?: number
     paused?: boolean
@@ -179,6 +185,14 @@ type Manifest = {
 type RecoveryBaseline = NonNullable<Manifest['recoveryBaseline']>
 
 const checksum = (content: string) => createHash('sha256').update(content).digest('hex')
+
+function normalizeSourceFolders(sourceFolders: SourceFolder[]) {
+  return sourceFolders.map((folder) => ({
+    ...folder,
+    remoteRelationship: oldFavoriteRemoteRelationship(folder),
+    scanEligible: oldFavoriteFolderIsScanEligible(folder)
+  }))
+}
 const clone = <T>(value: T): T => structuredClone(value)
 const emptyJournalChecksum = checksum('')
 const advanceJournalChecksum = (prior: string, line: string) => checksum(`${prior}\n${line}`)
@@ -601,7 +615,8 @@ export class OldFavoriteWorkspaceStore {
       if (journalChecksum(committedJournal, manifest.journalChecksumMode) !== manifest.journalChecksum) throw new Error('journal checksum mismatch')
       const classifications: Record<string, Classification> = {}
       const history: History[] = []
-      let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
+      let sourceFolders = normalizeSourceFolders(manifest.sourceFolders?.map(clone) ?? [])
+      let localWorkspaceFolders: OldFavoriteWorkspaceLocalWorkspaceFolder[] | undefined
       let recommendations: { initialized: boolean; candidates: Recommendation[]; adoptedCandidateIds: string[] } = {
         initialized: false, candidates: [], adoptedCandidateIds: []
       }
@@ -628,7 +643,8 @@ export class OldFavoriteWorkspaceStore {
           recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
         }
         if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
-        if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+        if (overlay.scanMetadata?.sourceFolders) sourceFolders = normalizeSourceFolders(overlay.scanMetadata.sourceFolders.map(clone))
+        if (overlay.scanMetadata?.localWorkspaceFolders) localWorkspaceFolders = overlay.scanMetadata.localWorkspaceFolders.map(clone)
         if (overlay.scanMetadata?.inventoryMetrics) inventoryMetrics = clone(overlay.scanMetadata.inventoryMetrics)
         if (overlay.scanMetadata?.phase) {
           scan = {
@@ -732,6 +748,7 @@ export class OldFavoriteWorkspaceStore {
         loadedSegmentAids: [...loadedSegment.aids],
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
         sourceFolders,
+        ...(localWorkspaceFolders ? { localWorkspaceFolders } : {}),
         scan,
         classifications, history, recommendations, planReadiness
         ,overlayHistory
@@ -937,6 +954,7 @@ export class OldFavoriteWorkspaceStore {
     const historyOverlays: Overlay[] = []
     let currentSegmentId = manifest.currentSegmentId
     let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
+    let localWorkspaceFolders: OldFavoriteWorkspaceLocalWorkspaceFolder[] | undefined
     let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
     let recommendations: NonNullable<Overlay['recommendations']> = {
       initialized: false,
@@ -968,6 +986,7 @@ export class OldFavoriteWorkspaceStore {
       }
       if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
       if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+      if (overlay.scanMetadata?.localWorkspaceFolders) localWorkspaceFolders = overlay.scanMetadata.localWorkspaceFolders.map(clone)
       if (overlay.scanMetadata?.inventoryMetrics) inventoryMetrics = clone(overlay.scanMetadata.inventoryMetrics)
       if (overlay.scanMetadata?.phase) {
         scan = {
@@ -1001,7 +1020,12 @@ export class OldFavoriteWorkspaceStore {
       history: [],
       ...(hasRecommendations ? { recommendations } : {}),
       ...(planReadiness ? { planReadiness } : {}),
-      scanMetadata: { sourceFolders, ...scan, ...(inventoryMetrics ? { inventoryMetrics } : {}) },
+      scanMetadata: {
+        sourceFolders,
+        ...(localWorkspaceFolders ? { localWorkspaceFolders } : {}),
+        ...scan,
+        ...(inventoryMetrics ? { inventoryMetrics } : {})
+      },
       ...(tagEnrichment ? { tagEnrichment } : {}),
       ...(tagUpdates.size ? { tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags })) } : {}),
       ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {}),

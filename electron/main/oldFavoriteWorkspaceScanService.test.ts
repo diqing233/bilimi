@@ -72,7 +72,10 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(wait).toHaveBeenNthCalledWith(1, 3_000)
     expect(wait).toHaveBeenNthCalledWith(2, 800)
     expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
-      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 40, isBilimiWorkFolder: false }]
+      sourceFolders: [{
+        id: 'source-1', title: 'Source', itemCount: 40, isBilimiWorkFolder: false,
+        remoteRelationship: 'none', scanEligible: true
+      }]
     }, 'scan-run-1')
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'old-favorite-workspace-read-source-page', page: 1
@@ -186,7 +189,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
       sourceFolders: [{
         id: 'ordinary-same-name', title: 'bilimi·游戏专区', itemCount: 1,
-        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
+        remoteRelationship: 'none', scanEligible: true
       }]
     }, 'scan-run-1')
     expect(runtime).toHaveBeenCalledWith(expect.objectContaining({

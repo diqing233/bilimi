@@ -4,6 +4,8 @@ import {
   completeWorkspaceScan,
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
+  oldFavoriteFolderIsScanEligible,
+  oldFavoriteRemoteRelationship,
   projectOldFavoriteInventoryMetrics,
   recordDiscoveredFavorites,
   redoWorkspaceChange,
@@ -19,6 +21,8 @@ import {
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
   type OldFavoriteWorkspaceHistoryEntry,
+  type OldFavoriteWorkspaceLocalWorkspaceFolder,
+  type OldFavoriteRemoteRelationship,
   type OldFavoriteWorkspaceScope,
   type OldFavoriteWorkspaceRecoveryDecision,
   type OldFavoriteWorkspaceRecoveryDecisionResult,
@@ -83,8 +87,28 @@ type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
   HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
-  sourceFolders: Array<{ id: string; title: string; itemCount: number; invalidItemCount?: number; isBilimiWorkFolder: boolean; isBilimiWorkFolderCandidate?: boolean; selected?: boolean }>
+  sourceFolders: Array<{
+    id: string
+    title: string
+    itemCount: number
+    invalidItemCount?: number
+    /** Compatibility only. New selection and grouping use the fields below. */
+    isBilimiWorkFolder: boolean
+    isBilimiWorkFolderCandidate?: boolean
+    remoteRelationship?: OldFavoriteRemoteRelationship
+    scanEligible?: boolean
+    selected?: boolean
+  }>
+  localWorkspaceFolders?: OldFavoriteWorkspaceLocalWorkspaceFolder[]
   scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; paused?: boolean; reason?: string; retryAvailableAt?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
+}
+
+function scanSourceIsEligible(folder: ScanOverview['sourceFolders'][number]) {
+  return oldFavoriteFolderIsScanEligible(folder)
+}
+
+function scanSourceRelationship(folder: ScanOverview['sourceFolders'][number]) {
+  return oldFavoriteRemoteRelationship(folder)
 }
 
 const bilibiliRiskControlCooldownMs = 10 * 60 * 1_000
@@ -883,6 +907,32 @@ export class OldFavoriteWorkspaceCoordinator {
       .map((shard) => shard.remoteFolderId!))
   }
 
+  /**
+   * The scanner receives relationship facts only from durable local bindings.
+   * A folder name or a scan observation can never create one of these links.
+   */
+  async getRemoteFolderRelationships(accountMid: string): Promise<ReadonlyMap<string, {
+    remoteRelationship: OldFavoriteRemoteRelationship
+  }>> {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    const relationships = new Map<string, { remoteRelationship: OldFavoriteRemoteRelationship }>()
+    const record = (folderId: string | undefined, remoteRelationship: OldFavoriteRemoteRelationship) => {
+      const id = folderId?.trim()
+      if (!id) return
+      const existing = relationships.get(id)
+      // A formal binding is stronger evidence than a pending reconciliation.
+      if (!existing || remoteRelationship === 'bound') relationships.set(id, { remoteRelationship })
+    }
+    for (const shard of snapshot.physicalShards) {
+      if (shard.bindingState === 'bound') record(shard.remoteFolderId, 'bound')
+      else {
+        record(shard.remoteFolderId, 'reconcile-required')
+        for (const folderId of shard.knownRemoteFolderIds ?? []) record(folderId, 'reconcile-required')
+      }
+    }
+    return relationships
+  }
+
   /** Restores only complete, uniquely identifiable Bilimi folders from an existing scan. */
   async recoverPersistedManagedBindings(accountMid: string) {
     // Serialize only restoration: the expensive persisted-member read and
@@ -1513,11 +1563,19 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
-      const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder, selected: !folder.isBilimiWorkFolder }))
+      const sourceFolders = input.sourceFolders.map((folder) => ({
+        ...folder,
+        remoteRelationship: scanSourceRelationship(folder),
+        scanEligible: scanSourceIsEligible(folder),
+        selected: scanSourceIsEligible(folder)
+      }))
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      const localWorkspaceFolders = this.projectLocalWorkspaceFolders(repository)
       const priorScan = this.scanOverviews.get(workspace.accountMid)?.scan
       const mode = priorScan?.mode ?? workspace.mode
       const overview: ScanOverview = {
         sourceFolders,
+        localWorkspaceFolders,
         scan: {
           phase: 'inventory', failureCount: 0, mode, paused: priorScan?.paused ?? false,
           totalItemCount: sourceFolders.reduce((count, folder) => count + folder.itemCount, 0),
@@ -1533,9 +1591,8 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
-        scanMetadata: { sourceFolders, ...overview.scan, inventoryMetrics }
+        scanMetadata: { sourceFolders, localWorkspaceFolders, ...overview.scan, inventoryMetrics }
       })
-      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const scanRunId = this.scanRuns.get(workspace.accountMid) ?? workspace.id
       await this.commitScanLifecycle(
         workspace.accountMid,
@@ -1759,7 +1816,7 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.options.workspaceStore.appendManagedMembers(workspace.accountMid, workspace.id, { runId, members })
       if (workspace.mode === 'incremental') {
         const managedFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-          .filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title))
+          .filter((folder) => scanSourceRelationship(folder) === 'bound' && !isStagingBilimiFolder(folder.title))
           .map((folder) => folder.id))
         const streaming = this.streamingScans.get(workspace.accountMid)
         if (streaming) for (const [folderId, aids] of Object.entries(members)) {
@@ -1779,15 +1836,16 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace sources cannot change while DeepSeek owns the draft.')
       }
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
-      const validIds = new Set(sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).map((folder) => folder.id))
+      const validIds = new Set(sourceFolders.filter(scanSourceIsEligible).map((folder) => folder.id))
       if (!folderIds.every((folderId) => validIds.has(folderId))) throw new Error('Old favorite workspace source selection is invalid.')
       const selectedIds = new Set(folderIds)
       const updatedFolders = sourceFolders.map((folder) => ({
         ...folder,
-        selected: folder.isBilimiWorkFolder ? false : selectedIds.has(folder.id)
+        selected: scanSourceIsEligible(folder) ? selectedIds.has(folder.id) : false
       }))
       this.scanOverviews.set(workspace.accountMid, {
         sourceFolders: updatedFolders,
+        localWorkspaceFolders: this.scanOverviews.get(workspace.accountMid)?.localWorkspaceFolders,
         scan: this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: 'complete', failureCount: 0, mode: workspace.mode }
       })
       const overviewRuntime = this.overviewRuntimes.get(workspace.accountMid)
@@ -1810,7 +1868,11 @@ export class OldFavoriteWorkspaceCoordinator {
       )
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
-        scanMetadata: { sourceFolders: updatedFolders, inventoryMetrics }, planReadiness: readiness
+        scanMetadata: {
+          sourceFolders: updatedFolders,
+          localWorkspaceFolders: this.scanOverviews.get(workspace.accountMid)?.localWorkspaceFolders,
+          inventoryMetrics
+        }, planReadiness: readiness
       })
       this.planReadiness.set(workspace.accountMid, readiness)
       this.inventoryMetrics.set(workspace.accountMid, inventoryMetrics)
@@ -2087,8 +2149,8 @@ export class OldFavoriteWorkspaceCoordinator {
       const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
       const selectedSourceFolderIds = new Set(sourceFolders
-        .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
-      const hasSelectableSources = sourceFolders.some((folder) => !folder.isBilimiWorkFolder)
+        .filter((folder) => scanSourceIsEligible(folder) && folder.selected).map((folder) => folder.id))
+      const hasSelectableSources = sourceFolders.some(scanSourceIsEligible)
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
         workspace.segments.map((segment) => ({ id: segment.id, index: segment.index, itemCount: segment.aids.length }))
       const selectedItemCountsBySegment = new Map<string, number>()
@@ -2449,7 +2511,7 @@ export class OldFavoriteWorkspaceCoordinator {
       for (const item of itemsByAid.values()) {
         for (const folderId of item.sourceFolderIds) mirrorMembers.get(folderId)?.push(item.aid)
       }
-      for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+      for (const folder of sourceFolders.filter((candidate) => scanSourceRelationship(candidate) === 'bound')) {
         mirrorMembers.set(folder.id, [...new Set(managedMembers[folder.id] ?? [])])
       }
       const mirrorUpdatedAt = this.now()
@@ -2473,7 +2535,7 @@ export class OldFavoriteWorkspaceCoordinator {
             ...(item.tagEvidence ? { tagEvidence: item.tagEvidence } : {}),
             updatedAt: mirrorUpdatedAt
             })),
-            ...sourceFolders.filter((folder) => folder.isBilimiWorkFolder).flatMap((folder) =>
+            ...sourceFolders.filter((folder) => scanSourceRelationship(folder) === 'bound').flatMap((folder) =>
               (managedMembers[folder.id] ?? []).filter((aid) => !itemsByAid.has(aid)).map((aid) => ({
                 aid, title: `Video ${aid}`, tags: [], updatedAt: mirrorUpdatedAt
               }))
@@ -2577,7 +2639,7 @@ export class OldFavoriteWorkspaceCoordinator {
         observedPhysicalFolderIdsByAid.set(aid, observed)
       }
       for (const item of itemsByAid.values()) recordObservedFolders(item.aid, item.sourceFolderIds)
-      for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
+      for (const folder of sourceFolders.filter((candidate) => scanSourceRelationship(candidate) === 'bound')) {
         for (const aid of managedMembers[folder.id] ?? []) recordObservedFolders(aid, [folder.id])
       }
       await this.commitRemoteObservationRepair(workspace.accountMid,
@@ -2586,7 +2648,7 @@ export class OldFavoriteWorkspaceCoordinator {
         workspace.mode === 'full', true)
       const lifecycleSnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const ordinarySourceFolderIds = new Set(sourceFolders
-        .filter((folder) => !folder.isBilimiWorkFolder)
+        .filter(scanSourceIsEligible)
         .map((folder) => folder.id))
       await this.commitScanLifecycle(
         workspace.accountMid,
@@ -2929,7 +2991,7 @@ export class OldFavoriteWorkspaceCoordinator {
       this.assertCurrentSegmentTagReady(workspace)
       const currentSegmentId = this.currentSegment(workspace)
       const selectedSourceFolderIds = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-        .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+        .filter((folder) => scanSourceIsEligible(folder) && folder.selected)
         .map((folder) => folder.id)
         .sort()
       const classifications = Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
@@ -3366,8 +3428,8 @@ export class OldFavoriteWorkspaceCoordinator {
     const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
     const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
     const selectedSourceFolderIds = new Set(sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
-    const hasSelectableSources = sourceFolders.some((folder) => !folder.isBilimiWorkFolder)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected).map((folder) => folder.id))
+    const hasSelectableSources = sourceFolders.some(scanSourceIsEligible)
     const itemsBySegment = new Map<string, CurrentSegmentItem[]>()
     const candidates: CurrentSegmentItem[] = []
     for (const descriptor of descriptors) {
@@ -3520,9 +3582,9 @@ export class OldFavoriteWorkspaceCoordinator {
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
     const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected).map((folder) => folder.id))
     const hasSelectableSources = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .some((folder) => !folder.isBilimiWorkFolder)
+      .some(scanSourceIsEligible)
     let updated = workspace
     const visibleSegmentId = this.currentSegment(workspace)
     const visibleItems = this.currentSegmentItems.get(workspace.accountMid)
@@ -3670,7 +3732,7 @@ export class OldFavoriteWorkspaceCoordinator {
         for (const item of segment.items ?? []) itemsByAid.set(item.aid, item)
       }
       const selectableSourceFolders = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-        .filter((folder) => !folder.isBilimiWorkFolder)
+        .filter(scanSourceIsEligible)
       const selectedSourceFolderIds = new Set(selectableSourceFolders
         .filter((folder) => folder.selected).map((folder) => folder.id))
       const selectedAids = [...itemsByAid.values()]
@@ -4267,7 +4329,7 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter((assignment) => assignment.targetLedgerIds.some((id) => id !== 'inbox'))
         .map((assignment) => assignment.aid))
       const overview = this.scanOverviews.get(workspace.accountMid)
-      const selectable = overview?.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder) ?? []
+      const selectable = overview?.sourceFolders.filter(scanSourceIsEligible) ?? []
       const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
         workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
@@ -4395,7 +4457,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
       const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
       const overview = this.scanOverviews.get(workspace.accountMid)
-      const selectable = overview?.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder) ?? []
+      const selectable = overview?.sourceFolders.filter(scanSourceIsEligible) ?? []
       const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
       const items: CurrentSegmentItem[] = []
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
@@ -4843,8 +4905,9 @@ export class OldFavoriteWorkspaceCoordinator {
       // Workspaces created before source selection did not persist this flag.
       sourceFolders: restoredSourceFolders.map((folder) => ({
         ...folder,
-        selected: folder.isBilimiWorkFolder ? false : folder.selected ?? true
+        selected: scanSourceIsEligible(folder) ? folder.selected ?? true : false
       })),
+      localWorkspaceFolders: recovered.localWorkspaceFolders ?? this.projectLocalWorkspaceFolders(repositorySnapshot),
       // Preserve the completed inventory totals written by the scan instead
       // of rebuilding a status-only summary after an application restart.
       scan: { ...recovered.scan, phase: 'complete', failureCount: 0, mode: scan.mode }
@@ -5083,7 +5146,7 @@ export class OldFavoriteWorkspaceCoordinator {
     excludedAids: ReadonlySet<number> = new Set()
   ): PlanReadiness {
     const selectableSources = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .filter((folder) => !folder.isBilimiWorkFolder)
+      .filter(scanSourceIsEligible)
     const overviewRuntime = this.overviewRuntimes.get(workspace.accountMid)
     const hasSourceSelectionMetadata = selectableSources.length > 0
     const hasDeselectedSource = selectableSources.some((folder) => folder.selected === false)
@@ -5148,7 +5211,7 @@ export class OldFavoriteWorkspaceCoordinator {
     // Legacy/test workspaces may not have inventory metadata; only enforce a scope the user could select.
     if (!sourceFolders.length) return assignments
     const selectedSourceFolderIds = new Set(sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected)
       .map((folder) => folder.id))
     const currentItems = this.currentSegmentItems.get(workspace.accountMid)
     const items = currentItems ?? await this.loadCurrentSegmentItems(workspace)
@@ -5165,9 +5228,9 @@ export class OldFavoriteWorkspaceCoordinator {
     const overview = this.scanOverviews.get(workspace.accountMid)
     if (!overview) return []
     const sourceFolders = overview.sourceFolders
-    const hasSelectableSourceFolders = sourceFolders.some((folder) => !folder.isBilimiWorkFolder)
+    const hasSelectableSourceFolders = sourceFolders.some(scanSourceIsEligible)
     const selectedSourceFolderIds = new Set(sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected)
       .map((folder) => folder.id))
     const selected = [] as OldFavoriteWorkspace['classifications'][string][]
     const descriptors = this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
@@ -5194,7 +5257,7 @@ export class OldFavoriteWorkspaceCoordinator {
     // Old workspaces without persisted selection metadata are fail-closed by
     // freezing an empty plan, never by widening their source scope.
     if (!overview) return
-    const selectable = overview.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder)
+    const selectable = overview.sourceFolders.filter(scanSourceIsEligible)
     const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
     if (selectable.length && !selectedSourceFolderIds.size) return
     const expectedAids = new Set<number>()
@@ -5442,7 +5505,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const sourceCountsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Map<string, number>()]))
     const selectedAidsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Set<number>()]))
     const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected !== false)
       .map((folder) => folder.id))
     for (const item of items) {
       const segmentId = segmentIdByAid.get(item.aid)
@@ -5516,10 +5579,10 @@ export class OldFavoriteWorkspaceCoordinator {
       segmentAidsBySegment.set(descriptor.id, new Set(stored.aids))
     }
     const selectedSourceFolderIds = new Set(sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected !== false)
       .map((folder) => folder.id))
     const allSelectableSourcesSelected = sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder)
+      .filter(scanSourceIsEligible)
       .every((folder) => folder.selected !== false)
     const selectedAidsBySegment = new Map<string, Set<number>>()
     const selectedItemCountsBySegment = new Map<string, number>()
@@ -5622,7 +5685,7 @@ export class OldFavoriteWorkspaceCoordinator {
       .filter((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
       .map((segment) => segment.id))
     const sourceFolders = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected !== false)
+      .filter((folder) => scanSourceIsEligible(folder) && folder.selected !== false)
       .map((folder) => ({
         id: folder.id,
         title: folder.title,
@@ -5704,6 +5767,43 @@ export class OldFavoriteWorkspaceCoordinator {
       recommendationCounts,
       archiveTargets
     }
+  }
+
+  private projectLocalWorkspaceFolders(
+    repository: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>
+  ): OldFavoriteWorkspaceLocalWorkspaceFolder[] {
+    const shardsByLedger = new Map<string, typeof repository.physicalShards>()
+    for (const shard of repository.physicalShards) {
+      const shards = shardsByLedger.get(shard.logicalLedgerId) ?? []
+      shards.push(shard)
+      shardsByLedger.set(shard.logicalLedgerId, shards)
+    }
+    return repository.folders
+      .filter((folder) => folder.kind === 'bilimi-logical' || folder.kind === 'local')
+      .map((folder) => {
+        if (folder.kind === 'bilimi-logical') {
+          const shards = shardsByLedger.get(folder.logicalLedgerId ?? '') ?? []
+          const relationship = shards.length > 0 && shards.every((shard) =>
+            shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+            ? 'bound' as const
+            : 'reconcile-required' as const
+          return {
+            id: folder.id,
+            title: folder.title,
+            kind: 'rule' as const,
+            relationship,
+            itemCount: repository.memberships[folder.id]?.length ?? 0
+          }
+        }
+        return {
+          id: folder.id,
+          title: folder.title,
+          kind: 'draft' as const,
+          relationship: 'none' as const,
+          itemCount: repository.memberships[folder.id]?.length ?? 0
+        }
+      })
+      .sort((left, right) => left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
   }
 
   private projectInventoryMetrics(
@@ -5802,7 +5902,7 @@ export class OldFavoriteWorkspaceCoordinator {
             const segmentAids = overviewRuntime?.segmentAidsBySegment.get(segment.id)
             const selectedAids = overviewRuntime?.selectedAidsBySegment.get(segment.id)
             const sourceSelectionKnown = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-              .some((folder) => !folder.isBilimiWorkFolder)
+              .some(scanSourceIsEligible)
             const isSelected = (aid: number) => !sourceSelectionKnown || !selectedAids || selectedAids.has(aid)
             const pendingTagItemCount = acceptedTagSegments.has(segment.id) ? 0 : knownSegmentAids
               ? knownSegmentAids.reduce((count, aid) => count + Number(isSelected(aid) && pendingTagAids.has(aid)), 0)
@@ -6007,6 +6107,9 @@ export class OldFavoriteWorkspaceCoordinator {
         }
       } : {}),
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
+      ...(this.scanOverviews.get(workspace.accountMid)?.localWorkspaceFolders
+        ? { localWorkspaceFolders: clone(this.scanOverviews.get(workspace.accountMid)!.localWorkspaceFolders!) }
+        : {}),
       continuationCount: workspace.continuationAids.length,
       protectedAidCount: workspace.protectedAids.length,
       segments: projectedSegments,

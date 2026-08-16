@@ -1,4 +1,8 @@
-import type { OldFavoriteWorkspaceMode, OldFavoriteWorkspaceSnapshot } from '../../src/shared/oldFavoriteWorkspace'
+import type {
+  OldFavoriteRemoteRelationship,
+  OldFavoriteWorkspaceMode,
+  OldFavoriteWorkspaceSnapshot
+} from '../../src/shared/oldFavoriteWorkspace'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
@@ -91,6 +95,10 @@ export class OldFavoriteWorkspaceScanService {
       recordTagEnrichmentFailure?: (accountMid: string, aid: number, reason: string, expectedWorkspaceId?: string) => Promise<boolean>
       /** A name is only a recovery candidate; bound IDs are scan authority. */
       getFormallyBoundRemoteFolderIds?: (accountMid: string) => Promise<ReadonlySet<string>>
+      /** Remote IDs come from durable local bindings, never from folder names. */
+      getRemoteFolderRelationships?: (accountMid: string) => Promise<ReadonlyMap<string, {
+        remoteRelationship: OldFavoriteRemoteRelationship
+      }>>
     }
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
@@ -394,16 +402,31 @@ export class OldFavoriteWorkspaceScanService {
         return
       }
       const formallyBoundRemoteFolderIds = await this.options.coordinator.getFormallyBoundRemoteFolderIds?.(accountMid)
-      const managedFolderIds = new Set(formallyBoundRemoteFolderIds ?? [])
-      runtimeStage = 'record-inventory'
-      await this.options.coordinator.recordScanInventory(accountMid, {
-        sourceFolders: inventory.folders.map((folder) => ({
+      const explicitRelationships = await this.options.coordinator.getRemoteFolderRelationships?.(accountMid)
+      const remoteRelationshipByFolderId = new Map(inventory.folders.map((folder) => {
+        const remoteRelationship = explicitRelationships?.get(folder.id)?.remoteRelationship ??
+          (formallyBoundRemoteFolderIds?.has(folder.id) ? 'bound' : 'none')
+        return [folder.id, remoteRelationship] as const
+      }))
+      const sourceFolders = inventory.folders.map((folder) => {
+        const remoteRelationship = remoteRelationshipByFolderId.get(folder.id) ?? 'none'
+        return {
           id: folder.id,
           title: folder.title,
           itemCount: folder.mediaCount,
-          isBilimiWorkFolder: managedFolderIds.has(folder.id),
+          // Retained only so pre-migration recovery readers remain conservative.
+          isBilimiWorkFolder: remoteRelationship !== 'none',
+          remoteRelationship,
+          scanEligible: remoteRelationship === 'none',
           ...(isBilimiWorkFolderCandidate(folder.title) ? { isBilimiWorkFolderCandidate: true } : {})
-        }))
+        }
+      })
+      const managedFolderIds = new Set(sourceFolders
+        .filter((folder) => folder.remoteRelationship === 'bound')
+        .map((folder) => folder.id))
+      runtimeStage = 'record-inventory'
+      await this.options.coordinator.recordScanInventory(accountMid, {
+        sourceFolders
       }, runId)
       if (recoveryProbe) {
         await this.waitForRecoveryStabilization()
@@ -458,7 +481,7 @@ export class OldFavoriteWorkspaceScanService {
       let requestedSourcePageCount = 0
       const sourcePageBatchSize = Math.max(1, Math.floor(this.options.sourcePageBatchSize ?? Number.MAX_SAFE_INTEGER))
       for (const folder of inventory.folders) {
-        if (managedFolderIds.has(folder.id)) continue
+        if (remoteRelationshipByFolderId.get(folder.id) !== 'none') continue
         let page = 1
         let hasMore = true
         while (hasMore) {

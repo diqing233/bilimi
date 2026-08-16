@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { OldFavoriteInventoryMetricProjection, OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
+import {
+  oldFavoriteFolderIsScanEligible,
+  oldFavoriteRemoteRelationship,
+  type OldFavoriteInventoryMetricProjection,
+  type OldFavoriteWorkspaceView
+} from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
 type SourceCountMode = 'planned' | 'protected' | 'unavailable'
@@ -20,7 +25,7 @@ function sourceProjectionValue(
   mode: SourceCountMode,
   currentSegmentPlannedCounts?: ReadonlyMap<string, number>
 ): number | '—' | '待确认' {
-  if (mode === 'planned' && !folder.isBilimiWorkFolder && !folder.selected) return '—'
+  if (mode === 'planned' && oldFavoriteFolderIsScanEligible(folder) && !folder.selected) return '—'
   if (mode === 'planned' && currentSegmentPlannedCounts) return currentSegmentPlannedCounts.get(folder.id) ?? 0
   const value = folder[SOURCE_COUNT_MODES[mode].field]
   return folder.confirmed && value !== null ? value : '待确认'
@@ -125,17 +130,24 @@ export function OldFavoriteScanOverviewStep({
     id: folder.id,
     title: folder.title,
     relationshipCount: folder.itemCount,
-    plannedAidCount: legacyProjectionConfirmed ? folder.selected && !folder.isBilimiWorkFolder ? folder.itemCount : 0 : null,
+    plannedAidCount: legacyProjectionConfirmed
+      ? folder.selected && oldFavoriteFolderIsScanEligible(folder) ? folder.itemCount : 0
+      : null,
     protectedAidCount: legacyProjectionConfirmed ? 0 : null,
     unavailableAidCount: legacyProjectionConfirmed ? folder.invalidItemCount ?? 0 : null,
     selected: Boolean(folder.selected),
     isBilimiWorkFolder: folder.isBilimiWorkFolder,
+    remoteRelationship: oldFavoriteRemoteRelationship(folder),
+    scanEligible: oldFavoriteFolderIsScanEligible(folder),
     confirmed: legacyProjectionConfirmed
   }))
-  const userFolders = folders.filter((folder) => !folder.isBilimiWorkFolder)
-  const bilimiFolders = folders.filter((folder) => folder.isBilimiWorkFolder)
+  // Every entry in this list is a real remote Bilibili folder. Relationship
+  // badges change its scan eligibility, never its display area.
+  const userFolders = folders
+  const selectableUserFolders = userFolders.filter(oldFavoriteFolderIsScanEligible)
+  const localWorkspaceFolders = activeSnapshot?.localWorkspaceFolders ?? []
   const selectedSourceIds = new Set(userFolders
-    .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    .filter((folder) => folder.selected && oldFavoriteFolderIsScanEligible(folder))
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const resumableFailedScan = snapshot?.status === 'scanning' && snapshot.scan.phase === 'failed'
@@ -165,7 +177,7 @@ export function OldFavoriteScanOverviewStep({
   const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
   const lifecycleCountsConfirmed = inventoryMetrics?.authority !== 'incomplete'
-  const allUserSourcesSelected = userFolders.length > 0 && selectedSourceIds.size === userFolders.length
+  const allUserSourcesSelected = selectableUserFolders.length > 0 && selectedSourceIds.size === selectableUserFolders.length
   const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.relationshipCount, 0)
   const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.unavailableAidCount ?? 0), 0)
   const unavailableAidCount = inventoryMetrics?.unavailableAidCount ?? invalidSourceItemCount
@@ -304,7 +316,8 @@ export function OldFavoriteScanOverviewStep({
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading">
           <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
-            disabled={loading || overviewReadOnly} onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : userFolders.map((folder) => folder.id))} /><span>全选</span></label>
+            disabled={loading || overviewReadOnly || selectableUserFolders.length === 0}
+            onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} /><span>全选</span></label>
           <span className="favorite-ledger-panel__source-heading-separator" aria-hidden="true">·</span>
           <span className="favorite-ledger-panel__source-heading-title">用户收藏夹</span>
           <small>（{userFolders.length}）</small>
@@ -325,31 +338,40 @@ export function OldFavoriteScanOverviewStep({
         </span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
-        {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
+        {userFolders.map((folder) => {
+          const scanEligible = oldFavoriteFolderIsScanEligible(folder)
+          const relationship = oldFavoriteRemoteRelationship(folder)
+          const relationshipLabel = relationship === 'bound' ? '已绑定' : relationship === 'reconcile-required' ? '待对账' : undefined
+          return <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
           <label className="favorite-ledger-panel__source-row-content">
             <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
-              disabled={loading || overviewReadOnly} onChange={(event) => {
+              disabled={loading || overviewReadOnly || !scanEligible} onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
                 onSelectSourceFolders([...next])
               }} /></span>
-            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
+            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}{relationshipLabel ? <small>（{relationshipLabel}）</small> : null}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
             <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
           </label>
-        </li>)}
+        </li>
+        })}
       </ul>
     </div> : null}
-    {bilimiFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
+    {localWorkspaceFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 本地工作区">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
-        <span role="columnheader" aria-label="选择" /><span role="columnheader" className="favorite-ledger-panel__source-heading">bilimi 工作夹</span>
-        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading">总数</span><span role="columnheader" className="favorite-ledger-panel__source-metric-heading">{sourceModeLabel}</span>
+        <span role="columnheader" aria-label="本地状态" /><span role="columnheader" className="favorite-ledger-panel__source-heading">bilimi 本地工作区</span>
+        <span role="columnheader" className="favorite-ledger-panel__source-metric-heading">本地数量</span><span role="columnheader" className="favorite-ledger-panel__source-metric-heading">关系状态</span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">
-        {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi favorite-ledger-panel__source-row-content">
+        {localWorkspaceFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi favorite-ledger-panel__source-row-content">
           <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
-          <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{folder.kind === 'draft'
+            ? '本地草稿'
+            : folder.relationship === 'bound'
+              ? '已备册'
+              : '待重新备册/绑定/对账'}</span>
         </li>)}
       </ul>
     </div> : null}

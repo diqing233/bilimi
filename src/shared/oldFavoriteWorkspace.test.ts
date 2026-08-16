@@ -37,9 +37,9 @@ describe('old favorite workspace', () => {
       unavailableAidCount: 1
     })
     expect(projection.sourceFolders).toEqual([
-      { id: 'ordinary-a', title: '默认收藏夹', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, confirmed: true },
-      { id: 'ordinary-b', title: '自建收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, confirmed: true },
-      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, confirmed: true }
+      { id: 'ordinary-a', title: '默认收藏夹', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, selected: true, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, confirmed: true },
+      { id: 'ordinary-b', title: '自建收藏夹', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 0, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, confirmed: true },
+      { id: 'managed', title: 'bilimi·知识学习', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, selected: false, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, confirmed: true }
     ])
   })
 
@@ -59,6 +59,48 @@ describe('old favorite workspace', () => {
       protectedAidCount: null,
       unavailableAidCount: null
     })
+  })
+
+  it('uses explicit remote relationships and scan eligibility instead of the legacy work-folder flag', () => {
+    const projection = projectOldFavoriteInventoryMetrics({
+      authority: 'complete',
+      sourceFolders: [
+        {
+          id: 'ordinary', title: '默认收藏夹', itemCount: 1,
+          isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true
+        },
+        {
+          id: 'name-only', title: 'bilimi·只是同名', itemCount: 1,
+          // A stale legacy flag must not turn an otherwise unrelated remote
+          // folder into a protected Bilimi workspace.
+          isBilimiWorkFolder: true, remoteRelationship: 'none', scanEligible: true, selected: true
+        },
+        {
+          id: 'bound', title: '已正式绑定的远端夹', itemCount: 1,
+          // The new projection is authoritative even before old persistence
+          // has stopped carrying this compatibility flag.
+          isBilimiWorkFolder: false, remoteRelationship: 'bound', scanEligible: false, selected: false
+        },
+        {
+          id: 'reconcile', title: '待对账的远端夹', itemCount: 1,
+          isBilimiWorkFolder: false, remoteRelationship: 'reconcile-required', scanEligible: false, selected: false
+        }
+      ] as never,
+      items: [
+        { aid: 1, sourceFolderIds: ['ordinary'], protected: false, unavailable: false },
+        { aid: 2, sourceFolderIds: ['name-only'], protected: false, unavailable: false },
+        { aid: 3, sourceFolderIds: ['bound'], protected: false, unavailable: false },
+        { aid: 4, sourceFolderIds: ['reconcile'], protected: false, unavailable: false }
+      ]
+    })
+
+    expect(projection.plannedAidCount).toBe(2)
+    expect(projection.sourceFolders).toMatchObject([
+      { id: 'ordinary', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
+      { id: 'name-only', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
+      { id: 'bound', remoteRelationship: 'bound', scanEligible: false, plannedAidCount: 0 },
+      { id: 'reconcile', remoteRelationship: 'reconcile-required', scanEligible: false, plannedAidCount: 0 }
+    ])
   })
 
   it('creates an account-scoped workspace in scanning state before a baseline exists', () => {

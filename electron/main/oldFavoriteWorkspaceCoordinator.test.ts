@@ -8363,6 +8363,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('uses scan eligibility instead of the legacy work-folder flag when selecting remote scan sources', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        {
+          id: 'name-only', title: 'bilimi·只是同名', itemCount: 1,
+          isBilimiWorkFolder: true, remoteRelationship: 'none', scanEligible: true
+        },
+        {
+          id: 'bound', title: '已绑定的远端收藏夹', itemCount: 1,
+          isBilimiWorkFolder: false, remoteRelationship: 'bound', scanEligible: false
+        }
+      ] as never
+    })
+    await coordinator.completeScan('100', { revision: 1, aids: [] })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      sourceFolders: [
+        { id: 'name-only', remoteRelationship: 'none', scanEligible: true, selected: true },
+        { id: 'bound', remoteRelationship: 'bound', scanEligible: false, selected: false }
+      ]
+    })
+    await expect(coordinator.selectSourceFolders('100', ['name-only'])).resolves.toBeUndefined()
+    await expect(coordinator.selectSourceFolders('100', ['bound'])).rejects.toThrow('source selection is invalid')
+  })
+
   it('restores source selection and the active segment without leaking either to another account', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
