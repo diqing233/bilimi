@@ -8,7 +8,7 @@ import type {
   FavoriteArchiveMultiMode,
   FavoriteLedger
 } from '../../src/shared/types'
-import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
+import { OldFavoriteWorkspaceCoordinator, type DeepSeekClassificationBatchApplyResult } from './oldFavoriteWorkspaceCoordinator'
 import type {
   OldFavoriteWorkspaceDeepSeekFailure,
   OldFavoriteWorkspaceDeepSeekProcessedItem,
@@ -92,7 +92,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
   constructor(private readonly options: {
   coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
-    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'selectSegment' | 'getDeepSeekRunCheckpoint' | 'setDeepSeekRunCheckpoint' | 'getRecoverySummary' | 'selectRecoveryDecision'>>
+    & Partial<Pick<OldFavoriteWorkspaceCoordinator, 'applyDeepSeekClassificationBatchWithConflicts' | 'selectSegment' | 'getDeepSeekRunCheckpoint' | 'setDeepSeekRunCheckpoint' | 'getRecoverySummary' | 'selectRecoveryDecision'>>
     preferences: () => DeepSeekPreferences
     ledgersForAccount?: (accountMid: string, preferences: Pick<DeepSeekPreferences, 'favoriteLedgers'>) => FavoriteLedger[]
     generate: (request: ArchiveRequest, signal?: AbortSignal) => Promise<DeepSeekGenerateResult>
@@ -986,6 +986,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
       failures.push(...outcome.failures)
       successfulVideoCount += outcome.accepted.length
       failedVideoCount += outcome.failures.reduce((count, failure) => count + failure.affectedVideoCount, 0)
+      let settledAccepted = outcome.accepted
+      let settledFailures = outcome.failures
       if (!this.destructiveMaintenance && outcome.accepted.length) {
         const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
         const beforeTargets = new Map(outcome.accepted.flatMap((row) => typeof row.aid === 'number'
@@ -1002,12 +1004,36 @@ export class OldFavoriteWorkspaceDeepSeekService {
               source: classification.source
             }]))
           }
-          await this.options.coordinator.applyDeepSeekClassificationBatch(authoritativeSnapshot.accountMid, assignments, expected)
+          let applied: DeepSeekClassificationBatchApplyResult
+          if (this.options.coordinator.applyDeepSeekClassificationBatchWithConflicts) {
+            applied = await this.options.coordinator.applyDeepSeekClassificationBatchWithConflicts(authoritativeSnapshot.accountMid, assignments, expected)
+          } else {
+            applied = {
+              snapshot: await this.options.coordinator.applyDeepSeekClassificationBatch(authoritativeSnapshot.accountMid, assignments, expected),
+              appliedAids: assignments.map((assignment) => assignment.aid),
+              conflictAids: []
+            }
+          }
           const next = await this.options.coordinator.getSnapshot(authoritativeSnapshot.accountMid)
           if (!next || 'recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
           authoritativeSnapshot = next
+          if (applied.conflictAids.length) {
+            const conflictSet = new Set(applied.conflictAids)
+            const conflictFailure: OldFavoriteWorkspaceDeepSeekFailure = {
+              chunkIndex: offset / archiveChunkSize + 1,
+              aids: [...applied.conflictAids].sort((left, right) => left - right),
+              affectedVideoCount: applied.conflictAids.length,
+              category: 'workspace-conflict',
+              message: '当前工作区已更新，这些视频保留了最新分类；可重试冲突项。'
+            }
+            settledAccepted = settledAccepted.filter((row) => typeof row.aid !== 'number' || !conflictSet.has(row.aid))
+            settledFailures = [...settledFailures, conflictFailure]
+            failures.push(conflictFailure)
+            successfulVideoCount -= applied.conflictAids.length
+            failedVideoCount += applied.conflictAids.length
+          }
         }
-        processedItems = mergeProcessedItems(processedItems, outcome.accepted.flatMap((row) => {
+        processedItems = mergeProcessedItems(processedItems, settledAccepted.flatMap((row) => {
           if (typeof row.aid !== 'number') return []
           const item = itemByAid.get(row.aid)
           if (!item) return []
@@ -1024,10 +1050,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
           }]
         }))
       }
-      const settledSuccessfulAids = outcome.accepted
+      const settledSuccessfulAids = settledAccepted
         .map((row) => row.aid)
         .filter((aid): aid is number => Number.isSafeInteger(aid))
-      const settledFailedAids = outcome.failures.flatMap((failure) => failure.aids)
+      const settledFailedAids = settledFailures.flatMap((failure) => failure.aids)
       await onSettledGroup?.({
         successfulAids: this.normalizeAids(settledSuccessfulAids),
         failedAids: this.normalizeAids(settledFailedAids),

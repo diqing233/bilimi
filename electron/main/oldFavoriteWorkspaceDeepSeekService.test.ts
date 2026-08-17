@@ -491,6 +491,45 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     }))
   })
 
+  it('merges DeepSeek results per video and reports only changed videos as conflicts', async () => {
+    const before = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [
+        { aid: 1, title: 'Stable', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Changed', sourceFolderIds: ['source'] }
+      ] }, classifications: {}
+    }
+    const current = {
+      ...before,
+      classifications: { '2': { aid: 2, targetLedgerIds: ['manual'], source: 'manual' } }
+    }
+    const detailedApply = vi.fn().mockResolvedValue({ snapshot: {} as never, appliedAids: [1], conflictAids: [2] })
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValueOnce(before).mockResolvedValue(current),
+      applyDeepSeekClassificationBatch: vi.fn().mockRejectedValue(new Error('legacy strict path must not be used')),
+      applyDeepSeekClassificationBatchWithConflicts: detailedApply
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate: vi.fn().mockResolvedValue({
+        kind: 'favorite-archive-organize',
+        results: [
+          { aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false },
+          { aid: 2, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }
+        ], keywordSuggestions: []
+      })
+    })
+
+    await expect(service.organizeCurrentSegment('100')).resolves.toMatchObject({
+      progress: { successfulVideoCount: 1, failedVideoCount: 1 },
+      failures: [{ category: 'workspace-conflict', aids: [2] }]
+    })
+    expect(detailedApply).toHaveBeenCalledOnce()
+    expect(coordinator.applyDeepSeekClassificationBatch).not.toHaveBeenCalled()
+  })
+
   it('splits a large current segment into legacy twenty-video requests and durably applies each group', async () => {
     const items = Array.from({ length: 31 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
     const coordinator = {

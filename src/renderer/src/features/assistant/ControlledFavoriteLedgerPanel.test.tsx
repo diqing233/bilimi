@@ -1933,7 +1933,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
-    expect(open).toHaveBeenCalledTimes(2)
+    // Opening the guide re-reads the authoritative workspace after each mount;
+    // this is a read-only refresh and must not start another scan command.
+    expect(open).toHaveBeenCalledTimes(4)
 
     fireEvent.click(screen.getByRole('button', { name: '整理收藏' }))
     expect(command).not.toHaveBeenCalled()

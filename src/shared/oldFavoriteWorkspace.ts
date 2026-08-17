@@ -495,7 +495,7 @@ export type OldFavoriteWorkspaceDeepSeekFailure = {
   aids: number[]
   affectedVideoCount: number
   message: string
-  category?: 'timeout' | 'rate-limit' | 'server' | 'network' | 'invalid' | 'unavailable' | 'incomplete'
+  category?: 'timeout' | 'rate-limit' | 'server' | 'network' | 'invalid' | 'unavailable' | 'incomplete' | 'workspace-conflict'
 }
 
 export type OldFavoriteWorkspaceDeepSeekRequestGroup = {

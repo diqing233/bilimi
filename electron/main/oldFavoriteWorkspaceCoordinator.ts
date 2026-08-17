@@ -421,6 +421,19 @@ type TagEnrichment = {
   acceptedTagVersionsBySegment: Record<string, number>
 }
 
+type DeepSeekClassificationBatchExpectation = {
+  workspaceId: string
+  currentSegmentId: string
+  selectedSourceFolderIds: string[]
+  classifications: Record<string, { targetLedgerIds: string[]; source: string }>
+}
+
+export type DeepSeekClassificationBatchApplyResult = {
+  snapshot: OldFavoriteWorkspace
+  appliedAids: number[]
+  conflictAids: number[]
+}
+
 function normalizeTagEnrichment(value: {
   status: TagEnrichment['status']
   totalItemCount: number
@@ -3020,13 +3033,19 @@ export class OldFavoriteWorkspaceCoordinator {
   async applyDeepSeekClassificationBatch(
     accountMid: string,
     assignments: ApplyWorkspaceClassificationBatchOptions['assignments'],
-    expected: {
-      workspaceId: string
-      currentSegmentId: string
-      selectedSourceFolderIds: string[]
-      classifications: Record<string, { targetLedgerIds: string[]; source: string }>
-    }
+    expected: DeepSeekClassificationBatchExpectation
   ): Promise<OldFavoriteWorkspace> {
+    const result = await this.applyDeepSeekClassificationBatchWithConflicts(accountMid, assignments, expected, true)
+    if (result.conflictAids.length) throw new Error('Old favorite workspace changed while DeepSeek was running.')
+    return result.snapshot
+  }
+
+  async applyDeepSeekClassificationBatchWithConflicts(
+    accountMid: string,
+    assignments: ApplyWorkspaceClassificationBatchOptions['assignments'],
+    expected: DeepSeekClassificationBatchExpectation,
+    strict = false
+  ): Promise<DeepSeekClassificationBatchApplyResult> {
     if (assignments.length > MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE || assignments.some((assignment) =>
       assignment.targetLedgerIds.length > 3 || assignment.targetLedgerIds.some((id) => id.trim().length > 128))) {
       throw new Error('Old favorite workspace DeepSeek classification is invalid.')
@@ -3043,22 +3062,32 @@ export class OldFavoriteWorkspaceCoordinator {
         targetLedgerIds: [...classification.targetLedgerIds].sort(),
         source: classification.source
       }]))
-      if (workspace.id !== expected.workspaceId || currentSegmentId !== expected.currentSegmentId ||
-        JSON.stringify(selectedSourceFolderIds) !== JSON.stringify([...expected.selectedSourceFolderIds].sort()) ||
-        JSON.stringify(classifications) !== JSON.stringify(expected.classifications)) {
+      if (workspace.id !== expected.workspaceId || currentSegmentId !== expected.currentSegmentId) {
         throw new Error('Old favorite workspace changed while DeepSeek was running.')
       }
       const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
       if (!currentSegment || !assignments.every((assignment) => currentSegment.aids.includes(assignment.aid))) {
         throw new Error('Old favorite workspace classifications must target the current segment.')
       }
-      await this.assertAssignmentsUseSelectedSources(workspace, assignments)
-      const currentItemsByAid = new Map((this.currentSegmentItems.get(workspace.accountMid) ?? []).map((item) => [item.aid, item]))
+      const sourceSelectionChanged = JSON.stringify(selectedSourceFolderIds) !== JSON.stringify([...expected.selectedSourceFolderIds].sort())
       const normalizedAssignments = new Map(assignments.map((assignment) => [assignment.aid, {
         aid: assignment.aid,
         targetLedgerIds: [...new Set(assignment.targetLedgerIds.map((id) => id.trim()).filter(Boolean))].sort()
       }]))
-      const processedItems: OldFavoriteWorkspaceDeepSeekProcessedItem[] = [...normalizedAssignments.values()]
+      const conflictAids = [...normalizedAssignments.values()]
+        .filter((assignment) => {
+          if (sourceSelectionChanged) return true
+          const current = classifications[String(assignment.aid)]
+          const expectedClassification = expected.classifications[String(assignment.aid)]
+          return JSON.stringify(current ?? null) !== JSON.stringify(expectedClassification ?? null)
+        })
+        .map((assignment) => assignment.aid)
+        .sort((left, right) => left - right)
+      if (strict && conflictAids.length) throw new Error('Old favorite workspace changed while DeepSeek was running.')
+      const applicableAssignments = [...normalizedAssignments.values()].filter((assignment) => !conflictAids.includes(assignment.aid))
+      await this.assertAssignmentsUseSelectedSources(workspace, applicableAssignments)
+      const currentItemsByAid = new Map((this.currentSegmentItems.get(workspace.accountMid) ?? []).map((item) => [item.aid, item]))
+      const processedItems: OldFavoriteWorkspaceDeepSeekProcessedItem[] = applicableAssignments
         .sort((left, right) => left.aid - right.aid)
         .map((assignment) => {
           const beforeTargetLedgerIds = [...(workspace.classifications[String(assignment.aid)]?.targetLedgerIds ?? [])]
@@ -3071,7 +3100,8 @@ export class OldFavoriteWorkspaceCoordinator {
             changed: JSON.stringify(beforeTargetLedgerIds) !== JSON.stringify(assignment.targetLedgerIds)
           }
         })
-      const applied = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments })
+      if (!applicableAssignments.length) return { snapshot: clone(workspace), appliedAids: [], conflictAids }
+      const applied = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments: applicableAssignments })
       const entry: OldFavoriteWorkspaceHistoryEntry = {
         ...(applied === workspace ? { source: 'deepseek' as const, changes: [] } : applied.history[applied.history.length - 1]!),
         deepSeekProcessedItems: processedItems
@@ -3096,7 +3126,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
       frozenIds.delete(currentSegmentId)
       this.remember(updated, currentSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [], frozenIds)
-      return clone(updated)
+      return { snapshot: clone(updated), appliedAids: applicableAssignments.map((assignment) => assignment.aid), conflictAids }
     })
   }
 
@@ -4464,28 +4494,45 @@ export class OldFavoriteWorkspaceCoordinator {
     const current = this.tagEnrichments.get(workspace.accountMid)
     if (!current || (current.status === 'accepted' && status !== 'running')) return false
     const segmentId = this.currentSegment(workspace)
-    if (status === 'running' && this.hasWholeRunTagCutoffAccepted(workspace, current) && current.pendingAids.length) {
-      let next = current
-      for (const acceptedSegmentId of [...current.acceptedSegmentIds]) {
+    let working = current
+    let failedWasRequeued = false
+    if (status === 'running' && current.failedAids.length) {
+      const requeuedAids = [...new Set([...current.pendingAids, ...current.failedAids])].sort((left, right) => left - right)
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: segmentId, kind: 'retry-failed'
+      })
+      working = {
+        ...current,
+        status: 'running',
+        pendingAids: requeuedAids,
+        failedAids: [],
+        completedItemCount: current.totalItemCount - requeuedAids.length
+      }
+      this.tagEnrichments.set(workspace.accountMid, working)
+      failedWasRequeued = true
+    }
+    if (status === 'running' && this.hasWholeRunTagCutoffAccepted(workspace, working) && working.pendingAids.length) {
+      let next = working
+      for (const acceptedSegmentId of [...working.acceptedSegmentIds]) {
         await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
           currentSegmentId: acceptedSegmentId, kind: 'resume-segment', segmentId: acceptedSegmentId, status: 'running'
         })
         next = { ...next, acceptedSegmentIds: next.acceptedSegmentIds.filter((id) => id !== acceptedSegmentId), status: 'running' }
         this.tagEnrichments.set(workspace.accountMid, next)
       }
-      return current.acceptedSegmentIds.length > 0
+      return working.acceptedSegmentIds.length > 0 || failedWasRequeued
     }
-    if (status === 'running' && current.acceptedSegmentIds.includes(segmentId)) {
-      if (!this.hasUnacceptedPendingTagEnrichment(workspace, current)) return false
-      const next: TagEnrichment = { ...current, status }
+    if (status === 'running' && working.acceptedSegmentIds.includes(segmentId)) {
+      if (!this.hasUnacceptedPendingTagEnrichment(workspace, working)) return failedWasRequeued
+      const next: TagEnrichment = { ...working, status }
       await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
         currentSegmentId: segmentId, kind: 'status', status
       })
       this.tagEnrichments.set(workspace.accountMid, next)
       return true
     }
-    if (current.status === 'complete' || (status === 'running' && !current.pendingAids.length)) return false
-    const next: TagEnrichment = { ...current, status }
+    if (working.status === 'complete' || (status === 'running' && !working.pendingAids.length)) return failedWasRequeued
+    const next: TagEnrichment = { ...working, status }
     await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
       currentSegmentId: this.currentSegment(workspace), kind: 'status', status
     })

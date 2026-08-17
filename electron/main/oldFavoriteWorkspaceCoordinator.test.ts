@@ -3441,6 +3441,28 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
   })
 
+  it('resumes pending and failed tag reads through the single resume action', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'No tags', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Failed', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, [], workspaceId)
+    await coordinator.recordTagEnrichmentFailure('100', 2, 'network-failure', workspaceId)
+
+    await coordinator.resumeTagEnrichment('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0 }
+    })
+    expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
+  })
+
   it('does not reread a confirmed-empty tag result after a later incremental scan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -9025,6 +9047,37 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } },
       history: { cursor: 1, length: 1 }
+    })
+  })
+
+  it('applies non-conflicting DeepSeek assignments while preserving changed videos', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    if (!snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
+    })
+
+    const result = await coordinator.applyDeepSeekClassificationBatchWithConflicts('100', [
+      { aid: 1, targetLedgerIds: ['deepseek'] }, { aid: 2, targetLedgerIds: ['deepseek'] }
+    ], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment.id,
+      selectedSourceFolderIds: snapshot.sourceFolders.filter((folder) => folder.selected).map((folder) => folder.id),
+      classifications: Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => [aid, {
+        targetLedgerIds: [...classification.targetLedgerIds], source: classification.source
+      }]))
+    })
+    expect(result).toMatchObject({ appliedAids: [1], conflictAids: [2] })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['deepseek'], source: 'deepseek' },
+        '2': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
     })
   })
 

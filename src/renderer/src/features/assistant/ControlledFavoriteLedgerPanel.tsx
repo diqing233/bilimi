@@ -559,7 +559,11 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(true)
       return
     }
-    const authoritativeSnapshot = snapshot || await workspace.refresh()
+    const authoritativeSnapshot = snapshot
+      ? 'recovery' in snapshot || snapshot.status === 'scanning'
+        ? snapshot
+        : await workspace.refresh(true) ?? snapshot
+      : await workspace.refresh()
     if (!isCurrentRequest()) return
     if (authoritativeSnapshot && 'recovery' in authoritativeSnapshot) {
       setGuideOpen(true)

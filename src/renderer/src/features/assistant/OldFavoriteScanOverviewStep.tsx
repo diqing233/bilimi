@@ -162,7 +162,7 @@ export function OldFavoriteScanOverviewStep({
   const currentSegmentCanContinueTagEnrichment = tagEnrichment?.currentSegmentCanContinueTagEnrichment === true
   const currentSegmentHasUnacceptedTagChanges = tagEnrichment?.currentSegmentHasUnacceptedTagChanges === true
   const canContinueTagEnrichment = tagEnrichment?.status !== 'running' &&
-    (currentSegmentCanContinueTagEnrichment || Boolean(tagEnrichment?.pendingItemCount))
+    (currentSegmentCanContinueTagEnrichment || Boolean(tagEnrichment?.pendingItemCount) || Boolean(tagEnrichment?.failedItemCount))
   const canAcceptCurrentTags = currentSegmentHasUnacceptedTagChanges ||
     (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted')
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
@@ -302,9 +302,6 @@ export function OldFavoriteScanOverviewStep({
           : <button type="button" disabled={tagControlsLoading || !canContinueTagEnrichment} onClick={onResumeTagEnrichment}>继续补取标签</button>}
         <button type="button" disabled={tagControlsLoading || !canAcceptCurrentTags} onClick={onAcceptCurrentTags}>采用当前标签</button>
       </div>
-      {tagEnrichment.failedItemCount > 0 && tagEnrichment.status !== 'running'
-        ? <button type="button" disabled={tagControlsLoading} onClick={onRetryFailedTagEnrichment}>重新补取失败标签</button>
-        : null}
       {tagEnrichment.pendingItemCount > 0 || currentSegmentCanContinueTagEnrichment || currentSegmentHasUnacceptedTagChanges ? <p className="favorite-ledger-panel__action-explanation">标签是重要的分类依据，建议耐心等待获取完成。暂停会保留已取得标签；采用当前标签会用当前结果继续本轮整理，未读取项不自动加入。</p> : null}
     </div> : null}
     {tagEnrichment?.status === 'accepted' && !scanning ? <p role="status">已采用当前标签。</p> : null}

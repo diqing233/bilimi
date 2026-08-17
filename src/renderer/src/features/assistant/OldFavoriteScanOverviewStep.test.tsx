@@ -604,9 +604,8 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
   })
 
-  it('lets adopted current tags resume later and retries only failed tag reads', () => {
+  it('uses the single continue action for pending and failed tag reads', () => {
     const resume = vi.fn()
-    const retryFailed = vi.fn()
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -618,12 +617,15 @@ describe('OldFavoriteScanOverviewStep', () => {
       }}
       loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
       onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
-      onResumeTagEnrichment={resume} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={retryFailed}
-    />)
+       onResumeTagEnrichment={resume} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+     />)
 
-    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeInTheDocument()
+    const continueButton = screen.getByRole('button', { name: '继续补取标签' })
+    expect(continueButton).toBeEnabled()
     expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '重新补取失败标签' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新补取失败标签' })).not.toBeInTheDocument()
+    fireEvent.click(continueButton)
+    expect(resume).toHaveBeenCalledOnce()
   })
 
   it('keeps tag actions visible but disabled after every tag has already been adopted', () => {
