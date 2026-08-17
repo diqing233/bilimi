@@ -3109,7 +3109,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('resumes remaining tag reads after invalidating an accepted complete-round cutoff', async () => {
+  it('refreshes recommendations after a resumed tag batch completes while the adopted cutoff stays stale', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3136,6 +3136,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
     expect(classifyCurrentItem).toHaveBeenCalledTimes(classificationCountAfterAccepting)
+
+    await coordinator.recordTagEnrichment('100', 2, ['React'], workspaceId)
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        wholeRunTagCutoffAccepted: false,
+        currentSegmentHasUnacceptedTagChanges: true
+      }
+    })
+    expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAccepting)
   })
 
   it('does not requeue a fully accepted current tag batch without an unaccepted checkpoint', async () => {
@@ -3275,7 +3285,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('does not rebuild system classifications until an in-flight tag result is adopted', async () => {
+  it('refreshes the draft when an in-flight tag result arrives after adoption', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3297,10 +3307,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.recordTagEnrichment('100', 2, ['React'], workspaceId)
 
-    expect(classifyCurrentItem).toHaveBeenCalledTimes(classificationCountAfterAcceptance)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        wholeRunTagCutoffAccepted: false,
+        currentSegmentHasUnacceptedTagChanges: true
+      }
+    })
+    expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAcceptance)
   })
 
-  it('waits for explicit re-adoption before rebuilding an in-flight tag result', async () => {
+  it('requires explicit re-adoption to restore the cutoff after an in-flight refresh', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3322,7 +3338,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.recordTagEnrichment('100', 2, ['React'], workspaceId)
 
-    expect(classifyCurrentItem).toHaveBeenCalledTimes(classificationCountAfterAcceptance)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        wholeRunTagCutoffAccepted: false,
+        currentSegmentHasUnacceptedTagChanges: true
+      }
+    })
+    expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAcceptance)
     await coordinator.acceptCurrentTags('100')
     expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAcceptance)
   })

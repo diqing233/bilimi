@@ -4272,7 +4272,6 @@ export class OldFavoriteWorkspaceCoordinator {
           ? enrichment.status
           : activePendingAids.length ? 'running' : pendingAids.length ? 'accepted' : 'complete'
       }
-      const currentSegmentWasNotYetAdopted = !hasTagVersion(enrichment.acceptedTagVersionsBySegment, segmentId)
       await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), kind: 'tagged', aid, tags: normalizedTags, segmentId, tagChanged,
         ...(acceptedSegment && tagChanged ? { unacceptedSegmentId: segmentId } : {}),
@@ -4286,7 +4285,7 @@ export class OldFavoriteWorkspaceCoordinator {
       this.tagEnrichments.set(workspace.accountMid, next)
       if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
       const currentSegmentCompleted = this.completedCurrentSegmentTagEnrichment(workspace, enrichment.pendingAids, pendingAids)
-      if (workspace.status === 'previewing' && currentSegmentWasNotYetAdopted &&
+      if (workspace.status === 'previewing' &&
         (readySegmentIds.length || !pendingAids.length || currentSegmentCompleted)) {
         await this.rebuildRecommendationsAfterTagBatch(workspace)
         await this.refreshRecommendationsAfterTagEnrichment(workspace)
@@ -4433,7 +4432,8 @@ export class OldFavoriteWorkspaceCoordinator {
     // A naturally completed tag run has no adoption step. Once a cutoff was
     // accepted, however, a late result must still match every accepted version
     // even when it clears the pending queue.
-    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0) return true
+    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0 &&
+      Object.keys(enrichment.acceptedTagVersionsBySegment).length === 0) return true
     const accepted = new Set(enrichment.acceptedSegmentIds)
     return segmentIds.every((segmentId) =>
       accepted.has(segmentId) &&
