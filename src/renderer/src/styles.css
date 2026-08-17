@@ -6022,6 +6022,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__scan-progress {
   display: grid;
   gap: 6px;
+  container-type: inline-size;
 }
 .favorite-ledger-panel__archive-batch-progress {
   display: flex;
@@ -6071,11 +6072,15 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__scan-progress > div {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(2.75rem, 1fr) max-content max-content;
   align-items: center;
   gap: 8px;
   color: var(--porcelain-muted);
   font-size: 11px;
+}
+.favorite-ledger-panel__scan-progress > div > span,
+.favorite-ledger-panel__scan-progress strong {
+  white-space: nowrap;
 }
 .favorite-ledger-panel__scan-progress progress {
   width: 100%;
@@ -6087,6 +6092,15 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__scan-progress-status {
   white-space: nowrap;
+}
+@container (max-width: 270px) {
+  .favorite-ledger-panel__scan-progress > div {
+    grid-template-columns: max-content minmax(2.75rem, 1fr) max-content;
+  }
+  .favorite-ledger-panel__scan-progress strong {
+    grid-column: 3;
+    grid-row: 2;
+  }
 }
 .favorite-ledger-panel__scan-actions {
   display: grid;

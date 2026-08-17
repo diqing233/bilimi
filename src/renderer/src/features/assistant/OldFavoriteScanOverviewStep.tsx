@@ -166,6 +166,24 @@ export function OldFavoriteScanOverviewStep({
   const canAcceptCurrentTags = currentSegmentHasUnacceptedTagChanges ||
     (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted')
   const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
+  const scopedTagProgress = viewScope === 'all'
+    ? tagEnrichment?.scopes?.wholeRun ?? (tagEnrichment ? {
+      totalItemCount: tagEnrichment.totalItemCount,
+      completedItemCount: tagEnrichment.completedItemCount
+    } : undefined)
+    : tagEnrichment?.scopes?.currentSegment ?? (currentSegmentSummary ? {
+      totalItemCount: currentSegmentSummary.itemCount,
+      completedItemCount: currentSegmentSummary.completedTagItemCount
+    } : undefined)
+  const scopedTagProgressLabel = viewScope === 'all' ? '本轮' : '当前批'
+  const scopedTagProgressAriaLabel = viewScope === 'all' ? '本轮标签进度' : '当前批次标签进度'
+  const scopedTagProgressStatus = viewScope === 'all'
+    ? tagEnrichment?.status === 'running' ? '补取中'
+      : tagEnrichment?.status === 'paused' ? '已暂停'
+      : tagEnrichment?.status === 'accepted' ? '已采用' : '已完成'
+    : currentSegmentSummary?.readiness === 'waiting' ? '等待扫描'
+      : currentSegmentSummary?.readiness === 'tagging' ? '补取中'
+      : currentSegmentSummary?.readiness === 'saved' ? '已保存' : '可整理'
   const failedTagItemCount = scopedTagEnrichment?.failedItemCount ?? Math.min(tagEnrichment?.failedItemCount ?? 0, untaggedItemCount)
   const confirmedUntaggedItemCount = scopedTagEnrichment?.confirmedUntaggedItemCount ?? tagEnrichment?.confirmedUntaggedItemCount ?? 0
   const reusedTagItemCount = scopedTagEnrichment?.reusedTagItemCount ?? tagEnrichment?.reusedTagItemCount ?? 0
@@ -235,12 +253,12 @@ export function OldFavoriteScanOverviewStep({
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
         <strong className="favorite-ledger-panel__scan-progress-status">已扫描 {scannedItemCount} 条视频，待获取标签</strong>
       </div> : null}
-      {viewScope === 'current' && snapshot?.segments.length && snapshot.segments.length > 1 && currentSegmentSummary ? <div>
-        <span>当前批次</span>
-        <progress aria-label="当前批次标签进度" max={Math.max(currentSegmentSummary.itemCount, 1)}
-          value={currentSegmentSummary.completedTagItemCount} />
-        <span>当前批 {currentSegmentSummary.completedTagItemCount} / {currentSegmentSummary.itemCount} 条</span>
-        <strong>{currentSegmentSummary.readiness === 'waiting' ? '等待扫描' : currentSegmentSummary.readiness === 'tagging' ? '补取中' : currentSegmentSummary.readiness === 'saved' ? '已保存' : '可整理'}</strong>
+      {hasMultipleSegments && scopedTagProgress ? <div>
+        <span>标签补取</span>
+        <progress aria-label={scopedTagProgressAriaLabel} max={Math.max(scopedTagProgress.totalItemCount, 1)}
+          value={scopedTagProgress.completedItemCount} />
+        <span>{scopedTagProgressLabel} {scopedTagProgress.completedItemCount} / {scopedTagProgress.totalItemCount} 条</span>
+        <strong>{scopedTagProgressStatus}</strong>
       </div> : null}
     </div>
     {scanning && !scanFailed ? <div className="favorite-ledger-panel__scan-actions" role="group" aria-label="扫描操作">
