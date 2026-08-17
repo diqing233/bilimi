@@ -226,6 +226,28 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('DeepSeek 整理被取消')
   })
 
+  it('explains a changed tag cutoff without blaming the B station target folder', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 },
+        executionIntent: {
+          mode: 'bilibili', status: 'blocked', waitingSegmentCount: 0, waitingForDeepSeek: false,
+          failureCode: 'tag-cutoff-changed'
+        }
+      } as never}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '自动执行已停止：标签结果已有新变化，请重新采用当前标签后再保存或同步。'
+    )
+    expect(screen.getByRole('status')).not.toHaveTextContent('目标收藏夹')
+  })
+
   it('offers original-classification recovery when a whole-run DeepSeek task was canceled', () => {
     const fallback = vi.fn()
     vi.stubGlobal('confirm', vi.fn(() => true))

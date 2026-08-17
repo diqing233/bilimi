@@ -54,6 +54,8 @@ function blockedExecutionIntentMessage(
   switch (code) {
     case 'deepseek-unresolved':
       return '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+    case 'tag-cutoff-changed':
+      return '自动执行已停止：标签结果已有新变化，请重新采用当前标签后再保存或同步。'
     case 'remote-inventory-unavailable':
       return '自动执行已停止：暂时无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
     case 'saved-binding-absent':

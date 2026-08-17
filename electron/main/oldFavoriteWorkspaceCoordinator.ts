@@ -175,6 +175,7 @@ type OverviewRuntime = {
 
 function executionIntentFailureCode(error: unknown): OldFavoriteWorkspaceExecutionFailureCode {
   const detail = error instanceof Error ? error.message : String(error ?? '')
+  if (/whole-run tag enrichment is not complete/i.test(detail)) return 'tag-cutoff-changed'
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) return 'remote-inventory-unavailable'
   if (/remote shard is absent from inventory/i.test(detail)) return 'saved-binding-absent'
   if (/remote shard title is invalid/i.test(detail)) return 'saved-binding-title-mismatch'
@@ -1438,6 +1439,21 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const waitingForDeepSeek = Boolean(checkpoint)
       if (waitingForSegments || waitingForDeepSeek) return null
+      try {
+        this.assertWholeRunTagCutoffAccepted(workspace)
+      } catch (error) {
+        const blocked = {
+          ...intent,
+          status: 'blocked' as const,
+          failureCode: executionIntentFailureCode(error),
+          failureDetail: (error instanceof Error ? error.message : String(error ?? 'unknown failure')).slice(0, 240)
+        }
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: blocked
+        })
+        this.executionIntents.set(workspace.accountMid, blocked)
+        return { error }
+      }
       const running = { ...intent, status: 'running' as const }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: running
@@ -1446,6 +1462,7 @@ export class OldFavoriteWorkspaceCoordinator {
       return { mode: running.mode, includeInbox: running.includeInbox === true }
     })
     if (!state) return false
+    if ('error' in state) throw state.error
     try {
       if (state.mode === 'local') {
         await this.saveWholeRunToLocalLibrary(accountMid)
@@ -4122,6 +4139,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async retryFailedTagEnrichment(accountMid: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertTagEnrichmentCanStart(workspace)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace tags are not ready.')
       const current = this.tagEnrichments.get(workspace.accountMid)
       if (!current?.failedAids.length) return false
@@ -4141,10 +4159,24 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async acceptCurrentTags(accountMid: string) {
+    const pausedForAdoption = await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const enrichment = this.tagEnrichments.get(workspace.accountMid)
+      if (!enrichment || this.hasWholeRunTagCutoffAccepted(workspace, enrichment)) return false
+      const paused: TagEnrichment = { ...enrichment, status: 'paused' }
+      await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), kind: 'status', status: 'paused'
+      })
+      this.tagEnrichments.set(workspace.accountMid, paused)
+      return true
+    })
+    if (!pausedForAdoption) return
+    await this.waitForClaimedTagEnrichmentToSettle(accountMid)
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
-      if (!enrichment) return
+      // A later explicit resume owns the next tag version and cancels this adoption attempt.
+      if (!enrichment || enrichment.status !== 'paused') return
       let next = enrichment
       let changed = false
       for (const segmentId of this.tagEnrichmentSegmentIds(workspace)) {
@@ -4488,8 +4520,15 @@ export class OldFavoriteWorkspaceCoordinator {
     if (inFlight.size === 0) this.inFlightTagEnrichmentAids.delete(accountMid)
   }
 
+  private async waitForClaimedTagEnrichmentToSettle(accountMid: string) {
+    while ((this.inFlightTagEnrichmentAids.get(accountMid)?.size ?? 0) > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10))
+    }
+  }
+
   private async setTagEnrichmentStatus(accountMid: string, status: TagEnrichment['status']) {
     const workspace = await this.requireWorkspace(accountMid)
+    if (status === 'running') this.assertTagEnrichmentCanStart(workspace)
     if (workspace.status !== 'previewing') throw new Error('Old favorite workspace tags are not ready.')
     const current = this.tagEnrichments.get(workspace.accountMid)
     if (!current || (current.status === 'accepted' && status !== 'running')) return false
@@ -4538,6 +4577,13 @@ export class OldFavoriteWorkspaceCoordinator {
     })
     this.tagEnrichments.set(workspace.accountMid, next)
     return true
+  }
+
+  private assertTagEnrichmentCanStart(workspace: OldFavoriteWorkspace) {
+    const intent = this.executionIntents.get(workspace.accountMid)
+    if (intent?.workspaceId === workspace.id && intent.status === 'running') {
+      throw new Error('Old favorite workspace whole-run execution has already started.')
+    }
   }
 
   /** Moves the durable history cursor without letting the renderer replay classifications. */

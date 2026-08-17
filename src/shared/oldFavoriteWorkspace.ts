@@ -530,6 +530,7 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
 
 export type OldFavoriteWorkspaceExecutionFailureCode =
   | 'deepseek-unresolved'
+  | 'tag-cutoff-changed'
   | 'remote-inventory-unavailable'
   | 'saved-binding-absent'
   | 'saved-binding-title-mismatch'
