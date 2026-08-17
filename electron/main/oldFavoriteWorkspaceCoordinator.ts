@@ -4129,11 +4129,7 @@ export class OldFavoriteWorkspaceCoordinator {
         const status = this.hasWholeRunTagCutoffAccepted(workspace, candidate)
           ? 'accepted' as const
           : 'paused' as const
-        await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
-          currentSegmentId: segmentId, kind: 'accept-segment', segmentId, acceptedTagVersion: tagVersion, status
-        })
         next = { ...candidate, status }
-        this.tagEnrichments.set(workspace.accountMid, next)
         changed = true
       }
       if (!changed) return
@@ -4146,6 +4142,10 @@ export class OldFavoriteWorkspaceCoordinator {
           true
         ))
       }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: next
+      })
+      this.tagEnrichments.set(workspace.accountMid, next)
     })
   }
 
@@ -4427,9 +4427,15 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private hasWholeRunTagCutoffAccepted(workspace: OldFavoriteWorkspace, enrichment = this.tagEnrichments.get(workspace.accountMid)) {
-    if (!enrichment || enrichment.pendingAids.length === 0) return true
+    if (!enrichment) return true
+    const segmentIds = this.tagEnrichmentSegmentIds(workspace)
+    if (!segmentIds.length) return true
+    // A naturally completed tag run has no adoption step. Once a cutoff was
+    // accepted, however, a late result must still match every accepted version
+    // even when it clears the pending queue.
+    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0) return true
     const accepted = new Set(enrichment.acceptedSegmentIds)
-    return this.tagEnrichmentSegmentIds(workspace).length > 0 && this.tagEnrichmentSegmentIds(workspace).every((segmentId) =>
+    return segmentIds.every((segmentId) =>
       accepted.has(segmentId) &&
       hasTagVersion(enrichment.acceptedTagVersionsBySegment, segmentId) &&
       (enrichment.tagVersionsBySegment[segmentId] ?? 0) === (enrichment.acceptedTagVersionsBySegment[segmentId] ?? 0)
@@ -6128,6 +6134,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const currentSegmentItems = this.currentSegmentItems.get(workspace.accountMid) ?? []
     const currentSegmentItemsByAid = new Map(currentSegmentItems.map((item) => [item.aid, item]))
     const tagEnrichment = this.tagEnrichments.get(workspace.accountMid)
+    const wholeRunTagCutoffAccepted = this.hasWholeRunTagCutoffAccepted(workspace, tagEnrichment)
     const pendingTagAids = new Set(tagEnrichment?.pendingAids ?? [])
     const acceptedTagSegments = new Set(tagEnrichment?.acceptedSegmentIds ?? [])
     const currentSegmentId = currentSegment?.id
@@ -6180,13 +6187,15 @@ export class OldFavoriteWorkspaceCoordinator {
             }
           })()
         }))
-    const activeTagSegmentId = segmentProgress
+    const activeTagSegmentId = wholeRunTagCutoffAccepted ? undefined : segmentProgress
       .filter((segment) => !segment.saved && segment.pendingTagItemCount > 0)
       .sort((left, right) => left.index - right.index)[0]?.id
     const projectedSegments: OldFavoriteWorkspaceSnapshot['segments'] = segmentProgress.map(({ saved, ...segment }) => ({
       ...segment,
       readiness: saved
         ? 'saved'
+        : wholeRunTagCutoffAccepted
+          ? 'ready'
         : segment.pendingTagItemCount === 0
           ? 'ready'
           : segment.id === activeTagSegmentId ? 'tagging' : 'waiting'
@@ -6325,7 +6334,7 @@ export class OldFavoriteWorkspaceCoordinator {
              ,reusedTagItemCount: enrichment.reusedTagItemCount
              ,fetchedTagItemCount: enrichment.taggedAids.length
              ,confirmedUntaggedItemCount: enrichment.confirmedUntaggedAids.length
-             ,wholeRunTagCutoffAccepted: this.hasWholeRunTagCutoffAccepted(workspace, enrichment)
+              ,wholeRunTagCutoffAccepted
              ,currentSegmentCanContinueTagEnrichment
              ,currentSegmentHasUnacceptedTagChanges
              ,scopes: {

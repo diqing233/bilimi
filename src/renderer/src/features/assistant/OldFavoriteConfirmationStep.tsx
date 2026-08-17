@@ -162,7 +162,12 @@ export function OldFavoriteConfirmationStep({
   const allSegmentsReadyForWholeSave = snapshot.segments.length > 0 && snapshot.segments
     .every((segment) => ['ready', 'saved'].includes(segment.readiness))
   const wholeRunTagCutoffAccepted = snapshot.tagEnrichment?.wholeRunTagCutoffAccepted === true
-  const wholeRunReadyForExecution = allSegmentsReadyForWholeSave || wholeRunTagCutoffAccepted
+  const tagEnrichmentRunning = snapshot.tagEnrichment?.status === 'running'
+  const tagResultReadyForExecution = !snapshot.tagEnrichment || (
+    !tagEnrichmentRunning && wholeRunTagCutoffAccepted
+  )
+  const wholeRunReadyForExecution = tagResultReadyForExecution && allSegmentsReadyForWholeSave
+  const singleRunReadyForExecution = tagResultReadyForExecution && (!currentSegmentSummary || currentSegmentReady)
   const allSegmentsSaved = snapshot.segments.length > 0 && snapshot.segments.every((segment) => segment.readiness === 'saved')
   const syncExplanation = snapshot.scope?.kind === 'selection'
     ? '本次确认同步会替换所选视频在 bilimi 管理收藏夹中的归属；不会删除或取消用户自己的收藏夹关系；开始后本轮方案锁定。'
@@ -326,11 +331,18 @@ export function OldFavoriteConfirmationStep({
     .filter(({ ledger, count, alreadyBacked }) => Boolean(ledger) && ledger?.id !== 'inbox' && count > 0 && !alreadyBacked)
     .map(({ ledger, count }) => ({ name: ledger!.displayName, count }))
   const totalVideosToOrganize = readiness?.selectedAidCount ?? 0
-  const blockedMessage = unmatchedCount
+  const unmatchedMessage = unmatchedCount
     ? `${isMultiSegment && viewScope === 'current' ? '本批' : '本轮'}未匹配到合适分类 ${unmatchedCount} 条，将保存到 bilimi·暂存；同步时默认不上传 B 站。`
     : !canSaveLocally
       ? '正在等待主进程确认本轮分类准备度。'
       : null
+  const executionBlockedMessage = tagEnrichmentRunning
+    ? '标签补取仍在运行，等待安全暂停并完成采用后的完整本轮重算。'
+    : snapshot.tagEnrichment && !wholeRunTagCutoffAccepted
+      ? '当前标签尚未采用，采用当前标签并完成完整本轮重算后才能保存或同步。'
+      : snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting'
+        ? 'DeepSeek 整理仍在运行，完成或取消并收束后才能保存或同步。'
+        : null
 
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
     <div className="favorite-ledger-panel__step-title-row">
@@ -346,7 +358,8 @@ export function OldFavoriteConfirmationStep({
     <p className="favorite-ledger-panel__action-explanation">{syncExplanation}</p>
     {readinessText ? <p>{readinessText}</p> : null}
     {preparationStatus ? <p role="status">{preparationStatus}</p> : null}
-    {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{blockedMessage}</p> : null}
+    {unmatchedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{unmatchedMessage}</p> : null}
+    {executionBlockedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{executionBlockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
     {deepSeekFallbackCount ? <div className="favorite-ledger-panel__confirm-warning" role="alert">
       <p>{canceledDeepSeekPendingCount
@@ -365,8 +378,8 @@ export function OldFavoriteConfirmationStep({
       {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
         <strong>本轮操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
-          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment && !wholeRunReadyForExecution) || deepSeekBlocksExecution || loading} onClick={() => {
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !singleRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment ? !wholeRunReadyForExecution : !singleRunReadyForExecution) || deepSeekBlocksExecution || loading} onClick={() => {
             if (unmatchedCount > 0) setSyncDialogOpen(true)
             else onConfirmAndSync(false)
           }}>确认并同步到 B 站</button>

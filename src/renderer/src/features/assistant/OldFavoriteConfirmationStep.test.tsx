@@ -81,7 +81,7 @@ describe('OldFavoriteConfirmationStep', () => {
         segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
         sourceFolders: [], segments: [
           { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
-          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'ready', completedTagItemCount: 0, pendingTagItemCount: 1 }
         ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {},
         recommendations: { candidates: [], adoptedCandidateIds: [] },
         tagEnrichment: {
@@ -96,6 +96,38 @@ describe('OldFavoriteConfirmationStep', () => {
 
     expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
+  })
+
+  it('keeps complete-round actions disabled with the actual blocker while tags or DeepSeek are running', () => {
+    const baseSnapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const }
+      ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const props = { loading: false, onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(), onExecuteFrozenPlan: vi.fn(), onReconcile: vi.fn() }
+    const rendered = render(<OldFavoriteConfirmationStep {...props} snapshot={{
+      ...baseSnapshot,
+      tagEnrichment: { status: 'running', totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1, failedItemCount: 0, wholeRunTagCutoffAccepted: false }
+    }} />)
+
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('标签补取仍在运行')
+
+    rendered.rerender(<OldFavoriteConfirmationStep {...props} snapshot={{
+      ...baseSnapshot,
+      tagEnrichment: { status: 'accepted', totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1, failedItemCount: 0, wholeRunTagCutoffAccepted: true },
+      deepSeekRun: { mode: 'all', scope: 'all', status: 'running', completedSegmentCount: 0, waitingSegmentCount: 1, pendingVideoCount: 1 }
+    }} />)
+
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 整理仍在运行')
   })
 
   it('lets the user acknowledge a completed Bilibili sync', () => {

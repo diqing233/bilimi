@@ -2123,11 +2123,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('saves the complete scanned range after accepting the current tag cutoff', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockImplementation((item: { aid: number }) => item.aid === 1
+      ? { targetLedgerIds: ['knowledge'], confidence: 'high' as const }
+      : { targetLedgerIds: [], confidence: 'low' as const })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       initializeOnOpen: false,
-      segmentSize: () => 500
+      segmentSize: () => 500,
+      classifyCurrentItem
     })
     await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }]
+    })
     for (let offset = 0; offset < 501; offset += 50) {
       await coordinator.recordScanPage('100', {
         folderId: 'source', page: offset / 50 + 1,
@@ -2151,8 +2158,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       tagEnrichment: { status: 'accepted', pendingItemCount: 1 },
       segments: [
         { id: 'segment-1', readiness: 'ready' },
-        { id: 'segment-2', readiness: 'tagging', pendingTagItemCount: 1 }
-      ]
+        { id: 'segment-2', readiness: 'ready', pendingTagItemCount: 1 }
+      ],
+      overview: {
+        completedSegmentCount: 2,
+        processedItemCount: 501,
+        archiveTargets: expect.arrayContaining([
+          expect.objectContaining({ ledgerId: 'knowledge', itemCount: 1 }),
+          expect.objectContaining({ ledgerId: 'inbox', itemCount: 500 })
+        ])
+      }
     })
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
@@ -2175,6 +2190,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       segmentSize: () => 500
     })
     await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }]
+    })
     for (let offset = 0; offset < 501; offset += 50) {
       await coordinator.recordScanPage('100', {
         folderId: 'source', page: offset / 50 + 1,
@@ -2273,8 +2291,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         currentSegmentCanContinueTagEnrichment: false
       },
       segments: [
-        { id: 'segment-1', readiness: 'tagging', pendingTagItemCount: 500 },
-        { id: 'segment-2', readiness: 'waiting', pendingTagItemCount: 1 }
+        { id: 'segment-1', readiness: 'ready', pendingTagItemCount: 500 },
+        { id: 'segment-2', readiness: 'ready', pendingTagItemCount: 1 }
       ]
     })
     await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual([])
@@ -3145,7 +3163,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual([])
   })
 
-  it('persists an already claimed tag result after acceptance without starting a new tag read', async () => {
+  it('keeps whole-run saving disabled when an already claimed tag result changes the adopted cutoff', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -3170,9 +3188,58 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.recordTagEnrichment('100', 2, ['Late result'], workspaceId)).resolves.toBe(true)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      tagEnrichment: { status: 'accepted', currentSegmentHasUnacceptedTagChanges: true }
+      tagEnrichment: {
+        status: 'accepted',
+        currentSegmentHasUnacceptedTagChanges: true,
+        wholeRunTagCutoffAccepted: false
+      }
     })
     await expect(coordinator.getPendingTagEnrichmentAids('100')).resolves.toEqual([])
+    await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow(
+      'Old favorite workspace whole-run tag enrichment is not complete.'
+    )
+  })
+
+  it('does not publish an adopted cutoff when the complete reclassification fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn(() => {
+      throw new Error('classification unavailable')
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'First', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Second', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+
+    await expect(coordinator.acceptCurrentTags('100')).rejects.toThrow('classification unavailable')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        status: 'running',
+        pendingItemCount: 1,
+        wholeRunTagCutoffAccepted: false
+      }
+    })
+    await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow(
+      'Old favorite workspace whole-run tag enrichment is not complete.'
+    )
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        status: 'paused',
+        pendingItemCount: 1,
+        wholeRunTagCutoffAccepted: false
+      }
+    })
   })
 
   it('requires current-tag adoption again after an in-flight tag result arrives', async () => {

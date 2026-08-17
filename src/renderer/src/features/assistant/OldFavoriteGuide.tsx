@@ -240,6 +240,9 @@ export function OldFavoriteGuide({
     ? viewedSnapshot
     : snapshot
   const segmentContentAvailable = !displayedSnapshot || 'recovery' in displayedSnapshot || (() => {
+    const wholeRunTagCutoffAccepted = displayedSnapshot.tagEnrichment?.wholeRunTagCutoffAccepted === true &&
+      displayedSnapshot.tagEnrichment.status !== 'running'
+    if (wholeRunTagCutoffAccepted) return true
     const enrichmentActive = displayedSnapshot.tagEnrichment?.status === 'running' || displayedSnapshot.tagEnrichment?.status === 'paused'
     if (viewScope === 'all') return displayedSnapshot.segments.some((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
     const segment = displayedSnapshot.segments.find((candidate) => candidate.id === displayedSnapshot.currentSegment?.id)

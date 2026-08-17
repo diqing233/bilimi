@@ -192,6 +192,55 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(screen.queryByText('本轮仍有标签补取中，完成批次会在就绪后汇总到推荐收藏夹。')).not.toBeInTheDocument()
   })
 
+  it('shows the adopted whole-run recommendations and archive preview while retaining pending tag facts', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-accepted', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }], segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }
+      ], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: '已采用结果', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'system-high' as const } },
+      recommendations: {
+        candidates: [{ id: 'tag-accepted', displayName: '已采用标签', kind: 'tag' as const, count: 1, currentSegmentCount: 1, reason: 'accepted' }],
+        adoptedCandidateIds: ['tag-accepted']
+      },
+      tagEnrichment: {
+        status: 'accepted' as const, totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1, failedItemCount: 0,
+        wholeRunTagCutoffAccepted: true
+      },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 },
+      history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 2, totalSegmentCount: 2, unavailableItemCount: 0, sourceFolders: [],
+        processedItemCount: 2, classifiedItemCount: 1, unmatchedItemCount: 1, waitingItemCount: 0,
+        recommendationCounts: [{ id: 'tag-accepted', count: 1 }],
+        archiveTargets: [
+          { ledgerId: 'knowledge', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] },
+          { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-2', count: 1 }] }
+        ]
+      }
+    }
+    const common = {
+      snapshot, loading: false, reconciling: false, scanStarting: false, scanStartFailure: null,
+      onRetryScan: vi.fn(), onRetryScanDirect: vi.fn(), onRebuildWorkspace: vi.fn(), onSelectSourceFolders: vi.fn(),
+      onPauseTagEnrichment: vi.fn(), onResumeTagEnrichment: vi.fn(), onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn(),
+      onSetRecommendedCandidates: vi.fn(), ledgers: [{ id: 'knowledge', displayName: '知识', keywords: [], enabled: true, priority: 0, isDefault: true }],
+      deepSeekAvailable: false, deepSeekFeedback: null, onSelectSegment: vi.fn(), onAutoClassify: vi.fn(), onOrganizeWithDeepSeek: vi.fn(),
+      onRetryFailedDeepSeekChunks: vi.fn(), onCancelDeepSeek: vi.fn(), deepSeekCancelRequested: false, onUndoClassification: vi.fn(), onRedoClassification: vi.fn(), onMoveHistoryCursor: vi.fn(),
+      onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn(), onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(),
+      onExecuteFrozenPlan: vi.fn(), onReconcile: vi.fn()
+    }
+    const rendered = render(<OldFavoriteGuide {...common} step="generated" onStepChange={vi.fn()} />)
+
+    expect(screen.getByRole('checkbox', { name: '已采用标签' })).toBeInTheDocument()
+    expect(screen.queryByText('当前批次标签补取中，完成后将生成推荐收藏夹。')).not.toBeInTheDocument()
+
+    rendered.rerender(<OldFavoriteGuide {...common} step="preview" onStepChange={vi.fn()} />)
+    expect(screen.getByText('已采用结果')).toBeInTheDocument()
+    expect(screen.queryByText('当前批次标签补取中，完成后可查看归档预览。')).not.toBeInTheDocument()
+  })
+
   it('keeps four top-level steps and switches confirmation scope inside the confirmation page', () => {
     const onStepChange = vi.fn()
     const snapshot = {
