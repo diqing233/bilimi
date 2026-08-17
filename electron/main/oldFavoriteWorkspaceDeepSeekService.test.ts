@@ -530,6 +530,65 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(coordinator.applyDeepSeekClassificationBatch).not.toHaveBeenCalled()
   })
 
+  it('keeps selected bilimi work folders in the all-batch source fingerprint', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [
+        { id: 'ordinary', title: 'Ordinary', isBilimiWorkFolder: false, selected: true },
+        { id: 'bound', title: 'bilimi Bound', isBilimiWorkFolder: true, selected: true }
+      ],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: {
+        id: 'segment-1', items: [
+          { aid: 1, title: 'Ordinary source', sourceFolderIds: ['ordinary'] },
+          { aid: 2, title: 'Bound source', sourceFolderIds: ['bound'] }
+        ]
+      },
+      classifications: {}
+    }
+    const detailedApply = vi.fn(async (_accountMid: string, assignments: Array<{ aid: number }>, expected: { selectedSourceFolderIds: string[] }) => {
+      const includesBoundFolder = expected.selectedSourceFolderIds.includes('bound')
+      return {
+        snapshot: snapshot as never,
+        appliedAids: includesBoundFolder ? assignments.map((assignment) => assignment.aid) : [],
+        conflictAids: includesBoundFolder ? [] : assignments.map((assignment) => assignment.aid)
+      }
+    })
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      selectSegment: vi.fn().mockResolvedValue(snapshot),
+      getDeepSeekRunCheckpoint: vi.fn().mockResolvedValue(null),
+      setDeepSeekRunCheckpoint: vi.fn().mockResolvedValue(undefined),
+      applyDeepSeekClassificationBatch: vi.fn().mockRejectedValue(new Error('legacy strict path must not be used')),
+      applyDeepSeekClassificationBatchWithConflicts: detailedApply
+    }
+    const generate = vi.fn(async (request: { videos: Array<{ aid: number }> }) => ({
+      kind: 'favorite-archive-organize' as const,
+      results: request.videos.map((video) => ({
+        aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false
+      })),
+      keywordSuggestions: []
+    }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({
+        deepseekArchiveOrganizationEnabled: true,
+        favoriteArchiveMultiMode: 'off' as const,
+        favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }]
+      }),
+      generate
+    })
+
+    await expect(service.organizeAllSegments('100', 'unclassified-only')).resolves.toMatchObject({
+      progress: { totalVideoCount: 2, successfulVideoCount: 2, failedVideoCount: 0 },
+      failures: []
+    })
+    expect(generate.mock.calls[0]![0].videos.map((video: { aid: number }) => video.aid)).toEqual([1, 2])
+    expect(detailedApply).toHaveBeenCalledWith('100', expect.any(Array), expect.objectContaining({
+      selectedSourceFolderIds: ['bound', 'ordinary']
+    }))
+  })
+
   it('splits a large current segment into legacy twenty-video requests and durably applies each group', async () => {
     const items = Array.from({ length: 31 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
     const coordinator = {

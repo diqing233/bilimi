@@ -9,13 +9,14 @@ import type {
   FavoriteLedger
 } from '../../src/shared/types'
 import { OldFavoriteWorkspaceCoordinator, type DeepSeekClassificationBatchApplyResult } from './oldFavoriteWorkspaceCoordinator'
-import type {
-  OldFavoriteWorkspaceDeepSeekFailure,
-  OldFavoriteWorkspaceDeepSeekProcessedItem,
-  OldFavoriteWorkspaceDeepSeekRunCheckpoint,
-  OldFavoriteWorkspaceDeepSeekResult,
-  OldFavoriteWorkspaceSnapshot,
-  OldFavoriteWorkspaceRecoveryRequired
+import {
+  oldFavoriteFolderIsScanEligible,
+  type OldFavoriteWorkspaceDeepSeekFailure,
+  type OldFavoriteWorkspaceDeepSeekProcessedItem,
+  type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
+  type OldFavoriteWorkspaceDeepSeekResult,
+  type OldFavoriteWorkspaceSnapshot,
+  type OldFavoriteWorkspaceRecoveryRequired
 } from '../../src/shared/oldFavoriteWorkspace'
 
 type ArchiveRequest = Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>
@@ -409,7 +410,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
           throw new Error('Old favorite workspace changed while the DeepSeek work plan was being created.')
         }
         const selectedFolderIds = new Set(snapshot.sourceFolders
-          .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+          .filter((folder) => oldFavoriteFolderIsScanEligible(folder) && folder.selected)
           .map((folder) => folder.id))
         const aids = snapshot.currentSegment.items.filter((item) =>
           !isUnavailableArchiveItem(item) && item.sourceFolderIds.some((folderId) => selectedFolderIds.has(folderId)))
@@ -827,7 +828,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       throw new Error('Old favorite workspace changed before failed DeepSeek chunks could be retried.')
     }
     const selectedFolderIds = new Set(snapshot.sourceFolders
-      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .filter((folder) => oldFavoriteFolderIsScanEligible(folder) && folder.selected)
       .map((folder) => folder.id))
     const foldersById = new Map(snapshot.sourceFolders.map((folder) => [folder.id, folder]))
     const items = snapshot.currentSegment.items.filter((item) =>
