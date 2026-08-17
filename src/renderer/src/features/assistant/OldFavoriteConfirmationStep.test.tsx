@@ -512,6 +512,65 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
   })
 
+  it('places multi-batch sync progress and controls before the whole-run summary', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'frozen', itemCount: 500, readiness: 'saved' },
+          { id: 'segment-2', index: 1, status: 'frozen', itemCount: 500, readiness: 'saved' }
+        ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] },
+        overview: {
+          available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 0, sourceFolders: [], recommendationCounts: [],
+          processedItemCount: 500, classifiedItemCount: 500, unmatchedItemCount: 0, waitingItemCount: 500, archiveTargets: []
+        },
+        executionProgress: { completedOperationCount: 1, totalOperationCount: 2 }
+      }}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const syncProgress = screen.getByRole('progressbar', { name: '正在同步到 B 站' })
+    const wholeRunSummary = screen.getByText('已汇总 1/2 批')
+    expect(syncProgress.compareDocumentPosition(wholeRunSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: '暂停同步' }).compareDocumentPosition(wholeRunSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('clears the pause request after each paused snapshot so sync can pause again', () => {
+    const pause = vi.fn().mockResolvedValue(true)
+    const resume = vi.fn()
+    const executing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0, entries: [] }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3 }
+    }
+    const paused = {
+      ...executing, status: 'frozen' as const,
+      executionProgress: { completedOperationCount: 1, totalOperationCount: 3, syncPaused: true }
+    }
+    const props = {
+      loading: false, onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(), onExecuteFrozenPlan: resume, onPauseBilibiliSync: pause, onReconcile: vi.fn()
+    }
+    const rendered = render(<OldFavoriteConfirmationStep snapshot={executing} {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '暂停同步' }))
+    expect(screen.getByRole('button', { name: '正在暂停…' })).toBeDisabled()
+
+    rendered.rerender(<OldFavoriteConfirmationStep snapshot={paused} {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: '继续同步' }))
+    expect(resume).toHaveBeenCalledOnce()
+
+    rendered.rerender(<OldFavoriteConfirmationStep snapshot={executing} {...props} />)
+    expect(screen.getByRole('button', { name: '暂停同步' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '正在暂停…' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '暂停同步' }))
+    expect(pause).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: '正在暂停…' })).toBeDisabled()
+  })
+
   it('confirms a safe stop while Bilibili sync is running', () => {
     const stop = vi.fn()
     render(<OldFavoriteConfirmationStep

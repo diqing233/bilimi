@@ -118,6 +118,11 @@ export function OldFavoriteConfirmationStep({
     const timer = window.setInterval(() => setRetryClock(Date.now()), 1_000)
     return () => window.clearInterval(timer)
   }, [retryAvailableAt])
+  useEffect(() => {
+    if (snapshot.status !== 'executing' || snapshot.executionProgress?.syncPaused === true) {
+      setPauseRequested(false)
+    }
+  }, [snapshot.executionProgress?.syncPaused, snapshot.status])
   const frozenFailureMessage = failureReason
     ? /invalid-response/i.test(failureReason)
       ? `B 站返回了无法解析的响应${/http-status=(\d+)/i.exec(failureReason)?.[1] ? `（HTTP ${/http-status=(\d+)/i.exec(failureReason)?.[1]}）` : ''}${/response-category=html|content-type=text\/html/i.test(failureReason) ? '，内容为 HTML' : ''}。这可能是嵌入页面临时验证或限制，系统已停止连续重试；请稍后再继续。`
@@ -215,7 +220,6 @@ export function OldFavoriteConfirmationStep({
         <h4>确认执行</h4>
         {isMultiSegment ? <OldFavoriteViewScopeSwitch label="确认执行视图" value={viewScope} onChange={setViewScope} /> : null}
       </div>
-      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
       {isMultiSegment && viewScope === 'current' && currentSegmentSummary
         ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
         : null}
@@ -228,6 +232,7 @@ export function OldFavoriteConfirmationStep({
         <button type="button" disabled={loading || pauseRequested || stopRequested} onClick={requestPauseBilibiliSync}>{pauseRequested ? '正在暂停…' : '暂停同步'}</button>
         <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '结束本轮整理'}</button>
       </div>
+      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
       {stopSyncDialogOpen ? <OldFavoriteModal
         title="结束本轮整理"
         confirmLabel="确认结束本轮"

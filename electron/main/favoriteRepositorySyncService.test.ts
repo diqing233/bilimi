@@ -95,6 +95,30 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('yields to Electron after each durable sync result before starting the next remote write', async () => {
+    const repository = await createRepository()
+    const frozenPlan = planWithAppendOperations(2)
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const events: string[] = []
+    const append = vi.fn(async ({ aid }: { aid: number }) => {
+      events.push(`append:${aid}`)
+      return { observedAccountMid: '100' }
+    })
+    const yieldToEventLoop = vi.fn(async () => { events.push('yield') })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0, yieldToEventLoop
+    })
+
+    await expect(service.executeFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'succeeded' })
+    expect(events).toEqual(['append:1', 'yield', 'append:2', 'yield'])
+    expect(yieldToEventLoop).toHaveBeenCalledTimes(2)
+  })
+
   it('updates the existing local placement adjustment instead of creating a second synchronization adjustment', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

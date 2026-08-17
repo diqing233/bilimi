@@ -180,6 +180,7 @@ export class FavoriteRepositorySyncService {
     pageBridgeManager?: FavoriteRepositoryPageBridgeManager
     now?: () => string
     sleep?: (milliseconds: number) => Promise<void>
+    yieldToEventLoop?: () => Promise<void>
     pacingMs?: number
     random?: () => number
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
@@ -442,7 +443,10 @@ export class FavoriteRepositorySyncService {
       }
       const operation = plan.operations[index]
       const record = records.get(operation.operationKey)
-      if (record?.status === 'succeeded') continue
+      if (record?.status === 'succeeded') {
+        await this.yieldToEventLoop()
+        continue
+      }
       if (record?.status === 'failed') return this.summarize(plan, Array.from(records.values()))
       if (record?.status === 'result-unknown' || (record?.status === 'pending' && !isRetryReadyRecord(record))) {
         await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'reconciling', plan, 'result-unknown'), `unknown:${plan.id}`)
@@ -470,6 +474,7 @@ export class FavoriteRepositorySyncService {
         this.assertObservedAccount(accountMid, result.observedAccountMid)
         records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
         await this.projectConfirmedOperation(accountMid, plan, operation, 'succeeded', attempt)
+        await this.yieldToEventLoop()
       } catch (error) {
         const status = isConfirmedRemoteRejection(error) ? 'failed' : 'result-unknown'
         let stoppedRecord = await this.writeRecord(
@@ -483,6 +488,7 @@ export class FavoriteRepositorySyncService {
         )
         records.set(operation.operationKey, stoppedRecord)
         await this.projectConfirmedOperation(accountMid, plan, operation, status, attempt)
+        await this.yieldToEventLoop()
         if (status === 'result-unknown') {
           stoppedRecord = await this.reconcileOperation(accountMid, plan, operation, stoppedRecord)
           records.set(operation.operationKey, stoppedRecord)
@@ -1412,6 +1418,14 @@ export class FavoriteRepositorySyncService {
     if (milliseconds <= 0) return
     if (this.options.sleep) return this.options.sleep(milliseconds)
     await new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
+  private async yieldToEventLoop() {
+    if (this.options.yieldToEventLoop) {
+      await this.options.yieldToEventLoop()
+      return
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve))
   }
 
   private legacyPacingMilliseconds(_completedCount: number) {
