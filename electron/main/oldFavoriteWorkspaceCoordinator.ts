@@ -1452,6 +1452,11 @@ export class OldFavoriteWorkspaceCoordinator {
     return run
   }
 
+  /** A recovery entry waits for an already-claimed local or remote intent to settle. */
+  async settleExecutionIntentForRecovery(accountMid: string): Promise<void> {
+    await this.executionIntentRuns.get(String(accountMid).trim())
+  }
+
   private async continueExecutionIntentUnsafe(accountMid: string): Promise<boolean> {
     const state = await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -3289,7 +3294,9 @@ export class OldFavoriteWorkspaceCoordinator {
         decision.expectedRepositoryRevision !== evidence.repositoryRevision) {
         throw new Error('Old favorite workspace recovery baseline changed; read a new recovery summary first.')
       }
-      if (!summary.recoveryChoices.includes(decision.choice)) {
+      const normalDraftRecovery = decision.choice === 'continue-original' || decision.choice === 'merge-latest'
+      if (!(normalDraftRecovery && summary.recoveryChoices.includes('recover-draft')) &&
+        !summary.recoveryChoices.includes(decision.choice)) {
         throw new Error('Old favorite workspace recovery decision is not available for this workspace.')
       }
       // `merge-latest` adopts only the latest durable *facts* as the new
@@ -3395,19 +3402,11 @@ export class OldFavoriteWorkspaceCoordinator {
     const plannedCount = marker.workspaceRef.plannedCount ?? summary.plannedCount
     const classifiedCount = marker.workspaceRef.classifiedCount ?? summary.classifiedCount
     const unclassifiedCount = marker.workspaceRef.unclassifiedCount ?? summary.unclassifiedCount
-    const canRescan = (marker.status === 'scanning' || marker.status === 'previewing') && !marker.frozenSyncPlan
-    const canAbandon = marker.status === 'previewing' && !marker.frozenSyncPlan
     const recoveryChoices = currentStep === 'result-unknown'
       ? ['view', 'reconcile-result-unknown'] as const
-      : marker.status === 'completed'
+      : marker.status === 'completed' || Boolean(marker.frozenSyncPlan)
         ? ['view'] as const
-        : [
-            'view',
-            'continue-original',
-            ...(baselineChangeEvidence.changed ? ['merge-latest'] as const : []),
-            ...(canRescan ? ['rescan'] as const : []),
-            ...(canAbandon ? ['abandon'] as const : [])
-          ] as const
+        : ['recover-draft', 'rescan', 'abandon'] as const
     return {
       accountMid: snapshot.accountMid,
       workspaceId: marker.id,

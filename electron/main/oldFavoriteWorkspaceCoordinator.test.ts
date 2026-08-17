@@ -9799,9 +9799,59 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(restarted.getRecoverySummary('100')).resolves.toMatchObject({
       status: 'previewing', manifestChecksum: expected.manifestChecksum,
-      recoveryChoices: expect.arrayContaining(['view', 'continue-original', 'abandon'])
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
     })
     await expect(reader.readWorkspaceReads('100', workspaceId)).resolves.toEqual(['manifest.json', 'manifest.json'])
+  })
+
+  it('projects exactly the three ordinary recovery actions whether the baseline changed or not', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'previewing',
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
+    })
+
+    await repository.commit('100', {
+      id: 'recovery-facts-changed', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'latest facts', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'previewing',
+      baselineChangeEvidence: { changed: true },
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
+    })
+  })
+
+  it('keeps a frozen remote plan out of ordinary recovery actions', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const workspace = requireWorkspace(await coordinator.open('100'))
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'frozen-recovery-summary', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: {
+        ...marker,
+        status: 'frozen',
+        workspaceRef: { ...marker.workspaceRef, status: 'frozen' },
+        frozenSyncPlan: {
+          id: 'frozen-recovery-plan', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: []
+        }
+      }
+    })
+
+    await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
+      status: 'frozen',
+      recoveryChoices: ['view']
+    })
   })
 
   it('reports deterministic account-scoped baseline change evidence and requires an explicit recovery decision', async () => {
@@ -9819,7 +9869,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         repositoryRevision: expect.any(Number), changed: false, direction: 'advanced',
         manualClassificationsRemainAuthoritative: true
       },
-      recoveryChoices: expect.arrayContaining(['continue-original', 'rescan'])
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
     })
     if (!summary) throw new Error('workspace summary unexpectedly unavailable')
 

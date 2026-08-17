@@ -83,11 +83,13 @@ export class OldFavoriteWorkspaceScanService {
   private readonly activeScans = new Map<string, {
     mode: OldFavoriteWorkspaceMode
     snapshot: Promise<OldFavoriteWorkspaceSnapshot>
+    work?: Promise<void>
   }>()
   private readonly enrichmentRuns = new Map<string, {
     target: ScanTarget
     workspaceId: string
     successor?: { target: ScanTarget; workspaceId: string }
+    work?: Promise<void>
   }>()
 
   constructor(private readonly options: {
@@ -306,10 +308,13 @@ export class OldFavoriteWorkspaceScanService {
     const completedPages = new Map((resumeState?.completedPages ?? [])
       .filter((page): page is { folderId: string; page: number; hasMore: boolean } => typeof page.hasMore === 'boolean')
       .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
-    void this.track(this.runInventory(
+    const work = this.track(this.runInventory(
       accountMid, runId, isCurrent, snapshot.workspaceId, completedPages,
       new Set(resumeState?.taggedAids ?? []), recoveryProbe
-    )).finally(() => {
+    ))
+    const active = this.activeScans.get(accountMid)
+    if (isCurrent() && active) active.work = work
+    void work.finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
@@ -324,6 +329,31 @@ export class OldFavoriteWorkspaceScanService {
     // append another page after the durable paused marker is written.
     this.activeScans.delete(account)
     return this.options.coordinator.pauseScan(account)
+  }
+
+  /** Recovery must wait for the account's active read before it shows choices. */
+  async pauseForRecovery(accountMid: string) {
+    const account = normalizeAccountMid(accountMid)
+    if (!account) throw new Error('Old favorite workspace account is invalid.')
+    const current = await this.options.coordinator.getSnapshot(account)
+    if (!current || 'recovery' in current) return current
+    if (current.status === 'scanning') {
+      const active = this.activeScans.get(account)
+      // Revoke future writes before the durable pause is published.
+      this.activeScans.delete(account)
+      const paused = await this.options.coordinator.pauseScan(account)
+      await active?.work
+      return paused
+    }
+    if (current.tagEnrichment?.status === 'running') {
+      const active = this.enrichmentRuns.get(account)
+      // The coordinator accepts a claimed in-flight tag result while paused,
+      // then the runner observes no remaining pending work and exits.
+      await this.options.coordinator.pauseTagEnrichment(account)
+      await active?.work
+      return this.options.coordinator.getSnapshot(account)
+    }
+    return current
   }
 
   /** Explicitly resumes an existing durable scan lease; construction never starts or resumes work. */
@@ -356,7 +386,10 @@ export class OldFavoriteWorkspaceScanService {
     const completedPages = new Map(resumeState.completedPages
       .filter((page): page is { folderId: string; page: number; hasMore: boolean } => typeof page.hasMore === 'boolean')
       .map(({ folderId, page, hasMore }) => [`${folderId}\u0000${page}`, hasMore] as const))
-    void this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids))).finally(() => {
+    const work = this.track(this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId, completedPages, new Set(resumeState.taggedAids)))
+    const active = this.activeScans.get(accountMid)
+    if (isCurrent() && active) active.work = work
+    void work.finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
@@ -589,7 +622,15 @@ export class OldFavoriteWorkspaceScanService {
   }
 
   private startTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string, skipTaggedAids?: ReadonlySet<number>) {
-    return this.track(this.runTagEnrichment(accountMid, target, workspaceId, skipTaggedAids))
+    const existing = this.enrichmentRuns.get(accountMid)
+    if (existing) {
+      if (existing.workspaceId !== workspaceId) existing.successor = { target, workspaceId }
+      return existing.work ?? Promise.resolve()
+    }
+    const work = this.track(this.runTagEnrichment(accountMid, target, workspaceId, skipTaggedAids))
+    const active = this.enrichmentRuns.get(accountMid)
+    if (active?.workspaceId === workspaceId) active.work = work
+    return work
   }
 
   private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string, skipTaggedAids?: ReadonlySet<number>) {

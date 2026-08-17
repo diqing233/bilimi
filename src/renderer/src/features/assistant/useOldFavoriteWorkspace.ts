@@ -498,9 +498,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const resumeScan = useCallback(() => sendCommand({ type: 'resume-scan' }), [sendCommand])
   const pauseScan = useCallback(() => sendCommand({ type: 'pause-scan' }), [sendCommand])
-  const getRecoverySummary = useCallback(async (): Promise<OldFavoriteWorkspaceRecoverySummary | null> => {
+  const prepareRecovery = useCallback(async (): Promise<OldFavoriteWorkspaceRecoverySummary | null> => {
     if (!accountMid) return null
-    return window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1?.(accountMid) ?? null
+    return window.bilimiDesktop?.prepareOldFavoriteWorkspaceRecoveryV1?.(accountMid) ?? null
   }, [accountMid])
   const sendRecoveryDecision = useCallback(async (
     summary: OldFavoriteWorkspaceRecoverySummary,
@@ -519,7 +519,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   useEffect(() => {
     // Current preload builds expose the manifest-only recovery endpoint, so
     // mounting a library panel need not deserialize a workspace segment.
-    if (window.bilimiDesktop?.getOldFavoriteWorkspaceRecoverySummaryV1) return
+    if (window.bilimiDesktop?.prepareOldFavoriteWorkspaceRecoveryV1) return
     void refresh()
   }, [refresh])
 
@@ -1000,7 +1000,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, getRecoverySummary, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation, waitForRecommendationQueue,

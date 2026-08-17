@@ -2151,10 +2151,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       validate: () => archive
     })
   })
+  const recoveryPreparationAccounts = new Set<string>()
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
     segmentSize: () => loadAssistantPreferences(getDesktopStore()).oldFavoriteWorkspaceSegmentSize,
     onSegmentsReady: async (accountMid, segmentIds) => {
+      if (recoveryPreparationAccounts.has(accountMid)) return
       const workspace = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid)
       const workspaceId = workspace && !('recovery' in workspace) ? workspace.workspaceId : undefined
       await oldFavoriteWorkspaceDeepSeekService?.resumePendingAllSegments(accountMid, segmentIds, (progress) => {
@@ -2326,6 +2328,24 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     pauseScan: (accountMid) => oldFavoriteWorkspaceScanService!.pause(accountMid),
     resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),
     retryFailedTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.retryFailedTagEnrichment(accountMid),
+    prepareRecovery: async (accountMid) => {
+      recoveryPreparationAccounts.add(accountMid)
+      try {
+        const before = await oldFavoriteWorkspaceCoordinator!.getSnapshot(accountMid)
+        if (before && !('recovery' in before)) {
+          await oldFavoriteWorkspaceScanService!.pauseForRecovery(accountMid)
+        }
+        await oldFavoriteWorkspaceDeepSeekService!.pauseForRecovery(accountMid)
+        await oldFavoriteWorkspaceCoordinator!.settleExecutionIntentForRecovery(accountMid)
+        const after = await oldFavoriteWorkspaceCoordinator!.getSnapshot(accountMid)
+        if (after && !('recovery' in after) && after.status === 'executing') {
+          await oldFavoriteWorkspaceCoordinator!.pauseBilibiliSync(accountMid)
+        }
+        return oldFavoriteWorkspaceCoordinator!.getRecoverySummary(accountMid)
+      } finally {
+        recoveryPreparationAccounts.delete(accountMid)
+      }
+    },
     rebuildAndStartScan: async (accountMid) => {
       await oldFavoriteWorkspaceCoordinator!.rebuildAfterRecovery(accountMid)
       return oldFavoriteWorkspaceScanService!.start(accountMid, 'incremental')

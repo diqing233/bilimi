@@ -94,8 +94,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
-  getOldFavoriteWorkspaceRecoverySummaryV1: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:recovery-summary', accountMid) as Promise<OldFavoriteWorkspaceRecoverySummary | null>,
+  prepareOldFavoriteWorkspaceRecoveryV1: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:prepare-recovery', accountMid) as Promise<OldFavoriteWorkspaceRecoverySummary | null>,
   previewManagedFavoriteFolderDeletion: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:managed-folder-deletion-preview', accountMid, ledgerIds, ledgerTitleHints) as Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: string; requiresUnboundAcknowledgement: boolean }>>,
   deleteManagedFavoriteFolders: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion = false, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) =>

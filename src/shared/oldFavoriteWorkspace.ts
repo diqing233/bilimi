@@ -439,6 +439,9 @@ export type OldFavoriteTagScopeStatistics = {
 /** A compact, manifest/marker-only recovery entry point. It never resumes work. */
 export type OldFavoriteWorkspaceRecoveryChoice =
   | 'view'
+  /** The only normal user-facing recovery action. */
+  | 'recover-draft'
+  /** Legacy internal decision values retained for persisted recovery records. */
   | 'continue-original'
   | 'merge-latest'
   | 'rescan'
@@ -534,6 +537,8 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
   completedSegmentIds: string[]
   waitingSegmentIds: string[]
   canceled: boolean
+  /** A recovery-entry pause keeps durable progress but never auto-resumes it. */
+  paused?: boolean
   failed?: boolean
 }
 

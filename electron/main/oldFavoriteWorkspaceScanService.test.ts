@@ -665,6 +665,46 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(coordinator.finishScan).not.toHaveBeenCalled()
   })
 
+  it('waits for the in-flight scan read before recovery preparation reports a durable pause', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    let resolvePage!: (value: unknown) => void
+    const sourcePage = new Promise((resolve) => { resolvePage = resolve })
+    const runningSnapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' as const,
+      scan: { phase: 'inventory' as const }
+    }
+    const pausedSnapshot = {
+      ...runningSnapshot, scan: { phase: 'inventory' as const, paused: true }
+    }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue(runningSnapshot),
+      getSnapshot: vi.fn().mockResolvedValue(runningSnapshot),
+      pauseScan: vi.fn().mockResolvedValue(pausedSnapshot),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockReturnValueOnce(sourcePage)
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-source-page'
+    })))
+    const preparing = service.pauseForRecovery('100')
+    let settled = false
+    void preparing.then(() => { settled = true })
+    await Promise.resolve()
+
+    expect(coordinator.pauseScan).toHaveBeenCalledWith('100')
+    expect(settled).toBe(false)
+    resolvePage({ status: 'ok', observedAccountMid: '100', hasMore: false, items: [] })
+    await expect(preparing).resolves.toEqual(pausedSnapshot)
+    expect(coordinator.recordScanPage).not.toHaveBeenCalled()
+  })
+
   it('does not let an incremental scan swallow an explicit full reorganization request', async () => {
     let resolveIncrementalInventory!: (value: unknown) => void
     const incrementalInventory = new Promise((resolve) => { resolveIncrementalInventory = resolve })

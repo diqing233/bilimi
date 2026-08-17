@@ -165,10 +165,6 @@ function confirmationNeedsBackup(
   )
 }
 
-export function canConfirmFullReorganization(openedForAccountMid: string | null, currentAccountMid: string | undefined) {
-  return openedForAccountMid !== null && openedForAccountMid === normalizeAccountMid(currentAccountMid)
-}
-
 export function ControlledFavoriteLedgerPanel({
   currentAccountMid,
   ledgers,
@@ -381,10 +377,11 @@ export function ControlledFavoriteLedgerPanel({
   const [guideOpen, setGuideOpen] = useState(false)
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
   const [recoverySummary, setRecoverySummary] = useState<OldFavoriteWorkspaceRecoverySummary | null>(null)
-  const [recoveryDecisionPending, setRecoveryDecisionPending] = useState<'continue-original' | 'merge-latest' | 'rescan' | 'reconcile-result-unknown' | null>(null)
+  const [recoveryPreparing, setRecoveryPreparing] = useState(false)
+  const [recoveryPreparationError, setRecoveryPreparationError] = useState<string | null>(null)
+  const [recoveryDecisionPending, setRecoveryDecisionPending] = useState<'merge-latest' | 'rescan' | 'reconcile-result-unknown' | null>(null)
+  const [recoveryRescanConfirmOpen, setRecoveryRescanConfirmOpen] = useState(false)
   const [recoveryDecisionError, setRecoveryDecisionError] = useState<string | null>(null)
-  const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
-  const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
   const [ensuringLedgers, setEnsuringLedgers] = useState(false)
   const ensuringLedgersRef = useRef(false)
@@ -430,11 +427,12 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(false)
     setResumeDialogOpen(false)
     setRecoverySummary(null)
+    setRecoveryPreparing(false)
+    setRecoveryPreparationError(null)
     setRecoveryDecisionPending(null)
+    setRecoveryRescanConfirmOpen(false)
     setRecoveryDecisionError(null)
     setStep('scan')
-    setFullReorganizationConfirmOpen(false)
-    setFullReorganizationAccountMid(null)
     setScanStarting(false)
     setScanStartFailure(null)
     setConfirmationPreparing(false)
@@ -552,38 +550,51 @@ export function ControlledFavoriteLedgerPanel({
     setStep('scan')
     setScanStartFailure(null)
     setRecoveryDecisionError(null)
-    const summary = await workspace.getRecoverySummary()
-    if (!isCurrentRequest()) return
-    if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
-      setRecoverySummary(summary)
-      setResumeDialogOpen(true)
-      return
+    setRecoverySummary(null)
+    setRecoveryPreparationError(null)
+    setRecoveryRescanConfirmOpen(false)
+    setResumeDialogOpen(true)
+    setRecoveryPreparing(true)
+    try {
+      const summary = await workspace.prepareRecovery()
+      if (!isCurrentRequest()) return
+      if (summary && summary.recoveryChoices.some((choice) => choice !== 'view')) {
+        setRecoverySummary(summary)
+        return
+      }
+      setResumeDialogOpen(false)
+      const authoritativeSnapshot = snapshot
+        ? 'recovery' in snapshot || snapshot.status === 'scanning'
+          ? snapshot
+          : await workspace.refresh(true) ?? snapshot
+        : await workspace.refresh()
+      if (!isCurrentRequest()) return
+      if (authoritativeSnapshot && 'recovery' in authoritativeSnapshot) {
+        setGuideOpen(true)
+        setStep('scan')
+        return
+      }
+      if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
+        authoritativeSnapshot.status === 'scanning') {
+        setGuideOpen(true)
+        setStep('scan')
+        return
+      }
+      if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
+        authoritativeSnapshot.status !== 'completed') {
+        setGuideOpen(true)
+        setStep(authoritativeSnapshot.executionIntent || authoritativeSnapshot.status !== 'previewing' ? 'confirm' : 'scan')
+        return
+      }
+      void startScan('incremental')
+    } catch (error) {
+      if (!isCurrentRequest()) return
+      setRecoveryPreparationError(error instanceof Error ? error.message : '暂停并保存整理进度失败，请重试。')
+    } finally {
+      if (isCurrentRequest()) setRecoveryPreparing(false)
     }
-    const authoritativeSnapshot = snapshot
-      ? 'recovery' in snapshot || snapshot.status === 'scanning'
-        ? snapshot
-        : await workspace.refresh(true) ?? snapshot
-      : await workspace.refresh()
-    if (!isCurrentRequest()) return
-    if (authoritativeSnapshot && 'recovery' in authoritativeSnapshot) {
-      setGuideOpen(true)
-      setStep('scan')
-      return
-    }
-    if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
-      authoritativeSnapshot.status !== 'scanning' && authoritativeSnapshot.status !== 'completed') {
-      setResumeDialogOpen(true)
-      return
-    }
-    if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
-      authoritativeSnapshot.status === 'scanning') {
-      setGuideOpen(true)
-      setStep('scan')
-      return
-    }
-    void startScan('incremental')
   }
-  const selectRecoveryDecision = async (choice: 'continue-original' | 'merge-latest' | 'rescan') => {
+  const selectRecoveryDecision = async (choice: 'merge-latest' | 'rescan') => {
     if (!recoverySummary || recoveryDecisionPending) return
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++recoveryDecisionRequestVersion.current
@@ -593,9 +604,9 @@ export function ControlledFavoriteLedgerPanel({
     setRecoveryDecisionError(null)
     setGuideOpen(true)
     setStep('scan')
-    const recoveryFailureMessage = choice === 'continue-original' && recoverySummary.recoveryChoices.includes('merge-latest')
-      ? '按原草稿继续失败，草稿不会丢失。检测到收藏夹、备册状态或扫描资料可能已有变化，可尝试点击上方“合并最新变化”继续。已选推荐收藏夹和人工调整会保留。'
-      : '恢复整理草稿失败，请重试。'
+    const recoveryFailureMessage = choice === 'merge-latest'
+      ? '恢复草稿失败，草稿不会丢失。请重试。'
+      : '重新扫描准备失败，草稿不会丢失。请重试。'
     try {
       const result = await workspace.sendRecoveryDecision?.(recoverySummary, choice)
       if (!isCurrentRequest()) return
@@ -765,7 +776,7 @@ export function ControlledFavoriteLedgerPanel({
           <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={workspace.loading || ensuringLedgers || !hasBackupEligibleLedger}
             onClick={() => void ensureLedgersAndOpenFavoritePage()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label={ensuringLedgers ? '备册中' : '备册'} description={ensuringLedgers ? '正在后台检查并生成 bilimi 收藏夹' : '一键生成 bilimi 收藏夹，用于归类收藏和整理'} />
-          <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || !currentAccountMid}
+          <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || recoveryPreparing || !currentAccountMid}
             onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理收藏" badge="整"
             label="整理收藏" description="扫描已有收藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
@@ -814,12 +825,22 @@ export function ControlledFavoriteLedgerPanel({
           return true
         }}
       />
+      {resumeDialogOpen && recoveryPreparing ? <OldFavoriteModal title="整理收藏" onCancel={() => undefined}>
+        <p role="status">正在暂停并保存进度…</p>
+      </OldFavoriteModal> : null}
+      {resumeDialogOpen && recoveryPreparationError ? <OldFavoriteModal title="整理收藏"
+        onCancel={() => { setRecoveryPreparationError(null); setResumeDialogOpen(false); closeGuide() }}
+        extraActions={<button type="button" onClick={() => void requestOldFavoriteOrganization()}>重试暂停</button>}>
+        <p role="alert">{recoveryPreparationError}</p>
+      </OldFavoriteModal> : null}
       {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { if (recoveryDecisionPending) return; setRecoverySummary(null); setResumeDialogOpen(false); closeGuide() }}
         extraActions={<>
-          {recoverySummary.recoveryChoices.includes('continue-original') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('continue-original')}>按原草稿继续</button> : null}
-          {recoverySummary.recoveryChoices.includes('merge-latest') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('merge-latest')}>合并最新变化</button> : null}
-          {recoverySummary.recoveryChoices.includes('rescan') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('rescan')}>重新扫描</button> : null}
+          {recoverySummary.recoveryChoices.includes('recover-draft') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void selectRecoveryDecision('merge-latest')}>恢复草稿</button> : null}
+          {recoverySummary.recoveryChoices.includes('rescan') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => {
+            setResumeDialogOpen(false)
+            setRecoveryRescanConfirmOpen(true)
+          }}>重新扫描</button> : null}
           {recoverySummary.recoveryChoices.includes('abandon') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void abandonCurrentWorkspace()}>放弃本轮整理</button> : null}
           {recoverySummary.recoveryChoices.includes('reconcile-result-unknown') ? <button type="button" disabled={Boolean(recoveryDecisionPending)} onClick={() => void openReconciliationDraft()}>查看并检查同步结果</button> : null}
         </>}>
@@ -829,33 +850,17 @@ export function ControlledFavoriteLedgerPanel({
         {recoveryDecisionPending ? <p role="status">正在恢复整理草稿…</p> : null}
         {recoveryDecisionError ? <p role="alert">{recoveryDecisionError}</p> : null}
       </OldFavoriteModal> : null}
-      {resumeDialogOpen && !recoverySummary ? <OldFavoriteModal title="整理收藏"
-        onCancel={() => { setResumeDialogOpen(false); closeGuide() }}
-        extraActions={<>
-          <button type="button" onClick={() => {
-            setResumeDialogOpen(false)
-            setGuideOpen(true)
-            setStep(activeSnapshot?.executionIntent || activeSnapshot?.status !== 'previewing' ? 'confirm' : 'scan')
-          }}>继续上次整理</button>
-          {canRestartFromResume ? <button type="button" onClick={() => {
-            setResumeDialogOpen(false)
-            setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
-            setFullReorganizationConfirmOpen(true)
-          }}>全部重新整理</button> : null}
-        </>}>
-        <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
-      </OldFavoriteModal> : null}
-      {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
-        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null); closeGuide() }}
+      {recoveryRescanConfirmOpen ? <OldFavoriteModal title="确认重新扫描？" danger confirmLabel="确认重新扫描"
+        onCancel={() => {
+          setRecoveryRescanConfirmOpen(false)
+          setResumeDialogOpen(Boolean(recoverySummary))
+        }}
         onConfirm={() => {
-          const canConfirm = canConfirmFullReorganization(fullReorganizationAccountMid, currentAccountMid)
-          setFullReorganizationConfirmOpen(false)
-          setFullReorganizationAccountMid(null)
-          if (canConfirm) void startScan('full')
+          setRecoveryRescanConfirmOpen(false)
+          void selectRecoveryDecision('rescan')
         }}>
-        <p>这会清空本地掌库、收藏库和本轮整理状态，再重新扫描 B 站当前收藏；不会撤销已提交到 B 站的操作。</p>
+        <p>重新扫描会重新建立本轮的扫描事实和系统分类；已保存的本地结果、人工分类及已同步到 B 站的结果不会被撤销。</p>
       </OldFavoriteModal> : null}
-
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}

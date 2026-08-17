@@ -144,6 +144,30 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '200')).rejects.toThrow('current Bilibili account')
   })
 
+  it('uses a separate trusted recovery-preparation endpoint while leaving summary reads side-effect free', async () => {
+    const ipcMain = new FakeIpcMain()
+    const prepared = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, currentStep: 'previewing' as const,
+      baselineChangeEvidence: {
+        scope: 'account' as const, workspaceBaselineRevision: 4, repositoryRevision: 5, changed: false,
+        direction: 'unchanged' as const, manualClassificationsRemainAuthoritative: true as const, changedDimensions: []
+      },
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon'] as const
+    }
+    const coordinator = { getRecoverySummary: vi.fn().mockResolvedValue(prepared) }
+    const prepareRecovery = vi.fn().mockResolvedValue(prepared)
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, prepareRecovery,
+      isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:recovery-summary', 7, '100')).resolves.toEqual(prepared)
+    expect(prepareRecovery).not.toHaveBeenCalled()
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:prepare-recovery', 7, '00100')).resolves.toEqual(prepared)
+    expect(prepareRecovery).toHaveBeenCalledExactlyOnceWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:prepare-recovery', 8, '100')).rejects.toThrow('untrusted')
+  })
+
   it('accepts only an explicit, revision-guarded recovery decision from the current trusted account', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

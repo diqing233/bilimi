@@ -319,6 +319,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   retryFailedTagEnrichment?: (accountMid: string) => Promise<void>
   resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  prepareRecovery?: (accountMid: string) => Promise<WorkspaceRecoverySummary | null>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
     if (!options.isTrustedSender(event.sender.id)) throw new Error('Old favorite workspace request came from an untrusted renderer.')
@@ -338,6 +339,12 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:recovery-summary', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace recovery summary arguments are invalid.')
     return options.coordinator.getRecoverySummary(await assertAccount(event, requestedAccountMid)) as Promise<WorkspaceRecoverySummary | null>
+  })
+  options.ipcMain.handle('old-favorite-workspace-v1:prepare-recovery', async (event, requestedAccountMid: string, ...args: unknown[]) => {
+    if (args.length !== 0) throw new Error('Old favorite workspace recovery preparation arguments are invalid.')
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    if (!options.prepareRecovery) return options.coordinator.getRecoverySummary(accountMid) as Promise<WorkspaceRecoverySummary | null>
+    return options.prepareRecovery(accountMid)
   })
   options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
