@@ -55,6 +55,7 @@ import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
+export const OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED = Symbol('old-favorite-workspace-tag-adoption-failure-persisted')
 
 type SegmentDescriptor = { id: string; index: number; itemCount: number }
 type StreamingScanRuntime = {
@@ -489,6 +490,11 @@ function tagAdoptionRecomputationFailure(error: unknown): OldFavoriteWorkspaceTa
     failureCode: 'classification-recompute-failed',
     ...(detail ? { failureDetail: detail } : {})
   }
+}
+
+function persistedTagAdoptionFailure(error: unknown) {
+  const failure = error instanceof Error ? error : new Error(String(error))
+  return Object.assign(failure, { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]: true as const })
 }
 
 function normalizeTagVersions(value: Record<string, number> | undefined) {
@@ -3704,24 +3710,28 @@ export class OldFavoriteWorkspaceCoordinator {
       .filter((folder) => scanSourceIsEligible(folder) && folder.selected).map((folder) => folder.id))
     const hasSelectableSources = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
       .some(scanSourceIsEligible)
-    let updated = workspace
+    const journalState = replayClassificationJournal(recovered.overlayHistory)
+    let globalClassifications: OldFavoriteWorkspace['classifications'] = Object.fromEntries(
+      [...journalState.classifications].map(([aid, classification]) => [String(aid), clone(classification)]))
+    const classificationSegments = this.segmentDescriptors.get(workspace.accountMid) ??
+      workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
     const visibleSegmentId = this.currentSegment(workspace)
     const visibleItems = this.currentSegmentItems.get(workspace.accountMid)
-    const editedSegmentIds = new Set<string>()
+    const newEntries: Array<{ segmentId: string; entry: OldFavoriteWorkspaceHistoryEntry; historyCursor: number }> = []
     try {
       for (const segmentId of segmentIds) {
-        const segment = updated.segments.find((candidate) => candidate.id === segmentId)
+        const segment = classificationSegments.find((candidate) => candidate.id === segmentId)
         if (!segment) throw new Error('Old favorite workspace segment is unavailable.')
-        const stored = await this.options.workspaceStore.loadSegment(updated.accountMid, updated.id, segment.id)
+        const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
         const items = (stored.items ?? []).map((item) => ({ ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {}) }))
-        this.currentSegmentItems.set(updated.accountMid, items.map(clone))
+        this.currentSegmentItems.set(workspace.accountMid, items.map(clone))
         const candidates = items
           .filter((item) => !isUnavailableScanItem(item))
           .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
           .filter((item) => !onlyAids || onlyAids.has(item.aid))
-          .filter((item) => replaceUserChoices || !['manual', 'deepseek'].includes(updated.classifications[String(item.aid)]?.source ?? ''))
+          .filter((item) => replaceUserChoices || !['manual', 'deepseek'].includes(globalClassifications[String(item.aid)]?.source ?? ''))
         const classifications = classifyMany
-          ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), updated.accountMid, {
+          ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
               excludedRecommendedLedgers: clone(excludedRecommendedLedgers)
             })
           : await Promise.all(candidates.map((item) => recommendedLedgers.length
@@ -3731,30 +3741,36 @@ export class OldFavoriteWorkspaceCoordinator {
           throw new Error('Old favorite workspace automatic classification result is invalid.')
         }
         const proposed = candidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
+        const segmentAids = [...stored.aids]
+        let segmentWorkspace: OldFavoriteWorkspace = {
+          ...workspace,
+          status: 'previewing',
+          baseline: { revision: workspace.baseline?.revision ?? recovered.baselineRevision, aids: segmentAids },
+          plannedAids: segmentAids,
+          segments: [{
+            id: segment.id,
+            index: segment.index,
+            aids: segmentAids,
+            status: this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing'
+          }],
+          classifications: globalClassifications,
+          history: clone(journalState.entriesBySegment.get(segment.id) ?? []),
+          historyCursor: journalState.cursorBySegment.get(segment.id) ?? 0
+        }
         for (const source of ['system-high', 'system-low'] as const) {
           const assignments = proposed
             .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
             .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
           if (!assignments.length) continue
-          const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
-          if (next === updated) continue
-          const entry = next.history[next.history.length - 1]
-          const readiness = await this.applyReadinessHistoryChange(updated, entry, 'forward')
-          const classificationEvent: Extract<WorkspaceJournalEvent, { type: 'classification' }> = {
-            type: 'classification', segmentId: segment.id, entry: clone(entry), historyCursor: next.historyCursor
-          }
-          await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
-            currentSegmentId: segment.id,
-            classifications: entry.changes.flatMap((change) => change.after ? [{
-              aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
-            }] : []),
-            history: [encodeJournalEvent(classificationEvent)],
-            planReadiness: readiness
+          const classified = applyWorkspaceClassificationBatch(segmentWorkspace, { source, assignments, replaceExistingSystem: replaceSystem })
+          if (classified === segmentWorkspace) continue
+          newEntries.push({
+            segmentId: segment.id,
+            entry: clone(classified.history[classified.history.length - 1]!),
+            historyCursor: classified.historyCursor
           })
-          this.updateOverviewClassifications(updated.accountMid, [{ segmentId: segment.id, entry }])
-          this.planReadiness.set(updated.accountMid, readiness)
-          editedSegmentIds.add(segment.id)
-          updated = next
+          globalClassifications = classified.classifications
+          segmentWorkspace = classified
         }
       }
     } finally {
@@ -3766,10 +3782,40 @@ export class OldFavoriteWorkspaceCoordinator {
         })))
       }
     }
-    const frozenIds = new Set(this.frozenSegments.get(updated.accountMid) ?? [])
-    for (const segmentId of editedSegmentIds) frozenIds.delete(segmentId)
-    this.remember(updated, visibleSegmentId, this.segmentDescriptors.get(updated.accountMid) ?? [], frozenIds)
-    return clone(updated)
+    if (!newEntries.length) return clone(workspace)
+    const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
+    await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+      currentSegmentId: visibleSegmentId,
+      classifications: newEntries.flatMap(({ entry }) => entry.changes.flatMap((change) => change.after ? [{
+        aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
+      }] : [])),
+      history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
+        type: 'classification', segmentId, entry: clone(entry), historyCursor
+      })),
+      planReadiness: readiness
+    })
+    this.updateOverviewClassifications(workspace.accountMid, newEntries)
+    this.planReadiness.set(workspace.accountMid, readiness)
+    const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
+    const visibleEntries = newEntries.filter(({ segmentId }) => segmentId === visibleSegmentId).map(({ entry }) => ({
+      ...clone(entry), changes: entry.changes.filter((change) => visibleAidSet.has(change.aid)).map(clone)
+    })).filter((entry) => entry.changes.length > 0)
+    const visibleHistory = [...workspace.history.slice(0, workspace.historyCursor), ...visibleEntries]
+    const visibleUpdated: OldFavoriteWorkspace = {
+      ...workspace,
+      status: visibleEntries.length ? 'previewing' : workspace.status,
+      segments: workspace.segments.map((segment) => visibleEntries.length && segment.id === visibleSegmentId
+        ? { ...segment, status: 'previewing' as const }
+        : segment),
+      classifications: Object.fromEntries(Object.entries(globalClassifications)
+        .filter(([aid]) => visibleAidSet.has(Number(aid))).map(([aid, classification]) => [aid, clone(classification)])),
+      history: visibleHistory,
+      historyCursor: visibleHistory.length
+    }
+    const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
+    for (const { segmentId } of newEntries) frozenIds.delete(segmentId)
+    this.remember(visibleUpdated, visibleSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [], frozenIds)
+    return clone(visibleUpdated)
   }
 
   async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
@@ -4253,7 +4299,7 @@ export class OldFavoriteWorkspaceCoordinator {
           currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagAdoption: failure
         })
         this.tagAdoptions.set(workspace.accountMid, failure)
-        throw error
+        throw persistedTagAdoptionFailure(error)
       }
     })
   }

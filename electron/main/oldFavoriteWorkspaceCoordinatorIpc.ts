@@ -6,6 +6,7 @@ import {
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '../../src/shared/types'
 import {
+  OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED,
   OldFavoriteWorkspaceCoordinator
 } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
@@ -455,7 +456,24 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       if (options.retryFailedTagEnrichment) await options.retryFailedTagEnrichment(accountMid)
       else await options.coordinator.retryFailedTagEnrichment(accountMid)
     }
-    if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
+    if (requested.type === 'accept-current-tags') {
+      try {
+        await options.coordinator.acceptCurrentTags(accountMid)
+      } catch (error) {
+        if (error && typeof error === 'object' &&
+          (error as { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]?: unknown })[
+            OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED
+          ] === true) {
+          try {
+            const latest = await options.coordinator.getSnapshot(accountMid)
+            if (latest && !('recovery' in latest) && latest.tagAdoption?.status === 'failed') return latest
+          } catch {
+            // Preserve the original adoption error when its durable state cannot be read.
+          }
+        }
+        throw error
+      }
+    }
     if (requested.type === 'cancel-deepseek-current-segment') {
       if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
       if (options.deepSeekService.cancelPendingAllSegments) await options.deepSeekService.cancelPendingAllSegments(accountMid)

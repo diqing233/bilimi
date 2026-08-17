@@ -2320,6 +2320,48 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(pendingAids).not.toContain(501)
   })
 
+  it('reclassifies every persisted batch when tags are adopted after restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItems = vi.fn((items: CurrentSegmentItem[]) => items.map(() => ({
+      targetLedgerIds: ['knowledge'], confidence: 'high' as const
+    })))
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500,
+      classifyCurrentItems
+    })
+    await first.beginScan('100', 'incremental')
+    for (let offset = 0; offset < 501; offset += 50) {
+      await first.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => ({
+          aid: offset + index + 1,
+          title: `Video ${offset + index + 1}`,
+          sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await first.finishScan('100')
+    classifyCurrentItems.mockClear()
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      classifyCurrentItems
+    })
+
+    await expect(restarted.acceptCurrentTags('100')).resolves.toBeUndefined()
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'accepted', wholeRunTagCutoffAccepted: true },
+      segments: [
+        { id: 'segment-1', readiness: 'ready' },
+        { id: 'segment-2', readiness: 'ready' }
+      ]
+    })
+    expect(classifyCurrentItems).toHaveBeenCalledTimes(2)
+    expect(classifyCurrentItems.mock.calls.map(([items]) => items.length)).toEqual([500, 1])
+  })
+
   it('keeps a running tag-enrichment queue running when switching batches', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

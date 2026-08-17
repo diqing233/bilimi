@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED } from './oldFavoriteWorkspaceCoordinator'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 
 class FakeIpcMain {
@@ -412,6 +413,53 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'retry-failed-tag-enrichment', aids: [1]
     })).rejects.toThrow('command is invalid')
+  })
+
+  it('returns the persisted tag-adoption failure snapshot instead of propagating its command error', async () => {
+    const ipcMain = new FakeIpcMain()
+    const failed = {
+      ...snapshot,
+      tagAdoption: { status: 'failed' as const, failureCode: 'classification-recompute-failed' as const }
+    }
+    const coordinator = {
+      acceptCurrentTags: vi.fn().mockRejectedValue(Object.assign(
+        new Error('Old favorite workspace segment is unavailable.'),
+        { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]: true }
+      )),
+      getSnapshot: vi.fn().mockResolvedValue(failed)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'accept-current-tags'
+    })).resolves.toEqual(failed)
+    expect(coordinator.acceptCurrentTags).toHaveBeenCalledWith('100')
+    expect(coordinator.getSnapshot).toHaveBeenCalledWith('100')
+  })
+
+  it('does not mistake a prior tag-adoption failure for the current command failure', async () => {
+    const ipcMain = new FakeIpcMain()
+    const priorFailure = {
+      ...snapshot,
+      tagAdoption: { status: 'failed' as const, failureCode: 'classification-recompute-failed' as const }
+    }
+    const coordinator = {
+      acceptCurrentTags: vi.fn().mockRejectedValue(new Error('workspace storage is unavailable')),
+      getSnapshot: vi.fn().mockResolvedValue(priorFailure)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'accept-current-tags'
+    })).rejects.toThrow('workspace storage is unavailable')
+    // The command preflight reads once for an execution-intent lock; failure handling must not read the old snapshot again.
+    expect(coordinator.getSnapshot).toHaveBeenCalledExactlyOnceWith('100')
   })
 
   it('uses the scan service to resume tag enrichment against a newly verified page target', async () => {
