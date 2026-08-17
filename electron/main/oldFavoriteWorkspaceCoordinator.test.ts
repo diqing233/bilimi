@@ -3295,6 +3295,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         status: 'paused',
         pendingItemCount: 1,
         wholeRunTagCutoffAccepted: false
+      },
+      tagAdoption: {
+        status: 'failed',
+        failureCode: 'classification-recompute-failed'
       }
     })
     await expect(coordinator.saveWholeRunToLocalLibrary('100')).rejects.toThrow(
@@ -3307,6 +3311,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         status: 'paused',
         pendingItemCount: 1,
         wholeRunTagCutoffAccepted: false
+      },
+      tagAdoption: {
+        status: 'failed',
+        failureCode: 'classification-recompute-failed'
       }
     })
   })

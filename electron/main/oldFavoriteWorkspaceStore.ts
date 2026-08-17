@@ -8,7 +8,8 @@ import {
   type OldFavoriteInventoryMetricProjection,
   type OldFavoriteWorkspaceLocalWorkspaceFolder,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
-  type OldFavoriteWorkspaceExecutionIntent
+  type OldFavoriteWorkspaceExecutionIntent,
+  type OldFavoriteWorkspaceTagAdoption
 } from '../../src/shared/oldFavoriteWorkspace'
 
 type ScanItem = {
@@ -127,6 +128,7 @@ type Overlay = {
     tagVersionsBySegment?: Record<string, number>
     acceptedTagVersionsBySegment?: Record<string, number>
   }
+  tagAdoption?: OldFavoriteWorkspaceTagAdoption | null
   tagUpdates?: Array<{ aid: number; tags: string[] }>
   tagEnrichmentDelta?: TagEnrichmentDelta
   ruleAnalysisCheckpoint?: RuleAnalysisCheckpoint | null
@@ -631,6 +633,7 @@ export class OldFavoriteWorkspaceStore {
       }
       let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
       let tagEnrichment: Overlay['tagEnrichment'] | undefined
+      let tagAdoption: Overlay['tagAdoption']
       const tagUpdates = new Map<number, string[]>()
       let ruleAnalysisCheckpoint: RuleAnalysisCheckpoint | undefined
       let deepSeekRunCheckpoint: OldFavoriteWorkspaceDeepSeekRunCheckpoint | undefined
@@ -692,6 +695,7 @@ export class OldFavoriteWorkspaceStore {
             acceptedTagVersionsBySegment
           }
         }
+        if (overlay.tagAdoption !== undefined) tagAdoption = overlay.tagAdoption ? clone(overlay.tagAdoption) : null
         if (overlay.tagEnrichmentDelta) {
           if (!tagEnrichment) throw new Error('tag enrichment delta has no baseline')
           const delta = overlay.tagEnrichmentDelta
@@ -808,7 +812,7 @@ export class OldFavoriteWorkspaceStore {
         ,executionIntent
         ,inventoryMetrics
         ,overview
-        ,tagEnrichment, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
+        ,tagEnrichment, tagAdoption, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
@@ -1015,6 +1019,7 @@ export class OldFavoriteWorkspaceStore {
     let hasRecommendations = false
     let planReadiness = manifest.planReadiness ? clone(manifest.planReadiness) : undefined
     let tagEnrichment: Overlay['tagEnrichment'] | undefined
+    let tagAdoption: Overlay['tagAdoption']
     let ruleAnalysisCheckpoint: Overlay['ruleAnalysisCheckpoint']
     let deepSeekRunCheckpoint: Overlay['deepSeekRunCheckpoint']
     let executionIntent: Overlay['executionIntent']
@@ -1053,6 +1058,7 @@ export class OldFavoriteWorkspaceStore {
         }
       }
       if (overlay.tagEnrichment) tagEnrichment = clone(overlay.tagEnrichment)
+      if (overlay.tagAdoption !== undefined) tagAdoption = overlay.tagAdoption ? clone(overlay.tagAdoption) : null
       for (const update of overlay.tagUpdates ?? []) tagUpdates.set(update.aid, [...update.tags])
       if (overlay.ruleAnalysisCheckpoint !== undefined) {
         ruleAnalysisCheckpoint = overlay.ruleAnalysisCheckpoint ? clone(overlay.ruleAnalysisCheckpoint) : null
@@ -1078,6 +1084,7 @@ export class OldFavoriteWorkspaceStore {
         ...(inventoryMetrics ? { inventoryMetrics } : {})
       },
       ...(tagEnrichment ? { tagEnrichment } : {}),
+      ...(tagAdoption !== undefined ? { tagAdoption } : {}),
       ...(tagUpdates.size ? { tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags })) } : {}),
       ...(ruleAnalysisCheckpoint !== undefined ? { ruleAnalysisCheckpoint } : {}),
       ...(deepSeekRunCheckpoint !== undefined ? { deepSeekRunCheckpoint } : {})

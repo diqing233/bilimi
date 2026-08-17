@@ -165,10 +165,11 @@ export function OldFavoriteConfirmationStep({
     .every((segment) => ['ready', 'saved'].includes(segment.readiness))
   const wholeRunTagCutoffAccepted = snapshot.tagEnrichment?.wholeRunTagCutoffAccepted === true
   const tagEnrichmentRunning = snapshot.tagEnrichment?.status === 'running'
+  const tagAdoption = snapshot.tagAdoption
   const tagPendingItemCount = (snapshot.tagEnrichment?.pendingItemCount ?? 0) + (snapshot.tagEnrichment?.failedItemCount ?? 0)
   const naturallyCompleteTagRun = snapshot.tagEnrichment?.status === 'complete' && tagPendingItemCount === 0
   const tagResultReadyForExecution = !snapshot.tagEnrichment || (
-    !tagEnrichmentRunning && (wholeRunTagCutoffAccepted || naturallyCompleteTagRun)
+    !tagEnrichmentRunning && !tagAdoption && (wholeRunTagCutoffAccepted || naturallyCompleteTagRun)
   )
   const wholeRunReadyForExecution = tagResultReadyForExecution && allSegmentsReadyForWholeSave
   const singleRunReadyForExecution = tagResultReadyForExecution && (!currentSegmentSummary || currentSegmentReady)
@@ -340,8 +341,12 @@ export function OldFavoriteConfirmationStep({
     : !canSaveLocally
       ? '正在等待主进程确认本轮分类准备度。'
       : null
-  const executionBlockedMessage = tagEnrichmentRunning
-    ? '标签补取仍在运行，等待本次读取安全收束。'
+  const executionBlockedMessage = tagAdoption?.status === 'failed'
+    ? '采用当前标签未完成：本轮分类重算失败，请在当前草稿重试采用。'
+    : tagAdoption?.status === 'recomputing'
+      ? '正在采用当前标签并重算本轮分类，完成后才能保存或同步。'
+      : tagEnrichmentRunning
+        ? '标签补取仍在运行，等待本次读取安全收束。'
     : snapshot.tagEnrichment && !tagResultReadyForExecution
       ? `标签结果仍有 ${tagPendingItemCount} 条待补取或读取失败，完成补取或选择当前结果后才能保存或同步。`
       : snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting'

@@ -116,6 +116,26 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.queryByText(/当前标签尚未采用/)).not.toBeInTheDocument()
   })
 
+  it('shows the adoption recomputation failure instead of a zero-pending tag warning', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 2, readiness: 'ready', completedTagItemCount: 2, pendingTagItemCount: 0 }],
+        currentSegment: { id: 'segment-1', aids: [1, 2], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        tagEnrichment: { status: 'paused', totalItemCount: 2, completedItemCount: 2, pendingItemCount: 0, failedItemCount: 0, wholeRunTagCutoffAccepted: false },
+        tagAdoption: { status: 'failed', failureCode: 'classification-recompute-failed' },
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 2, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('采用当前标签未完成：本轮分类重算失败，请在当前草稿重试采用。')
+    expect(screen.queryByText(/仍有 0 条待补取或读取失败/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+  })
+
   it('keeps complete-round actions disabled with the actual blocker while tags or DeepSeek are running', () => {
     const baseSnapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

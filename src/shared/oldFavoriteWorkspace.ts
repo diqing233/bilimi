@@ -203,6 +203,14 @@ export type OldFavoriteWorkspaceHistoryEntry = {
   deepSeekProcessedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
 }
 
+/** Durable outcome while an explicit tag-adoption command recomputes the draft. */
+export type OldFavoriteWorkspaceTagAdoption = {
+  status: 'recomputing' | 'failed'
+  failureCode?: 'classification-recompute-failed'
+  /** Development-only diagnostic retained for recovery; never rendered as user-facing text. */
+  failureDetail?: string
+}
+
 export type OldFavoriteWorkspace = {
   version: typeof OLD_FAVORITE_WORKSPACE_VERSION
   id: string
@@ -272,6 +280,7 @@ export type OldFavoriteWorkspaceSnapshot = {
       wholeRun: OldFavoriteTagScopeStatistics
     }
   }
+  tagAdoption?: OldFavoriteWorkspaceTagAdoption
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
