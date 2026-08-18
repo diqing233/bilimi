@@ -2111,19 +2111,29 @@ export class OldFavoriteWorkspaceCoordinator {
       const pendingTagAids = items
         .filter((item) => !item.tags?.length && item.tagEvidence !== 'confirmed')
         .map((item) => item.aid)
+      const confirmedTagSegmentIds = completed.segments
+        .filter((segment) => segment.aids.every((aid) => itemsByAid.get(aid)?.tagEvidence === 'confirmed'))
+        .map((segment) => segment.id)
       const tagEnrichment: TagEnrichment = {
         status: pendingTagAids.length ? 'running' : 'complete',
         totalItemCount: pendingTagAids.length,
         completedItemCount: 0,
         pendingAids: pendingTagAids,
         failedAids: [],
-        reusedTagItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
+        reusedTagItemCount: items.filter((item) => Boolean(item.tags?.length) || item.tagEvidence === 'confirmed').length,
         taggedAids: [],
         confirmedUntaggedAids: [],
-        acceptedSegmentIds: [],
+        acceptedSegmentIds: confirmedTagSegmentIds,
         tagVersionsBySegment: {},
-        acceptedTagVersionsBySegment: {}
+        acceptedTagVersionsBySegment: Object.fromEntries(confirmedTagSegmentIds.map((segmentId) => [segmentId, 0]))
       }
+      const completedScan = {
+        phase: 'complete' as const, failureCount: 0, mode: completed.mode,
+        totalItemCount: aids.length, scannedItemCount: aids.length,
+        taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
+        untaggedItemCount: items.filter((item) => !item.tags?.length).length
+      }
+      this.scanOverviews.set(completed.accountMid, { sourceFolders, scan: completedScan })
       const readiness = this.calculatePlanReadinessFromItems(completed, items, sourceFolders)
       const overviewRuntime = this.initializeOverviewRuntime(completed, itemsByAid.values(), 0)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
@@ -2134,13 +2144,7 @@ export class OldFavoriteWorkspaceCoordinator {
         planReadiness: readiness,
         scanMetadata: {
           sourceFolders,
-          phase: 'complete',
-          failureCount: 0,
-          mode: completed.mode,
-          totalItemCount: aids.length,
-          scannedItemCount: aids.length,
-          taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
-          untaggedItemCount: items.filter((item) => !item.tags?.length).length
+          ...completedScan
         },
         tagEnrichment,
         overview: this.persistedOverviewRuntime(overviewRuntime)
@@ -2155,15 +2159,6 @@ export class OldFavoriteWorkspaceCoordinator {
         baselineCompletedAids: []
       }])
       await this.persistMarker(completed)
-      this.scanOverviews.set(completed.accountMid, {
-        sourceFolders,
-        scan: {
-          phase: 'complete', failureCount: 0, mode: completed.mode,
-          totalItemCount: aids.length, scannedItemCount: aids.length,
-          taggedItemCount: items.filter((item) => Boolean(item.tags?.length)).length,
-          untaggedItemCount: items.filter((item) => !item.tags?.length).length
-        }
-      })
       this.tagEnrichments.set(completed.accountMid, tagEnrichment)
       this.recommendations.set(completed.accountMid, clone(recommendations))
       this.recommendationIndexes.set(completed.accountMid, recommendationIndex)
@@ -2177,6 +2172,16 @@ export class OldFavoriteWorkspaceCoordinator {
         : canClassify && !currentSegmentHasPendingTags
         ? await this.checkpointInitialSystemClassificationsUnsafe(await this.autoClassifyCurrentSegmentUnsafe(completed, true))
         : completed
+      const finalReadiness = this.calculatePlanReadinessFromClassifications(classified, classified.classifications)
+      if (JSON.stringify(finalReadiness) !== JSON.stringify(readiness)) {
+        await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
+          currentSegmentId,
+          classifications: [],
+          history: [],
+          planReadiness: finalReadiness
+        })
+        this.planReadiness.set(completed.accountMid, finalReadiness)
+      }
       return this.createSnapshot(classified)
     })
   }

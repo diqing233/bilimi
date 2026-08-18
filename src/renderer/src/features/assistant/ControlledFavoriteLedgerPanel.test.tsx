@@ -1911,11 +1911,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'start-scan', mode: 'incremental'
     }))
     expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
-    const userTable = screen.getByRole('table', { name: 'B站收藏夹' })
-    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(remoteRow).toHaveTextContent('Bilimi Inbox')
-    expect(remoteRow).not.toHaveTextContent('已备册')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
+    expect(screen.getByText('全选（1）')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
 
   it('shows every observed remote source as selectable during an incomplete scan', async () => {
@@ -1940,15 +1938,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
-    fireEvent.click(await screen.findByRole('checkbox', { name: '选择来源 My source' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '全选来源' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'select-source-folders', folderIds: []
+      type: 'select-source-folders', folderIds: ['bilimi', 'source']
     }))
-    const userTable = screen.getByRole('table', { name: 'B站收藏夹' })
-    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(remoteRow).toHaveTextContent('Bilimi Inbox')
-    expect(remoteRow).not.toHaveTextContent('已备册')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
+    expect(screen.getByText('全选（2）')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
   })
 
   it('keeps incomplete Bilibili fact tables selectable regardless of a local work-folder marker', async () => {
@@ -1973,12 +1968,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
 
-    const userTable = await screen.findByRole('table', { name: 'B站收藏夹' })
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
-    const remoteRow = within(userTable).getByText('Bilimi Inbox').closest('[role="row"]')
-    expect(remoteRow).toHaveTextContent('Bilimi Inbox7')
-    expect(remoteRow).not.toHaveTextContent('已备册')
-    expect(within(userTable).getByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).toBeEnabled()
+    expect(await screen.findByText('全选（2）')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
 
   it('rebuilds a corrupt workspace and restores the persisted snapshot after remount', async () => {
@@ -4248,7 +4240,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
-    const source = screen.getByRole('checkbox', { name: '选择来源 Source' })
+    const source = screen.getByRole('checkbox', { name: '全选来源' })
     expect(source).toBeEnabled()
     fireEvent.click(source)
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {

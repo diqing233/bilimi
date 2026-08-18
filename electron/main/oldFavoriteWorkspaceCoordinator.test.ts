@@ -2534,6 +2534,34 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('reuses confirmed tags, including confirmed empty tags, without an adoption step', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const video of [
+      { aid: 1, title: '有历史标签', tags: ['知识'], tagEvidence: 'confirmed' as const },
+      { aid: 2, title: '已确认无标签', tags: [], tagEvidence: 'confirmed' as const }
+    ]) {
+      await repository.commit('100', {
+        id: `seed-confirmed-${video.aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { ...video, updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: ['knowledge'], confidence: 'high' as const }))
+    })
+
+    await expect(coordinator.beginSelectedReorganization('100', [1, 2], { refreshIncompleteMetadata: false }))
+      .resolves.toMatchObject({
+        tagEnrichment: {
+          status: 'complete',
+          pendingItemCount: 0,
+          currentSegmentHasUnacceptedTagChanges: false
+        },
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 2, unclassifiedAidCount: 0 }
+      })
+  })
+
   it('refreshes and persists only incomplete selected metadata before building the selection preview', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
