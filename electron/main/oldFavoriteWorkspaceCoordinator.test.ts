@@ -734,7 +734,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       status: 'scanning',
       scan: { phase: 'inventory', scannedItemCount: 500 },
-      segments: [{ id: 'segment-1', itemCount: 500, readiness: 'ready' }],
+      segments: [{ id: 'segment-1', itemCount: 500, readiness: 'tagging' }],
       currentSegment: { id: 'segment-1', aids: Array.from({ length: 500 }, (_unused, index) => index + 1) }
     })
     await expect(store.loadSegment('100', requireSnapshot(await coordinator.getSnapshot('100')).workspaceId, 'segment-1'))
@@ -1806,8 +1806,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(snapshot.overview).toMatchObject({
-      processedItemCount: 500,
-      waitingTagItemCount: 0,
+      processedItemCount: 0,
+      waitingTagItemCount: 500,
       deepSeekPendingItemCount: 0,
       unscannedItemCount: 4
     })
@@ -9520,6 +9520,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow(/DeepSeek/i)
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow(/DeepSeek/i)
+  })
+
+  it('returns no DeepSeek checkpoint for an account without a workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+
+    await expect(coordinator.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
   })
 
   it('restores failed DeepSeek aids to their original automatic classifications and records the resolution', async () => {

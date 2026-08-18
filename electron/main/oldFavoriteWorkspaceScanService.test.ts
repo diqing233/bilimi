@@ -140,7 +140,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source', title: 'Source', mediaCount: 1 }] })
       .mockResolvedValueOnce({
         status: 'ok', observedAccountMid: '100', hasMore: false,
-        items: [{ aid: 42, title: '已失效视频', upperName: '账号已注销', cover: '', addedAt: 0, tags: [], category: '', unavailable: true }]
+        items: [{ aid: 42, title: '已失效视频', upperName: '账号已注销', cover: '', addedAt: 0, unavailable: true }]
       })
     const service = new OldFavoriteWorkspaceScanService({
       coordinator: coordinator as never, requestRuntime: runtime, wait: vi.fn().mockResolvedValue(undefined)
@@ -798,14 +798,14 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 60 }] })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: Array.from({ length: 50 }, (_, index) => ({ aid: index + 1, title: `V${index + 1}`, upperName: 'UP', cover: '', addedAt: 0 })), hasMore: true })
-      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 51, title: 'V51', upperName: 'UP', cover: '', addedAt: 0, tags: ['科技'], category: '数码' }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 51, title: 'V51', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
     const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
 
     await service.start('100', 'incremental')
 
     await vi.waitFor(() => expect(coordinator.recordScanPage).toHaveBeenCalledTimes(2))
     expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ folderId: 'source-1', page: 1, items: expect.any(Array) }), 'scan-run-1')
-    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ folderId: 'source-1', page: 2, items: [{ aid: 51, title: 'V51', author: 'UP', cover: '', addedAt: 0, tags: ['科技'], category: '数码', sourceFolderIds: ['source-1'] }] }), 'scan-run-1')
+    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ folderId: 'source-1', page: 2, items: [{ aid: 51, title: 'V51', author: 'UP', cover: '', addedAt: 0, sourceFolderIds: ['source-1'] }] }), 'scan-run-1')
     expect(runtime).toHaveBeenLastCalledWith({
       type: 'old-favorite-workspace-read-source-page', accountMid: '100', target, folderId: 'source-1', page: 2, pageSize: 20
     })

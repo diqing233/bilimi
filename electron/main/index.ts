@@ -2332,6 +2332,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       recoveryPreparationAccounts.add(accountMid)
       try {
         const before = await oldFavoriteWorkspaceCoordinator!.getSnapshot(accountMid)
+        if (!before) return null
         if (before && !('recovery' in before)) {
           await oldFavoriteWorkspaceScanService!.pauseForRecovery(accountMid)
         }

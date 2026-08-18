@@ -626,7 +626,17 @@ export class OldFavoriteWorkspaceDeepSeekService {
       else if (active.settled) await active.settled
       return true
     }
-    const checkpoint = this.pendingAllRuns.get(accountMid) ?? await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+    let checkpoint = this.pendingAllRuns.get(accountMid)
+    if (!checkpoint) {
+      try {
+        checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+      } catch (error) {
+        // Recovery can race with abandoning the workspace. That exact state is
+        // equivalent to having no durable DeepSeek checkpoint.
+        if (error instanceof Error && error.message === 'Old favorite workspace has not been started.') return false
+        throw error
+      }
+    }
     if (!checkpoint || checkpoint.scope !== 'all' || checkpoint.canceled || checkpoint.failed) return false
     if (checkpoint.paused) {
       this.pendingAllRuns.set(accountMid, structuredClone(checkpoint))

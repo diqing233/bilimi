@@ -58,22 +58,20 @@ describe('favoriteLibraryModel', () => {
 
   it('translates repository mirror states into user-facing Chinese labels', () => {
     expect(formatFavoriteLibraryMirrorStatus(['unsynced'], 'unsynced')).toBe('未同步')
-    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).toBe('同步失败')
+    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).toBe('未同步')
     expect(formatFavoriteLibraryMirrorStatus([], 'synced')).toBe('已同步')
     expect(formatFavoriteLibraryMirrorStatus([], 'unsynced')).toBe('未同步')
   })
 
-  it('formats write-confirmed readback states', () => {
-    expect(formatFavoriteLibraryMirrorStatus([], 'write-confirmed-awaiting-readback' as never))
-      .toBe('B站写入已成功，等待回读确认')
-    expect(formatFavoriteLibraryMirrorStatus([], 'write-confirmed-readback-conflict' as never))
-      .toBe('B站写入已成功，回读不一致，需核验')
+  it('collapses all internal sync outcomes into the two public states', () => {
+    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'], 'unsynced')).toBe('未同步')
+    expect(formatFavoriteLibraryMirrorStatus(['continuation'], 'unsynced')).toBe('未同步')
+    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).toBe('未同步')
   })
 
   it('does not expose internal pending-state enum values in reader-facing labels', () => {
-    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'], 'unsynced')).toMatch(/确认/)
-    expect(formatFavoriteLibraryMirrorStatus(['continuation'], 'unsynced')).toMatch(/等待/)
-    expect(formatFavoriteLibraryMirrorStatus(['failed'], 'unsynced')).not.toContain('failed')
+    expect(formatFavoriteLibraryMirrorStatus(['result-unknown'], 'unsynced')).toBe('未同步')
+    expect(formatFavoriteLibraryMirrorStatus(['continuation'], 'unsynced')).toBe('未同步')
     expect(formatFavoriteLibraryMirrorStatus(['protected'], 'unsynced')).toBe('未同步')
   })
 
@@ -98,19 +96,19 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMetadataStatus('synced', true)).toBe('资料待刷新')
     expect(formatFavoriteLibraryMetadataStatus('synced', false)).toBe('资料已刷新')
     expect(formatFavoriteLibraryMetadataStatus('failed', false)).toBe('资料刷新失败')
-    expect(formatFavoriteLibraryPositionStatus('failed')).toBe('同步失败')
-    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('位置一致')
-    expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('收藏库与B站位置不同')
+    expect(formatFavoriteLibraryPositionStatus('failed')).toBe('未同步')
+    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('已同步')
+    expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('未同步')
   })
 
   it('does not describe an unobserved Bilibili mapping as aligned', () => {
-    expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('尚未扫描B站位置')
+    expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('未同步')
   })
 
   it('derives the detail sync label from position state instead of pending work', () => {
     expect(formatFavoriteLibraryPositionSyncStatus('aligned')).toBe('已同步')
     expect(formatFavoriteLibraryPositionSyncStatus('local-only-change')).toBe('未同步')
-    expect(formatFavoriteLibraryPositionSyncStatus('result-unknown')).toBe('同步状态待确认')
+    expect(formatFavoriteLibraryPositionSyncStatus('result-unknown')).toBe('未同步')
   })
 
   it('returns one global-search row per aid and retains every folder membership', () => {

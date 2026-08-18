@@ -23,7 +23,7 @@ export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
 }
 
 export type FavoriteLibraryStates = {
-  sync: 'synced' | 'unsynced' | 'write-confirmed-awaiting-readback' | 'write-confirmed-readback-conflict'
+  sync: 'synced' | 'unsynced'
   protection: 'protected' | 'unprotected'
   organization: 'organized' | 'unorganized'
 }
@@ -147,14 +147,6 @@ export function formatFavoriteLibraryMirrorStatus(
   states: readonly FavoriteLibraryPendingState[],
   syncState: FavoriteLibraryStates['sync'] = 'unsynced'
 ): string {
-  // Protection describes local retention policy, not the Bilibili mirror state.
-  const syncStates = states.filter((state) => state !== 'protected')
-  if (syncStates.includes('failed')) return '同步失败'
-  if (syncStates.includes('result-unknown')) return '同步状态待确认'
-  if (syncState === 'write-confirmed-awaiting-readback') return 'B站写入已成功，等待回读确认'
-  if (syncState === 'write-confirmed-readback-conflict') return 'B站写入已成功，回读不一致，需核验'
-  if (syncStates.includes('unsynced')) return '未同步'
-  if (syncStates.includes('continuation')) return '等待处理'
   return syncState === 'synced' ? '已同步' : '未同步'
 }
 
@@ -169,33 +161,12 @@ export function formatFavoriteLibraryMetadataStatus(status: string | undefined, 
 }
 
 export function formatFavoriteLibraryPositionStatus(state: string | undefined, hasRemoteMapping = true) {
-  if (!hasRemoteMapping) return '尚未扫描B站位置'
-  switch (state) {
-    case 'aligned': return '位置一致'
-    case 'local-only-change': return '收藏库与B站位置不同'
-    case 'syncing': return '同步中'
-    case 'failed': return '同步失败'
-    case 'result-unknown':
-    case 'needs-review': return '结果待确认'
-    case 'remote-removed': return 'B站已移除'
-    case 'target-missing': return '目标不存在'
-    default: return '尚未扫描B站位置'
-  }
+  return hasRemoteMapping && state === 'aligned' ? '已同步' : '未同步'
 }
 
 /** Position reconciliation is the source of truth for the detail sync dimension. */
 export function formatFavoriteLibraryPositionSyncStatus(state: string | undefined) {
-  switch (state) {
-    case 'aligned': return '已同步'
-    case 'syncing': return '同步中'
-    case 'failed': return '同步失败'
-    case 'result-unknown':
-    case 'needs-review': return '同步状态待确认'
-    case 'local-only-change':
-    case 'remote-removed':
-    case 'target-missing': return '未同步'
-    default: return '尚未扫描同步状态'
-  }
+  return state === 'aligned' ? '已同步' : '未同步'
 }
 
 function validAid(aid: number) {

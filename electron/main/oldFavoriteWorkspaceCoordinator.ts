@@ -1275,6 +1275,8 @@ export class OldFavoriteWorkspaceCoordinator {
 
   async getDeepSeekRunCheckpoint(accountMid: string): Promise<OldFavoriteWorkspaceDeepSeekRunCheckpoint | null> {
     return this.queue(async () => {
+      const repositorySnapshot = await this.options.repository.getSnapshot(accountMid)
+      if (!repositorySnapshot.workspace) return null
       const workspace = await this.requireWorkspace(accountMid)
       const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
       return checkpoint?.workspaceId === workspace.id ? clone(checkpoint) : null
@@ -1790,11 +1792,12 @@ export class OldFavoriteWorkspaceCoordinator {
         if (wasObserved || isUnavailableScanItem(rawItem) ||
           (workspace.mode === 'incremental' && streaming.protectedAids.has(rawItem.aid)) ||
           !isFavoriteRepositoryScanVisible(repository, rawItem.aid)) continue
-        const item: CurrentSegmentItem = { ...rawItem, sourceFolderIds: [...new Set(rawItem.sourceFolderIds)].sort() }
+        const { tags: _pageTags, category: _pageCategory, ...basicItem } = rawItem
+        const item: CurrentSegmentItem = { ...basicItem, sourceFolderIds: [...new Set(rawItem.sourceFolderIds)].sort() }
         const saved = repository.videos[String(item.aid)]
-        if (saved && !item.tags?.length && (saved.tagEvidence === 'confirmed' || saved.tags.length > 0)) {
+        if (saved && saved.tagEvidence === 'confirmed') {
           item.tags = [...saved.tags]
-          if (saved.tagEvidence === 'confirmed') item.tagEvidence = 'confirmed'
+          item.tagEvidence = 'confirmed'
           if (saved.tags.length) reusedTagItemCount += 1
         }
         streaming.openItems.set(item.aid, item)

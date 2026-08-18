@@ -116,7 +116,7 @@ export type FavoriteRepositoryLibraryRow = {
   folderIds: string[]
   pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
   libraryStates: {
-    sync: 'synced' | 'unsynced' | 'write-confirmed-awaiting-readback' | 'write-confirmed-readback-conflict'
+    sync: 'synced' | 'unsynced'
     protection: 'protected' | 'unprotected'
     organization: 'organized' | 'unorganized'
   }
@@ -196,7 +196,7 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
   }
   const stateFilters = candidate.stateFilters as Record<string, unknown> | undefined
   if (stateFilters && (Object.keys(stateFilters).some((key) => !['sync', 'protection', 'organization'].includes(key)) ||
-    (stateFilters.sync !== undefined && !['synced', 'unsynced', 'write-confirmed-awaiting-readback', 'write-confirmed-readback-conflict'].includes(String(stateFilters.sync))) ||
+    (stateFilters.sync !== undefined && !['synced', 'unsynced'].includes(String(stateFilters.sync))) ||
     (stateFilters.protection !== undefined && !['protected', 'unprotected'].includes(String(stateFilters.protection))) ||
     (stateFilters.organization !== undefined && !['organized', 'unorganized'].includes(String(stateFilters.organization))))) {
     throw new Error('Favorite library page options are invalid.')

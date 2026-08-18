@@ -62,7 +62,7 @@ describe('old favorite workspace page bridge', () => {
       observedAccountMid: '100',
       items: [{
         aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
-        tags: ['TypeScript', 'Frontend'], category: '科技', unavailable: false
+        unavailable: false
       }],
       hasMore: true
     })
@@ -79,7 +79,7 @@ describe('old favorite workspace page bridge', () => {
       observedAccountMid: '100',
       items: [{
         aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
-        tags: ['TypeScript', 'Frontend'], category: '科技', unavailable: false
+        unavailable: false
       }],
       hasMore: true
     })
@@ -92,8 +92,9 @@ describe('old favorite workspace page bridge', () => {
     expect(script).not.toContain("url.searchParams.set('keyword'")
     expect(script).not.toContain("url.searchParams.set('tid'")
     expect(script).toContain('scan-workspace-source-page')
-    expect(script).toContain('media?.tags')
-    expect(script).toContain('media?.tname')
+    expect(script).not.toContain('media?.tags')
+    expect(script).not.toContain('media?.tname')
+    expect(script).not.toContain('media?.category')
     expect(script).not.toContain('/x/tag/archive/tags')
     expect(() => new Function(`return ${script}`)).not.toThrow()
   })
@@ -102,9 +103,9 @@ describe('old favorite workspace page bridge', () => {
     const execute = vi.fn().mockResolvedValue({
       status: 'ok', observedAccountMid: '100',
       items: [
-        { aid: 41, title: '已失效视频', upperName: 'UP', cover: '', addedAt: 0, tags: [], category: '', unavailable: true },
-        { aid: 42, title: 'Video', upperName: '账号已注销', cover: '', addedAt: 0, tags: [], category: '', unavailable: true },
-        { aid: 43, title: 'Video', upperName: 'UP', cover: '', addedAt: 0, tags: [], category: '', unavailable: false }
+        { aid: 41, title: '已失效视频', upperName: 'UP', cover: '', addedAt: 0, unavailable: true },
+        { aid: 42, title: 'Video', upperName: '账号已注销', cover: '', addedAt: 0, unavailable: true },
+        { aid: 43, title: 'Video', upperName: 'UP', cover: '', addedAt: 0, unavailable: false }
       ],
       hasMore: false
     })

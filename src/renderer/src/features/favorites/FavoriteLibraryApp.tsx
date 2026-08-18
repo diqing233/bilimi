@@ -1905,14 +1905,7 @@ export function FavoriteLibraryApp({
   const detailLocalPositions = detailSnapshot?.position?.localDesiredFolderIds.map(detailFolderName) ?? []
   const detailRemotePositions = detailSnapshot?.position?.remoteObservedLogicalFolderIds.map(detailFolderName) ?? []
   const detailSyncState = detailSnapshot?.libraryStates?.sync ?? detail?.libraryStates?.sync
-  const detailSyncReceipt = detailSnapshot?.syncReceipt
-  const detailReceiptTargetTitles = detailSyncReceipt?.targetTitles ?? []
-  const detailObservedRemoteOwnership = detailRemotePositions.length ? `实际回读：${detailRemotePositions.join('、')}` : ''
-  const detailRemoteOwnership = detailSyncState === 'write-confirmed-awaiting-readback'
-    ? [detailObservedRemoteOwnership, `B站写入已成功，等待回读确认（目标：${detailReceiptTargetTitles.join('、')}）`].filter(Boolean).join('；')
-    : detailSyncState === 'write-confirmed-readback-conflict'
-      ? [detailObservedRemoteOwnership, `B站写入已成功，回读不一致，需核验（目标：${detailReceiptTargetTitles.join('、')}）`].filter(Boolean).join('；')
-      : detailRemotePositions.join('、') || '尚未扫描或未映射'
+  const detailRemoteOwnership = detailRemotePositions.join('、') || '未同步'
   const currentLogicalFolderAids = currentLogicalFolderId
     ? [...new Set(rows.filter((row) => row.folderIds.includes(currentLogicalFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
     : []
@@ -2413,7 +2406,7 @@ export function FavoriteLibraryApp({
             await api.openFavoriteLibraryVideo(accountMid, detail.aid)
           }) } : undefined}
           author={detail?.author ?? text.unknownAuthor}
-          videoId={detailSnapshot?.video.bvid ?? detail?.bvid ?? (detail ? `AV${detail.aid}` : undefined)}
+          videoId={undefined}
           moreInformation={detail ? detailSnapshot?.video.aid !== detail.aid
             ? detailLoadFailedAid === detail.aid ? { status: 'failed' } : { status: 'loading' }
             : detailSnapshot?.video.description || detailSnapshot?.video.tags?.length
@@ -2433,11 +2426,7 @@ export function FavoriteLibraryApp({
               const unavailableExplanation = detailSnapshot?.mirror.errorCode === 'unavailable'
                 ? `B 站已明确返回该视频不可见${detailSnapshot.mirror.remoteCode !== undefined ? `（返回码 ${detailSnapshot.mirror.remoteCode}）` : ''}。最后检测时间 ${formatDetailTimestamp(detailSnapshot.mirror.lastCheckedAt)}；本地已保存的标题、标签、档案、备注和收藏归属会继续保留，点击刷新信息可重新检测。`
                 : null
-              const syncExplanation = detailSyncState === 'write-confirmed-awaiting-readback'
-                ? `B站写入回执已成功${detailSyncReceipt ? `（${formatDetailTimestamp(detailSyncReceipt.confirmedAt)}）` : ''}，目标：${detailReceiptTargetTitles.join('、')}。等待完整扫描回读确认；刷新详情只读取当前状态，不会重复写入 B站。`
-                : detailSyncState === 'write-confirmed-readback-conflict'
-                  ? `B站写入回执已成功${detailSyncReceipt ? `（${formatDetailTimestamp(detailSyncReceipt.confirmedAt)}）` : ''}，但完整扫描回读未找到目标：${detailReceiptTargetTitles.join('、')}。需要核验，刷新详情不会重复写入 B站。`
-                  : '同步状态以当前的 B 站归属对账结果为准，不会从整理或保护状态推导。'
+              const syncExplanation = '同步状态只显示已同步或未同步；失败、未知和归属不一致均为未同步。'
               const chips = [
                 { label: '同步状态说明', value: detailSyncState
                   ? formatFavoriteLibraryMirrorStatus(detailSnapshot?.pendingStates ?? detail.pendingStates ?? [], detailSyncState)
@@ -2469,7 +2458,7 @@ export function FavoriteLibraryApp({
             })}>以收藏库为准并同步</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(async () => {
               await adoptRemotePlacement()
               setPlacementConflictChoiceOpen(false)
-            })}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : FAVORITE_LIBRARY_STAGING_TITLE}</p><p>B站收藏夹：{detailRemoteOwnership}</p><p>归属状态：{detailSyncState === 'write-confirmed-awaiting-readback' ? 'B站写入已成功，等待回读确认' : detailSyncState === 'write-confirmed-readback-conflict' ? 'B站写入已成功，回读不一致，需核验' : formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length))}</p></section> : null}
+            })}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : FAVORITE_LIBRARY_STAGING_TITLE}</p><p>B站收藏夹：{detailRemoteOwnership}</p><p>归属状态：{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length))}</p></section> : null}
             <section><h3>音频与档案</h3><div className="favorite-library__detail-action-row"><VideoSummaryMenu actions={[{ id: 'transcribe', label: '转写音频', disabled: !detailCanStartTranscription, onSelect: () => runDetailTranscriptionAction('start') }, { id: 'cancel-transcribe', label: '取消转写', disabled: !detailCanCancelTranscription, onSelect: () => runDetailTranscriptionAction('cancel') }]} download={{ disabled: detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成', onSelect: openDetailDocumentExport }} /><button type="button" aria-label="查看档案详情" className="favorite-library__inline-action" disabled={detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成'} onClick={() => void runDetailAction(openArchiveDetail)}>笔记档案详情</button></div><p>{text.transcriptionState}：{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '等待处理' : '暂无转写任务')}</p><p>{text.archive}：{detailSnapshot?.archive.status ?? text.noArchive}{detailSnapshot?.archive.versionCount ? ` · ${detailSnapshot.archive.versionCount} 个版本` : ''}</p></section>
             <section className="favorite-library__classification-history"><h3>初始来源</h3><p>{formatFavoriteLibraryInitialSource(detailSnapshot?.video.initialSource ?? detail.initialSource)}</p>{(() => {
               const latest = detailSnapshot?.latestClassificationAdjustment

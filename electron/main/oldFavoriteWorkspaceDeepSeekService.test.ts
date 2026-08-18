@@ -183,6 +183,21 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(coordinator.setDeepSeekRunCheckpoint).not.toHaveBeenCalled()
   })
 
+  it('treats a workspace that disappeared before recovery as having no checkpoint', async () => {
+    const coordinator = {
+      getDeepSeekRunCheckpoint: vi.fn().mockRejectedValue(new Error('Old favorite workspace has not been started.')),
+      setDeepSeekRunCheckpoint: vi.fn()
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [] }),
+      generate: vi.fn()
+    })
+
+    await expect(service.pauseForRecovery('100')).resolves.toBe(false)
+    expect(coordinator.setDeepSeekRunCheckpoint).not.toHaveBeenCalled()
+  })
+
   it('rejects DeepSeek organization before an explicit organization round exists', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue(null),

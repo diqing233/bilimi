@@ -1321,7 +1321,7 @@ describe('FavoriteRepositoryService', () => {
     })
 
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
-      libraryStates: { sync: 'write-confirmed-awaiting-readback' },
+      libraryStates: { sync: 'synced' },
       syncReceipt: {
         targetLogicalFolderIds: ['bilimi-logical:music'],
         targetTitles: ['bilimi·音乐'],
@@ -1337,7 +1337,7 @@ describe('FavoriteRepositoryService', () => {
       }
     })
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
-      libraryStates: { sync: 'write-confirmed-readback-conflict' },
+      libraryStates: { sync: 'unsynced' },
       syncReceipt: { targetLogicalFolderIds: ['bilimi-logical:music'] }
     })
 
@@ -2373,7 +2373,7 @@ describe('FavoriteRepositoryService', () => {
     })
 
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
-      mirror: { status: '同步失败', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+      mirror: { status: '未同步', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
     })
   })
 
@@ -2391,7 +2391,7 @@ describe('FavoriteRepositoryService', () => {
 
     await expect(service.getLibraryDetail('100', 9)).resolves.toMatchObject({
       video: { title: '保留的旧标题', tags: ['旧标签'] },
-      mirror: { status: '同步失败', errorCode: 'unavailable', remoteCode: 62012, lastCheckedAt: '2026-07-20T02:00:00.000Z' }
+      mirror: { status: '未同步', errorCode: 'unavailable', remoteCode: 62012, lastCheckedAt: '2026-07-20T02:00:00.000Z' }
     })
   })
 

@@ -1041,7 +1041,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('2026-07-24 10:03')
     expect(detail).toHaveTextContent('保留的旧标题')
     fireEvent.click(within(detail).getByRole('button', { name: '同步状态说明' }))
-    expect(detail).toHaveTextContent('同步状态以当前的 B 站归属对账结果为准')
+    expect(detail).toHaveTextContent('同步状态只显示已同步或未同步')
     expect(detail).not.toHaveTextContent('B 站已明确返回该视频不可见')
     fireEvent.click(within(detail).getByRole('button', { name: '更多信息' }))
     expect(detail).toHaveTextContent('旧标签')
@@ -2633,7 +2633,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('Video + ID'))
     const detail = await screen.findByRole('complementary')
     expect(detail).not.toHaveTextContent('资料待刷新')
-    expect(detail).toHaveTextContent('同步失败')
+    expect(detail).toHaveTextContent('未同步')
     expect(detail).toHaveTextContent('已保护')
     expect(detail).toHaveTextContent('暂存')
   })
@@ -2696,7 +2696,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('已扫描视频'))
     const detail = await screen.findByRole('complementary')
     expect(screen.getByRole('button', { name: '同步状态说明' })).toBeInTheDocument()
-    expect(detail).toHaveTextContent('尚未扫描同步状态')
+    expect(detail).toHaveTextContent('未同步')
     expect(detail).toHaveTextContent('转写完成')
     expect(detail).toHaveTextContent('已入档')
     expect(screen.getByRole('button', { name: '档案详情' })).toBeEnabled()
@@ -2722,7 +2722,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('初始来源')
     expect(detail).toHaveTextContent('最近调整')
     expect(detail).toHaveTextContent('音频与档案')
-    expect(detail).toHaveTextContent('BV1xx')
+    expect(detail).not.toHaveTextContent('BV1xx')
     expect(detail).not.toHaveTextContent('分P')
     expect(detail).not.toHaveTextContent('本地镜像')
     expect(detail).not.toHaveTextContent('视频来源')
@@ -2743,11 +2743,12 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('独立状态详情'))
 
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('UP：UP 主 · BV1test')
+    expect(detail).toHaveTextContent('UP：UP 主')
+    expect(detail).not.toHaveTextContent('BV1test')
     expect(detail).toHaveTextContent('收藏归属')
     expect(detail).toHaveTextContent('收藏库归属：音乐')
     expect(detail).toHaveTextContent('B站收藏夹：音乐')
-    expect(detail).toHaveTextContent('归属状态：位置一致')
+    expect(detail).toHaveTextContent('归属状态：已同步')
     expect(detail).toHaveTextContent('已整理')
     expect(detail).toHaveTextContent('已保护')
     expect(detail).toHaveTextContent('已同步')
@@ -2758,7 +2759,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('本地归属')
   })
 
-  it('shows successful Bilibili write awaiting readback', async () => {
+  it('shows a successful write with the public two-value sync state', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -2771,12 +2772,12 @@ describe('FavoriteLibraryApp', () => {
       }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
         version: 1, accountMid: '100', revision: 1,
-        items: [{ video: { aid: 1, title: '等待回读详情', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['unsynced'], libraryStates: { sync: 'write-confirmed-awaiting-readback', protection: 'protected', organization: 'organized' } }]
+        items: [{ video: { aid: 1, title: '等待回读详情', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['unsynced'], libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'organized' } }]
       }),
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
         version: 1, accountMid: '100', revision: 1,
         video: { aid: 1, title: '等待回读详情', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['unsynced'], protected: true,
-        libraryStates: { sync: 'write-confirmed-awaiting-readback', protection: 'protected', organization: 'organized' },
+        libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'organized' },
         syncReceipt: { confirmedAt: '2026-08-18T00:00:00.000Z', targetLogicalFolderIds: ['bilimi-logical:music'], targetTitles: ['bilimi·音乐'] },
         position: { state: 'local-only-change', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: ['bilimi-logical:other'], updatedAt: '2026-08-18T00:00:00.000Z' },
         mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
@@ -2788,10 +2789,10 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('等待回读详情'))
 
     const detail = await screen.findByRole('complementary')
-    expect(within(detail).getByRole('button', { name: '同步状态说明' })).toHaveTextContent('B站写入已成功，等待回读确认')
-    expect(detail).toHaveTextContent('B站收藏夹：实际回读：bilimi·其他；B站写入已成功，等待回读确认（目标：bilimi·音乐）')
-    expect(detail).not.toHaveTextContent('尚未扫描或未映射')
-    expect(detail).not.toHaveTextContent('未同步')
+    expect(within(detail).getByRole('button', { name: '同步状态说明' })).toHaveTextContent('未同步')
+    expect(detail).toHaveTextContent('B站收藏夹：bilimi·其他')
+    expect(detail).not.toHaveTextContent('等待回读确认')
+    expect(detail).not.toHaveTextContent('回读不一致')
   })
 
   it('keeps the row and detail sync status aligned with the repository library fact', async () => {
@@ -2805,10 +2806,10 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     const row = (await screen.findByText('未同步详情')).closest('[role="button"]')
-    expect(row?.querySelector('.favorite-library__row-status-sync')).toHaveTextContent('同步失败')
+    expect(row?.querySelector('.favorite-library__row-status-sync')).toHaveTextContent('未同步')
 
     fireEvent.click(screen.getByText('未同步详情'))
-    expect(await screen.findByRole('button', { name: '同步状态说明' })).toHaveTextContent('同步失败')
+    expect(await screen.findByRole('button', { name: '同步状态说明' })).toHaveTextContent('未同步')
   })
 
   it('renders row sync, protection, and organization as centered status text', async () => {
@@ -2908,7 +2909,7 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('等待确认'))
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('尚未扫描同步状态')
+    expect(detail).toHaveTextContent('未同步')
     expect(detail).not.toHaveTextContent('result-unknown')
   })
 
@@ -3056,11 +3057,11 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Refresh keeps detail'))
     expect(await screen.findByRole('button', { name: '同步状态说明' })).toHaveTextContent('未同步')
-    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('收藏库与B站位置不同')
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：未同步')
     revision = 3
     await act(async () => { notifyRepositoryChange?.() })
     await waitFor(() => expect(screen.getByRole('button', { name: '同步状态说明' })).toHaveTextContent('已同步'))
-    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('位置一致')
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：已同步')
     expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledTimes(2)
   })
 

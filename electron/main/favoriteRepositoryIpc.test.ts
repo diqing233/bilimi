@@ -713,6 +713,26 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, {
       limit: 50, page: 3, query: 'later page', filter: 'unsynced', sourceFilter: 'with-other', initialSourceFilter: 'initial-ordinary', sort: 'title-asc'
     })
+
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, stateFilters: { sync: 'synced' }
+    })
+    expect(getLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, {
+      limit: 50, stateFilters: { sync: 'synced' }
+    })
+
+    await ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+      limit: 50, stateFilters: { sync: 'unsynced' }
+    })
+    expect(getLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, {
+      limit: 50, stateFilters: { sync: 'unsynced' }
+    })
+
+    for (const sync of ['write-confirmed-awaiting-readback', 'write-confirmed-readback-conflict']) {
+      await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, {
+        limit: 50, stateFilters: { sync }
+      })).rejects.toThrow('Favorite library page options are invalid.')
+    }
   })
 
   it('normalizes a transcription filter selection before forwarding the global library query', async () => {

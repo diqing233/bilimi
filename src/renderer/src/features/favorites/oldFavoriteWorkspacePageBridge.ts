@@ -47,8 +47,6 @@ export type OldFavoriteWorkspaceSourceItem = {
   upperName: string
   cover: string
   addedAt: number
-  tags: string[]
-  category: string
   unavailable: boolean
 }
 
@@ -150,13 +148,11 @@ function isMembers(value: unknown): value is Record<string, number[]> {
 function isSourceItem(value: unknown): value is OldFavoriteWorkspaceSourceItem {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const item = value as Record<string, unknown>
-  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt' || key === 'tags' || key === 'category' || key === 'unavailable') &&
+  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt' || key === 'unavailable') &&
     isPositiveInteger(item.aid) && typeof item.title === 'string' && item.title.length <= 1024 &&
     typeof item.upperName === 'string' && item.upperName.length <= 512 &&
     typeof item.cover === 'string' && item.cover.length <= 2048 &&
     typeof item.addedAt === 'number' && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0 &&
-    Array.isArray(item.tags) && item.tags.length <= 32 && item.tags.every((tag) => typeof tag === 'string' && tag.length <= 128) &&
-    typeof item.category === 'string' && item.category.length <= 128 &&
     (item.unavailable === undefined || typeof item.unavailable === 'boolean')
 }
 
@@ -310,10 +306,6 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     const response = await fetchJson(url.toString());
     if (response.error) return unknown(response.error, response.diagnostics);
     if (!Array.isArray(response.json?.data?.medias)) return unknown('invalid-source-page-response');
-    const readTags = (value) => (Array.isArray(value) ? value : [])
-      .map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim())
-      .filter(Boolean)
-      .slice(0, 32);
     const rawItems = response.json.data.medias.map((media) => {
       const title = String(media?.title || '');
       const upperName = String(media?.upper?.name || '');
@@ -323,8 +315,6 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
         upperName,
         cover: String(media?.cover || ''),
         addedAt: Number(media?.fav_time ?? media?.ctime ?? 0),
-        tags: readTags(media?.tags ?? media?.tag),
-        category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128),
         unavailable: title.trim() === '已失效视频' || upperName.trim() === '账号已注销'
       };
     }).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);

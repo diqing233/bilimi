@@ -137,8 +137,6 @@ export type FavoriteRepositoryTranscriptionFilter = 'completed' | 'none' | 'pend
 export type FavoriteRepositoryLibrarySyncState =
   | 'synced'
   | 'unsynced'
-  | 'write-confirmed-awaiting-readback'
-  | 'write-confirmed-readback-conflict'
 export type FavoriteRepositoryLibraryStates = {
   sync: FavoriteRepositoryLibrarySyncState
   protection: 'protected' | 'unprotected'
@@ -351,7 +349,7 @@ export type FavoriteRepositoryLibraryDetail = {
   }
   sourceShards?: Array<{ folderId: string; shardNumber: number; remoteFolderId: string; title: string }>
   mirror: {
-    status: '未同步' | '同步中' | '已同步' | '同步失败' | '待确认'
+    status: '未同步' | '已同步'
     lastSyncedAt?: string
     lastCheckedAt?: string
     errorCode?: 'network' | 'unavailable' | 'account-changed'
@@ -1493,17 +1491,12 @@ export class FavoriteRepositoryService {
         .filter((folderId): folderId is string => Boolean(folderId))
       : [])
     const remoteBilimiEvidence = observedLogicalFolderIds.size > 0
-    const reliableRemoteState = position?.positionState === 'aligned' || position?.positionState === 'local-only-change'
     const organized = (index.folderIdsByAid.get(aid) ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))
     const protectedAid = index.protectedAids.has(aid)
-    const currentStateOverridesReceipt = Boolean(position && !reliableRemoteState)
-    const sync = syncReceipt && !currentStateOverridesReceipt
-      ? position?.sourceAuthority !== 'complete'
-        ? 'write-confirmed-awaiting-readback'
-        : syncReceipt.targetLogicalFolderIds.every((folderId) => observedLogicalFolderIds.has(folderId))
-          ? 'synced'
-          : 'write-confirmed-readback-conflict'
-      : remoteBilimiEvidence && reliableRemoteState ? 'synced' : 'unsynced'
+    const completeReadbackConflicts = position?.sourceAuthority === 'complete' && position.positionState !== 'aligned'
+    const sync = syncReceipt && !completeReadbackConflicts
+      ? 'synced'
+      : remoteBilimiEvidence && position?.positionState === 'aligned' ? 'synced' : 'unsynced'
     return {
       sync,
       protection: protectedAid ? 'protected' : 'unprotected',
@@ -1597,8 +1590,7 @@ export class FavoriteRepositoryService {
       ...(record.remoteCode !== undefined ? { remoteCode: record.remoteCode } : {})
     }
     if (record.status === 'synced') return { status: '已同步', ...evidence }
-    if (record.status === 'failed') return { status: '同步失败', ...evidence }
-    return { status: '同步中', ...evidence }
+    return { status: '未同步', ...evidence }
   }
 
   private libraryAids(

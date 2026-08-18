@@ -443,7 +443,7 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
     const stateFilters = options.stateFilters as Record<string, unknown> | undefined
     const validStateFilters = stateFilters === undefined || Boolean(stateFilters) && !Array.isArray(stateFilters) &&
       Object.keys(stateFilters).every((key) => ['sync', 'protection', 'organization'].includes(key)) &&
-      (stateFilters.sync === undefined || ['synced', 'unsynced', 'write-confirmed-awaiting-readback', 'write-confirmed-readback-conflict'].includes(String(stateFilters.sync))) &&
+      (stateFilters.sync === undefined || ['synced', 'unsynced'].includes(String(stateFilters.sync))) &&
       (stateFilters.protection === undefined || ['protected', 'unprotected'].includes(String(stateFilters.protection))) &&
       (stateFilters.organization === undefined || ['organized', 'unorganized'].includes(String(stateFilters.organization)))
     if (!validScope || !validStateFilters || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||

@@ -14,7 +14,7 @@ type RuntimeInventoryResult = {
   target?: ScanTarget
   folders?: Array<{ id: string; title: string; mediaCount: number }>
   members?: Record<string, number[]>
-  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; tags: string[]; category: string; unavailable: boolean }>
+  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; unavailable: boolean }>
   hasMore?: boolean
   aid?: number
   tags?: string[]
@@ -574,7 +574,7 @@ export class OldFavoriteWorkspaceScanService {
             hasMore: sourcePage.hasMore,
             items: sourcePage.items.map((item) => ({
               aid: item.aid, title: item.title, author: item.upperName, cover: item.cover,
-              addedAt: item.addedAt, tags: item.tags, category: item.category,
+              addedAt: item.addedAt,
               unavailable: item.unavailable, sourceFolderIds: [folder.id]
             }))
           }, runId)

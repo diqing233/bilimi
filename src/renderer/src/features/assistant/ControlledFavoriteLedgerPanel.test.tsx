@@ -1813,6 +1813,43 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('dialog', { name: '整理收藏' })).not.toBeInTheDocument()
   })
 
+  it('starts only an incremental scan when整理收藏 is reopened after abandoning the draft', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const scanning = { ...preview, workspaceId: 'workspace-101', status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const prepareRecovery = vi.fn().mockResolvedValueOnce({
+      accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', currentStep: 'previewing',
+      baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
+    }).mockResolvedValueOnce(null)
+    const command = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(scanning)
+    const open = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      prepareOldFavoriteWorkspaceRecoveryV1: prepareRecovery,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '放弃本轮整理' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'abandon-current-workspace' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+    expect(command).not.toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full' })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('keeps the recovery dialog open when abandoning fails', async () => {
     const command = vi.fn().mockRejectedValue(new Error('扫描草稿仍在运行，无法放弃。'))
     window.bilimiDesktop = {
