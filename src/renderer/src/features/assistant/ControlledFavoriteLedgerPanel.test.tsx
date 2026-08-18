@@ -1911,8 +1911,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'start-scan', mode: 'incremental'
     }))
     expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
-    expect(screen.getByText('全选（1）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*1/ })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
 
@@ -1942,8 +1943,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-source-folders', folderIds: ['bilimi', 'source']
     }))
-    expect(screen.getByText('全选（2）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*2/ })).toBeInTheDocument()
   })
 
   it('keeps incomplete Bilibili fact tables selectable regardless of a local work-folder marker', async () => {
@@ -1968,8 +1970,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
 
-    expect(await screen.findByText('全选（2）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    const sourceTable = await screen.findByRole('table', { name: 'B站收藏夹' })
+    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*2/ })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
 

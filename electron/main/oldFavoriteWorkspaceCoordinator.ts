@@ -469,6 +469,16 @@ function normalizeTagEnrichment(value: {
   }
 }
 
+function selectedLibraryTagIsReusable(
+  item: CurrentSegmentItem,
+  tagUpdates: ReadonlyMap<number, string[]>,
+  freshTagAids: ReadonlySet<number>
+) {
+  if (freshTagAids.has(item.aid)) return false
+  const tags = tagUpdates.get(item.aid) ?? item.tags ?? []
+  return item.tagEvidence === 'confirmed' || tags.length > 0
+}
+
 function normalizeTagAdoption(value: OldFavoriteWorkspaceTagAdoption | null | undefined) {
   if (!value) return undefined
   if (value.status === 'recomputing') return { status: 'recomputing' as const }
@@ -2073,13 +2083,17 @@ export class OldFavoriteWorkspaceCoordinator {
       }]
       const items = aids.map((aid): CurrentSegmentItem => {
         const video = repository.videos[String(aid)]!
+        // Older library entries can have complete tags without the later
+        // evidence marker. Within selected-library reorganization, those
+        // persisted non-empty tags are reusable historical facts.
+        const reusableTagEvidence = video.tagEvidence === 'confirmed' || video.tags.length > 0
         return {
           aid,
           title: video.title,
           ...(video.author ? { author: video.author } : {}),
           ...(video.description ? { description: video.description } : {}),
           tags: [...video.tags],
-          ...(video.tagEvidence ? { tagEvidence: video.tagEvidence } : {}),
+          ...(reusableTagEvidence ? { tagEvidence: 'confirmed' as const } : {}),
           ...(video.category ? { category: video.category } : {}),
           ...(video.coverUrl ? { cover: video.coverUrl } : {}),
           sourceFolderIds: [sourceId]
@@ -5353,7 +5367,10 @@ export class OldFavoriteWorkspaceCoordinator {
     this.planReadiness.set(marker.accountMid, repairedReadiness)
     this.staleDeepSeekAids.set(marker.accountMid, [...new Set(recovered.recoveryDecision?.staleDeepSeekAids ?? [])].sort((left, right) => left - right))
     if (recovered.tagEnrichment) {
-      const normalizedTagEnrichment = normalizeTagEnrichment(recovered.tagEnrichment)
+      let normalizedTagEnrichment = normalizeTagEnrichment(recovered.tagEnrichment)
+      normalizedTagEnrichment = await this.restoreSelectedLibraryTagAcceptanceUnsafe(
+        workspace, normalizedTagEnrichment, recovered.currentSegmentId, recovered.tagUpdates
+      )
       if (options.pauseRunningTagEnrichment !== false &&
         normalizedTagEnrichment.status === 'running' && normalizedTagEnrichment.pendingAids.length) {
         await this.options.workspaceStore.appendTagEnrichmentDelta(marker.accountMid, marker.id, {
@@ -5403,6 +5420,47 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     return clone(workspace)
+  }
+
+  private async restoreSelectedLibraryTagAcceptanceUnsafe(
+    workspace: OldFavoriteWorkspace,
+    enrichment: TagEnrichment,
+    currentSegmentId: string,
+    tagUpdates: Array<{ aid: number; tags: string[] }>
+  ) {
+    if (workspace.scope.kind !== 'selection' || enrichment.status !== 'complete') return enrichment
+    const acceptedSegmentIds = new Set(enrichment.acceptedSegmentIds)
+    const acceptedTagVersionsBySegment = { ...enrichment.acceptedTagVersionsBySegment }
+    const freshTagAids = new Set([...enrichment.taggedAids, ...enrichment.confirmedUntaggedAids])
+    const tagUpdatesByAid = new Map(tagUpdates.map((update) => [update.aid, update.tags]))
+    const descriptors = (this.segmentDescriptors.get(workspace.accountMid) ??
+      workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
+      .slice()
+      .sort((left, right) => left.index - right.index)
+
+    for (const descriptor of descriptors) {
+      if (acceptedSegmentIds.has(descriptor.id)) continue
+      const segmentItems = descriptor.id === currentSegmentId
+        ? (this.currentSegmentItems.get(workspace.accountMid) ?? [])
+        : (await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)).items ?? []
+      const itemsByAid = new Map(segmentItems.map((item) => [item.aid, item]))
+      if (descriptor.itemCount > 0 && segmentItems.length === descriptor.itemCount &&
+        [...itemsByAid.values()].every((item) => selectedLibraryTagIsReusable(item, tagUpdatesByAid, freshTagAids))) {
+        acceptedSegmentIds.add(descriptor.id)
+        acceptedTagVersionsBySegment[descriptor.id] = enrichment.tagVersionsBySegment[descriptor.id] ?? 0
+      }
+    }
+
+    if (acceptedSegmentIds.size === enrichment.acceptedSegmentIds.length) return enrichment
+    const next = normalizeTagEnrichment({
+      ...enrichment,
+      acceptedSegmentIds: [...acceptedSegmentIds],
+      acceptedTagVersionsBySegment
+    })
+    await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+      currentSegmentId, classifications: [], history: [], tagEnrichment: next
+    })
+    return next
   }
 
   private shouldBackfillInitialSystemClassifications(

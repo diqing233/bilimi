@@ -236,8 +236,11 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByLabelText('当前批次标签进度')).not.toBeInTheDocument()
     expect(screen.getByText('标签补取进行中：已处理 498 / 501 条。')).toBeInTheDocument()
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签498')
-    expect(screen.getByText('全选（1）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).queryByText('全选（1）')).not.toBeInTheDocument()
+    expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
+    expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
@@ -251,8 +254,8 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(currentMetrics).toHaveTextContent('本批待整理500')
     expect(within(currentMetrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(screen.getByText('标签补取进行中：已处理 498 / 500 条。')).toBeInTheDocument()
-    expect(screen.getByText('全选（1）')).toBeInTheDocument()
-    expect(screen.queryByText('本批来源关系')).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
+    expect(screen.getByText('本轮待整理')).toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteScanOverviewStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
     expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
@@ -302,8 +305,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(within(metrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()
-    expect(screen.getByText('全选（2）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
   })
 
   it('keeps the current multi-batch scan view to its two pending organization metrics', () => {
@@ -534,8 +536,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮获取标签25')
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('本轮确认无标签0')
     expect(screen.getByText('先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。')).toBeInTheDocument()
-    expect(screen.getByText('全选（1）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
   })
 
   it('shows tag enrichment once and keeps its actions in one equal-width row', () => {
@@ -726,7 +727,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('全选（2）')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'B站收藏夹' })).getByText('全选')).toBeInTheDocument()
     const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
     expect(selectAll).not.toBeChecked()
     fireEvent.click(selectAll)
@@ -777,8 +778,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('全选（2）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
   })
 
   it('uses compact Bilibili source facts for the three source metrics', () => {
@@ -808,11 +808,10 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('全选（3）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
   })
 
-  it('projects source selection as one numeric all-select control', () => {
+  it('keeps source folders and metrics while the all-select heading stays concise', () => {
     const selectSourceFolders = vi.fn()
     render(<OldFavoriteScanOverviewStep
       snapshot={{
@@ -832,10 +831,10 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('全选（2）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
-    expect(screen.queryByText('总数')).not.toBeInTheDocument()
-    expect(screen.queryByText('本批来源关系')).not.toBeInTheDocument()
+    const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(sourceTable).toBeInTheDocument()
+    expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
+    expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
     const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
     fireEvent.click(selectAll)
     expect(selectSourceFolders).toHaveBeenLastCalledWith(['source-a', 'source-b'])
@@ -877,8 +876,7 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(screen.getByText('全选（4）')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
     const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
     expect(selectAll).toBeEnabled()
     fireEvent.click(selectAll)
@@ -914,7 +912,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByLabelText('本轮待整理')).toHaveTextContent('本轮待整理待确认')
     expect(screen.getByLabelText('已保护跳过')).toHaveTextContent('已保护跳过待确认')
     expect(screen.getByLabelText('失效视频')).toHaveTextContent('失效视频待确认')
-    expect(screen.getByText('全选（1）')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
 })

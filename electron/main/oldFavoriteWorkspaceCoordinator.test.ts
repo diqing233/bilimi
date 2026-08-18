@@ -2562,6 +2562,60 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       })
   })
 
+  it('treats complete saved non-empty library tags without legacy evidence as accepted history', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await repository.commit('100', {
+        id: `seed-legacy-tags-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `历史视频 ${aid}`, tags: [aid === 1 ? '知识' : '游戏'], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(coordinator.beginSelectedReorganization('100', [1, 2], { refreshIncompleteMetadata: false }))
+      .resolves.toMatchObject({
+        tagEnrichment: {
+          status: 'complete',
+          pendingItemCount: 0,
+          currentSegmentHasUnacceptedTagChanges: false
+        }
+      })
+  })
+
+  it('restores a legacy selected-library draft with complete saved tags as already accepted', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    for (const aid of [1, 2]) {
+      await repository.commit('100', {
+        id: `seed-legacy-selection-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `历史视频 ${aid}`, tags: [aid === 1 ? '知识' : '游戏'], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const first = createCoordinator(repository, workspaceStore, { initializeOnOpen: false })
+    const created = requireSnapshot(await first.beginSelectedReorganization('100', [1, 2], { refreshIncompleteMetadata: false }))
+    await workspaceStore.appendOverlay('100', created.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'complete', totalItemCount: 0, completedItemCount: 0, pendingAids: [], failedAids: [],
+        reusedTagItemCount: 2, taggedAids: [], confirmedUntaggedAids: [], acceptedSegmentIds: [],
+        tagVersionsBySegment: {}, acceptedTagVersionsBySegment: {}
+      }
+    })
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: {
+        status: 'complete', pendingItemCount: 0, currentSegmentHasUnacceptedTagChanges: false
+      }
+    })
+    await expect(workspaceStore.recover('100', created.workspaceId)).resolves.toMatchObject({
+      tagEnrichment: { acceptedSegmentIds: ['segment-1'], acceptedTagVersionsBySegment: { 'segment-1': 0 } }
+    })
+  })
+
   it('refreshes and persists only incomplete selected metadata before building the selection preview', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })

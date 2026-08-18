@@ -7,6 +7,29 @@ import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavori
 
 type SourceFolderProjection = OldFavoriteInventoryMetricProjection['sourceFolders'][number]
 
+type SourceCountMode = 'planned' | 'protected' | 'unavailable'
+
+const SOURCE_COUNT_MODES: Record<SourceCountMode, {
+  label: string
+  next: SourceCountMode
+  field: 'plannedAidCount' | 'protectedAidCount' | 'unavailableAidCount'
+}> = {
+  planned: { label: '本轮待整理', next: 'protected', field: 'plannedAidCount' },
+  protected: { label: '已保护', next: 'unavailable', field: 'protectedAidCount' },
+  unavailable: { label: '失效视频', next: 'planned', field: 'unavailableAidCount' }
+}
+
+function sourceProjectionValue(
+  folder: SourceFolderProjection,
+  mode: SourceCountMode,
+  currentSegmentPlannedCounts?: ReadonlyMap<string, number>
+): number | '—' | '待确认' {
+  if (mode === 'planned' && !folder.selected) return '—'
+  if (mode === 'planned' && currentSegmentPlannedCounts) return currentSegmentPlannedCounts.get(folder.id) ?? 0
+  const value = folder[SOURCE_COUNT_MODES[mode].field]
+  return folder.confirmed && value !== null ? value : '待确认'
+}
+
 type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
@@ -68,6 +91,7 @@ export function OldFavoriteScanOverviewStep({
   ,viewScope: controlledViewScope
   ,onViewScopeChange
 }: OldFavoriteScanOverviewStepProps) {
+  const [sourceCountMode, setSourceCountMode] = useState<SourceCountMode>('planned')
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
   const retryAvailableAt = snapshot && !('recovery' in snapshot) ? snapshot.scan.retryAvailableAt : undefined
   const [retryClock, setRetryClock] = useState(() => Date.now())
@@ -173,8 +197,19 @@ export function OldFavoriteScanOverviewStep({
   const protectedAidCount = inventoryMetrics?.protectedAidCount ?? activeSnapshot?.protectedAidCount ?? 0
   const lifecycleCountsConfirmed = inventoryMetrics?.authority !== 'incomplete'
   const allUserSourcesSelected = selectableUserFolders.length > 0 && selectedSourceIds.size === selectableUserFolders.length
+  const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.relationshipCount, 0)
   const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.unavailableAidCount ?? 0), 0)
   const unavailableAidCount = inventoryMetrics?.unavailableAidCount ?? invalidSourceItemCount
+  const effectiveSourceCountMode: SourceCountMode = viewScope === 'current' ? 'planned' : sourceCountMode
+  const sourceMode = SOURCE_COUNT_MODES[effectiveSourceCountMode]
+  const currentSegmentPlannedCounts = viewScope === 'current' && activeSnapshot?.currentSegmentMetrics
+    ? new Map(activeSnapshot.currentSegmentMetrics.sourceFolders.map((folder) => [folder.id, folder.plannedAidCount]))
+    : undefined
+  const sourceModeLabel = viewScope === 'current' ? '本批来源关系' : sourceMode.label
+  const sourceModeValues = userFolders.map((folder) => sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts))
+  const sourceModeSummary = sourceModeValues.some((value) => value === '待确认')
+    ? '待确认'
+    : sourceModeValues.reduce<number>((count, value) => count + (typeof value === 'number' ? value : 0), 0)
   const guidance = checkingRiskControlRecovery
     ? '正在检查 B 站收藏读取是否已恢复；检测成功后会继续扫描，不会重复读取已保存分页。'
     : retryCoolingDown
@@ -289,16 +324,48 @@ export function OldFavoriteScanOverviewStep({
         : null}
     </> : null}
     <hr className="favorite-ledger-panel__scan-source-divider" aria-hidden="true" />
+    <p className="favorite-ledger-panel__scan-discovery">已发现 {folders.length} 个 B站收藏夹。</p>
     {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
       ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
       : null}
-    <div className="favorite-ledger-panel__source-select-all" role="group" aria-label="扫描来源">
-      <label>
-        <input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
-          disabled={loading || overviewReadOnly || selectableUserFolders.length === 0}
-          onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} />
-        <span>全选（{userFolders.length}）</span>
-      </label>
-    </div>
+    {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="B站收藏夹">
+      <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
+        <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading favorite-ledger-panel__source-heading--select-only">
+          <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
+            disabled={loading || overviewReadOnly || selectableUserFolders.length === 0}
+            onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} /><span>全选</span></label>
+          <small>（{userFolders.length}）</small>
+        </span>
+        <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
+          <span>总数</span><small>（{totalUserSourceItemCount}）</small>
+        </span>
+        <span role="columnheader" aria-label={viewScope === 'current' ? `${sourceModeLabel}（${sourceModeSummary}）` : undefined}
+          className={`favorite-ledger-panel__source-metric-heading${viewScope === 'all' ? ' favorite-ledger-panel__source-metric-heading--toggle' : ''}`}>
+          <span>{sourceModeLabel}</span>
+          {viewScope === 'all' ? <button type="button" className="favorite-ledger-panel__source-count-toggle"
+            aria-label={`${sourceModeLabel}（${sourceModeSummary}）`}
+            title={`切换为${SOURCE_COUNT_MODES[sourceMode.next].label}`}
+            onClick={() => setSourceCountMode(sourceMode.next)}>
+            <span aria-hidden="true">⇄</span>
+          </button> : null}
+          <small>（{sourceModeSummary}）</small>
+        </span>
+      </div>
+      <ul role="rowgroup" className="favorite-ledger-panel__source-list">
+        {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
+          <label className="favorite-ledger-panel__source-row-content">
+            <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
+              disabled={loading || overviewReadOnly} onChange={(event) => {
+                const next = new Set(selectedSourceIds)
+                if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
+                onSelectSourceFolders([...next])
+              }} /></span>
+            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{folder.relationshipCount}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
+          </label>
+        </li>)}
+      </ul>
+    </div> : null}
   </section>
 }

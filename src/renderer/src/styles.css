@@ -6495,6 +6495,14 @@ body[data-floating-window="true"],
     grid-row: 2;
     justify-self: start;
   }
+  .favorite-ledger-panel__source-heading--select-only {
+    grid-template-columns: auto auto;
+    grid-template-rows: auto;
+  }
+  .favorite-ledger-panel__source-heading--select-only > small {
+    grid-column: 2;
+    grid-row: 1;
+  }
   .favorite-ledger-panel__source-metric-heading {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
