@@ -237,8 +237,9 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByText('标签补取进行中：已处理 498 / 501 条。')).toBeInTheDocument()
     expect(screen.getByLabelText('标签补取结果')).toHaveTextContent('沿用历史标签498')
     const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
-    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
-    expect(within(sourceTable).queryByText('全选（1）')).not.toBeInTheDocument()
+    const selectAllLabel = within(sourceTable).getByLabelText('全选来源').closest('label')
+    expect(selectAllLabel).toHaveTextContent('全选（1）')
+    expect(sourceTable.querySelector('.favorite-ledger-panel__source-heading > small')).not.toBeInTheDocument()
     expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
     expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
 
@@ -727,7 +728,8 @@ describe('OldFavoriteScanOverviewStep', () => {
       onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
     />)
 
-    expect(within(screen.getByRole('table', { name: 'B站收藏夹' })).getByText('全选')).toBeInTheDocument()
+    const selectAllLabel = within(screen.getByRole('table', { name: 'B站收藏夹' })).getByLabelText('全选来源').closest('label')
+    expect(selectAllLabel).toHaveTextContent('全选（2）')
     const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
     expect(selectAll).not.toBeChecked()
     fireEvent.click(selectAll)

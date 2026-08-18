@@ -333,8 +333,7 @@ export function OldFavoriteScanOverviewStep({
         <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading favorite-ledger-panel__source-heading--select-only">
           <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
             disabled={loading || overviewReadOnly || selectableUserFolders.length === 0}
-            onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} /><span>全选</span></label>
-          <small>（{userFolders.length}）</small>
+            onChange={() => onSelectSourceFolders(allUserSourcesSelected ? [] : selectableUserFolders.map((folder) => folder.id))} /><span>全选</span><small>（{userFolders.length}）</small></label>
         </span>
         <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
           <span>总数</span><small>（{totalUserSourceItemCount}）</small>

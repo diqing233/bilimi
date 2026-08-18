@@ -106,9 +106,11 @@
 .favorite-library__toolbar button:disabled { cursor: default; opacity: .5; }
 .favorite-library__toolbar input[type='search'] { min-width: 160px; cursor: text; }
 .favorite-library__batch-actions { flex-wrap: wrap; overflow: visible; padding-top: 6px; border-top: 1px solid #dbe7f7; }
+.favorite-library__batch-actions { font-size: 13px; font-weight: 400; line-height: 1.2; }
 .favorite-library__batch-actions > button, .favorite-library__batch-actions > .favorite-library__batch-split { flex: 0 0 auto; min-height: 30px; white-space: nowrap; }
 .favorite-library__batch-actions .video-summary-menu { flex: 0 0 auto; }
 .favorite-library__batch-actions .video-summary-menu__trigger { min-height: 30px; padding: 5px 8px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }
+.favorite-library__batch-actions > button, .favorite-library__batch-actions .favorite-library__batch-destination-trigger, .favorite-library__batch-actions .video-summary-menu__trigger { font-family: inherit; font-size: inherit; font-weight: inherit; line-height: inherit; }
 .favorite-library__batch-split { display: inline-flex; flex: 0 0 auto; }
 .favorite-library__batch-destination-trigger { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px !important; }
 .favorite-library__batch-destination-trigger .favorite-library__chevron { width: 14px; height: 14px; }
@@ -182,10 +184,13 @@
 .favorite-library__row-transcription { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }.favorite-library__row-transcription button { width: min(84px, 100%); min-height: 22px; padding: 2px 5px; border: 1px solid #cbdcf5; border-radius: 6px; color: #1e3a8a; background: #fff; cursor: pointer; font-size: 11px; line-height: 1.15; }.favorite-library__row-transcription button:disabled { opacity: .5; cursor: default; }
 .favorite-library__column-menu { position: relative; display: inline-flex; }.favorite-library__column-menu-trigger { display: inline-flex; align-items: center; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }.favorite-library__column-menu-trigger[aria-expanded='true'] .favorite-library__chevron { transform: rotate(180deg); }.favorite-library__column-menu .favorite-library__chevron { width: 14px; height: 14px; transition: transform 120ms ease; }.favorite-library__sort-arrows { width: 16px; height: 16px; }.favorite-library__column-menu-options { position: absolute; z-index: 12; top: calc(100% + 5px); left: 0; display: grid; min-width: 116px; padding: 5px; border: 1px solid #c9dcf5; border-radius: 8px; background: #fff; box-shadow: 0 8px 18px rgb(30 58 138 / .14); }.favorite-library__column-menu-options--portal { position: fixed; z-index: 60; box-sizing: border-box; min-width: 0; width: min(164px, calc(100vw - 16px)); }.favorite-library__column-menu-options button { padding: 5px 7px; border: 0; border-radius: 4px; background: transparent; color: #334155; text-align: left; cursor: pointer; }.favorite-library__column-menu-options button:hover, .favorite-library__column-menu-options button[aria-checked='true'] { background: #e7f0ff; color: #1d4ed8; }
 .favorite-library__state-filter-options { gap: 2px; min-width: 104px; }
+.favorite-library__classification-ownership-filter-options { width: min(116px, calc(100vw - 16px)); }
 .favorite-library__state-filter-group { position: relative; display: grid; }
 .favorite-library__state-filter-group > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .favorite-library__state-filter-group > button .favorite-library__chevron { width: 13px; height: 13px; transform: rotate(-90deg); }
 .favorite-library__state-filter-submenu { position: absolute; z-index: 13; top: -5px; left: calc(100% + 5px); display: grid; min-width: 116px; padding: 5px; border: 1px solid #c9dcf5; border-radius: 8px; background: #fff; box-shadow: 0 8px 18px rgb(30 58 138 / .14); }
+.favorite-library__classification-ownership-filter-submenu { width: min(216px, calc(100vw - 16px)); }
+.favorite-library__classification-ownership-filter-submenu button { white-space: nowrap; }
 .favorite-library__toolbar-filters { display: flex; align-items: center; gap: 8px; color: #5b7195; font-size: 12px; }
 .favorite-library__toolbar-filters > span { display: inline-flex; align-items: center; gap: 2px; }
 .favorite-library__row-title { display: grid; min-width: 0; gap: 2px; }.favorite-library__row-title strong, .favorite-library__row-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

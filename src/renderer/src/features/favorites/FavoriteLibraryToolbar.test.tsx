@@ -160,6 +160,13 @@ describe('FavoriteLibraryMultiSelectColumnMenu', () => {
     expect(styles).not.toContain('.favorite-library__batch-actions .video-summary-menu__trigger,\n.favorite-library__detail-action-row .video-summary-menu__trigger')
   })
 
+  it('uses one explicit typography contract for every batch action control', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.css'), 'utf8')
+
+    expect(styles).toContain('.favorite-library__batch-actions { font-size: 13px; font-weight: 400; line-height: 1.2; }')
+    expect(styles).toContain('.favorite-library__batch-actions > button, .favorite-library__batch-actions .favorite-library__batch-destination-trigger, .favorite-library__batch-actions .video-summary-menu__trigger { font-family: inherit; font-size: inherit; font-weight: inherit; line-height: inherit; }')
+  })
+
   it('uses a rotating disclosure chevron for the video-name and status column menus', () => {
     render(<><FavoriteLibraryColumnMenu label="视频名称" value="updated-desc" options={[{ value: 'updated-desc', label: '最近更新' }]} onChange={vi.fn()} /><FavoriteLibraryColumnMenu label="状态" value="all" options={[{ value: 'all', label: '全部' }]} onChange={vi.fn()} /></>)
 

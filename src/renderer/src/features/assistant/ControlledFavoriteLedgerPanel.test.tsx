@@ -1912,7 +1912,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
     expect(await screen.findByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).toBeInTheDocument()
     const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
-    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByLabelText('全选来源').closest('label')).toHaveTextContent('全选（1）')
     expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*1/ })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })
@@ -1944,7 +1944,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'select-source-folders', folderIds: ['bilimi', 'source']
     }))
     const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
-    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByLabelText('全选来源').closest('label')).toHaveTextContent('全选（2）')
     expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*2/ })).toBeInTheDocument()
   })
 
@@ -1971,7 +1971,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await openPersistedWorkspaceGuide()
 
     const sourceTable = await screen.findByRole('table', { name: 'B站收藏夹' })
-    expect(within(sourceTable).getByText('全选')).toBeInTheDocument()
+    expect(within(sourceTable).getByLabelText('全选来源').closest('label')).toHaveTextContent('全选（2）')
     expect(within(sourceTable).getByRole('columnheader', { name: /全选来源.*2/ })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选来源' })).toBeEnabled()
   })

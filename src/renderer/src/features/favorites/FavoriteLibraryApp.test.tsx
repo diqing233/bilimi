@@ -1233,6 +1233,12 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__history-heading { min-width: 0; white-space: normal; overflow-wrap: anywhere; }')
     expect(favoriteLibraryStyles).toContain('.favorite-library__row-source-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
   })
+
+  it('gives the classification ownership menu a compact first level and single-line second level', () => {
+    expect(favoriteLibraryStyles).toContain('.favorite-library__classification-ownership-filter-options { width: min(116px, calc(100vw - 16px)); }')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__classification-ownership-filter-submenu { width: min(216px, calc(100vw - 16px)); }')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__classification-ownership-filter-submenu button { white-space: nowrap; }')
+  })
   it('hides adopting a Bilibili position until a completed remote observation exists', async () => {
     const adoptFavoriteLibraryRemotePlacement = vi.fn()
     window.bilimiDesktop = {

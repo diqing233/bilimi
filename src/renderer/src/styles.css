@@ -6437,6 +6437,7 @@ body[data-floating-window="true"],
   margin: 0;
 }
 .favorite-ledger-panel__source-heading > small,
+.favorite-ledger-panel__source-select-all > small,
 .favorite-ledger-panel__source-metric-heading > small {
   color: var(--porcelain-muted);
   font-size: 10px;
