@@ -1406,7 +1406,7 @@ describe('FavoriteLibraryApp', () => {
   })
 
   it('shows the latest classification adjustment and loads older adjustments only after expansion', async () => {
-    const getFavoriteRepositoryClassificationAdjustments = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, totalCount: 2, items: [{ id: 'first:1', accountMid: '100', aid: 1, occurredAt: '2026-08-13T01:00:00.000Z', operation: 'library-placement', classificationSource: 'manual', beforeFolderIds: [], afterFolderIds: ['bilimi-logical:music'], addedToLibrary: true, bilibiliSync: { attempted: false } }] })
+    const getFavoriteRepositoryClassificationAdjustments = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, totalCount: 2, nextCursor: 'cursor-1', items: [{ id: 'first:1', accountMid: '100', aid: 1, occurredAt: '2026-08-13T01:00:00.000Z', operation: 'library-placement', classificationSource: 'manual', beforeFolderIds: [], afterFolderIds: ['bilimi-logical:music'], addedToLibrary: true, bilibiliSync: { attempted: false } }] })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-13T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
@@ -1423,13 +1423,25 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByText(/B站同步/)).not.toBeInTheDocument()
     const history = screen.getByRole('heading', { name: '初始来源' }).closest('section')!
     expect(history.querySelector('.favorite-library__classification-adjustment')).toBeNull()
-    expect(within(history).getAllByRole('button', { name: '查看完整记录' })).toHaveLength(1)
+    const historyToggle = within(history).getByRole('button', { name: '查看完整记录' })
+    expect(historyToggle).toHaveAttribute('aria-expanded', 'false')
     expect(within(history).queryByRole('button', { name: '查看完整处理记录' })).not.toBeInTheDocument()
     expect(getFavoriteRepositoryClassificationAdjustments).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '查看完整记录' }))
+    fireEvent.click(historyToggle)
     await waitFor(() => expect(getFavoriteRepositoryClassificationAdjustments).toHaveBeenCalledWith('100', 1, { limit: 20 }))
-    expect(await screen.findByText('首次分类')).toBeInTheDocument()
+    expect(await screen.findByText('第 2 次调整')).toBeInTheDocument()
     expect(screen.getByText(/加入收藏库归属：音乐/)).toBeInTheDocument()
+    const collapseToggle = within(history).getByRole('button', { name: '收起完整记录' })
+    expect(collapseToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(within(history).getByRole('button', { name: '加载更早记录' })).toBeInTheDocument()
+    fireEvent.click(collapseToggle)
+    expect(within(history).getByRole('button', { name: '查看完整记录' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(history).queryByText('第 2 次调整')).not.toBeInTheDocument()
+    expect(within(history).queryByRole('button', { name: '加载更早记录' })).not.toBeInTheDocument()
+    expect(getFavoriteRepositoryClassificationAdjustments).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(history).getByRole('button', { name: '查看完整记录' }))
+    expect(await within(history).findByRole('button', { name: '收起完整记录' })).toHaveAttribute('aria-expanded', 'true')
+    expect(getFavoriteRepositoryClassificationAdjustments).toHaveBeenCalledTimes(1)
   })
 
   it('keeps ordinary-folder detail read-only while retaining bilimi-only deletion and other saved-video actions', async () => {

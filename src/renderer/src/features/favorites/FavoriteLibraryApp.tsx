@@ -1319,6 +1319,17 @@ export function FavoriteLibraryApp({
       setError(favoriteLibraryActionFailureMessage(error))
     }
   }
+  const toggleClassificationAdjustments = () => {
+    if (classificationAdjustmentsOpen) {
+      setClassificationAdjustmentsOpen(false)
+      return
+    }
+    if (classificationAdjustments) {
+      setClassificationAdjustmentsOpen(true)
+      return
+    }
+    void loadClassificationAdjustments()
+  }
   const restoreRecycledVideo = async () => {
     const api = window.bilimiDesktop
     if (!accountMid || !selected || !summary || !api?.restoreFavoriteLibraryVideo) throw new Error(text.unavailable)
@@ -2463,8 +2474,8 @@ export function FavoriteLibraryApp({
             <section className="favorite-library__classification-history"><h3>初始来源</h3><p>{formatFavoriteLibraryInitialSource(detailSnapshot?.video.initialSource ?? detail.initialSource)}</p>{(() => {
               const latest = detailSnapshot?.latestClassificationAdjustment
               return <><h3>最近调整</h3>{latest ? <><p>分类时间：{formatDetailTimestamp(latest.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(latest)}</p><p>分类详情：{classificationAdjustmentDetail(latest)}</p></> : <p>未记录</p>}</>
-            })()}<button type="button" className="favorite-library__inline-action" onClick={() => void loadClassificationAdjustments()}>查看完整记录</button>{classificationAdjustmentsOpen ? <ol className="favorite-library__classification-adjustment-list" aria-label="完整分类调整记录">{classificationAdjustments?.map((adjustment, index, items) => <li key={adjustment.id}><h3>{index === items.length - 1 && !classificationAdjustmentCursor ? '首次分类' : `第 ${(classificationAdjustmentTotalCount ?? items.length) - index} 次调整`}</h3><p>分类时间：{formatDetailTimestamp(adjustment.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(adjustment)}</p><p>分类详情：{classificationAdjustmentDetail(adjustment)}</p></li>)}</ol> : null}
-              {classificationAdjustmentCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreClassificationAdjustments()}>加载更早记录</button> : null}
+            })()}<button type="button" className="favorite-library__inline-action" aria-expanded={classificationAdjustmentsOpen} onClick={toggleClassificationAdjustments}>{classificationAdjustmentsOpen ? '收起完整记录' : '查看完整记录'}</button>{classificationAdjustmentsOpen ? <ol className="favorite-library__classification-adjustment-list" aria-label="完整分类调整记录">{classificationAdjustments?.map((adjustment, index, items) => <li key={adjustment.id}><h3>{index === items.length - 1 && !classificationAdjustmentCursor ? '首次分类' : `第 ${(classificationAdjustmentTotalCount ?? items.length) - index} 次调整`}</h3><p>分类时间：{formatDetailTimestamp(adjustment.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(adjustment)}</p><p>分类详情：{classificationAdjustmentDetail(adjustment)}</p></li>)}</ol> : null}
+              {classificationAdjustmentsOpen && classificationAdjustmentCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreClassificationAdjustments()}>加载更早记录</button> : null}
             </section>
             {!isRecycleScope ? <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <>{detailLocalDeletionAvailable ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>从收藏库 bilimi 收藏夹删除</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库 bilimi 收藏夹删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>{currentLogicalFolderId ? <>{(() => {
               const otherFolderIds = (detailSnapshot?.position?.localDesiredFolderIds ?? []).filter((folderId) => folderId !== currentLogicalFolderId)
