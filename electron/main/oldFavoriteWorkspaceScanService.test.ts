@@ -705,6 +705,21 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(coordinator.recordScanPage).not.toHaveBeenCalled()
   })
 
+  it('does not republish an already paused scan during recovery', async () => {
+    const pausedSnapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' as const,
+      scan: { phase: 'inventory' as const, paused: true }
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(pausedSnapshot),
+      pauseScan: vi.fn()
+    }
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: vi.fn() })
+
+    await expect(service.pauseForRecovery('100')).resolves.toEqual(pausedSnapshot)
+    expect(coordinator.pauseScan).not.toHaveBeenCalled()
+  })
+
   it('does not let an incremental scan swallow an explicit full reorganization request', async () => {
     let resolveIncrementalInventory!: (value: unknown) => void
     const incrementalInventory = new Promise((resolve) => { resolveIncrementalInventory = resolve })

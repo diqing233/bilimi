@@ -699,6 +699,19 @@ export function ControlledFavoriteLedgerPanel({
     setStep('scan')
     setScanStartFailure(null)
   }
+  const closeCurrentWorkspace = async () => {
+    if (recoveryPreparing) return
+    setRecoveryPreparing(true)
+    setConfirmationPreparationError(null)
+    try {
+      await workspace.prepareRecovery()
+      closeGuide()
+    } catch (error) {
+      setConfirmationPreparationError(error instanceof Error ? error.message : '暂停并保存整理进度失败，请重试。')
+    } finally {
+      setRecoveryPreparing(false)
+    }
+  }
   const acknowledgeCompletion = () => {
     if (snapshot && !('recovery' in snapshot) && snapshot.status === 'completed') {
       onAcknowledgeOrganizationCompletion?.(snapshot.accountMid, snapshot.workspaceId)
@@ -825,9 +838,6 @@ export function ControlledFavoriteLedgerPanel({
           return true
         }}
       />
-      {resumeDialogOpen && recoveryPreparing ? <OldFavoriteModal title="整理收藏" onCancel={() => undefined}>
-        <p role="status">正在暂停并保存进度…</p>
-      </OldFavoriteModal> : null}
       {resumeDialogOpen && recoveryPreparationError ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setRecoveryPreparationError(null); setResumeDialogOpen(false); closeGuide() }}
         extraActions={<button type="button" onClick={() => void requestOldFavoriteOrganization()}>重试暂停</button>}>
@@ -929,7 +939,7 @@ export function ControlledFavoriteLedgerPanel({
         onFinishCurrentSegment={() => void finishCurrentSegment()}
         onUseOriginalClassifications={() => void workspace.useOriginalClassificationsForFailedDeepSeek()}
         onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
-        onCloseCurrentWorkspace={closeGuide}
+        onCloseCurrentWorkspace={() => void closeCurrentWorkspace()}
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}
         onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}

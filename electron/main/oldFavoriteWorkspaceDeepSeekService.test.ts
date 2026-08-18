@@ -163,6 +163,26 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(generate).toHaveBeenCalledOnce()
   })
 
+  it('does not rewrite an already paused whole-run checkpoint during recovery', async () => {
+    const checkpoint = {
+      version: 1, workspaceId: 'workspace-1', mode: 'all' as const, scope: 'all' as const, sourceFolderRevision: 'source',
+      segmentWork: [], totalVideoCount: 0, originalTargetLedgerIdsByAid: {}, requestGroups: [], successfulAids: [], pendingAids: [], failedAids: [],
+      completedSegmentIds: [], waitingSegmentIds: [], paused: true, canceled: false, failed: false
+    }
+    const coordinator = {
+      getDeepSeekRunCheckpoint: vi.fn().mockResolvedValue(checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn()
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [] }),
+      generate: vi.fn()
+    })
+
+    await expect(service.pauseForRecovery('100')).resolves.toBe(true)
+    expect(coordinator.setDeepSeekRunCheckpoint).not.toHaveBeenCalled()
+  })
+
   it('rejects DeepSeek organization before an explicit organization round exists', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue(null),

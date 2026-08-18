@@ -628,6 +628,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     }
     const checkpoint = this.pendingAllRuns.get(accountMid) ?? await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
     if (!checkpoint || checkpoint.scope !== 'all' || checkpoint.canceled || checkpoint.failed) return false
+    if (checkpoint.paused) {
+      this.pendingAllRuns.set(accountMid, structuredClone(checkpoint))
+      return true
+    }
     const paused = { ...checkpoint, paused: true, canceled: false }
     await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, paused)
     this.pendingAllRuns.set(accountMid, structuredClone(paused))

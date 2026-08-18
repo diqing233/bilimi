@@ -337,7 +337,7 @@ export class OldFavoriteWorkspaceScanService {
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     const current = await this.options.coordinator.getSnapshot(account)
     if (!current || 'recovery' in current) return current
-    if (current.status === 'scanning') {
+    if (current.status === 'scanning' && !current.scan.paused) {
       const active = this.activeScans.get(account)
       // Revoke future writes before the durable pause is published.
       this.activeScans.delete(account)
