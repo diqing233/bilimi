@@ -720,10 +720,13 @@ export function ControlledFavoriteLedgerPanel({
   }
   const abandonCurrentWorkspace = async () => {
     const result = await workspace.abandonCurrentWorkspace()
-    if (!result) {
+    if (result.status === 'succeeded') {
       setRecoverySummary(null)
       setResumeDialogOpen(false)
       closeGuide()
+    } else {
+      setRecoveryDecisionError(result.message)
+      setResumeDialogOpen(true)
     }
   }
   const finishCurrentSegment = async () => {

@@ -929,10 +929,39 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     type: 'use-original-classifications-for-failed-deepseek'
   }), [sendCommand])
   const abandonCurrentWorkspace = useCallback(async () => {
-    const result = await sendCommand({ type: 'abandon-current-workspace' })
-    if (!result) setSnapshot(null)
-    return result
-  }, [sendCommand])
+    const version = ++requestVersion.current
+    const generation = accountGeneration.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) {
+      const message = '整理草稿暂不可用，请稍后重试。'
+      if (accountGeneration.current === generation) setExecutionError(message)
+      return { status: 'failed' as const, message }
+    }
+    setLoading(true)
+    foregroundRequestCount.current += 1
+    setExecutionError(null)
+    try {
+      const next = await command(accountMid, { type: 'abandon-current-workspace' })
+      if (next && normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) {
+        const message = '整理草稿返回的账号不一致，请刷新后重试。'
+        if (requestVersion.current === version && accountGeneration.current === generation) setExecutionError(message)
+        return { status: 'failed' as const, message }
+      }
+      if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next ?? null)
+      return { status: 'succeeded' as const }
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : executionFailureMessage(error)
+      if (requestVersion.current === version && accountGeneration.current === generation) setExecutionError(message)
+      return { status: 'failed' as const, message }
+    } finally {
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
+    }
+  }, [accountMid])
   const viewSegment = useCallback(async (segmentId: string) => {
     const normalized = segmentId.trim()
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1

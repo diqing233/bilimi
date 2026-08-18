@@ -658,6 +658,39 @@ describe('account favorite repository contracts', () => {
     expect(cleared.affectedAids).toEqual([1, 2])
   })
 
+  it('removes only requested videos from local inbox', () => {
+    const now = '2026-08-18T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: {
+        '1': { aid: 1, title: '已失效视频', tags: [], unavailable: true, updatedAt: now },
+        '2': { aid: 2, title: '有效但未匹配', tags: [], updatedAt: now }
+      },
+      memberships: {
+        'local:inbox': [1, 2],
+        'bilibili:source': [1, 2],
+        'local:other': [2]
+      }
+    }
+
+    const cleaned = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'remove-invalid-inbox-aid', accountMid: '100', issuedAt: now,
+      type: 'remove-favorites-from-local-inbox', payload: { aids: [1] }
+    } as never, now)
+
+    expect(cleaned.memberships).toMatchObject({
+      'local:inbox': [2],
+      'bilibili:source': [1, 2],
+      'local:other': [2]
+    })
+    expect(cleaned.videos).toMatchObject({
+      '1': { aid: 1, unavailable: true },
+      '2': { aid: 2, title: '有效但未匹配' }
+    })
+    expect(cleaned.affectedFolderIds).toEqual(['local:inbox'])
+    expect(cleaned.affectedAids).toEqual([1])
+  })
+
   it('clears both staging memberships instead of falling back when deleting the bilimi inbox', () => {
     const now = '2026-08-11T00:00:00.000Z'
     const snapshot = {

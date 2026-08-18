@@ -577,6 +577,45 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('removes only scan-confirmed unavailable videos from staging', async () => {
+    const root = await createRoot()
+    const now = '2026-08-18T00:00:00.000Z'
+    const repository = new FavoriteRepositoryService({ root, now: () => now })
+    await repository.commit('100', {
+      id: 'legacy-staging', accountMid: '100', issuedAt: now, type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'completed-prior-run',
+        videos: [
+          { aid: 1, title: '旧失效视频', tags: [], updatedAt: now },
+          { aid: 2, title: '有效但未匹配', tags: [], updatedAt: now }
+        ],
+        memberAidsByFolderId: { 'local:inbox': [1, 2] }
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: '用户收藏夹', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [
+        { aid: 1, title: '已失效视频', author: '账号已注销', unavailable: true, sourceFolderIds: ['source'] },
+        { aid: 2, title: '有效但未匹配', sourceFolderIds: ['source'] }
+      ]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '1': expect.objectContaining({ unavailable: true }) },
+      memberships: {
+        'local:inbox': [2],
+        'bilibili:source': [1, 2]
+      },
+      syncRecords: []
+    })
+  })
+
   it('repairs stale readiness totals for unavailable videos when restoring an older draft', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -3853,6 +3892,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       workspace: undefined,
       videos: { 1: { title: 'Saved' } }
     })
+  })
+
+  it('abandons a paused scanning workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-18T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const paused = await coordinator.beginScan('100', 'incremental')
+    await coordinator.pauseScan('100')
+
+    await expect(coordinator.abandonCurrentWorkspace('100')).resolves.toBeUndefined()
+    await expect(coordinator.getSnapshot('100')).resolves.toBeNull()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: undefined })
+
+    await expect(coordinator.beginScan('100', 'incremental')).resolves.toMatchObject({
+      status: 'scanning', mode: 'incremental'
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      workspaceId: expect.not.stringMatching(new RegExp(`^${paused.workspaceId}$`)), status: 'scanning'
+    })
+  })
+
+  it('keeps a non-paused scanning workspace intact when abandonment is refused', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-18T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const active = await coordinator.beginScan('100', 'incremental')
+
+    await expect(coordinator.abandonCurrentWorkspace('100')).rejects.toThrow('Old favorite workspace cannot be abandoned while it is active.')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { id: active.workspaceId, status: 'scanning' } })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ workspaceId: active.workspaceId, status: 'scanning' })
   })
 
   it('treats an already-cleared legacy workspace as safely abandoned', async () => {

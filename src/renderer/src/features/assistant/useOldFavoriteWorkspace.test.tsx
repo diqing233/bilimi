@@ -1261,6 +1261,25 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toBeNull()
   })
 
+  it('does not treat a failed abandon command as success', async () => {
+    const initial = { ...workspace('100'), status: 'scanning' as const }
+    const open = vi.fn().mockResolvedValue(initial)
+    const command = vi.fn().mockRejectedValue(new Error('Old favorite workspace cannot be abandoned while it is active.'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toEqual(initial))
+
+    let abandoned: unknown
+    await act(async () => { abandoned = await result.current.abandonCurrentWorkspace() })
+
+    expect(abandoned).toMatchObject({ status: 'failed' })
+    expect(result.current.snapshot).toEqual(initial)
+    expect(result.current.executionError).toEqual(expect.any(String))
+  })
+
   it('keeps a mapped execution failure visible instead of silently swallowing a rejected confirmation', async () => {
     const command = vi.fn().mockRejectedValue(new Error('remote-target-unbound'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop

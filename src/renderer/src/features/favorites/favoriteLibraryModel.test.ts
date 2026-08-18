@@ -63,6 +63,13 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMirrorStatus([], 'unsynced')).toBe('未同步')
   })
 
+  it('formats write-confirmed readback states', () => {
+    expect(formatFavoriteLibraryMirrorStatus([], 'write-confirmed-awaiting-readback' as never))
+      .toBe('B站写入已成功，等待回读确认')
+    expect(formatFavoriteLibraryMirrorStatus([], 'write-confirmed-readback-conflict' as never))
+      .toBe('B站写入已成功，回读不一致，需核验')
+  })
+
   it('does not expose internal pending-state enum values in reader-facing labels', () => {
     expect(formatFavoriteLibraryMirrorStatus(['result-unknown'], 'unsynced')).toMatch(/确认/)
     expect(formatFavoriteLibraryMirrorStatus(['continuation'], 'unsynced')).toMatch(/等待/)

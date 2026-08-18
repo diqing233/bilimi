@@ -134,8 +134,13 @@ export type FavoriteRepositoryLibraryStateFilters = {
 }
 export type FavoriteRepositoryLibrarySort = 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'
 export type FavoriteRepositoryTranscriptionFilter = 'completed' | 'none' | 'pending' | 'running' | 'failed'
+export type FavoriteRepositoryLibrarySyncState =
+  | 'synced'
+  | 'unsynced'
+  | 'write-confirmed-awaiting-readback'
+  | 'write-confirmed-readback-conflict'
 export type FavoriteRepositoryLibraryStates = {
-  sync: 'synced' | 'unsynced'
+  sync: FavoriteRepositoryLibrarySyncState
   protection: 'protected' | 'unprotected'
   organization: 'organized' | 'unorganized'
 }
@@ -326,6 +331,12 @@ export type FavoriteRepositoryLibraryDetail = {
   folderIds: string[]
   pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
   libraryStates: FavoriteRepositoryLibraryStates
+  /** A successful Bilibili write receipt. It is not a replacement for a remote readback. */
+  syncReceipt?: {
+    confirmedAt: string
+    targetLogicalFolderIds: string[]
+    targetTitles: string[]
+  }
   protected: boolean
   organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource' | 'completedAt'>
   latestClassificationAdjustment?: FavoriteRepositoryClassificationAdjustment
@@ -1015,6 +1026,8 @@ export class FavoriteRepositoryService {
     const latestClassificationAdjustment = [...(snapshot.classificationAdjustments ?? [])]
       .filter((record) => record.aid === aid)
       .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))[0]
+    const syncReceipt = this.confirmedWriteReceiptForAid(snapshot, aid)
+    const libraryStates = this.libraryStatesForAid(snapshot, index, aid, syncReceipt)
     return {
       version: 1,
       accountMid: account,
@@ -1022,7 +1035,8 @@ export class FavoriteRepositoryService {
       video: { ...video, tags: [...video.tags] },
       folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
-      libraryStates: this.libraryStatesForAid(snapshot, index, aid),
+      libraryStates,
+      ...(syncReceipt ? { syncReceipt } : {}),
       protected: snapshot.organizationRecords.some((record) => record.aid === aid),
       ...(organization || video.lastAdjustment || video.classificationSource ? { organization: {
         ...(deriveFavoriteRepositoryClassificationSource(video, organization) ? { classificationSource: deriveFavoriteRepositoryClassificationSource(video, organization) } : {}),
@@ -1469,28 +1483,82 @@ export class FavoriteRepositoryService {
   private libraryStatesForAid(
     snapshot: AccountFavoriteRepositorySnapshot,
     index: FavoriteRepositoryLibraryIndex,
-    aid: number
+    aid: number,
+    syncReceipt = this.confirmedWriteReceiptForAid(snapshot, aid)
   ): FavoriteRepositoryLibraryStates {
     const position = snapshot.positions?.[`${snapshot.accountMid}:${aid}`]
-    const remoteBilimiEvidence = Boolean(position && (
-      position.remoteObservedLogicalFolderIds.some((folderId) => folderId.startsWith('bilimi-logical:')) ||
-      position.remoteObservedPhysicalFolderIds.some((folderId) => {
-        const normalized = folderId.trim()
-        return (snapshot.physicalShards ?? []).some((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) && (
-          shard.folderId === normalized ||
-          shard.remoteFolderId === normalized ||
-          `bilibili:${shard.remoteFolderId}` === normalized
-        ))
-      })
-    ))
+    const observedLogicalFolderIds = new Set(position
+      ? [...position.remoteObservedLogicalFolderIds, ...position.remoteObservedPhysicalFolderIds]
+        .map((folderId) => this.trustedLogicalFolderForRemoteReference(snapshot, folderId)?.id)
+        .filter((folderId): folderId is string => Boolean(folderId))
+      : [])
+    const remoteBilimiEvidence = observedLogicalFolderIds.size > 0
     const reliableRemoteState = position?.positionState === 'aligned' || position?.positionState === 'local-only-change'
     const organized = (index.folderIdsByAid.get(aid) ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))
     const protectedAid = index.protectedAids.has(aid)
+    const currentStateOverridesReceipt = Boolean(position && !reliableRemoteState)
+    const sync = syncReceipt && !currentStateOverridesReceipt
+      ? position?.sourceAuthority !== 'complete'
+        ? 'write-confirmed-awaiting-readback'
+        : syncReceipt.targetLogicalFolderIds.every((folderId) => observedLogicalFolderIds.has(folderId))
+          ? 'synced'
+          : 'write-confirmed-readback-conflict'
+      : remoteBilimiEvidence && reliableRemoteState ? 'synced' : 'unsynced'
     return {
-      sync: remoteBilimiEvidence && reliableRemoteState ? 'synced' : 'unsynced',
+      sync,
       protection: protectedAid ? 'protected' : 'unprotected',
       organization: organized ? 'organized' : 'unorganized'
     }
+  }
+
+  /** Resolves only an existing, bound Bilimi target; it never infers a remote observation. */
+  private trustedLogicalFolderForRemoteReference(snapshot: AccountFavoriteRepositorySnapshot, reference: string) {
+    const normalized = reference.trim()
+    if (!normalized) return undefined
+    const matchingShards = snapshot.physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) && (
+      normalized === `bilimi-logical:${shard.logicalLedgerId}` ||
+      normalized === shard.folderId ||
+      normalized === shard.remoteFolderId ||
+      normalized === `bilibili:${shard.remoteFolderId}`
+    ))
+    const logicalLedgerIds = [...new Set(matchingShards.map((shard) => shard.logicalLedgerId))]
+    if (logicalLedgerIds.length !== 1) return undefined
+    const logicalLedgerId = logicalLedgerIds[0]
+    const id = `bilimi-logical:${logicalLedgerId}`
+    const folder = snapshot.folders.find((candidate) => candidate.id === id && candidate.kind === 'bilimi-logical')
+    const shard = matchingShards[0]
+    return { id, title: folder?.title ?? shard.remoteTitle }
+  }
+
+  /** Reads immutable success receipts without projecting them into remote-observation fields. */
+  private confirmedWriteReceiptForAid(snapshot: AccountFavoriteRepositorySnapshot, aid: number): FavoriteRepositoryLibraryDetail['syncReceipt'] {
+    const candidates: Array<{ confirmedAt: string; references: string[] }> = [
+      ...(snapshot.organizationBatches ?? [])
+        .filter((record) => record.aid === aid && record.status === 'succeeded')
+        .map((record) => ({ confirmedAt: record.recordedAt, references: record.afterFolderIds })),
+      ...(snapshot.syncRecords ?? [])
+        .filter((record) => record.status === 'succeeded' && record.affectedAids.includes(aid))
+        .map((record) => ({
+          confirmedAt: record.updatedAt,
+          references: record.targetFolderIdsByAid?.[String(aid)] ?? record.targetFolderIds ?? []
+        }))
+    ]
+    for (const candidate of candidates.sort((left, right) => right.confirmedAt.localeCompare(left.confirmedAt))) {
+      const targets = new Map<string, string>()
+      for (const reference of candidate.references) {
+        const target = this.trustedLogicalFolderForRemoteReference(snapshot, reference)
+        if (target) targets.set(target.id, target.title)
+      }
+      if (targets.size) {
+        const targetLogicalFolderIds = [...targets.keys()].sort()
+        return {
+          confirmedAt: candidate.confirmedAt,
+          targetLogicalFolderIds,
+          targetTitles: targetLogicalFolderIds.map((folderId) => targets.get(folderId)!)
+        }
+      }
+    }
+    return undefined
   }
 
   /** Protected and transcription states are displayed separately; neither requires library work. */

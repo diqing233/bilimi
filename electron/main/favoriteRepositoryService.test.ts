@@ -105,6 +105,38 @@ describe('FavoriteRepositoryService', () => {
       .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
   })
 
+  it('reads a legacy snapshot without write receipt histories', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1,
+          accountMid: '100',
+          revision: 1,
+          updatedAt: '2026-08-18T00:00:00.000Z',
+          videos: { '1': { aid: 1, title: 'Legacy video', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' } },
+          libraryMirrors: {},
+          folders: [],
+          memberships: {},
+          physicalShards: [],
+          syncRecords: [],
+          organizationRecords: [],
+          organizationMigrationInitialized: false,
+          positions: {},
+          tombstones: {}
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced' }
+    })
+  })
+
   it('preserves the first observed source while recording later local adjustments and filtering by original source', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
@@ -1248,6 +1280,81 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
       sort: 'title-asc', stateFilters: { protection: 'protected' }
     } as never)).resolves.toEqual([1])
+  })
+
+  it('distinguishes successful write receipts from Bilibili readback', async () => {
+    const root = await createRoot()
+    const now = '2026-08-18T00:00:00.000Z'
+    const service = new FavoriteRepositoryService({ root, now: () => now })
+    await service.commit('100', {
+      id: 'receipt-video', accountMid: '100', issuedAt: now, type: 'upsert-video',
+      payload: { aid: 1, title: '等待回读的视频', tags: [], updatedAt: now }
+    })
+    await service.commit('100', {
+      id: 'receipt-binding', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1,
+        memberAids: [], remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '900'
+      }
+    })
+    await service.commit('100', {
+      id: 'receipt-success', accountMid: '100', issuedAt: now, type: 'record-sync-result',
+      payload: {
+        id: 'receipt-success', commandId: 'receipt-success', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['900'], updatedAt: now
+      }
+    })
+    await service.commit('100', {
+      id: 'receipt-change', accountMid: '100', issuedAt: now, type: 'record-organization-change',
+      payload: { change: {
+        id: 'receipt-change', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: [], afterFolderIds: ['900'], addedFolderIds: ['900'], removedFolderIds: [],
+        status: 'succeeded', recordedAt: now
+      } }
+    })
+    await service.commit('100', {
+      id: 'receipt-incomplete-readback', accountMid: '100', issuedAt: now, type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['901'],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', sourceAuthority: 'incomplete', updatedAt: now
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'write-confirmed-awaiting-readback' },
+      syncReceipt: {
+        targetLogicalFolderIds: ['bilimi-logical:music'],
+        targetTitles: ['bilimi·音乐'],
+        confirmedAt: now
+      }
+    })
+
+    await service.commit('100', {
+      id: 'receipt-conflicting-readback', accountMid: '100', issuedAt: '2026-08-18T00:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['901'],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', sourceAuthority: 'complete', updatedAt: '2026-08-18T00:01:00.000Z'
+      }
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'write-confirmed-readback-conflict' },
+      syncReceipt: { targetLogicalFolderIds: ['bilimi-logical:music'] }
+    })
+
+    await service.commit('100', {
+      id: 'receipt-matching-readback', accountMid: '100', issuedAt: '2026-08-18T00:02:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:music'], positionState: 'aligned', sourceAuthority: 'complete', updatedAt: '2026-08-18T00:02:00.000Z'
+      }
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'synced' },
+      syncReceipt: {
+        targetLogicalFolderIds: ['bilimi-logical:music'],
+        targetTitles: ['bilimi·音乐']
+      }
+    })
   })
 
   it('reapplies an authoritative workspace transition when a retained command result no longer matches', async () => {

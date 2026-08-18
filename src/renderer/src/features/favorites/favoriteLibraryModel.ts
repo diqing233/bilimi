@@ -23,7 +23,7 @@ export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
 }
 
 export type FavoriteLibraryStates = {
-  sync: 'synced' | 'unsynced'
+  sync: 'synced' | 'unsynced' | 'write-confirmed-awaiting-readback' | 'write-confirmed-readback-conflict'
   protection: 'protected' | 'unprotected'
   organization: 'organized' | 'unorganized'
 }
@@ -151,6 +151,8 @@ export function formatFavoriteLibraryMirrorStatus(
   const syncStates = states.filter((state) => state !== 'protected')
   if (syncStates.includes('failed')) return '同步失败'
   if (syncStates.includes('result-unknown')) return '同步状态待确认'
+  if (syncState === 'write-confirmed-awaiting-readback') return 'B站写入已成功，等待回读确认'
+  if (syncState === 'write-confirmed-readback-conflict') return 'B站写入已成功，回读不一致，需核验'
   if (syncStates.includes('unsynced')) return '未同步'
   if (syncStates.includes('continuation')) return '等待处理'
   return syncState === 'synced' ? '已同步' : '未同步'

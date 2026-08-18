@@ -29,6 +29,8 @@ export type FavoriteRepositoryVideo = {
   tags: string[]
   /** A tag endpoint or page payload confirmed this tag list, including an empty list. */
   tagEvidence?: 'confirmed'
+  /** A Bilibili scan confirmed this video is unavailable; it is not an organization candidate. */
+  unavailable?: boolean
   bvid?: string
   cid?: number
   durationSeconds?: number
@@ -244,6 +246,7 @@ export function mergeFavoriteRepositoryVideo(existing: FavoriteRepositoryVideo |
     ...(incoming.lastAdjustment ?? existing.lastAdjustment ? { lastAdjustment: incoming.lastAdjustment ?? existing.lastAdjustment } : {}),
     tags: incoming.tags.length ? [...incoming.tags] : [...existing.tags],
     ...(incoming.tagEvidence ?? existing.tagEvidence ? { tagEvidence: incoming.tagEvidence ?? existing.tagEvidence } : {}),
+    ...(incoming.unavailable !== undefined ? { unavailable: incoming.unavailable } : existing.unavailable !== undefined ? { unavailable: existing.unavailable } : {}),
     updatedAt: existing.updatedAt
   }
 }
@@ -981,6 +984,15 @@ export type FavoriteRepositoryCommand =
       accountMid: string
       issuedAt: string
       expectedRevision?: number
+      /** Removes only listed local staging memberships; it never touches video rows or remote sources. */
+      type: 'remove-favorites-from-local-inbox'
+      payload: { aids: number[] }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      expectedRevision?: number
       type: 'restore-favorite-to-library' | 'forget-favorite-tombstone'
       payload: { aid: number }
     }
@@ -1312,6 +1324,7 @@ function isRepositoryVideo(value: unknown) {
   return Number.isSafeInteger(video.aid) && Number(video.aid) > 0 && typeof video.title === 'string' &&
     Array.isArray(video.tags) && video.tags.every((tag) => typeof tag === 'string') &&
     (video.tagEvidence === undefined || video.tagEvidence === 'confirmed') &&
+    (video.unavailable === undefined || typeof video.unavailable === 'boolean') &&
     typeof video.updatedAt === 'string' &&
     (video.author === undefined || typeof video.author === 'string') &&
     (video.description === undefined || typeof video.description === 'string') &&
@@ -1619,6 +1632,10 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       return
     case 'clear-local-inbox':
       if (Object.keys(payload).length) invalidCommand()
+      return
+    case 'remove-favorites-from-local-inbox':
+      if (!Array.isArray(payload.aids) || !payload.aids.length || payload.aids.length > 100_000 ||
+        !isValidAidList(payload.aids) || new Set(payload.aids).size !== payload.aids.length) invalidCommand()
       return
     case 'restore-favorite-to-library':
     case 'forget-favorite-tombstone':
@@ -2509,6 +2526,13 @@ export function applyFavoriteRepositoryCommand(
       }
       memberships = { ...memberships, 'local:inbox': [] }
       affectedFolderIds = ['local:inbox']
+      affectedAids = affected
+      break
+    }
+    case 'remove-favorites-from-local-inbox': {
+      const inbox = new Set(memberships['local:inbox'] ?? [])
+      const affected = uniquePositiveAids(command.payload.aids).filter((aid) => inbox.has(aid))
+      removeFromLocalInbox(affected)
       affectedAids = affected
       break
     }

@@ -2758,6 +2758,42 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('本地归属')
   })
 
+  it('shows successful Bilibili write awaiting readback', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-18T00:00:00.000Z', videoCount: 1, folderCount: 1,
+        folders: [
+          { id: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:other', title: 'bilimi·其他', kind: 'bilimi-logical', logicalLedgerId: 'other', syncState: 'bound' }
+        ], physicalShardCount: 1, syncRecordCount: 1,
+        syncCounts: { pending: 0, succeeded: 1, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [{ video: { aid: 1, title: '等待回读详情', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['unsynced'], libraryStates: { sync: 'write-confirmed-awaiting-readback', protection: 'protected', organization: 'organized' } }]
+      }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        video: { aid: 1, title: '等待回读详情', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: ['unsynced'], protected: true,
+        libraryStates: { sync: 'write-confirmed-awaiting-readback', protection: 'protected', organization: 'organized' },
+        syncReceipt: { confirmedAt: '2026-08-18T00:00:00.000Z', targetLogicalFolderIds: ['bilimi-logical:music'], targetTitles: ['bilimi·音乐'] },
+        position: { state: 'local-only-change', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: ['bilimi-logical:other'], updatedAt: '2026-08-18T00:00:00.000Z' },
+        mirror: { status: '已同步' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('等待回读详情'))
+
+    const detail = await screen.findByRole('complementary')
+    expect(within(detail).getByRole('button', { name: '同步状态说明' })).toHaveTextContent('B站写入已成功，等待回读确认')
+    expect(detail).toHaveTextContent('B站收藏夹：实际回读：bilimi·其他；B站写入已成功，等待回读确认（目标：bilimi·音乐）')
+    expect(detail).not.toHaveTextContent('尚未扫描或未映射')
+    expect(detail).not.toHaveTextContent('未同步')
+  })
+
   it('keeps the row and detail sync status aligned with the repository library fact', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),

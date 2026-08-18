@@ -2613,6 +2613,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const currentOverview = this.scanOverviews.get(workspace.accountMid)
       if (currentOverview) this.scanOverviews.set(workspace.accountMid, { ...currentOverview, sourceFolders })
       const organizableItemsByAid = new Map([...itemsByAid].filter(([, item]) => !isUnavailableScanItem(item)))
+      const unavailableAids = [...itemsByAid.values()]
+        .filter(isUnavailableScanItem)
+        .map((item) => item.aid)
+        .sort((left, right) => left - right)
       const mirrorFolders = sourceFolders.map((folder) => ({
         id: `bilibili:${folder.id}`,
         title: folder.title,
@@ -2644,6 +2648,7 @@ export class OldFavoriteWorkspaceCoordinator {
             ...(item.author ? { author: item.author } : {}),
             tags: [...(item.tags ?? [])],
             ...(item.tagEvidence ? { tagEvidence: item.tagEvidence } : {}),
+            unavailable: isUnavailableScanItem(item),
             updatedAt: mirrorUpdatedAt
             })),
             ...sourceFolders.filter((folder) => scanSourceRelationship(folder) === 'bound').flatMap((folder) =>
@@ -2776,6 +2781,18 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         })
       )
+      // Lifecycle projection may have placed every still-unmatched aid into
+      // staging. Apply the scan-confirmed unavailable cleanup only after that
+      // local projection so it cannot be immediately reintroduced.
+      if (unavailableAids.length) {
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:remove-unavailable-inbox:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}`,
+          accountMid: workspace.accountMid,
+          issuedAt: mirrorUpdatedAt,
+          type: 'remove-favorites-from-local-inbox',
+          payload: { aids: unavailableAids }
+        })
+      }
       // A scanned bilimi title is only a candidate. Protect a remote member
       // only after an explicit bind has established that this exact physical
       // Bilibili folder belongs to one logical working folder.
@@ -3438,7 +3455,8 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.commitCompleteLocalResultForRemoteExecutionUnsafe(workspace)
         await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
       } else {
-        if (workspace.status !== 'previewing') throw new Error('Old favorite workspace cannot be abandoned while it is active.')
+        const safelyPausedScan = workspace.status === 'scanning' && this.scanOverviews.get(workspace.accountMid)?.scan.paused === true
+        if (workspace.status !== 'previewing' && !safelyPausedScan) throw new Error('Old favorite workspace cannot be abandoned while it is active.')
         await this.options.repository.commit(workspace.accountMid, {
           id: `old-favorite-workspace:abandon:${workspace.id}`,
           accountMid: workspace.accountMid,

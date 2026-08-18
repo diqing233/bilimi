@@ -1813,6 +1813,29 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('dialog', { name: '整理收藏' })).not.toBeInTheDocument()
   })
 
+  it('keeps the recovery dialog open when abandoning fails', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('扫描草稿仍在运行，无法放弃。'))
+    window.bilimiDesktop = {
+      prepareOldFavoriteWorkspaceRecoveryV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', status: 'scanning', currentStep: 'scanning',
+        plannedCount: 1, classifiedCount: 0, unclassifiedCount: 1,
+        baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+        recoveryChoices: ['recover-draft', 'rescan', 'abandon']
+      }),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    const dialog = await screen.findByRole('dialog', { name: '整理收藏' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '放弃本轮整理' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'abandon-current-workspace' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('扫描草稿仍在运行，无法放弃。')
+    expect(screen.getByRole('dialog', { name: '整理收藏' })).toBeInTheDocument()
+  })
+
   it('starts the durable workspace scan without calling a legacy scan callback', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const,
