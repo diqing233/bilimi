@@ -1248,6 +1248,30 @@ describe('FavoriteRepositorySyncService', () => {
     expect(bind).not.toHaveBeenCalled()
   })
 
+  it('claims a frozen plan without entering the remote operation arbiter', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const remoteOperations = {
+      run: vi.fn(async () => {
+        throw new Error('claiming a local plan must not wait for the remote queue')
+      })
+    } as never
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      remoteOperations,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.claimFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'running' })
+    expect(remoteOperations.run).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'executing' } })
+  })
+
   it('returns an interrupted pre-request execution to frozen after explicit reconciliation', async () => {
     const repository = await createRepository()
     const interrupted = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: plan() }

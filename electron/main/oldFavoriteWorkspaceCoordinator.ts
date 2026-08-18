@@ -3286,9 +3286,6 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!summary || summary.workspaceId !== decision.workspaceId) {
         throw new Error('Old favorite workspace recovery decision does not match the active workspace.')
       }
-      if (summary.currentStep === 'result-unknown') {
-        throw new Error('Old favorite workspace result must be reconciled before it can be resumed.')
-      }
       const evidence = summary.baselineChangeEvidence
       if (decision.expectedBaselineRevision !== evidence.workspaceBaselineRevision ||
         decision.expectedRepositoryRevision !== evidence.repositoryRevision) {
@@ -3402,11 +3399,9 @@ export class OldFavoriteWorkspaceCoordinator {
     const plannedCount = marker.workspaceRef.plannedCount ?? summary.plannedCount
     const classifiedCount = marker.workspaceRef.classifiedCount ?? summary.classifiedCount
     const unclassifiedCount = marker.workspaceRef.unclassifiedCount ?? summary.unclassifiedCount
-    const recoveryChoices = currentStep === 'result-unknown'
-      ? ['view', 'reconcile-result-unknown'] as const
-      : marker.status === 'completed' || Boolean(marker.frozenSyncPlan)
-        ? ['view'] as const
-        : ['recover-draft', 'rescan', 'abandon'] as const
+    const recoveryChoices = marker.status === 'completed'
+      ? ['view'] as const
+      : ['recover-draft', 'rescan', 'abandon'] as const
     return {
       accountMid: snapshot.accountMid,
       workspaceId: marker.id,

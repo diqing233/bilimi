@@ -291,7 +291,7 @@ export class FavoriteRepositorySyncService {
   async claimFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
     const plan = clonePlan(frozenPlan)
-    return this.runRemote(account, async () => this.withRunLock(account, plan.id, async () => {
+    return this.withRunLock(account, plan.id, async () => {
       const { workspace } = await this.options.repository.getSnapshot(account)
       if (!workspace || workspace.id !== plan.workspaceId || JSON.stringify(workspace.frozenSyncPlan) !== JSON.stringify(plan)) {
         throw new Error('Favorite sync plan does not match the frozen workspace.')
@@ -303,7 +303,7 @@ export class FavoriteRepositorySyncService {
         this.executingPlanIds.set(account, plan.id)
       }
       return run
-    }))
+    })
   }
 
   async executeFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {

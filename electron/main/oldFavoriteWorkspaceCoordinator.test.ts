@@ -9828,7 +9828,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('keeps a frozen remote plan out of ordinary recovery actions', async () => {
+  it('offers the three recovery actions for an unfinished frozen remote plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -9850,7 +9850,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getRecoverySummary('100')).resolves.toMatchObject({
       status: 'frozen',
-      recoveryChoices: ['view']
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon']
     })
   })
 
@@ -10255,14 +10255,21 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       new OldFavoriteWorkspaceStore({ root }),
       { initializeOnOpen: false }
     )
-    await expect(restarted.getRecoverySummary('100')).resolves.toMatchObject({
+    const recoverySummary = await restarted.getRecoverySummary('100')
+    expect(recoverySummary).toMatchObject({
       status: 'reconciling', currentStep: 'result-unknown',
-      recoveryChoices: ['view', 'reconcile-result-unknown'],
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon'],
       resultUnknownEvidence: { operationCount: 1, planId: 'run-unknown' }
     })
+    if (!recoverySummary) throw new Error('recovery summary unexpectedly unavailable')
     await expect(restarted.selectRecoveryDecision('100', {
-      workspaceId: workspace.id, choice: 'continue-original', expectedBaselineRevision: 1, expectedRepositoryRevision: 3
-    })).rejects.toThrow('must be reconciled')
+      workspaceId: workspace.id,
+      choice: 'continue-original',
+      expectedBaselineRevision: recoverySummary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: recoverySummary.baselineChangeEvidence.repositoryRevision
+    })).resolves.toMatchObject({
+      choice: 'continue-original', requiresFullWorkspaceLoad: true, requiresExplicitScan: false
+    })
   })
 
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {
