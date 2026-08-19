@@ -2363,6 +2363,7 @@ describe('FavoriteLibraryApp', () => {
       moveFavoriteLibrarySelection,
       synchronizeFavoriteLibraryPlacements,
       enqueueFavoriteLibraryTranscription,
+      loadPreferences: vi.fn().mockResolvedValue({ deepseekEnabled: true, deepseekAutoSummaryEnabled: true }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -2390,7 +2391,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '同步到B站' }))
     await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
-    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
+    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1], summarizeWithDeepSeek: true }))
   })
   it('does not offer singleton move outside a bilimi logical folder scope', async () => {
     window.bilimiDesktop = {
@@ -3102,7 +3103,8 @@ describe('FavoriteLibraryApp', () => {
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined),
       syncFavoriteLibrarySelection,
-      enqueueFavoriteLibraryTranscription
+      enqueueFavoriteLibraryTranscription,
+      loadPreferences: vi.fn().mockResolvedValue({ deepseekEnabled: false, deepseekAutoSummaryEnabled: true })
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
@@ -3111,9 +3113,39 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
     fireEvent.click(screen.getByRole('button', { name: '转写操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '转写音频' }))
-    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
+    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1], summarizeWithDeepSeek: false }))
     fireEvent.click(screen.getByRole('button', { name: '刷新信息' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
+  })
+
+  it('snapshots DeepSeek auto-summary preferences for an inline row transcription', async () => {
+    const enqueueFavoriteLibraryTranscription = vi.fn().mockResolvedValue({ status: 'queued' })
+    const loadPreferences = vi.fn().mockResolvedValue({ deepseekEnabled: true, deepseekAutoSummaryEnabled: true })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-19T00:00:00.000Z', videoCount: 1, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [{ video: { aid: 7, cid: 70, title: 'Inline row video', tags: [], updatedAt: '2026-08-19T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+      }),
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({ activeItemId: undefined, sessionCompletedCount: 0, items: [] }),
+      enqueueFavoriteLibraryTranscription,
+      loadPreferences,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    await screen.findByText('Inline row video')
+    fireEvent.click(await screen.findByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', {
+      targets: [{ aid: 7, cid: 70 }],
+      summarizeWithDeepSeek: true
+    }))
+    expect(loadPreferences).toHaveBeenCalledTimes(1)
   })
 
   it('opens the shared document-export dialog from the selected favorite-library rows', async () => {

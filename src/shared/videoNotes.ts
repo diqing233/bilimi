@@ -1,6 +1,18 @@
 import type { VideoNote, VideoNoteSourceMetadata } from './types'
 
-export function createVideoNoteId(source: Pick<VideoNoteSourceMetadata, 'bvid' | 'url'>): string {
+export function createVideoNoteId(source: Pick<VideoNoteSourceMetadata, 'accountMid' | 'aid' | 'bvid' | 'cid' | 'url'>): string {
+  const accountMid = source.accountMid?.trim()
+  const aid = source.aid
+  const cid = source.cid
+
+  if (
+    accountMid &&
+    typeof aid === 'number' && Number.isSafeInteger(aid) && aid > 0 &&
+    typeof cid === 'number' && Number.isSafeInteger(cid) && cid > 0
+  ) {
+    return `account:${accountMid}:aid:${aid}:cid:${cid}`
+  }
+
   const bvid = source.bvid?.trim()
 
   if (bvid) {

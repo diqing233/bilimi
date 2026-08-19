@@ -16,6 +16,11 @@ type RawVideoNoteExtraction = {
   description?: string
   tags?: string[]
   bvid?: string
+  aid?: number
+  cid?: number
+  partNumber?: number
+  partTitle?: string
+  partDurationSeconds?: number
   url?: string
   transcript?: TranscriptSegment[]
 }
@@ -60,6 +65,11 @@ export function normalizeExtractedVideoNoteResult(
       description: cleanText(raw.description),
       tags: uniqueTags(raw.tags),
       bvid: cleanText(raw.bvid),
+      ...(typeof raw.aid === 'number' && Number.isSafeInteger(raw.aid) && raw.aid > 0 ? { aid: raw.aid } : {}),
+      ...(typeof raw.cid === 'number' && Number.isSafeInteger(raw.cid) && raw.cid > 0 ? { cid: raw.cid } : {}),
+      ...(typeof raw.partNumber === 'number' && Number.isSafeInteger(raw.partNumber) && raw.partNumber > 0 ? { partNumber: raw.partNumber } : {}),
+      ...(raw.partTitle?.trim() ? { partTitle: cleanText(raw.partTitle) } : {}),
+      ...(typeof raw.partDurationSeconds === 'number' && Number.isFinite(raw.partDurationSeconds) && raw.partDurationSeconds >= 0 ? { partDurationSeconds: Math.floor(raw.partDurationSeconds) } : {}),
       url
     },
     transcript,
@@ -149,7 +159,10 @@ export function buildVideoNoteExtractionScript(): string {
       const initialState = window.__INITIAL_STATE__ || {};
       const videoData = initialState.videoData || initialState.videoInfo || {};
       const aid = videoData.aid || initialState.aid || '';
-      const cid = videoData.cid || initialState.cid || videoData.pages?.[0]?.cid || initialState.pages?.[0]?.cid || '';
+      const pages = Array.from(videoData.pages || initialState.pages || []);
+      const requestedPart = Number(new URL(location.href).searchParams.get('p') || 1);
+      const currentPage = pages.find((page) => Number(page?.page) === requestedPart) || pages[requestedPart - 1] || pages[0] || {};
+      const cid = currentPage.cid || videoData.cid || initialState.cid || '';
       const tags = Array.from(document.querySelectorAll('.tag-link,.tag,.video-tag,[class*="tag"] a,[class*="tag"] span'))
         .map((node) => clean(node.textContent))
         .filter(Boolean)
@@ -188,6 +201,11 @@ export function buildVideoNoteExtractionScript(): string {
         description: clean(readMeta('description') || textFrom(['.desc-info-text', '.video-desc', '[class*="desc"]'])),
         tags,
         bvid: clean(videoData.bvid || location.pathname.match(/BV[0-9A-Za-z]+/)?.[0] || ''),
+        aid: Number(aid) || undefined,
+        cid: Number(cid) || undefined,
+        partNumber: Number(currentPage.page) || requestedPart || undefined,
+        partTitle: clean(currentPage.part || ''),
+        partDurationSeconds: Number.isFinite(Number(currentPage.duration)) ? Number(currentPage.duration) : undefined,
         url: location.href,
         subtitleCandidates,
         transcript: fetchedTranscript

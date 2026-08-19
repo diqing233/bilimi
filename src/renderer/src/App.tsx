@@ -41,6 +41,11 @@ import {
   normalizeExtractedVideoNoteResult
 } from './features/notes/videoNoteExtractor'
 import {
+  buildMultipartVideoSnapshotScript,
+  normalizeMultipartVideoSnapshot,
+  type MultipartVideoSnapshot
+} from './features/notes/videoNoteMultipart'
+import {
   buildReadCurrentVideoTimeScript,
   buildSeekVideoTimeScript
 } from './features/notes/videoNoteTimeAutomation'
@@ -421,6 +426,17 @@ function normalizeActiveTabVideoTitle(tab?: BrowserTabModel): string | undefined
 
 function readBilibiliVideoKey(url: string): string | undefined {
   return url.match(BILIBILI_VIDEO_URL_PATTERN)?.[1]
+}
+
+function normalizeBilibiliVideoSourceUrl(url: string): string | undefined {
+  try {
+    const parsed = new URL(url)
+    if (!BILIBILI_VIDEO_URL_PATTERN.test(parsed.href)) return undefined
+    const part = parsed.searchParams.get('p')?.trim()
+    return `${parsed.origin}${parsed.pathname}${part ? `?p=${part}` : ''}`
+  } catch {
+    return undefined
+  }
 }
 
 function isBilibiliVideoUrl(url?: string): boolean {
@@ -1147,15 +1163,29 @@ export default function App() {
 
   useEffect(() => window.bilimiDesktop?.onOpenVideoNoteArchiveSource?.(({ url, seconds, aid, cid }) => {
     const videoKey = readBilibiliVideoKey(url)
+    const exactSourceUrl = normalizeBilibiliVideoSourceUrl(url)
     const activeTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current)
-    const matchingTab = videoKey
+    const exactMatchingTab = exactSourceUrl
+      ? (activeTab && normalizeBilibiliVideoSourceUrl(activeTab.url) === exactSourceUrl
+          ? activeTab
+          : tabsRef.current.find((tab) => normalizeBilibiliVideoSourceUrl(tab.url) === exactSourceUrl))
+      : videoKey
+        ? (activeTab && readBilibiliVideoKey(activeTab.url) === videoKey
+          ? activeTab
+          : tabsRef.current.find((tab) => readBilibiliVideoKey(tab.url) === videoKey))
+        : undefined
+    // A timestamped archive seek may reuse an already loaded same-video tab;
+    // the CID/P selector below moves that tab to the requested part. A title
+    // click without a seek keeps exact P matching and can open a new tab.
+    const matchingTab = exactMatchingTab ?? (seconds !== undefined && videoKey
       ? (activeTab && readBilibiliVideoKey(activeTab.url) === videoKey
           ? activeTab
           : tabsRef.current.find((tab) => readBilibiliVideoKey(tab.url) === videoKey))
-      : undefined
+      : undefined)
     const tabId = matchingTab?.id ?? openInternalTab(url)
-    if (!tabId || seconds === undefined) return
+    if (!tabId) return
     if (matchingTab) selectActiveTab(tabId)
+    if (seconds === undefined) return
     setArchiveSeekByTabId((current) => ({ ...current, [tabId]: { seconds, ...(aid === undefined ? {} : { aid }), ...(cid === undefined ? {} : { cid }) } }))
   }), [openInternalTab, selectActiveTab])
 
@@ -1425,6 +1455,13 @@ export default function App() {
     }
 
     return result
+  }
+
+  async function readCurrentMultipartVideo(): Promise<MultipartVideoSnapshot | null> {
+    const currentActiveWebview = getCurrentActiveWebview()
+    if (!currentActiveWebview?.executeJavaScript) return null
+    const raw = await currentActiveWebview.executeJavaScript(buildMultipartVideoSnapshotScript(), true)
+    return normalizeMultipartVideoSnapshot(raw as Parameters<typeof normalizeMultipartVideoSnapshot>[0])
   }
 
   async function readCurrentVideoTime(): Promise<number> {
@@ -3282,6 +3319,11 @@ export default function App() {
       title: extraction.source.title,
       author: extraction.source.author,
       bvid: extraction.source.bvid,
+      aid: extraction.source.aid,
+      cid: extraction.source.cid,
+      partNumber: extraction.source.partNumber,
+      partTitle: extraction.source.partTitle,
+      partDurationSeconds: extraction.source.partDurationSeconds,
       summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })
   }
@@ -3319,6 +3361,8 @@ export default function App() {
           return enqueueRuntimeVideoAudioTranscription({
             summarizeWithDeepSeek: request.summarizeWithDeepSeek
           })
+        case 'read-current-video-multipart':
+          return readCurrentMultipartVideo()
         case 'save-video-note':
           await saveVideoNote(request.note)
           return request.note

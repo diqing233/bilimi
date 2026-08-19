@@ -92,6 +92,7 @@ import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreCont
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 import { projectFavoriteLedgerDraft } from './favoriteLedgerDraftProjection'
+import { buildMultipartPartUrl, type MultipartVideoPart, type MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
 
 export function transcriptionSpeedSettingDescription(): string {
   return '用于平衡视频转写速度与 CPU 占用；限制越低，电脑越不容易卡，但转写会更慢。'
@@ -4833,6 +4834,60 @@ export function FloatingAssistantApp({
     saveSessionVideoNoteArchiveSelection(selection)
   }
 
+  async function readCurrentMultipartVideo(): Promise<MultipartVideoSnapshot | null> {
+    if (!window.bilimiDesktop?.readCurrentVideoMultipart) {
+      throw new Error('当前页面暂不支持读取分 P 信息，请返回视频页面后重试。')
+    }
+    return window.bilimiDesktop.readCurrentVideoMultipart()
+  }
+
+  async function enqueueMultipartVideoTranscription(
+    snapshot: MultipartVideoSnapshot,
+    parts: MultipartVideoPart[],
+    options?: { summarizeWithDeepSeek?: boolean }
+  ): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
+    const accountMid = resolvedSnapshot.accountMid
+    if (!accountMid || !window.bilimiDesktop?.enqueueVideoAudioTranscription) {
+      throw new Error('当前账号或视频身份尚未准备好，暂时不能加入转写队列。')
+    }
+    let latestSnapshot: VideoAudioTranscriptionQueueSnapshot | null = null
+    for (const part of parts) {
+      latestSnapshot = await window.bilimiDesktop.enqueueVideoAudioTranscription({
+        accountMid,
+        url: buildMultipartPartUrl(snapshot, part.number),
+        title: part.title || `${snapshot.title} · P${part.number}`,
+        author: snapshot.author,
+        bvid: snapshot.bvid,
+        aid: snapshot.aid,
+        cid: part.cid,
+        partNumber: part.number,
+        partTitle: part.title,
+        partDurationSeconds: part.durationSeconds,
+        summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
+      })
+      applyTranscriptionQueueSnapshot(latestSnapshot)
+    }
+    if (latestSnapshot) {
+      clearCurrentVideoMissingFeedback()
+      tellPet('progress', `已加入 ${parts.length} 个分 P 转写任务。`)
+      setGlobalFeedback(`已加入 ${parts.length} 个分 P 转写任务`)
+    }
+    return latestSnapshot
+  }
+
+  function openQueueSource(item: VideoAudioTranscriptionQueueItem): void {
+    const aid = typeof item.aid === 'number' ? item.aid : Number(item.aid)
+    const cid = typeof item.cid === 'number' ? item.cid : Number(item.cid)
+    void window.bilimiDesktop.openVideoNoteArchiveSource?.({
+      title: item.title,
+      tags: [],
+      url: item.url,
+      ...(Number.isSafeInteger(aid) && aid > 0 ? { aid } : {}),
+      ...(Number.isSafeInteger(cid) && cid > 0 ? { cid } : {}),
+      ...(item.bvid ? { bvid: item.bvid } : {})
+    })
+  }
+
   const refreshFavoriteOrganizationRelationshipProjection = useCallback(async () => {
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid) return null
@@ -5447,6 +5502,9 @@ export function FloatingAssistantApp({
                 onGenerateVideoNote={generateVideoNote}
                 onTranscribeVideoAudio={generateVideoNoteFromAudio}
                 onEnqueueVideoAudioTranscription={enqueueVideoAudioTranscription}
+                onReadMultipartVideo={readCurrentMultipartVideo}
+                onEnqueueMultipartTranscription={enqueueMultipartVideoTranscription}
+                onOpenQueueSource={openQueueSource}
                 onCancelQueuedVideoAudioTranscription={(id) => {
                   void cancelQueuedVideoAudioTranscription(id)
                 }}

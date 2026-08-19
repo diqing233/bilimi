@@ -129,6 +129,67 @@ describe('video note archive helpers', () => {
     )
   })
 
+  it('keeps different parts of the same B站 video in separate archives', () => {
+    const p1 = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: {
+        ...createNote().source,
+        accountMid: '42',
+        aid: 7,
+        cid: 70,
+        url: 'https://www.bilibili.com/video/BV1note?p=1'
+      }
+    })
+    const p2 = createNote({
+      id: 'account:42:aid:7:cid:71',
+      source: {
+        ...createNote().source,
+        accountMid: '42',
+        aid: 7,
+        cid: 71,
+        url: 'https://www.bilibili.com/video/BV1note?p=2'
+      }
+    })
+
+    const archives = appendVideoNoteArchiveVersion(
+      appendVideoNoteArchiveVersion([], p1, '2026-08-19T00:00:00.000Z'),
+      p2,
+      '2026-08-19T01:00:00.000Z'
+    )
+
+    expect(archives).toHaveLength(2)
+    expect(archives.map((archive) => archive.id)).toEqual([
+      'account:42:aid:7:cid:70',
+      'account:42:aid:7:cid:71'
+    ])
+  })
+
+  it('adds repeat transcriptions only to the matching exact part archive', () => {
+    const p1 = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: { ...createNote().source, accountMid: '42', aid: 7, cid: 70 }
+    })
+    const p1Retry = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: { ...p1.source },
+      transcript: [{ start: 0, end: 2, text: 'P1 第二次转写。' }]
+    })
+    const p2 = createNote({
+      id: 'account:42:aid:7:cid:71',
+      source: { ...createNote().source, accountMid: '42', aid: 7, cid: 71 }
+    })
+
+    const afterP2 = appendVideoNoteArchiveVersion(
+      appendVideoNoteArchiveVersion([], p1, '2026-08-19T00:00:00.000Z'),
+      p2,
+      '2026-08-19T01:00:00.000Z'
+    )
+    const archives = appendVideoNoteArchiveVersion(afterP2, p1Retry, '2026-08-19T02:00:00.000Z')
+
+    expect(archives.find((archive) => archive.id === 'account:42:aid:7:cid:70')?.versions).toHaveLength(2)
+    expect(archives.find((archive) => archive.id === 'account:42:aid:7:cid:71')?.versions).toHaveLength(1)
+  })
+
   it('assigns a unique persistent version id when the same timestamp is appended twice', () => {
     const note = createNote()
     const createdAt = '2026-06-17T00:00:00.000Z'

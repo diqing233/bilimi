@@ -138,6 +138,9 @@ function createNoteFromQueueItem(
       accountMid: item.accountMid,
       aid: numericIdentity(item.aid),
       cid: numericIdentity(item.cid),
+      partNumber: numericIdentity(item.partNumber),
+      partTitle: item.partTitle,
+      partDurationSeconds: numericIdentity(item.partDurationSeconds),
       title: item.title,
       author: item.author,
       bvid: item.bvid,
@@ -198,6 +201,7 @@ export function createVideoTranscriptionQueue({
   }
   let sessionCompletedCount = 0
   let processing = false
+  let summaryProcessing = false
   let activeController: AbortController | undefined
   let activeSummaryController: { id: string; controller: AbortController } | undefined
   let idleWaiters: Array<() => void> = []
@@ -206,14 +210,14 @@ export function createVideoTranscriptionQueue({
   let pendingProgressPersistTimer: ReturnType<typeof setTimeout> | undefined
 
   function notifyIdle() {
-    if (processing) return
+    if (processing || summaryProcessing) return
     const waiters = idleWaiters
     idleWaiters = []
     for (const resolve of waiters) resolve()
   }
 
   function waitForIdle() {
-    if (!processing) return Promise.resolve()
+    if (!processing && !summaryProcessing) return Promise.resolve()
     return new Promise<void>((resolve) => idleWaiters.push(resolve))
   }
 
@@ -253,7 +257,7 @@ export function createVideoTranscriptionQueue({
   }
 
   async function processNext() {
-    if (processing || items.some((item) => item.status === 'running')) {
+    if (processing) {
       return
     }
 
@@ -315,7 +319,10 @@ export function createVideoTranscriptionQueue({
 
       let summaryText = ''
       let summaryErrorMessage: string | undefined
-      if (!transcriptOutcome && runningItem.summarizeWithDeepSeek && summarizeNote) {
+      // Keep the pre-independent-summary contract for embedders that have not
+      // supplied exact archive-version summary persistence yet. The Electron
+      // production wiring supplies both callbacks and uses processNextSummary.
+      if (!transcriptOutcome && runningItem.summarizeWithDeepSeek && summarizeNote && (!loadArchiveVersion || !saveArchiveSummary)) {
         const summaryController = new AbortController()
         activeSummaryController = { id: runningItem.id, controller: summaryController }
         updateItem(runningItem.id, (item) => ({
@@ -335,24 +342,20 @@ export function createVideoTranscriptionQueue({
           if (summaryController.signal.aborted) {
             summaryErrorMessage = 'DeepSeek summary canceled.'
           } else {
-            const normalizedSummary = generatedSummary.trim()
-            if (!normalizedSummary) {
-              summaryErrorMessage = 'DeepSeek summary returned empty content.'
-            } else {
-              summaryText = normalizedSummary
-            }
+            summaryText = generatedSummary.trim()
+            if (!summaryText) summaryErrorMessage = 'DeepSeek summary returned empty content.'
           }
         } catch (error) {
           if (items.find((item) => item.id === runningItem.id)?.cancelRequested) {
             finishCanceled(runningItem.id)
             return
           }
-          if (items.find((item) => item.id === runningItem.id)?.status !== 'running') return
           summaryErrorMessage = summaryController.signal.aborted ? 'DeepSeek summary canceled.' : createErrorMessage(error)
         } finally {
           if (activeSummaryController?.id === runningItem.id) activeSummaryController = undefined
         }
       }
+
       if (items.find((item) => item.id === runningItem.id)?.cancelRequested) {
         finishCanceled(runningItem.id)
         return
@@ -390,10 +393,10 @@ export function createVideoTranscriptionQueue({
           errorMessage: summaryErrorMessage,
           archiveRegistrationStatus: 'failed',
           archiveRegistrationError: createErrorMessage(error),
-          archiveSummaryText: summaryText,
+          archiveSummaryText: summaryText || undefined,
           transcriptOutcome,
           summaryStatus: !transcriptOutcome && runningItem.summarizeWithDeepSeek
-            ? summaryText ? 'generated' : 'failed'
+            ? summaryErrorMessage ? 'failed' : summaryText ? 'saved' : 'queued'
             : 'not-requested',
           transcriptionDeviceOverride: undefined
         }))
@@ -406,7 +409,7 @@ export function createVideoTranscriptionQueue({
         updatedAt: completedAt,
         archiveNoteId: registration.archiveId,
         archiveVersionId: registration.versionId,
-        draftNote: undefined,
+        draftNote: !transcriptOutcome && runningItem.summarizeWithDeepSeek && !summaryText && !summaryErrorMessage ? note : undefined,
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
         errorMessage: summaryErrorMessage,
         archiveRegistrationStatus: 'registered',
@@ -414,7 +417,7 @@ export function createVideoTranscriptionQueue({
         archiveSummaryText: undefined,
         transcriptOutcome,
         summaryStatus: !transcriptOutcome && runningItem.summarizeWithDeepSeek
-          ? summaryErrorMessage ? 'failed' : 'saved'
+          ? summaryErrorMessage ? 'failed' : summaryText ? 'saved' : 'queued'
           : 'not-requested',
         transcriptionDeviceOverride: undefined
       }))
@@ -440,7 +443,104 @@ export function createVideoTranscriptionQueue({
       activeController = undefined
       publish()
       if (items.some((item) => item.status === 'pending')) void processNext()
-      else notifyIdle()
+      void processNextSummary()
+      notifyIdle()
+    }
+  }
+
+  async function processNextSummary() {
+    if (summaryProcessing) return
+    const next = items.find((item) =>
+      item.status === 'completed' &&
+      item.archiveRegistrationStatus === 'registered' &&
+      item.summaryStatus === 'queued'
+    )
+    if (!next) {
+      notifyIdle()
+      return
+    }
+    if (!next.archiveNoteId || !next.archiveVersionId || !saveArchiveSummary) {
+      updateItem(next.id, (item) => ({
+        ...item,
+        summaryStatus: 'failed',
+        errorMessage: 'DeepSeek summary storage is unavailable.',
+        progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
+        updatedAt: now()
+      }))
+      publish()
+      void processNextSummary()
+      return
+    }
+    const note = next.draftNote ?? loadArchiveVersion?.(next.archiveNoteId, next.archiveVersionId)
+    if (!note || !matchesQueueItemArchiveIdentity(next, note)) {
+      updateItem(next.id, (item) => ({
+        ...item,
+        summaryStatus: 'failed',
+        errorMessage: 'The archived transcript version could not be verified for summary.',
+        progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
+        updatedAt: now()
+      }))
+      publish()
+      void processNextSummary()
+      return
+    }
+
+    summaryProcessing = true
+    const summaryController = new AbortController()
+    activeSummaryController = { id: next.id, controller: summaryController }
+    updateItem(next.id, (item) => ({
+      ...item,
+      draftNote: note,
+      summaryStatus: 'generating',
+      errorMessage: undefined,
+      progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+      updatedAt: now()
+    }))
+    publish()
+
+    let generatedSummaryText = next.archiveSummaryText?.trim()
+    try {
+      if (!generatedSummaryText) {
+        if (!summarizeNote) throw new Error('DeepSeek summary is unavailable.')
+        const generated = await summarizeNote(note, summaryController.signal, (progress) => {
+          if (summaryController.signal.aborted) return
+          updateItem(next.id, (item) => ({ ...item, progress, updatedAt: now() }))
+          publish('coalesced')
+        })
+        generatedSummaryText = generated.trim()
+      }
+      if (summaryController.signal.aborted) throw new Error('DeepSeek summary canceled.')
+      if (!generatedSummaryText) throw new Error('DeepSeek summary returned empty content.')
+      if (!await isAccountStillCurrent(next.accountMid)) {
+        throw new Error('The signed-in account changed before the summary could be saved.')
+      }
+      saveArchiveSummary(next.archiveNoteId, next.archiveVersionId, note, generatedSummaryText)
+      updateItem(next.id, (item) => ({
+        ...item,
+        draftNote: undefined,
+        summaryStatus: 'saved',
+        archiveSummaryText: undefined,
+        progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
+        errorMessage: undefined,
+        updatedAt: now()
+      }))
+    } catch (error) {
+      const message = summaryController.signal.aborted ? 'DeepSeek summary canceled.' : createErrorMessage(error)
+      updateItem(next.id, (item) => ({
+        ...item,
+        draftNote: undefined,
+        summaryStatus: generatedSummaryText ? 'generated' : 'failed',
+        archiveSummaryText: generatedSummaryText,
+        progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
+        errorMessage: message,
+        updatedAt: now()
+      }))
+    } finally {
+      if (activeSummaryController?.id === next.id) activeSummaryController = undefined
+      summaryProcessing = false
+      publish()
+      void processNextSummary()
+      notifyIdle()
     }
   }
 
@@ -574,9 +674,11 @@ export function createVideoTranscriptionQueue({
           archiveRegistrationStatus: 'registered',
           archiveRegistrationError: undefined,
           archiveSummaryText: undefined,
-          draftNote: undefined,
+          draftNote: candidate.summarizeWithDeepSeek && !candidate.archiveSummaryText?.trim()
+            ? candidate.draftNote
+            : undefined,
           summaryStatus: candidate.summarizeWithDeepSeek
-            ? candidate.archiveSummaryText?.trim() ? 'saved' : candidate.errorMessage ? 'failed' : 'not-requested'
+            ? candidate.archiveSummaryText?.trim() ? 'saved' : 'queued'
             : 'not-requested',
           updatedAt: now()
         }))
@@ -591,6 +693,7 @@ export function createVideoTranscriptionQueue({
       } finally {
         pendingArchiveRegistrationRetries.delete(id)
         publish()
+        void processNextSummary()
       }
     })()
 
@@ -600,7 +703,6 @@ export function createVideoTranscriptionQueue({
   function retrySummary(id: string): VideoAudioTranscriptionQueueSnapshot {
     const item = items.find((candidate) => candidate.id === id)
     if (
-      processing ||
       !item ||
       item.status !== 'completed' ||
       item.archiveRegistrationStatus !== 'registered' ||
@@ -622,68 +724,16 @@ export function createVideoTranscriptionQueue({
       return publish()
     }
 
-    processing = true
-    const summaryController = new AbortController()
-    activeSummaryController = { id, controller: summaryController }
     updateItem(id, (candidate) => ({
       ...candidate,
-      status: 'running',
       draftNote: archivedNote,
-      summaryStatus: 'generating',
+      summaryStatus: 'queued',
       errorMessage: undefined,
-      progress: { step: 'summarizing-deepseek', message: 'Retrying DeepSeek summary.' },
+      progress: { step: 'queue-completed', message: 'Queued transcription completed; summary is waiting.' },
       updatedAt: now()
     }))
     const snapshot = publish()
-
-    void (async () => {
-      let generatedSummaryText = item.summaryStatus === 'generated'
-        ? item.archiveSummaryText?.trim()
-        : undefined
-      try {
-        const generatedSummary = generatedSummaryText ?? await summarizeNote?.(archivedNote, summaryController.signal, (progress) => {
-          if (summaryController.signal.aborted) return
-          updateItem(id, (candidate) => ({ ...candidate, progress, updatedAt: now() }))
-          publish('coalesced')
-        })
-        if (summaryController.signal.aborted) throw new Error('DeepSeek summary canceled.')
-        generatedSummaryText = generatedSummary?.trim()
-        if (!generatedSummaryText) throw new Error('DeepSeek summary returned empty content.')
-        if (!await isAccountStillCurrent(item.accountMid)) {
-          throw new Error('The signed-in account changed before the summary could be saved.')
-        }
-        saveArchiveSummary(item.archiveNoteId!, item.archiveVersionId!, archivedNote, generatedSummaryText)
-        updateItem(id, (candidate) => ({
-          ...candidate,
-          status: 'completed',
-          draftNote: undefined,
-          summaryStatus: 'saved',
-          archiveSummaryText: undefined,
-          progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
-          errorMessage: undefined,
-          updatedAt: now()
-        }))
-      } catch (error) {
-        const message = createErrorMessage(error)
-        const summaryWasGenerated = Boolean(generatedSummaryText)
-        updateItem(id, (candidate) => ({
-          ...candidate,
-          status: 'completed',
-          draftNote: undefined,
-          summaryStatus: summaryWasGenerated ? 'generated' : 'failed',
-          archiveSummaryText: summaryWasGenerated ? generatedSummaryText : undefined,
-          progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
-          errorMessage: message,
-          updatedAt: now()
-        }))
-      } finally {
-        if (activeSummaryController?.id === id) activeSummaryController = undefined
-        processing = false
-        publish()
-        if (items.some((candidate) => candidate.status === 'pending')) void processNext()
-        else notifyIdle()
-      }
-    })()
+    void processNextSummary()
 
     return snapshot
   }
@@ -723,9 +773,23 @@ export function createVideoTranscriptionQueue({
   function cancelSummary(id: string): VideoAudioTranscriptionQueueSnapshot {
     const active = activeSummaryController
     const item = items.find((candidate) => candidate.id === id)
-    if (!active || active.id !== id || item?.status !== 'running' || item.progress?.step !== 'summarizing-deepseek') {
+    // The compatibility path still keeps the queue item in `running` while
+    // DeepSeek is summarizing. The independent-summary path is `completed`
+    // with a separate summary status. Both states can be canceled here.
+    if (!item || !['completed', 'running'].includes(item.status)) {
       return snapshotFromItems(items, sessionCompletedCount)
     }
+    if (item.summaryStatus === 'queued') {
+      updateItem(id, (candidate) => ({
+        ...candidate,
+        summaryStatus: 'failed',
+        errorMessage: 'DeepSeek summary canceled.',
+        progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
+        updatedAt: now()
+      }))
+      return publish()
+    }
+    if (!active || active.id !== id || item.summaryStatus !== 'generating') return snapshotFromItems(items, sessionCompletedCount)
     active.controller.abort()
     updateItem(id, (candidate) => ({
       ...candidate,
@@ -804,7 +868,6 @@ export function createVideoTranscriptionQueue({
     })
     if (stopped) {
       activeController?.abort()
-      activeSummaryController?.controller.abort()
     }
     return result({ affected: stopped, stopped, canceled: stopped, skipped })
   }
@@ -820,20 +883,29 @@ export function createVideoTranscriptionQueue({
             progress: { step: 'canceling', message: 'Canceling transcription.' },
             updatedAt: now()
           }
+        : item.status === 'completed' && item.summaryStatus === 'queued'
+          ? {
+              ...item,
+              summaryStatus: 'failed',
+              errorMessage: 'DeepSeek summary canceled.',
+              progress: { step: 'queue-completed', message: 'Queued transcription completed; summary needs retry.' },
+              updatedAt: now()
+            }
         : item)
     if (activeId) {
       activeController?.abort()
-      activeSummaryController?.controller.abort()
     }
+    activeSummaryController?.controller.abort()
     publish()
     await waitForIdle()
     return snapshotFromItems(items, sessionCompletedCount)
   }
 
-  if (items.some((item) => item.status === 'pending')) {
+  if (items.some((item) => item.status === 'pending' || item.summaryStatus === 'queued')) {
     publish()
     queueMicrotask(() => {
       void processNext()
+      void processNextSummary()
     })
   }
 

@@ -9,6 +9,7 @@ import type {
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
+import type { MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
 import type { VideoContentContext } from '../recommendation/videoClassifier'
 
 export type AssistantSnapshot = {
@@ -75,6 +76,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'generate-video-note'; manualTranscript?: string }
   | { id: string; type: 'generate-video-note-from-audio' }
   | { id: string; type: 'enqueue-current-video-audio'; summarizeWithDeepSeek?: boolean }
+  | { id: string; type: 'read-current-video-multipart' }
   | { id: string; type: 'save-video-note'; note: VideoNote }
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }
@@ -141,6 +143,7 @@ export type AssistantRuntimeResponsePayload =
   | VideoAudioTranscriptionQueueSnapshot
   | VideoNote
   | VideoNote[]
+  | MultipartVideoSnapshot
   | number
   | boolean
   | FavoriteRepositoryPageOperationResult

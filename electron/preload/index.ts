@@ -38,6 +38,7 @@ import type {
   AssistantPetHint,
   AssistantPetState
 } from '../../src/renderer/src/features/assistant/petState'
+import type { MultipartVideoSnapshot } from '../../src/renderer/src/features/notes/videoNoteMultipart'
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
@@ -554,6 +555,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       'floating-assistant:enqueue-current-video-audio',
       options
     ) as Promise<VideoAudioTranscriptionQueueSnapshot | null>,
+  readCurrentVideoMultipart: () =>
+    ipcRenderer.invoke('floating-assistant:read-current-video-multipart') as Promise<MultipartVideoSnapshot | null>,
   transcribeCurrentVideoAudio: (request: VideoAudioTranscriptionRequest) =>
     ipcRenderer.invoke('video-audio:transcribe-current', request) as Promise<VideoAudioTranscriptionResult>,
   loadTranscriptionModels: () =>

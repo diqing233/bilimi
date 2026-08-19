@@ -166,6 +166,7 @@ import { validateTranscriptionModelRuntime } from './transcriptionModelRuntimeVa
 import { createVideoTranscriptionQueue, type VideoTranscriptionQueueBatchResult } from './videoTranscriptionQueue'
 import { assertCurrentAccountOwnsTranscriptionQueueItems, assertCurrentAccountOwnsTranscriptionRequest, filterTranscriptionQueueSnapshotForAccount } from './transcriptionQueueAccountGuard'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
+import { createDeepSeekTaskQueue } from './deepSeekTaskQueue'
 import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
@@ -581,6 +582,9 @@ const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperation
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
 let oldFavoriteWorkspaceDeepSeekService: OldFavoriteWorkspaceDeepSeekService | undefined
+// Note summaries and old-favorite organization use one process-wide DeepSeek
+// lane so their external requests cannot contend with each other.
+const deepSeekTaskQueue = createDeepSeekTaskQueue()
 function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
   const floatingAssistant = floatingAssistantController.getWindow()
   return [mainWindow?.webContents.id, floatingAssistant?.webContents.id]
@@ -1126,7 +1130,7 @@ function getVideoTranscriptionQueue() {
         const checkpoint = loadNoteProcessingCheckpoints(getDesktopStore())[
           [identity.accountMid, identity.videoId, identity.transcriptHash, identity.promptVersion, identity.model].join(':')
         ]
-        const result = await generateDeepSeekResult({
+        const result = await deepSeekTaskQueue.run((taskSignal) => generateDeepSeekResult({
           config: {
             enabled: preferences.deepseekEnabled,
             apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
@@ -1134,7 +1138,7 @@ function getVideoTranscriptionQueue() {
             baseUrl: preferences.deepseekBaseUrl
           },
           request: { kind: 'note-poster', note },
-          signal,
+          signal: taskSignal,
           ...(checkpoint
             ? { notePosterCheckpoint: {
               proofreadingCompleted: checkpoint.proofreadingCompleted === true,
@@ -1160,7 +1164,7 @@ function getVideoTranscriptionQueue() {
               updatedAt: new Date().toISOString()
             })
           }
-        })
+        }), signal)
 
         if (result.kind !== 'note-poster') {
           throw new Error('DeepSeek summary failed.')
@@ -1736,6 +1740,11 @@ function registerAssistantPreferenceHandlers() {
       summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })
   )
+  ipcMain.handle('floating-assistant:read-current-video-multipart', () =>
+    requestMainAssistantRuntime<import('../../src/renderer/src/features/notes/videoNoteMultipart').MultipartVideoSnapshot | null>({
+      type: 'read-current-video-multipart'
+    })
+  )
   ipcMain.handle('floating-assistant:ensure-ledgers', (event) => {
     assertTrustedOldFavoriteAssistantSender(event)
     return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
@@ -2303,7 +2312,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         accountPreferences.defaultFavoriteSystemEnabled
       )
     },
-    generate: (request, signal) => generateDeepSeekResult({
+    generate: (request, signal) => deepSeekTaskQueue.run((taskSignal) => generateDeepSeekResult({
       config: {
         enabled: loadAssistantPreferences(getDesktopStore()).deepseekEnabled,
         apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
@@ -2311,8 +2320,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         baseUrl: loadAssistantPreferences(getDesktopStore()).deepseekBaseUrl
       },
       request,
-      signal
-    })
+      signal: taskSignal
+    }), signal)
   })
   registerOldFavoriteWorkspaceCoordinatorIpc({
     ipcMain,

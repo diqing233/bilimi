@@ -5,10 +5,12 @@ import type {
   RecommendationLabel,
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueItem,
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
+import type { MultipartVideoPart, MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
 import { useEffect, useState, type ComponentProps, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
@@ -55,6 +57,13 @@ type MemorialPanelProps = {
   onEnqueueVideoAudioTranscription?: (
     options?: VideoNoteTranscriptionOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onReadMultipartVideo?: () => Promise<MultipartVideoSnapshot | null>
+  onEnqueueMultipartTranscription?: (
+    snapshot: MultipartVideoSnapshot,
+    parts: MultipartVideoPart[],
+    options?: VideoNoteTranscriptionOptions
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onOpenQueueSource?: (item: VideoAudioTranscriptionQueueItem) => void
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onCancelQueuedVideoSummary?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
@@ -205,6 +214,9 @@ export function MemorialPanel({
   onGenerateVideoNote,
   onTranscribeVideoAudio,
   onEnqueueVideoAudioTranscription,
+  onReadMultipartVideo,
+  onEnqueueMultipartTranscription,
+  onOpenQueueSource,
   onCancelQueuedVideoAudioTranscription,
   onCancelQueuedVideoSummary,
   onRetryQueuedVideoAudioTranscription,
@@ -371,6 +383,9 @@ export function MemorialPanel({
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
+            onReadMultipartVideo={onReadMultipartVideo}
+            onEnqueueMultipartTranscription={onEnqueueMultipartTranscription}
+            onOpenQueueSource={onOpenQueueSource}
             onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
             onCancelQueuedVideoSummary={onCancelQueuedVideoSummary}
             onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}

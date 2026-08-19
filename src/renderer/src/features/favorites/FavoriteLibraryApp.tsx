@@ -421,6 +421,15 @@ function transcriptionQueueCommandLabel(
   return fallback.label
 }
 
+async function readFavoriteTranscriptionOptions(api: typeof window.bilimiDesktop) {
+  const preferences = await api.loadPreferences?.()
+  return {
+    summarizeWithDeepSeek: Boolean(
+      preferences?.deepseekEnabled && preferences.deepseekAutoSummaryEnabled
+    )
+  }
+}
+
 export type FavoriteLibraryDrawerNotice = {
   id: string
   priority: number
@@ -1872,7 +1881,10 @@ export function FavoriteLibraryApp({
     }
     if (action !== 'start' || detailTranscriptionCommand !== 'enqueue') throw new Error(text.unavailable)
     if (!api?.enqueueFavoriteLibraryTranscription) throw new Error(text.unavailable)
-    return api.enqueueFavoriteLibraryTranscription(accountMid, cid === undefined ? { aids: [selected.aid] } : { targets: [{ aid: selected.aid, cid }] })
+    const transcriptionOptions = await readFavoriteTranscriptionOptions(api)
+    return api.enqueueFavoriteLibraryTranscription(accountMid, cid === undefined
+      ? { aids: [selected.aid], ...transcriptionOptions }
+      : { targets: [{ aid: selected.aid, cid }], ...transcriptionOptions })
   })
   const openDetailDocumentExport = () => void runAction(async () => {
     const api = window.bilimiDesktop
@@ -2294,9 +2306,10 @@ export function FavoriteLibraryApp({
             if (action === 'transcribe') void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
+              const transcriptionOptions = await readFavoriteTranscriptionOptions(api)
               return api.enqueueFavoriteLibraryTranscription(accountMid, selectionSnapshot.selectAllScope
-                ? selection as Exclude<FavoriteLibraryOperationSelection, number[]>
-                : { aids: actionAids })
+                ? { ...(selection as Exclude<FavoriteLibraryOperationSelection, number[]>), ...transcriptionOptions }
+                : { aids: actionAids, ...transcriptionOptions })
             })
             if (action === 'cancel-transcribe') void runAction(async () => {
               const api = window.bilimiDesktop
@@ -2393,9 +2406,10 @@ export function FavoriteLibraryApp({
                       return api.retryVideoAudioArchiveRegistration(queueItem.id)
                     }
                     if (!api?.enqueueFavoriteLibraryTranscription) throw new Error(text.unavailable)
+                    const transcriptionOptions = await readFavoriteTranscriptionOptions(api)
                     return api.enqueueFavoriteLibraryTranscription(accountMid, row.cid === undefined
-                      ? { aids: [row.aid] }
-                      : { targets: [{ aid: row.aid, cid: row.cid }] })
+                      ? { aids: [row.aid], ...transcriptionOptions }
+                      : { targets: [{ aid: row.aid, cid: row.cid }], ...transcriptionOptions })
                   })}>{transcriptionLabel}</button><button type="button" disabled={!archiveAvailable} onClick={() => void runDetailAction(() => openRowArchiveDetail(row, queueItem?.cid ?? rowDetail?.video.cid))}>档案详情</button></span>
                   <span className="favorite-library__row-source" title={`当前归属：${sourceLabel} · 分类：${adjustmentLabel}${adjustmentTime ? ` · ${adjustmentTime}` : ''}`}><span className="favorite-library__row-source-line">当前归属：{sourceLabel}</span><span className="favorite-library__row-source-line">分类：{adjustmentLabel}</span></span>
                 </div>

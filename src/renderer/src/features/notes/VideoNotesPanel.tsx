@@ -8,6 +8,9 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
+import type { MultipartVideoPart, MultipartVideoSnapshot } from './videoNoteMultipart'
+import { buildMultipartPartUrl } from './videoNoteMultipart'
+import { BilimiModal } from '../../components/BilimiModal'
 import {
   createNotePosterCopyParts,
   createNotePosterSummaryText,
@@ -58,6 +61,13 @@ type VideoNotesPanelProps = {
   onEnqueueTranscription?: (
     options?: VideoNotesGenerateOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onReadMultipartVideo?: () => Promise<MultipartVideoSnapshot | null>
+  onEnqueueMultipartTranscription?: (
+    snapshot: MultipartVideoSnapshot,
+    parts: MultipartVideoPart[],
+    options?: VideoNotesGenerateOptions
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onOpenQueueSource?: (item: VideoAudioTranscriptionQueueItem) => void
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onCancelQueuedVideoSummary?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
@@ -295,6 +305,9 @@ export function VideoNotesPanel({
   onGenerate,
   onTranscribeAudio,
   onEnqueueTranscription,
+  onReadMultipartVideo,
+  onEnqueueMultipartTranscription,
+  onOpenQueueSource,
   onCancelQueuedVideoAudioTranscription,
   onCancelQueuedVideoSummary,
   onRetryQueuedVideoAudioTranscription,
@@ -322,6 +335,13 @@ export function VideoNotesPanel({
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
   const [enqueueingTranscription, setEnqueueingTranscription] = useState(false)
+  const [transcriptionMode, setTranscriptionMode] = useState<'single' | 'multi'>('single')
+  const [multipartSnapshot, setMultipartSnapshot] = useState<MultipartVideoSnapshot | null>(null)
+  const [multipartDialogOpen, setMultipartDialogOpen] = useState(false)
+  const [multipartLoading, setMultipartLoading] = useState(false)
+  const [multipartError, setMultipartError] = useState('')
+  const [selectedMultipartParts, setSelectedMultipartParts] = useState<number[]>([])
+  const [multipartSubmitting, setMultipartSubmitting] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -383,6 +403,7 @@ export function VideoNotesPanel({
   // different page from replacing the selected queue item's identity mid-run.
   const isQueuePreviewActive = Boolean(visibleQueueItem)
   const visibleNote = isQueuePreviewActive ? visibleQueueItem?.draftNote ?? archivedQueueNote : note
+  const sourceIdentity = visibleNote?.source.url ?? currentVideoTitle
   const queuedItemCount = useMemo(
     () => queueItems.filter((item) => item.status === 'pending').length,
     [queueItems]
@@ -500,6 +521,10 @@ export function VideoNotesPanel({
     setDocumentExport(null)
   }, [accountMid])
 
+  useEffect(() => {
+    resetMultipartMode()
+  }, [sourceIdentity])
+
   function setResultTab(tab: VideoNotesResultTab | null): void {
     if (controlledActiveResultTab === undefined) {
       setUncontrolledActiveResultTab(tab)
@@ -510,6 +535,10 @@ export function VideoNotesPanel({
 
   async function handleGenerate(): Promise<void> {
     if (generationBusy || enqueueingTranscription) return
+    if (transcriptionMode === 'multi') {
+      await openMultipartDialog()
+      return
+    }
     if (onTranscribeAudio) {
       if (onEnqueueTranscription) {
         await handleEnqueueTranscription()
@@ -565,6 +594,145 @@ export function VideoNotesPanel({
     } finally {
       setEnqueueingTranscription(false)
     }
+  }
+
+  function queueItemForPart(part: MultipartVideoPart): VideoAudioTranscriptionQueueItem | undefined {
+    if (!multipartSnapshot) return undefined
+    return queueItems.find((item) => item.aid === multipartSnapshot.aid && item.cid === part.cid)
+  }
+
+  function archiveForPart(part: MultipartVideoPart): VideoNoteArchiveEntry | undefined {
+    if (!multipartSnapshot) return undefined
+    return archivedNotes.find((archive) =>
+      archive.source.accountMid === accountMid &&
+      archive.source.aid === multipartSnapshot.aid &&
+      archive.source.cid === part.cid
+    )
+  }
+
+  function partIsBusy(part: MultipartVideoPart): boolean {
+    const item = queueItemForPart(part)
+    return Boolean(item && (
+      item.status === 'pending' ||
+      item.status === 'running' ||
+      item.archiveRegistrationStatus === 'failed' ||
+      item.summaryStatus === 'queued' ||
+      item.summaryStatus === 'generating'
+    ))
+  }
+
+  function partIsArchived(part: MultipartVideoPart): boolean {
+    return Boolean(archiveForPart(part))
+  }
+
+  function isPartSelected(partNumber: number): boolean {
+    return selectedMultipartParts.includes(partNumber)
+  }
+
+  function toggleMultipartPart(part: MultipartVideoPart): void {
+    if (partIsBusy(part)) return
+    if (partIsArchived(part) && !isPartSelected(part.number)) return
+    setSelectedMultipartParts((current) => current.includes(part.number)
+      ? current.filter((number) => number !== part.number)
+      : [...current, part.number])
+  }
+
+  function selectAvailableMultipartParts(): void {
+    if (!multipartSnapshot) return
+    setSelectedMultipartParts(multipartSnapshot.parts
+      .filter((part) => !partIsBusy(part) && !partIsArchived(part))
+      .map((part) => part.number))
+  }
+
+  function resetMultipartMode(): void {
+    setTranscriptionMode('single')
+    setMultipartDialogOpen(false)
+    setMultipartSnapshot(null)
+    setMultipartError('')
+    setSelectedMultipartParts([])
+    setMultipartSubmitting(false)
+  }
+
+  async function openMultipartDialog(): Promise<void> {
+    if (multipartLoading || !onReadMultipartVideo) {
+      if (!onReadMultipartVideo) setMultipartError('当前页面暂不支持读取分 P 信息，请返回视频页面后重试。')
+      setMultipartDialogOpen(true)
+      return
+    }
+    setMultipartLoading(true)
+    setMultipartError('')
+    setMultipartSnapshot(null)
+    setSelectedMultipartParts([])
+    setMultipartDialogOpen(true)
+    try {
+      const snapshot = await onReadMultipartVideo()
+      if (!snapshot || snapshot.parts.length <= 1) {
+        throw new Error(snapshot ? '当前视频只有 1 个分 P，请使用单 P 转写。' : '未能读取当前视频的分 P 信息。')
+      }
+      setMultipartSnapshot(snapshot)
+    } catch (error) {
+      setMultipartError(error instanceof Error ? error.message : '读取分 P 信息失败，请重试。')
+    } finally {
+      setMultipartLoading(false)
+    }
+  }
+
+  async function submitMultipartTranscription(): Promise<void> {
+    if (!multipartSnapshot || !onEnqueueMultipartTranscription || selectedMultipartParts.length === 0 || multipartSubmitting) return
+    const parts = multipartSnapshot.parts.filter((part) => selectedMultipartParts.includes(part.number))
+    if (parts.length === 0) return
+    setMultipartSubmitting(true)
+    try {
+      await onEnqueueMultipartTranscription(multipartSnapshot, parts, createDeepSeekOptions())
+      resetMultipartMode()
+    } catch (error) {
+      setMultipartError(error instanceof Error ? error.message : '加入转写队列失败，请重试。')
+      setMultipartSubmitting(false)
+    }
+  }
+
+  function renderMultipartDialog(): React.JSX.Element | null {
+    if (!multipartDialogOpen) return null
+    const selectableCount = multipartSnapshot?.parts.filter((part) => !partIsBusy(part) && !partIsArchived(part)).length ?? 0
+    return <BilimiModal
+      title="选择多 P 转写"
+      busy={multipartLoading || multipartSubmitting}
+      onClose={resetMultipartMode}
+      actions={<>
+        {multipartError ? <button type="button" onClick={() => void openMultipartDialog()} disabled={multipartLoading}>重试</button> : null}
+        <button type="button" onClick={resetMultipartMode} disabled={multipartSubmitting}>返回</button>
+        <button type="button" onClick={() => void submitMultipartTranscription()} disabled={!selectedMultipartParts.length || multipartLoading || multipartSubmitting || !onEnqueueMultipartTranscription}>加入转写队列</button>
+      </>}
+    >
+      {multipartLoading ? <p role="status">正在读取当前视频的分 P 信息…</p> : multipartError ? <p role="alert">{multipartError}</p> : multipartSnapshot ? <>
+        <div className="video-notes__multipart-toolbar">
+          <button type="button" onClick={selectAvailableMultipartParts} disabled={!selectableCount}>全选</button>
+          <span>已选 {selectedMultipartParts.length} 个</span>
+        </div>
+        <ul className="video-notes__multipart-list">
+          {multipartSnapshot.parts.map((part) => {
+            const busy = partIsBusy(part)
+            const archived = partIsArchived(part)
+            const selected = isPartSelected(part.number)
+            const status = busy ? '处理中' : archived && !selected ? '已归档' : '可加入'
+            return <li key={part.number} className="video-notes__multipart-row">
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label={`选择 P${part.number}`}
+                  checked={selected}
+                  disabled={busy || (archived && !selected)}
+                  onChange={() => toggleMultipartPart(part)}
+                />
+                <span>P{part.number} · {part.title}</span>
+                <small>{Math.floor(part.durationSeconds / 60)}:{String(part.durationSeconds % 60).padStart(2, '0')} · {status}</small>
+              </label>
+              {archived && !busy ? <button type="button" onClick={() => toggleMultipartPart(part)}>{selected ? '已选择重转写' : '重新转写'}</button> : null}
+            </li>
+          })}
+        </ul>
+      </> : null}
+    </BilimiModal>
   }
 
   useEffect(() => {
@@ -625,6 +793,16 @@ export function VideoNotesPanel({
   }
 
   function renderQueueItemAction(item: VideoAudioTranscriptionQueueItem): React.JSX.Element | null {
+    if (item.status === 'completed' && ['queued', 'generating'].includes(item.summaryStatus ?? '')) {
+      return <button
+        type="button"
+        className="video-notes__queue-row-action"
+        aria-label={`取消总结 ${item.title}`}
+        onClick={() => onCancelQueuedVideoSummary?.(item.id)}
+      >
+        取消总结
+      </button>
+    }
     if (item.status === 'completed' && item.summaryStatus === 'failed') {
       return <button
         type="button"
@@ -679,8 +857,11 @@ export function VideoNotesPanel({
         ? item.summaryStatus === 'generated' ? '总结已生成，档案保存失败' : '文稿已生成，档案保存失败'
         : item.summaryStatus === 'failed'
           ? item.errorMessage?.trim() || '总结生成失败'
-          : item.summarizeWithDeepSeek
-        ? item.summaryStatus === 'saved' ? 'DeepSeek 总结已完成' : '文稿已生成，总结未完成'
+        : item.summarizeWithDeepSeek
+        ? item.summaryStatus === 'saved' ? 'DeepSeek 总结已完成'
+          : item.summaryStatus === 'generating' ? '文稿已生成，正在生成 DeepSeek 总结'
+            : item.summaryStatus === 'queued' ? '文稿已生成，等待 DeepSeek 总结'
+              : '文稿已生成，总结未完成'
         : '文稿已生成'
       const runtimeLabel = item.actualDevice
         ? `实际使用：${item.actualDevice === 'cuda' ? 'NVIDIA GPU' : 'CPU'}${item.actualComputeType ? `（${item.actualComputeType}）` : ''}`
@@ -749,7 +930,7 @@ export function VideoNotesPanel({
           <>
             <div className="video-notes__queue-current-heading">
               <div className="video-notes__queue-current-content">
-                <button type="button" className="video-notes__queue-current-title" aria-current={activeQueueItem.id === visibleQueueItem?.id ? 'true' : undefined} title={activeQueueItem.title} aria-label={(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title} onClick={() => selectQueueItem(activeQueueItem.id)}>
+                <button type="button" className="video-notes__queue-current-title" aria-current={activeQueueItem.id === visibleQueueItem?.id ? 'true' : undefined} title={activeQueueItem.title} aria-label={(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title} onClick={() => { selectQueueItem(activeQueueItem.id); onOpenQueueSource?.(activeQueueItem) }}>
                   <span>{(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title}</span>
                   {activeQueueItem.actualDevice ? <span className="video-notes__queue-runtime">
                     {`正在使用${activeQueueItem.actualDevice === 'cuda' ? ' NVIDIA GPU' : ' CPU'} 转写${activeQueueItem.actualComputeType ? ` · ${activeQueueItem.actualComputeType}` : ''}`}
@@ -858,7 +1039,7 @@ export function VideoNotesPanel({
                   title={item.title}
                   aria-label={createQueueItemOptionLabel(item)}
                   aria-current={item.id === visibleQueueItem?.id ? 'true' : undefined}
-                  onClick={() => selectQueueItem(item.id)}
+                  onClick={() => { selectQueueItem(item.id); onOpenQueueSource?.(item) }}
                 >
                   <span className="video-notes__queue-record-title">{item.title}</span>
                 {renderQueueItemProgress(item)}
@@ -1012,17 +1193,34 @@ export function VideoNotesPanel({
       </section>
 
       <section className="video-notes__primary-actions" aria-label="札记主操作">
-        <AssistantActionButton
-          type="button"
-          aria-label={displayedPrimaryActionLabel}
-          disabled={generationBusy || enqueueingTranscription}
-          onClick={() => void handleGenerate()}
-          icon={workingPetUrl}
-          iconAlt="小咪转写音频"
-          badge="转"
-          label={displayedPrimaryActionLabel}
-          description={primaryActionDescription}
-        />
+        <div className="video-notes__primary-action-card">
+          <AssistantActionButton
+            type="button"
+            aria-label={displayedPrimaryActionLabel}
+            disabled={generationBusy || enqueueingTranscription || multipartLoading}
+            onClick={() => void handleGenerate()}
+            icon={workingPetUrl}
+            iconAlt="小咪转写音频"
+            badge="转"
+            label={displayedPrimaryActionLabel}
+            description={primaryActionDescription}
+          />
+          {onTranscribeAudio ? <label className="video-notes__transcription-mode" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+            <span className="sr-only">转写模式</span>
+            <select
+              aria-label="转写模式"
+              value={transcriptionMode}
+              disabled={generationBusy || enqueueingTranscription || multipartLoading}
+              onChange={(event) => {
+                event.stopPropagation()
+                setTranscriptionMode(event.currentTarget.value as 'single' | 'multi')
+              }}
+            >
+              <option value="single">单 P</option>
+              <option value="multi">多 P</option>
+            </select>
+          </label> : null}
+        </div>
         <AssistantActionButton
           type="button"
           aria-label="档案库"
@@ -1036,6 +1234,7 @@ export function VideoNotesPanel({
         />
       </section>
 
+      {renderMultipartDialog()}
       {renderTranscriptionQueue()}
       {documentExport ? <VideoNoteBatchExportDialog
         open

@@ -35,6 +35,7 @@ import type {
   FloatingAssistantWorkspaceRequest,
 } from './features/assistant/assistantRuntimeTypes'
 import type { AssistantPetHint, AssistantPetState } from './features/assistant/petState'
+import type { MultipartVideoSnapshot } from './features/notes/videoNoteMultipart'
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
@@ -119,6 +120,7 @@ type BilimiDesktopApi = {
   enqueueCurrentVideoAudioTranscription?: (options?: {
     summarizeWithDeepSeek?: boolean
   }) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  readCurrentVideoMultipart?: () => Promise<MultipartVideoSnapshot | null>
   writeClipboardText?: (text: string) => Promise<void>
   getCurrentVideoTime?: () => Promise<number>
   loadPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>

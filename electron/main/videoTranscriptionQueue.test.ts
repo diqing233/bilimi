@@ -114,6 +114,43 @@ describe('video transcription queue', () => {
     })
   })
 
+  it('starts the next local transcription while the previous archived part is summarized', async () => {
+    const firstSummary = createDeferred<string>()
+    const transcribe = vi.fn()
+      .mockResolvedValueOnce({ transcript: createTranscript('P1 文稿'), transcriptSource: 'audio' as const })
+      .mockResolvedValueOnce({ transcript: createTranscript('P2 文稿'), transcriptSource: 'audio' as const })
+    const saveArchiveVersion = vi.fn()
+      .mockReturnValueOnce({ archiveId: 'account:42:aid:7:cid:70', versionId: 'p1-version' })
+      .mockReturnValueOnce({ archiveId: 'account:42:aid:7:cid:71', versionId: 'p2-version' })
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      summarizeNote: vi.fn(() => firstSummary.promise),
+      saveArchiveVersion,
+      loadArchiveVersion: vi.fn(),
+      saveArchiveSummary: vi.fn(),
+      now: () => '2026-08-19T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ accountMid: '42', aid: 7, cid: 70, summarizeWithDeepSeek: true }))
+    queue.enqueue(createRequest({ accountMid: '42', aid: 7, cid: 71 }))
+    await flushNestedMicrotasks()
+
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ source: expect.objectContaining({ aid: 7, cid: 70 }) }),
+      ''
+    )
+    expect(transcribe).toHaveBeenCalledTimes(2)
+    expect(queue.getSnapshot().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'account:42:aid:7:cid:70', status: 'completed', summaryStatus: 'generating' }),
+      expect.objectContaining({ id: 'account:42:aid:7:cid:71', status: 'completed' })
+    ]))
+
+    firstSummary.resolve('P1 DeepSeek 总结')
+    await flushNestedMicrotasks()
+  })
+
   it('coalesces durable writes for consecutive raw progress updates', async () => {
     vi.useFakeTimers()
     try {

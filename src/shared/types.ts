@@ -381,6 +381,10 @@ export type VideoNoteSourceMetadata = {
   aid?: number
   /** Stable Bilibili part identity; absent only for single-part/legacy notes. */
   cid?: number
+  /** Exact part metadata captured by an explicit multi-P transcription action. */
+  partNumber?: number
+  partTitle?: string
+  partDurationSeconds?: number
   title: string
   author?: string
   description?: string
@@ -708,6 +712,9 @@ export type VideoAudioTranscriptionRequest = {
   bvid?: string
   aid?: number | string
   cid?: number | string
+  partNumber?: number | string
+  partTitle?: string
+  partDurationSeconds?: number | string
   /** Immutable local metadata snapshot used when this item was enqueued. */
   metadataRevision?: number
   summarizeWithDeepSeek?: boolean
@@ -719,7 +726,7 @@ export type VideoAudioTranscriptionRequest = {
 
 export type VideoAudioTranscriptionFailureKind = 'cuda-oom'
 /** A summary is only saved once its exact archive version can be re-read. */
-export type VideoAudioTranscriptionSummaryStatus = 'not-requested' | 'generating' | 'generated' | 'saved' | 'failed'
+export type VideoAudioTranscriptionSummaryStatus = 'not-requested' | 'queued' | 'generating' | 'generated' | 'saved' | 'failed'
 
 export type VideoAudioTranscriptionResult = {
   transcript: TranscriptSegment[]
