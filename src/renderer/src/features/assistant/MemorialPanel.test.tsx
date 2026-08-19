@@ -1,5 +1,5 @@
 ﻿import type { RecommendationLabel } from '@shared/types'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemorialPanel } from './MemorialPanel'
 
@@ -350,7 +350,7 @@ describe('MemorialPanel', () => {
     expect(onRetryQueuedVideoSummary).toHaveBeenCalledWith('account:1:aid:2:cid:3')
   })
 
-  it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {
+  it('switches review action parameters with borderless toggles without firing actions', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()
 
@@ -374,33 +374,45 @@ describe('MemorialPanel', () => {
 
     expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveDisplayValue('一枚')
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveDisplayValue('随机')
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveAttribute(
+    expect(screen.queryByRole('combobox', { name: '投币厚赏参数' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: '拟奏短评参数' })).not.toBeInTheDocument()
+
+    const coinSettings = screen.getByRole('group', { name: '投币厚赏参数' })
+    const commentSettings = screen.getByRole('group', { name: '拟奏短评参数' })
+    const singleCoinButton = within(coinSettings).getByRole('button', { name: '一枚' })
+    const doubleCoinButton = within(coinSettings).getByRole('button', { name: '两枚' })
+    const randomCommentButton = within(commentSettings).getByRole('button', { name: '随机' })
+    const chooseCommentButton = within(commentSettings).getByRole('button', { name: '选择' })
+
+    expect(singleCoinButton).toHaveAttribute('aria-pressed', 'true')
+    expect(doubleCoinButton).toHaveAttribute('aria-pressed', 'false')
+    expect(randomCommentButton).toHaveAttribute('aria-pressed', 'true')
+    expect(chooseCommentButton).toHaveAttribute('aria-pressed', 'false')
+    expect(singleCoinButton).toHaveAttribute('title', '默认投 1 枚硬币（再次点击可补投 1 枚）')
+    expect(doubleCoinButton).toHaveAttribute('title', '默认投 2 枚硬币')
+    expect(randomCommentButton).toHaveAttribute('title', '随机生成一条弹幕并直接发送')
+    expect(chooseCommentButton).toHaveAttribute(
       'title',
-      '默认投 1 枚硬币（再点一次可补投 1 枚）'
+      '生成 3 条候选弹幕，选择后发送(也可以复制发评论）'
     )
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveAttribute('title', '随机生成一条并直接发送')
     expect(screen.getByTestId('review-action-coin')).not.toContainElement(
-      screen.getByLabelText('投币厚赏参数')
+      coinSettings
     )
     expect(screen.getByTestId('review-action-comment')).not.toContainElement(
-      screen.getByLabelText('拟奏短评参数')
+      commentSettings
     )
     expect(screen.getByTestId('review-action-coin').parentElement).toBe(
-      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
+      coinSettings.parentElement
     )
     expect(screen.getByTestId('review-action-comment').parentElement).toBe(
-      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
+      commentSettings.parentElement
     )
     expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
       'memorial-panel__action-card--with-setting'
     )
 
-    fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })
+    fireEvent.click(doubleCoinButton)
+    fireEvent.click(chooseCommentButton)
 
     expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
     expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })

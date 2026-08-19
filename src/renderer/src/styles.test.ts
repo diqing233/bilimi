@@ -666,10 +666,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 88px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 88px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
@@ -684,26 +684,28 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
+      '.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover), .memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) { border-color: rgba(31, 99, 181, 0.22);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
+      '.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover), .memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) { border-color: rgba(31, 99, 181, 0.22); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) ); box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 0; border-left: 1px solid rgba(31, 99, 181, 0.22);'
-    )
-    expect(normalizedStyles).toContain(
-      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 0;\n  border-left: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: transparent;'
+      '.memorial-panel__action-setting { display: inline-flex; align-items: center; justify-content: center; gap: 2px; justify-self: stretch; min-width: 0; width: 88px; max-width: 88px; padding: 2px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-left-color: rgba(31, 99, 181, 0.5); background: transparent; box-shadow: none;'
+      '.memorial-panel__action-setting .memorial-panel__action-setting-option { appearance: none; min-width: 34px; min-height: 24px; padding: 2px 3px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--porcelain-muted);'
     )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting-option[aria-pressed="true"] { color: var(--porcelain-primary); text-decoration: underline; text-underline-offset: 3px;'
+    )
+    expectStyleSnippet('.memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled), .memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.72); outline: none; box-shadow: none; transform: none;')
+    expectStyleSnippet('.memorial-panel__action-setting-separator { color: var(--porcelain-muted); font-size: 12px; line-height: 1; user-select: none;')
+    expect(normalizedStyles).not.toContain('.memorial-panel__action-setting select')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
     expectStyleSnippet(
       '.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-areas: "mark label" "mark desc"; align-items: center; gap: 3px 8px; border-radius: 6px; text-align: left; background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
     )
-    expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(

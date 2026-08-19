@@ -100,13 +100,13 @@ type MemorialPanelProps = {
 }
 
 const COIN_SETTING_TITLES: Record<1 | 2, string> = {
-  1: '默认投 1 枚硬币（再点一次可补投 1 枚）',
+  1: '默认投 1 枚硬币（再次点击可补投 1 枚）',
   2: '默认投 2 枚硬币'
 }
 
 const COMMENT_SETTING_TITLES: Record<CommentSubmitMode, string> = {
-  random: '随机生成一条并直接发送',
-  choose: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+  random: '随机生成一条弹幕并直接发送',
+  choose: '生成 3 条候选弹幕，选择后发送(也可以复制发评论）'
 }
 
 const ACTIONS: Array<{
@@ -299,49 +299,67 @@ export function MemorialPanel({
               {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => {
                 const quickSetting =
                   action === '赐' ? (
-                    <label
+                    <div
                       className="memorial-panel__action-setting"
+                      role="group"
+                      aria-label="投币厚赏参数"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <select
-                        aria-label="投币厚赏参数"
-                        title={COIN_SETTING_TITLES[defaultCoinCount]}
-                        value={defaultCoinCount}
-                        onChange={(event) => {
-                          event.stopPropagation()
-                          onPreferenceChange?.({
-                            defaultCoinCount: Number(event.currentTarget.value) as 1 | 2
-                          })
-                        }}
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={defaultCoinCount === 1}
+                        title={COIN_SETTING_TITLES[1]}
+                        onClick={() => onPreferenceChange?.({ defaultCoinCount: 1 })}
                       >
-                        <option value={1}>一枚</option>
-                        <option value={2}>两枚</option>
-                      </select>
-                    </label>
+                        一枚
+                      </button>
+                      <span className="memorial-panel__action-setting-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={defaultCoinCount === 2}
+                        title={COIN_SETTING_TITLES[2]}
+                        onClick={() => onPreferenceChange?.({ defaultCoinCount: 2 })}
+                      >
+                        两枚
+                      </button>
+                    </div>
                   ) : action === '表' ? (
-                    <label
+                    <div
                       className="memorial-panel__action-setting"
+                      role="group"
+                      aria-label="拟奏短评参数"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <select
-                        aria-label="拟奏短评参数"
-                        title={COMMENT_SETTING_TITLES[commentSubmitMode]}
-                        value={commentSubmitMode}
-                        onChange={(event) => {
-                          event.stopPropagation()
-                          onPreferenceChange?.({
-                            commentSubmitMode: event.currentTarget.value as CommentSubmitMode
-                          })
-                        }}
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={commentSubmitMode === 'random'}
+                        title={COMMENT_SETTING_TITLES.random}
+                        onClick={() => onPreferenceChange?.({ commentSubmitMode: 'random' })}
                       >
-                        <option value="random">随机</option>
-                        <option value="choose">选择</option>
-                      </select>
-                    </label>
+                        随机
+                      </button>
+                      <span className="memorial-panel__action-setting-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={commentSubmitMode === 'choose'}
+                        title={COMMENT_SETTING_TITLES.choose}
+                        onClick={() => onPreferenceChange?.({ commentSubmitMode: 'choose' })}
+                      >
+                        选择
+                      </button>
+                    </div>
                   ) : null
 
                 return (

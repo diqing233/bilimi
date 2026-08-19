@@ -326,7 +326,6 @@ textarea,
 .memorial-panel__copy,
 .memorial-panel__meta,
 .memorial-panel__verdict,
-.memorial-panel__action-setting select,
 .memorial-panel__actions button,
 .memorial-panel__close,
 .memorial-panel__tabs button,
@@ -2655,7 +2654,7 @@ body[data-floating-window="true"],
   min-width: 0;
 }
 .memorial-panel__action-card--with-setting {
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: minmax(0, 1fr) 88px;
   gap: 0;
   align-items: stretch;
   border: 1px solid rgba(31, 99, 181, 0.22);
@@ -2683,6 +2682,17 @@ body[data-floating-window="true"],
   box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14);
   transform: translateY(-1px);
 }
+.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover),
+.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) {
+  border-color: rgba(31, 99, 181, 0.22);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 254, 253, 0.99),
+    rgba(247, 251, 255, 0.99)
+  );
+  box-shadow: none;
+  transform: none;
+}
 .memorial-panel__action-card--with-setting .assistant-action-button {
   border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join)
     var(--porcelain-radius-join) var(--porcelain-radius-control);
@@ -2698,43 +2708,55 @@ body[data-floating-window="true"],
   transform: none;
 }
 .memorial-panel__action-setting {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 2px;
   justify-self: stretch;
   min-width: 0;
-  width: 56px;
-  max-width: 56px;
+  width: 88px;
+  max-width: 88px;
+  padding: 2px;
   color: var(--porcelain-muted);
   font-size: 11px;
 }
-.memorial-panel__action-setting select {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 62px;
-  border: 0;
-  border-left: 1px solid rgba(31, 99, 181, 0.22);
-  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)
-    var(--porcelain-radius-control) var(--porcelain-radius-join);
+.memorial-panel__action-setting .memorial-panel__action-setting-option {
+  appearance: none;
+  min-width: 34px;
+  min-height: 24px;
+  padding: 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
-  color: var(--porcelain-text);
+  color: var(--porcelain-muted);
   font: inherit;
+  font-size: 11px;
   font-weight: 700;
-  padding: 0 15px 0 7px;
-  text-align: left;
-  text-align-last: left;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    box-shadow 120ms ease;
-}
-.memorial-panel__action-setting select:hover,
-.memorial-panel__action-setting select:focus-visible {
-  border-left-color: rgba(31, 99, 181, 0.5);
-  background: transparent;
+  line-height: 1.25;
+  cursor: pointer;
+  width: auto;
+  flex: 0 0 auto;
   box-shadow: none;
+  transform: none;
+}
+.memorial-panel__action-setting-option[aria-pressed="true"] {
+  color: var(--porcelain-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled),
+.memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) {
+  border-color: rgba(31, 99, 181, 0.42);
+  background: rgba(220, 238, 255, 0.72);
+  outline: none;
+  box-shadow: none;
+  transform: none;
+}
+.memorial-panel__action-setting-separator {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
 }
 .memorial-panel__actions button,
 .memorial-panel__close,
