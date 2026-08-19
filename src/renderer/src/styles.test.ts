@@ -826,13 +826,14 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('styles notes transcription modes as borderless toggles instead of a dropdown', () => {
-    expectStyleSnippet('.video-notes__transcription-mode { position: absolute; top: 8px; right: 8px;')
+    expectStyleSnippet('.video-notes__transcription-mode { position: absolute; top: 2px; right: 8px;')
     expectStyleSnippet('.video-notes .video-notes__transcription-mode-option { appearance: none; min-width: 36px; min-height: 24px;')
     expectStyleSnippet('width: auto; flex: 0 0 auto;')
     expectStyleSnippet('padding: 2px 5px; border: 1px solid transparent; border-radius: 5px;')
     expectStyleSnippet('background: transparent; color: var(--porcelain-muted);')
     expectStyleSnippet('box-shadow: none; transform: none;')
-    expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label, .video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description { padding-right: 104px;')
+    expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label { padding-right: 104px; }')
+    expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description { padding-right: 4px; }')
     expectStyleSnippet('.video-notes__transcription-mode-option[aria-pressed="true"] { color: var(--porcelain-primary);')
     expectStyleSnippet('.video-notes .video-notes__transcription-mode-option:hover:not(:disabled):not(.assistant-action-button), .video-notes .video-notes__transcription-mode-option:focus-visible:not(:disabled):not(.assistant-action-button) { border-color: rgba(31, 99, 181, 0.42);')
     expectStyleSnippet('outline: none; box-shadow: none; transform: none;')

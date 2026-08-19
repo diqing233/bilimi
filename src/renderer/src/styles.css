@@ -3052,7 +3052,7 @@ body[data-floating-window="true"],
 }
 .video-notes__transcription-mode {
   position: absolute;
-  top: 8px;
+  top: 2px;
   right: 8px;
   z-index: 1;
   display: inline-flex;
@@ -3104,9 +3104,11 @@ body[data-floating-window="true"],
   line-height: 1;
   user-select: none;
 }
-.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label,
-.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description {
+.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label {
   padding-right: 104px;
+}
+.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description {
+  padding-right: 4px;
 }
 .video-notes__multipart-toolbar > button {
   min-height: 28px;
