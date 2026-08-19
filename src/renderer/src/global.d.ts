@@ -39,6 +39,7 @@ import type { MultipartVideoSnapshot } from './features/notes/videoNoteMultipart
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
+  FavoriteRepositoryConfirmedReviewInput,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '@shared/favoriteRepository'
@@ -248,6 +249,14 @@ type BilimiDesktopApi = {
     accountMid: string,
     command: FavoriteRepositoryCommand
   ) => Promise<FavoriteRepositoryCommandResult>
+  commitConfirmedFavoriteReview?: (
+    accountMid: string,
+    input: FavoriteRepositoryConfirmedReviewInput
+  ) => Promise<FavoriteRepositoryCommandResult>
+  checkpointConfirmedFavoriteReview?: (
+    accountMid: string,
+    input: FavoriteRepositoryConfirmedReviewInput
+  ) => Promise<void>
   subscribeFavoriteRepository?: (
     accountMid: string,
     folderId: string | undefined,

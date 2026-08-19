@@ -626,7 +626,7 @@ export function FavoriteLibraryApp({
       ...(options.filter && options.filter !== 'all' ? { filter: options.filter } : {}),
       ...(options.sourceFilter ? { sourceFilter: options.sourceFilter } : {}),
       ...(options.stateFilters && Object.keys(options.stateFilters).length ? { stateFilters: options.stateFilters } : {}),
-      ...(options.sort && options.sort !== 'updated-desc' ? { sort: options.sort } : {}),
+      sort: options.sort ?? 'updated-desc',
       ...(options.transcriptionFilters?.length ? { transcriptionFilters: options.transcriptionFilters } : {}),
       ...(options.classificationSources?.length ? { classificationSources: options.classificationSources } : {})
     })
@@ -663,7 +663,7 @@ export function FavoriteLibraryApp({
     if (accountMid) {
       ++requestIdRef.current
       void window.bilimiDesktop?.getFavoriteRepositoryLibraryPage?.(accountMid, { kind: 'pending' }, {
-        limit: pageSize, page: 1, ...(rowSort !== 'updated-desc' ? { sort: rowSort } : {})
+        limit: pageSize, page: 1, sort: rowSort
       }).then((next) => {
         if (scopeRef.current.kind !== 'pending') return
         setPage(next)
@@ -891,7 +891,7 @@ export function FavoriteLibraryApp({
         ...(nextOptions.searchQuery.trim() ? { query: nextOptions.searchQuery.trim() } : {}),
         ...(nextOptions.sourceFilter !== 'all' ? { sourceFilter: nextOptions.sourceFilter } : {}),
         ...(Object.keys(apiStateFilters(nextOptions.libraryStateFilters)).length ? { stateFilters: apiStateFilters(nextOptions.libraryStateFilters) } : {}),
-        ...(nextOptions.rowSort !== 'updated-desc' ? { sort: nextOptions.rowSort } : {}),
+        sort: nextOptions.rowSort,
         ...(nextOptions.transcriptionFilters?.length ? { transcriptionFilters: nextOptions.transcriptionFilters } : {}),
         ...(nextOptions.classificationSources?.length ? { classificationSources: nextOptions.classificationSources } : {})
       })

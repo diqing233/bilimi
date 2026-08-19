@@ -81,7 +81,7 @@ describe('FavoriteLibraryDrawer integration', () => {
     await screen.findByText('Cached result 1')
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: 'cached query' } })
     await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'cached-folder' }, {
-      limit: 50, page: 1, query: 'cached query'
+      limit: 50, page: 1, query: 'cached query', sort: 'updated-desc'
     }))
     fireEvent.click(screen.getByRole('button', { name: '标题排序' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '标题 A-Z' }))
@@ -338,7 +338,7 @@ describe('FavoriteLibraryDrawer integration', () => {
     expect(screen.getByTestId('favorite-library-drawer').querySelector('.favorite-library__row-columns')).toHaveTextContent('视频名称')
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: '不相关的搜索' } })
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, query: '不相关的搜索' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, query: '不相关的搜索', sort: 'updated-desc' }))
     fireEvent.click(screen.getByRole('button', { name: '状态筛选' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '同步' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '未同步' }))
@@ -346,9 +346,10 @@ describe('FavoriteLibraryDrawer integration', () => {
       limit: 50,
       page: 1,
       query: '不相关的搜索',
+      sort: 'updated-desc',
       stateFilters: { sync: 'unsynced' }
     }))
     fireEvent.click(screen.getByRole('button', { name: '查看' }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50, page: 1 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'pending' }, { limit: 50, page: 1, sort: 'updated-desc' }))
   })
 })

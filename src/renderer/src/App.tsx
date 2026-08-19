@@ -80,6 +80,7 @@ import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petIn
 import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
 import { createCorrectionDraft } from './features/recommendation/correctionLearning'
+import type { FavoriteRepositoryConfirmedReviewInput } from '@shared/favoriteRepository'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -116,7 +117,7 @@ type FavoriteLedgerBindingRegistrationResult = {
   successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }>
 }
 
-function createConfirmedReviewFavoriteCommands(args: {
+function createConfirmedReviewFavoriteInput(args: {
   accountMid: string
   video: VideoContentContext
   targetLedgerIds: string[]
@@ -125,7 +126,7 @@ function createConfirmedReviewFavoriteCommands(args: {
   occurredAt: string
   operationId: string
   classificationSource: 'system-high' | 'system-low' | 'deepseek' | 'manual'
-}): FavoriteRepositoryCommand[] {
+}): FavoriteRepositoryConfirmedReviewInput | null {
   const aid = Number(args.video.aid)
   const accountMid = args.accountMid.trim()
   const remoteFolderIdsByLedgerId = args.result.favoriteFolderIdsByLedgerId
@@ -141,7 +142,7 @@ function createConfirmedReviewFavoriteCommands(args: {
     targetLedgerIds.length === 0 ||
     targetLedgerIds.some((ledgerId) => !String(remoteFolderIdsByLedgerId[ledgerId] ?? '').trim())
   ) {
-    return []
+    return null
   }
 
   const localDesiredFolderIds = targetLedgerIds.map((ledgerId) => `bilimi-logical:${ledgerId}`)
@@ -169,64 +170,24 @@ function createConfirmedReviewFavoriteCommands(args: {
     updatedAt: args.occurredAt
   }
 
-  return [
-    {
-      id: `${args.operationId}:video`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'upsert-video',
-      payload: videoPayload
-    },
-    {
-      id: `${args.operationId}:position`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'set-favorite-position',
-      payload: {
-        adjustmentKind: args.classificationSource,
-        audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } },
-        aid,
-        localDesiredFolderIds,
-        remoteObservedPhysicalFolderIds,
-        remoteObservedLogicalFolderIds: localDesiredFolderIds,
-        positionState: 'aligned',
-        observedAt: args.occurredAt,
-        updatedAt: args.occurredAt,
-        reason: '批阅收藏经 B 站接口确认'
-      }
-    },
-    {
-      id: `${args.operationId}:protection`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'record-organization-protections',
-      payload: {
-        records: [{
-          accountMid,
-          aid,
-          targetFolderIds: localDesiredFolderIds,
-          completedAt: args.occurredAt,
-          classificationSource: args.classificationSource
-        }]
-      }
-    },
-    {
-      id: `${args.operationId}:event-command`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'record-favorite-event',
-      payload: {
-        id: `${args.operationId}:event`,
-        sequence: Math.max(1, Date.parse(args.occurredAt)),
-        aid,
-        kind: 'entered',
-        occurredAt: args.occurredAt,
-        titleAtTime: title,
-        folderTitlesAtTime,
-        detail: '批阅收藏已由 B 站接口确认并写入收藏库。'
-      }
+  return {
+    operationId: args.operationId,
+    occurredAt: args.occurredAt,
+    aid,
+    video: videoPayload,
+    targets: targetLedgerIds.map((ledgerId, index) => ({
+      logicalFolderId: localDesiredFolderIds[index],
+      remoteFolderId: remoteObservedPhysicalFolderIds[index],
+      title: folderTitlesAtTime[index]
+    })),
+    classificationSource: args.classificationSource,
+    event: {
+      kind: 'entered',
+      titleAtTime: title,
+      folderTitlesAtTime,
+      detail: '批阅收藏已由 B 站接口确认并写入收藏库。'
     }
-  ]
+  }
 }
 
 function createConfirmedDailyReviewCommands(args: {
@@ -240,7 +201,7 @@ function createConfirmedDailyReviewCommands(args: {
   adjustmentResult: AssistantAutomationResult
   occurredAt: string
   operationId: string
-}): { commands: FavoriteRepositoryCommand[]; evidenceComplete: boolean } {
+}): { commands: FavoriteRepositoryCommand[]; confirmedInput?: FavoriteRepositoryConfirmedReviewInput; evidenceComplete: boolean } {
   const accountMid = args.accountMid.trim()
   const targetLedgerIds = Array.from(new Set(args.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))
   const removedLedgerIds = Array.from(
@@ -317,57 +278,24 @@ function createConfirmedDailyReviewCommands(args: {
 
   return {
     evidenceComplete: true,
-    commands: [{
-      id: `${args.operationId}:position`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'set-favorite-position',
-      payload: {
-        adjustmentKind: 'deepseek',
-        audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } },
-        aid: args.aid,
-        localDesiredFolderIds,
-        remoteObservedPhysicalFolderIds: targetLedgerIds.map(
-          (ledgerId) => String(adjustmentFolderIdsByLedgerId[ledgerId]).trim()
-        ),
-        remoteObservedLogicalFolderIds: localDesiredFolderIds,
-        positionState: 'aligned',
-        observedAt: args.occurredAt,
-        updatedAt: args.occurredAt,
-        reason: 'DeepSeek 批阅二审经 B 站接口确认'
-      }
-    },
-    {
-      id: `${args.operationId}:protection`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'record-organization-protections',
-      payload: {
-        records: [{
-          accountMid,
-          aid: args.aid,
-          targetFolderIds: localDesiredFolderIds,
-          completedAt: args.occurredAt,
-          classificationSource: 'deepseek'
-        }]
-      }
-    },
-    {
-      id: `${args.operationId}:event-command`,
-      accountMid,
-      issuedAt: args.occurredAt,
-      type: 'record-favorite-event',
-      payload: {
-        id: `${args.operationId}:event`,
-        sequence: Math.max(1, Date.parse(args.occurredAt)),
-        aid: args.aid,
+    commands: [],
+    confirmedInput: {
+      operationId: args.operationId,
+      occurredAt: args.occurredAt,
+      aid: args.aid,
+      targets: targetLedgerIds.map((ledgerId, index) => ({
+        logicalFolderId: localDesiredFolderIds[index],
+        remoteFolderId: String(adjustmentFolderIdsByLedgerId[ledgerId]).trim(),
+        title: folderTitlesAtTime[index]
+      })),
+      classificationSource: 'deepseek',
+      event: {
         kind: 'daily-review',
-        occurredAt: args.occurredAt,
         titleAtTime: args.title,
         folderTitlesAtTime,
         detail: `DeepSeek 批阅二审将归属从「${previousTitles.join('、')}」调整为「${folderTitlesAtTime.join('、')}」。`
       }
-    }]
+    }
   }
 }
 
@@ -2960,7 +2888,7 @@ export default function App() {
     if (result.ok && actionUsesFavorite(action) && favoriteProvisioned) {
       const occurredAt = new Date().toISOString()
       const operationId = `review-favorite:${actionAccountMid || 'unknown'}:${videoContentContext.aid ?? 'unknown'}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
-      const repositoryCommands = createConfirmedReviewFavoriteCommands({
+      const confirmedReviewInput = createConfirmedReviewFavoriteInput({
         accountMid: actionAccountMid,
         video: videoContentContext,
         targetLedgerIds,
@@ -2971,20 +2899,21 @@ export default function App() {
         classificationSource: localClassificationSource
       })
 
-      if (repositoryCommands.length > 0) {
+      if (confirmedReviewInput) {
         try {
-          if (!window.bilimiDesktop?.commitFavoriteRepositoryCommand) {
+          if (!window.bilimiDesktop?.checkpointConfirmedFavoriteReview) {
+            throw new Error('收藏库恢复检查点接口不可用')
+          }
+          if (!window.bilimiDesktop?.commitConfirmedFavoriteReview) {
             throw new Error('收藏库写入接口不可用')
           }
-          for (const command of repositoryCommands) {
-            await window.bilimiDesktop.commitFavoriteRepositoryCommand(actionAccountMid, command)
-          }
+          await window.bilimiDesktop.checkpointConfirmedFavoriteReview(actionAccountMid, confirmedReviewInput)
+          await window.bilimiDesktop.commitConfirmedFavoriteReview(actionAccountMid, confirmedReviewInput)
         } catch (error) {
-          const localPersistenceFeedback =
-            'B 站收藏已完成，但收藏库记录未能确认写入，已标记为待核对。' +
-            (error instanceof Error && error.message ? `（${error.message}）` : '')
-          result = withResultMessagePrefix(result, localPersistenceFeedback)
-          publishRuntimeFeedback(localPersistenceFeedback)
+          // Bilibili has already confirmed this action. Do not replace that
+          // result with a third, misleading synchronization state; account
+          // open will retry the durable local projection by operation id.
+          console.error('Confirmed review favorite local registration failed.', error)
         }
       }
     }
@@ -3175,16 +3104,28 @@ export default function App() {
           })
           const reviewCommands = reviewCommandResult.commands
           let repositoryReviewPersisted = true
-          if (reviewCommands.length > 0) {
+          if (reviewCommandResult.confirmedInput || reviewCommands.length > 0) {
             try {
-              if (!window.bilimiDesktop?.commitFavoriteRepositoryCommand) {
-                throw new Error('收藏库写入接口不可用')
+              if (reviewCommandResult.confirmedInput) {
+                if (!window.bilimiDesktop?.checkpointConfirmedFavoriteReview) {
+                  throw new Error('收藏库恢复检查点接口不可用')
+                }
+                if (!window.bilimiDesktop?.commitConfirmedFavoriteReview) {
+                  throw new Error('收藏库写入接口不可用')
+                }
+                await window.bilimiDesktop.checkpointConfirmedFavoriteReview(actionAccountMid, reviewCommandResult.confirmedInput)
+                await window.bilimiDesktop.commitConfirmedFavoriteReview(actionAccountMid, reviewCommandResult.confirmedInput)
+              } else {
+                if (!window.bilimiDesktop?.commitFavoriteRepositoryCommand) {
+                  throw new Error('收藏库写入接口不可用')
+                }
+                for (const command of reviewCommands) {
+                  await window.bilimiDesktop.commitFavoriteRepositoryCommand(actionAccountMid, command)
+                }
               }
-              for (const command of reviewCommands) {
-                await window.bilimiDesktop.commitFavoriteRepositoryCommand(actionAccountMid, command)
-              }
-            } catch {
+            } catch (error) {
               repositoryReviewPersisted = false
+              console.error('Confirmed daily review local registration failed.', error)
             }
           }
 
@@ -3209,9 +3150,9 @@ export default function App() {
               message: `主人，DeepSeek建议归入「${targetNames}」，但远端调整结果待核对。`
             })
           } else {
-            publishRuntimeFeedback(repositoryReviewPersisted
-              ? `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
-              : `DeepSeek 二判完成：远端已改归「${targetNames}」，但收藏库记录待核对。`)
+            publishRuntimeFeedback(
+              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
+            )
             window.bilimiDesktop?.setAssistantPetHint?.({
               tone: 'happy',
               message: `主人，DeepSeek重新判断有调整哦～已从「${ledgerNames(localTargetLedgerIds)}」改存到「${targetNames}」。`

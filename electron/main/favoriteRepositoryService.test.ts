@@ -287,13 +287,14 @@ describe('FavoriteRepositoryService', () => {
     })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
   })
 
-  it('reuses one full updated-date ordering across pages for the same 30k repository revision and query', async () => {
+  it('reuses one full adjustment-time ordering across pages for the same 30k repository revision and query', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root })
     const videos = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => {
       const aid = index + 1
       return [String(aid), {
-        aid, title: `Needle ${aid}`, tags: [], updatedAt: new Date(aid * 1000).toISOString()
+        aid, title: `Needle ${aid}`, tags: [], updatedAt: new Date(0).toISOString(),
+        lastAdjustment: { kind: 'manual' as const, occurredAt: new Date(aid * 1000).toISOString() }
       }]
     }))
     ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
@@ -326,7 +327,7 @@ describe('FavoriteRepositoryService', () => {
     parse.mockRestore()
   })
 
-  it('keeps ordinary updated-date ordering cached across unrelated queue and archive revisions', async () => {
+  it('keeps ordinary adjustment-time ordering cached across unrelated queue and archive revisions', async () => {
     const root = await createRoot()
     let queueRevision = 1
     let archiveRevision = 1
@@ -340,7 +341,7 @@ describe('FavoriteRepositoryService', () => {
     for (const aid of [1, 2, 3, 4]) {
       await service.commit('100', {
         id: `unrelated-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
-        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
       })
     }
     await service.getLibraryPage('100', { kind: 'all' }, { limit: 2, sort: 'updated-desc' })
@@ -363,7 +364,7 @@ describe('FavoriteRepositoryService', () => {
     for (const aid of [1, 2]) {
       await service.commit('100', {
         id: `cached-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
-        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
       })
     }
     await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
@@ -371,7 +372,7 @@ describe('FavoriteRepositoryService', () => {
 
     await service.commit('100', {
       id: 'cached-revision-3', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
-      payload: { aid: 3, title: 'Video 3', tags: [], updatedAt: '2026-07-24T00:00:03.000Z' }
+      payload: { aid: 3, title: 'Video 3', tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: '2026-07-24T00:00:03.000Z' } }
     })
     const page = await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
 
@@ -506,7 +507,7 @@ describe('FavoriteRepositoryService', () => {
     for (const aid of [1, 2, 3, 4, 5]) {
       await service.commit('100', {
         id: `page-row-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
-        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
       })
     }
 
@@ -520,7 +521,7 @@ describe('FavoriteRepositoryService', () => {
     for (const aid of [1, 2, 3, 4, 5, 6]) {
       await service.commit('100', {
         id: `cursor-offset-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
-        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
       })
     }
 
@@ -1280,6 +1281,56 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
       sort: 'title-asc', stateFilters: { protection: 'protected' }
     } as never)).resolves.toEqual([1])
+  })
+
+  it('sorts the library by the latest explicit adjustment, with stable aid and unknown-time placement', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos = {
+      '1': { aid: 1, title: 'Unknown', tags: [], updatedAt: '2026-08-20T00:00:00.000Z' },
+      '2': { aid: 2, title: 'Same time, higher aid', tags: [], updatedAt: '2026-08-10T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-18T00:00:00.000Z' } },
+      '3': { aid: 3, title: 'Newest', tags: [], updatedAt: '2026-08-01T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-20T00:00:00.000Z' } },
+      '4': { aid: 4, title: 'Same time, lower aid', tags: [], updatedAt: '2026-08-30T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-18T00:00:00.000Z' } },
+      '5': { aid: 5, title: 'Oldest', tags: [], updatedAt: '2026-08-31T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-01T00:00:00.000Z' } },
+      '6': { aid: 6, title: 'Invalid time', tags: [], updatedAt: '2026-08-02T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: 'not-a-date' } }
+    }
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-20T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], positions: {}, syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 3 } }, { video: { aid: 2 } }, { video: { aid: 4 } }, { video: { aid: 5 } }, { video: { aid: 1 } }, { video: { aid: 6 } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-asc' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 5 } }, { video: { aid: 2 } }, { video: { aid: 4 } }, { video: { aid: 3 } }, { video: { aid: 1 } }, { video: { aid: 6 } }] })
+  })
+
+  it('sorts the complete filtered result before paging by the adjustment time', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    for (const [aid, title, occurredAt] of [
+      [1, 'Needle old', '2026-08-01T00:00:00.000Z'],
+      [2, 'Other newest', '2026-08-20T00:00:00.000Z'],
+      [3, 'Needle newest', '2026-08-19T00:00:00.000Z']
+    ] as const) {
+      await service.commit('100', {
+        id: `adjustment-page-${aid}`, accountMid: '100', issuedAt: occurredAt, type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt: '2026-08-01T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt } }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, page: 1, query: 'needle', sort: 'updated-desc' }))
+      .resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 3 } }], page: 1, pageCount: 2 })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, page: 2, query: 'needle', sort: 'updated-desc' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
   })
 
   it('distinguishes successful write receipts from Bilibili readback', async () => {
@@ -2154,16 +2205,13 @@ describe('FavoriteRepositoryService', () => {
     expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
   })
 
-  it('returns only the requested library page without treating metadata refresh as organization work', async () => {
+  it('returns only the requested sorted library page without treating metadata refresh as organization work', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root })
-    const videos: Record<string, { aid: number; title: string; tags: string[]; updatedAt: string }> = {
-      '1': { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    const videos = {
+      '1': { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+      '2': { aid: 2, title: 'Second', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
     }
-    Object.defineProperty(videos, '2', {
-      enumerable: true,
-      get: () => { throw new Error('unselected video must not be read') }
-    })
     ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
       repository: {
         version: 1,
@@ -2490,5 +2538,183 @@ describe('FavoriteRepositoryService', () => {
     expect(persisted.snapshot.syncRecords).toEqual([
       expect.objectContaining({ id: 'run-1:append-1', status: 'succeeded' })
     ])
+  })
+
+  it('atomically records a confirmed review favorite and makes retries idempotent', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+
+    const register = (service as unknown as { commitConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<unknown> }).commitConfirmedReviewFavorite
+    const input = {
+      operationId: 'review-favorite:100:101:operation-1',
+      occurredAt: '2026-08-20T01:00:00.000Z',
+      aid: 101,
+      video: { aid: 101, title: '游戏攻略', author: 'UP', description: '简介', bvid: 'BV1test', tags: ['游戏'], tagEvidence: 'confirmed', updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '游戏攻略', folderTitlesAtTime: ['bilimi·游戏专区'], detail: '批阅收藏已由 B 站接口确认并写入收藏库。' }
+    }
+
+    await register.call(service, '100', input)
+    const first = await service.getLibraryDetail('100', 101)
+    expect(first).toMatchObject({
+      video: { aid: 101, title: '游戏攻略', bvid: 'BV1test' },
+      folderIds: ['bilimi-logical:game'],
+      protected: true,
+      position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'] }
+    })
+    await expect(service.getEventPage('100', 101, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ kind: 'entered', titleAtTime: '游戏攻略' }]
+    })
+    const revision = first?.revision
+
+    await register.call(service, '100', input)
+    const second = await service.getLibraryDetail('100', 101)
+    expect(second?.revision).toBe(revision)
+    await expect(service.getEventPage('100', 101, { limit: 10 })).resolves.toMatchObject({ totalCount: 1 })
+
+    await expect(register.call(service, '100', {
+      ...input,
+      event: { ...input.event, detail: '同一操作号不得重写审计事实。' }
+    })).rejects.toThrow(/operation id conflict/i)
+  })
+
+  it('rejects a confirmed review whose remote folder is not a bound target without mutating the repository', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    const register = (service as unknown as { commitConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<unknown> }).commitConfirmedReviewFavorite
+    await expect(register.call(service, '100', {
+      operationId: 'review-favorite:100:102:operation-1', occurredAt: '2026-08-20T01:00:00.000Z', aid: 102,
+      video: { aid: 102, title: '不应写入', tags: [], updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: 'wrong-folder', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '不应写入', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'test' }
+    })).rejects.toThrow(/bound|remote folder/i)
+    await expect(service.getLibraryDetail('100', 102)).resolves.toBeNull()
+  })
+
+  it('repairs only an explicitly Bilibili-confirmed legacy review missing its local protection and history', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await service.commit('100', {
+      id: 'legacy-video', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 103, title: '旧批阅收藏', tags: ['游戏'], updatedAt: '2026-08-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'legacy-position', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 103, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:game'], positionState: 'aligned',
+        observedAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-08-20T00:00:00.000Z', reason: '批阅收藏经 B 站接口确认'
+      }
+    })
+    await service.commit('100', {
+      id: 'unrelated-position', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 104, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:game'], positionState: 'aligned',
+        observedAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-08-20T00:00:00.000Z', reason: '其它本地操作'
+      }
+    })
+
+    const repair = (service as unknown as { repairLegacyConfirmedReviewFavorites: (accountMid: string) => Promise<unknown> }).repairLegacyConfirmedReviewFavorites
+    await repair.call(service, '100')
+
+    await expect(service.getLibraryDetail('100', 103)).resolves.toMatchObject({ protected: true })
+    await expect(service.getEventPage('100', 103, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [expect.objectContaining({ kind: 'entered', detail: '批阅收藏已由 B 站接口确认并写入收藏库。' })]
+    })
+    await expect(service.getLibraryDetail('100', 104)).resolves.toBeNull()
+  })
+
+  it('recovers a Bilibili-confirmed review checkpoint after restart without duplicating its local history', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:00:00.000Z' })
+    await first.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T01:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    const input = {
+      operationId: 'review-favorite:100:105:checkpoint-1', occurredAt: '2026-08-20T02:00:00.000Z', aid: 105,
+      video: { aid: 105, title: '重启后补写', tags: ['游戏'], updatedAt: '2026-08-20T02:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '重启后补写', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'B 站收藏已确认。' }
+    }
+    const checkpoint = (first as unknown as {
+      checkpointConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<void>
+    }).checkpointConfirmedReviewFavorite
+    await checkpoint.call(first, '100', input)
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:01:00.000Z' })
+    const recover = (restarted as unknown as {
+      recoverConfirmedReviewFavorites: (accountMid: string) => Promise<number>
+    }).recoverConfirmedReviewFavorites
+    await expect(recover.call(restarted, '100')).resolves.toBe(1)
+    await expect(restarted.getLibraryDetail('100', 105)).resolves.toMatchObject({
+      folderIds: ['bilimi-logical:game'], protected: true,
+      position: { state: 'aligned', remoteObservedPhysicalFolderIds: ['9001'] }
+    })
+    await expect(restarted.getEventPage('100', 105, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [expect.objectContaining({ id: `${input.operationId}:event`, kind: 'entered' })]
+    })
+    await expect(recover.call(restarted, '100')).resolves.toBe(0)
+    await expect(restarted.getEventPage('100', 105, { limit: 10 })).resolves.toMatchObject({ totalCount: 1 })
+  })
+
+  it('retains a confirmed review checkpoint until its current binding can be safely validated', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:00:00.000Z' })
+    const input = {
+      operationId: 'review-favorite:100:106:checkpoint-1', occurredAt: '2026-08-20T02:00:00.000Z', aid: 106,
+      video: { aid: 106, title: '等待重新绑定', tags: [], updatedAt: '2026-08-20T02:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '等待重新绑定', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'B 站收藏已确认。' }
+    }
+    const checkpoint = (service as unknown as {
+      checkpointConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<void>
+    }).checkpointConfirmedReviewFavorite
+    const recover = (service as unknown as {
+      recoverConfirmedReviewFavorites: (accountMid: string) => Promise<number>
+    }).recoverConfirmedReviewFavorites
+    await checkpoint.call(service, '100', input)
+    await expect(recover.call(service, '100')).resolves.toBe(0)
+    await expect(service.getLibraryDetail('100', 106)).resolves.toBeNull()
+
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T02:01:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await expect(recover.call(service, '100')).resolves.toBe(1)
+    await expect(service.getLibraryDetail('100', 106)).resolves.toMatchObject({ protected: true })
   })
 })

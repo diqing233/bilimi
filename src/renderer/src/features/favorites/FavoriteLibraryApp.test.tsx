@@ -216,7 +216,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(await screen.findByRole('status', { name: '正在读取收藏库' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /0 个视频/ })).not.toBeInTheDocument()
-    expect(window.bilimiDesktop.getFavoriteRepositoryLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, { limit: 50, page: 1 })
+    expect(window.bilimiDesktop.getFavoriteRepositoryLibraryPage).toHaveBeenCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, sort: 'updated-desc' })
 
     await act(async () => {
       resolveSummary?.({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-27T00:00:00.000Z', videoCount: 0, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
@@ -336,7 +336,7 @@ describe('FavoriteLibraryApp', () => {
     await screen.findByRole('searchbox', { name: '搜索收藏库' })
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索收藏库' }), { target: { value: 'later page' } })
     await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, {
-      limit: 50, page: 1, query: 'later page'
+      limit: 50, page: 1, query: 'later page', sort: 'updated-desc'
     }))
   })
 
@@ -2973,7 +2973,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: text.hideDetail })).toBeInTheDocument()
     expect(screen.getByRole('complementary')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: text.localFolder }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50, page: 1 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50, page: 1, sort: 'updated-desc' }))
     expect(await screen.findByText('Folder video')).toBeInTheDocument()
   })
 
@@ -3000,7 +3000,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(await screen.findByText('First page')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: text.nextPage }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 2 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 2, sort: 'updated-desc' }))
     expect(await screen.findByText('Second page')).toBeInTheDocument()
     expect(screen.queryByText('First page')).not.toBeInTheDocument()
   })
@@ -3042,7 +3042,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     expect(await screen.findByText('Second page history')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '上一页' }))
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1 }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'all' }, { limit: 50, page: 1, sort: 'updated-desc' }))
     expect(await screen.findByText('First page history')).toBeInTheDocument()
     expect(screen.queryByText('Second page history')).not.toBeInTheDocument()
   })
@@ -3333,7 +3333,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Local' }))
     fireEvent.click(screen.getAllByRole('checkbox')[0])
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'new query' } })
-    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50, page: 1, query: 'new query' }))
+    await waitFor(() => expect(getPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'local' }, { limit: 50, page: 1, query: 'new query', sort: 'updated-desc' }))
     expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked()
   })
 

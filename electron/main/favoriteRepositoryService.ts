@@ -14,6 +14,7 @@ import {
   type FavoriteRepositoryArchiveExport,
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
+  type FavoriteRepositoryConfirmedReviewInput,
   type FavoriteRepositoryInitialSourceFilter,
   type FavoriteRepositoryClassificationSource,
   type FavoriteRepositoryClassificationAdjustment,
@@ -33,6 +34,8 @@ type PersistedRepository = {
   commandResults: Record<string, FavoriteRepositoryCommandReceipt>
   /** Archive events are published with the repository generation, never appended after its receipt. */
   importedEvents?: FavoriteRepositoryEvent[]
+  /** Fingerprints the complete trusted review input, including its audit event. */
+  reviewOperationFingerprints?: Record<string, string>
   syncCommandIds?: string[]
   generation?: string
 }
@@ -123,6 +126,24 @@ type EventJournalEntry = {
   acceptedAt: string
 }
 
+/**
+ * This journal starts before the confirmed-review generation.  It deliberately
+ * lives outside the repository generation: if the process stops after Bilibili
+ * confirms the write but before the local generation is published, the next
+ * account open still has the exact local-only work to finish.
+ */
+type ConfirmedReviewJournalEntry = {
+  input: FavoriteRepositoryConfirmedReviewInput
+  fingerprint: string
+  checkpointedAt: string
+}
+
+type ConfirmedReviewJournal = {
+  version: 1
+  accountMid: string
+  entries: ConfirmedReviewJournalEntry[]
+}
+
 export type FavoriteRepositoryLibraryFilter = 'all' | 'pending' | 'protected' | 'unsynced'
 /** Filters by the observed source folders without exposing the full membership index to the renderer. */
 export type FavoriteRepositoryLibrarySourceFilter = 'with-other' | 'bilimi-only'
@@ -194,6 +215,89 @@ function stableJson(value: unknown): string {
     return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`
   }
   return JSON.stringify(value)
+}
+
+function normalizeConfirmedReviewInput(input: FavoriteRepositoryConfirmedReviewInput): FavoriteRepositoryConfirmedReviewInput {
+  const operationId = typeof input.operationId === 'string' ? input.operationId.trim() : ''
+  const occurredAt = typeof input.occurredAt === 'string' ? input.occurredAt.trim() : ''
+  const aid = Number(input.aid)
+  if (!operationId || !occurredAt || Number.isNaN(Date.parse(occurredAt)) || !Number.isSafeInteger(aid) || aid <= 0) {
+    throw new Error('Confirmed review favorite input is invalid.')
+  }
+  if (!Array.isArray(input.targets) || !input.targets.length || input.targets.length > 3 ||
+    !['system-high', 'system-low', 'deepseek', 'manual'].includes(input.classificationSource)) {
+    throw new Error('Confirmed review favorite targets are invalid.')
+  }
+  if (!input.event || (input.event.kind !== 'entered' && input.event.kind !== 'daily-review') ||
+    (input.event.titleAtTime !== undefined && typeof input.event.titleAtTime !== 'string') ||
+    (input.event.detail !== undefined && typeof input.event.detail !== 'string') ||
+    (input.event.folderTitlesAtTime !== undefined && (!Array.isArray(input.event.folderTitlesAtTime) ||
+      input.event.folderTitlesAtTime.some((title) => typeof title !== 'string')))) {
+    throw new Error('Confirmed review favorite event is invalid.')
+  }
+  const targets = input.targets.map((target) => ({
+    logicalFolderId: typeof target?.logicalFolderId === 'string' ? target.logicalFolderId.trim() : '',
+    remoteFolderId: typeof target?.remoteFolderId === 'string' ? target.remoteFolderId.trim() : '',
+    ...(typeof target?.title === 'string' && target.title.trim() ? { title: target.title.trim() } : {})
+  }))
+  if (targets.some((target) => !target.logicalFolderId || !target.remoteFolderId || !/^bilimi-logical:\S+$/u.test(target.logicalFolderId)) ||
+    new Set(targets.map((target) => target.logicalFolderId)).size !== targets.length ||
+    new Set(targets.map((target) => target.remoteFolderId)).size !== targets.length) {
+    throw new Error('Confirmed review favorite targets are invalid.')
+  }
+  const video = input.video
+    ? {
+        ...input.video,
+        aid: Number(input.video.aid),
+        title: typeof input.video.title === 'string' ? input.video.title.trim() : '',
+        tags: Array.isArray(input.video.tags) ? input.video.tags.map((tag) => typeof tag === 'string' ? tag.trim() : tag) : input.video.tags,
+        updatedAt: typeof input.video.updatedAt === 'string' ? input.video.updatedAt.trim() : ''
+      }
+    : undefined
+  if (video && (video.aid !== aid || !video.title || !Array.isArray(video.tags) || video.tags.some((tag) => typeof tag !== 'string') ||
+    !video.updatedAt || Number.isNaN(Date.parse(video.updatedAt)))) {
+    throw new Error('Confirmed review favorite video is invalid.')
+  }
+  return {
+    operationId,
+    occurredAt,
+    aid,
+    ...(video ? { video: { ...video, tags: [...video.tags] } } : {}),
+    targets,
+    classificationSource: input.classificationSource,
+    event: {
+      kind: input.event.kind,
+      ...(input.event.titleAtTime?.trim() ? { titleAtTime: input.event.titleAtTime.trim() } : {}),
+      ...(input.event.folderTitlesAtTime?.map((title) => title.trim()).filter(Boolean).length
+        ? { folderTitlesAtTime: input.event.folderTitlesAtTime.map((title) => title.trim()).filter(Boolean) }
+        : {}),
+      ...(input.event.detail?.trim() ? { detail: input.event.detail.trim() } : {})
+    }
+  }
+}
+
+function confirmedReviewEvent(input: FavoriteRepositoryConfirmedReviewInput): Omit<FavoriteRepositoryEvent, 'accountMid'> {
+  return {
+    id: `${input.operationId}:event`,
+    sequence: Math.max(1, Date.parse(input.occurredAt)),
+    aid: input.aid,
+    kind: input.event.kind,
+    occurredAt: input.occurredAt,
+    ...(input.event.titleAtTime ? { titleAtTime: input.event.titleAtTime } : {}),
+    ...(input.event.folderTitlesAtTime?.length ? { folderTitlesAtTime: [...input.event.folderTitlesAtTime] } : {}),
+    ...(input.event.detail ? { detail: input.event.detail } : {})
+  }
+}
+
+function confirmedReviewInputFingerprint(input: FavoriteRepositoryConfirmedReviewInput) {
+  return checksum(stableJson({
+    aid: input.aid,
+    occurredAt: input.occurredAt,
+    ...(input.video ? { video: { ...input.video, tags: [...input.video.tags] } } : {}),
+    targets: input.targets.map((target) => ({ ...target })),
+    classificationSource: input.classificationSource,
+    event: confirmedReviewEvent(input)
+  }))
 }
 
 function receiptFromResult(
@@ -412,7 +516,10 @@ function validPersisted(value: unknown, accountMid: string): value is PersistedR
     (persisted.importedEvents === undefined || (Array.isArray(persisted.importedEvents) && persisted.importedEvents.every((event) =>
       event && typeof event === 'object' && (event as FavoriteRepositoryEvent).accountMid === accountMid &&
       Number.isSafeInteger((event as FavoriteRepositoryEvent).aid) && (event as FavoriteRepositoryEvent).aid > 0 &&
-      typeof (event as FavoriteRepositoryEvent).id === 'string' && !!(event as FavoriteRepositoryEvent).id)))
+      typeof (event as FavoriteRepositoryEvent).id === 'string' && !!(event as FavoriteRepositoryEvent).id))) &&
+    (persisted.reviewOperationFingerprints === undefined ||
+      (typeof persisted.reviewOperationFingerprints === 'object' && !Array.isArray(persisted.reviewOperationFingerprints) &&
+        Object.values(persisted.reviewOperationFingerprints).every((fingerprint) => typeof fingerprint === 'string' && !!fingerprint)))
 }
 
 function validManifest(value: unknown, accountMid: string): value is RepositoryManifest {
@@ -1240,6 +1347,7 @@ export class FavoriteRepositoryService {
       return {
         version: 1,
         accountMid: account,
+        totalCount: items.length,
         revision: repository.snapshot.revision,
         items: page.map(clone),
         ...(start + limit < items.length ? { nextCursor: `${page.at(-1)!.sequence}:${page.at(-1)!.id}` } : {})
@@ -1261,6 +1369,239 @@ export class FavoriteRepositoryService {
       return { version: 1, accountMid: account, revision: snapshot.revision, totalCount: items.length, items: page.map(clone),
         ...(start + limit < items.length ? { nextCursor: page.at(-1)!.id } : {}) }
     })
+  }
+
+  /**
+   * Commits the local projection of a Bilibili-confirmed review favorite.
+   * This boundary intentionally accepts no renderer-created protected command:
+   * it rechecks logical/physical binding identity, builds one local plan, and
+   * publishes the immutable history event in the same generation.
+   */
+  /**
+   * Persists only the confirmed remote facts before asking the main process to
+   * publish the protected local projection.  This has no Bilibili side effect
+   * and deliberately does not require the binding to still be valid: account
+   * open revalidates it before ever applying the local plan.
+   */
+  async checkpointConfirmedReviewFavorite(
+    accountMid: string,
+    input: FavoriteRepositoryConfirmedReviewInput
+  ): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    this.pendingWriteCount++
+    return this.queue(async () => {
+      const normalized = normalizeConfirmedReviewInput(input)
+      const fingerprint = confirmedReviewInputFingerprint(normalized)
+      const entries = await this.readConfirmedReviewJournal(account)
+      const existing = entries.find((entry) => entry.input.operationId === normalized.operationId)
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) throw new Error('Confirmed review favorite operation id conflict.')
+        return
+      }
+      if (entries.length >= 100) throw new Error('Confirmed review recovery journal is full.')
+      await this.writeConfirmedReviewJournal(account, [
+        ...entries,
+        { input: clone(normalized), fingerprint, checkpointedAt: this.now() }
+      ])
+    }).finally(() => {
+      this.pendingWriteCount--
+    })
+  }
+
+  /** Replays durable Bilibili-confirmed facts into local storage only. */
+  async recoverConfirmedReviewFavorites(accountMid: string): Promise<number> {
+    const account = normalizeAccountMid(accountMid)
+    const entries = await this.queue(async () =>
+      (await this.readConfirmedReviewJournal(account)).map((entry) => clone(entry))
+    )
+    let recovered = 0
+    for (const entry of entries.slice(0, 100)) {
+      try {
+        await this.commitConfirmedReviewFavorite(account, entry.input)
+        recovered++
+      } catch {
+        // A changed account, rule binding, or remote folder evidence must retain
+        // the durable checkpoint for a later local-only retry.  No recovery
+        // branch is allowed to invoke Bilibili.
+      }
+    }
+    return recovered
+  }
+
+  async commitConfirmedReviewFavorite(
+    accountMid: string,
+    input: FavoriteRepositoryConfirmedReviewInput
+  ): Promise<FavoriteRepositoryCommandResult> {
+    const account = normalizeAccountMid(accountMid)
+    this.pendingWriteCount++
+    return this.queue(async () => {
+      input = normalizeConfirmedReviewInput(input)
+      const operationId = input.operationId
+      const occurredAt = input.occurredAt
+      const aid = input.aid
+
+      const commandId = `${operationId}:local`
+      const eventId = `${operationId}:event`
+      const cached = await this.load(account)
+      const repository = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account))
+
+      const targets = input.targets
+      const logicalFolderIds = targets.map((target) => target.logicalFolderId)
+      for (const target of targets) {
+        const ledgerId = target.logicalFolderId!.slice('bilimi-logical:'.length)
+        const bound = repository.snapshot.physicalShards.filter((shard) =>
+          shard.logicalLedgerId === ledgerId && shard.bindingState === 'bound' && shard.remoteFolderId === target.remoteFolderId)
+        const logicalFolder = repository.snapshot.folders.find((folder) => folder.id === target.logicalFolderId && folder.kind === 'bilimi-logical')
+        if (bound.length !== 1 || !logicalFolder) {
+          throw new Error('Confirmed review favorite remote folder is not a bound target.')
+        }
+      }
+      const existingVideo = repository.snapshot.videos[String(aid)]
+      if (!existingVideo && !input.video) throw new Error('Confirmed review favorite video is required.')
+      const event = confirmedReviewEvent(input)
+      const eventFingerprint = stableJson(event)
+      const inputFingerprint = confirmedReviewInputFingerprint(input)
+      const journalEntry = (await this.readConfirmedReviewJournal(account))
+        .find((entry) => entry.input.operationId === operationId)
+      if (journalEntry && journalEntry.fingerprint !== inputFingerprint) {
+        throw new Error('Confirmed review favorite operation id conflict.')
+      }
+      const existing = repository.commandResults[commandId]
+      if (existing) {
+        const previousFingerprint = repository.reviewOperationFingerprints?.[commandId]
+        if (previousFingerprint && previousFingerprint !== inputFingerprint) {
+          throw new Error('Confirmed review favorite operation id conflict.')
+        }
+        try {
+          await this.clearConfirmedReviewJournalEntry(account, operationId, inputFingerprint)
+        } catch (error) {
+          // The authoritative local generation already exists.  Leave the
+          // checkpoint for a later idempotent cleanup rather than reporting the
+          // confirmed operation as failed solely because journal pruning failed.
+          console.error('Confirmed review recovery journal cleanup failed.', error)
+        }
+        return this.resultFromReceipt(repository.snapshot, existing)
+      }
+      const existingEvents = [
+        ...(repository.importedEvents ?? []),
+        ...(await this.readEvents(account, aid))
+      ].filter((candidate) => candidate.id === eventId)
+      if (existingEvents.some((candidate) => {
+        const { accountMid: _accountMid, ...comparable } = candidate
+        return stableJson(comparable) !== eventFingerprint
+      })) {
+        throw new Error('Confirmed review favorite event id conflict.')
+      }
+
+      const command: FavoriteRepositoryCommand = {
+        id: commandId,
+        accountMid: account,
+        issuedAt: occurredAt,
+        type: 'commit-local-plan',
+        payload: {
+          workspaceId: `review:${operationId}`,
+          memberAidsByFolderId: Object.fromEntries(logicalFolderIds.map((folderId) => [folderId, [aid]])),
+          ...(input.video ? { videos: [{ ...input.video, tags: [...input.video.tags] }] } : {}),
+          organizationRecords: [{
+            accountMid: account,
+            aid,
+            targetFolderIds: logicalFolderIds,
+            completedAt: occurredAt,
+            classificationSource: input.classificationSource
+          }],
+          placements: [{
+            aid,
+            localDesiredFolderIds: logicalFolderIds,
+            remoteObservedPhysicalFolderIds: targets.map((target) => target.remoteFolderId!),
+            remoteObservedLogicalFolderIds: logicalFolderIds,
+            positionState: 'aligned',
+            observedAt: occurredAt,
+            updatedAt: occurredAt,
+            reason: input.event.kind === 'entered' ? '批阅收藏经 B 站接口确认' : 'DeepSeek 批阅二审经 B 站接口确认'
+          }],
+          audit: { operation: 'review', bilibiliSync: { attempted: true, status: 'succeeded' } }
+        }
+      }
+      const acceptedAt = this.now()
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, command, acceptedAt)
+      const publishedResult = this.withCanonicalAffectedFolders(result, repository.snapshot)
+      const audited = { ...event, accountMid: account }
+      const importedEvents = existingEvents.length
+        ? [...(repository.importedEvents ?? [])]
+        : [...(repository.importedEvents ?? []), audited]
+      const next: PersistedRepository = {
+        ...repository,
+        snapshot: this.snapshotFromResult(result),
+        importedEvents: importedEvents.sort((left, right) => left.aid - right.aid || left.sequence - right.sequence || left.id.localeCompare(right.id)),
+        reviewOperationFingerprints: { ...(repository.reviewOperationFingerprints ?? {}), [commandId]: inputFingerprint },
+        commandResults: { ...repository.commandResults, [commandId]: receiptFromResult(result, command) }
+      }
+      const persisted = await this.persist(account, next, cached.manifest?.generation)
+      try {
+        await this.clearConfirmedReviewJournalEntry(account, operationId, inputFingerprint)
+      } catch (error) {
+        // Keep a stale but idempotent checkpoint if its cleanup write fails.
+        // Returning the already-published generation is safer than making the
+        // renderer reinterpret a confirmed Bilibili write as unsuccessful.
+        console.error('Confirmed review recovery journal cleanup failed.', error)
+      }
+      await Promise.all([
+        rm(this.syncJournalPath(account), { force: true }),
+        rm(this.syncCheckpointJournalPath(account), { force: true }),
+        rm(this.bindingJournalPath(account), { force: true }),
+        rm(this.eventJournalPath(account), { force: true })
+      ])
+      this.syncCheckpointState.delete(account)
+      this.cache.set(account, persisted)
+      this.emitChange(publishedResult)
+      return clone(result)
+    }).finally(() => {
+      this.pendingWriteCount--
+    })
+  }
+
+  /** Repairs only the known legacy half-write; it never calls Bilibili. */
+  async repairLegacyConfirmedReviewFavorites(accountMid: string): Promise<number> {
+    const account = normalizeAccountMid(accountMid)
+    const snapshot = await this.getSnapshot(account)
+    const protectedAids = new Set(snapshot.organizationRecords.map((record) => record.aid))
+    const candidates = Object.values(snapshot.positions)
+      .filter((position) => position.positionState === 'aligned' &&
+        position.reason === '批阅收藏经 B 站接口确认' &&
+        !protectedAids.has(position.aid) && Boolean(snapshot.videos[String(position.aid)]))
+      .slice(0, 100)
+    let repaired = 0
+    for (const position of candidates) {
+      const targetPairs = position.localDesiredFolderIds.map((logicalFolderId) => {
+        const ledgerId = logicalFolderId.startsWith('bilimi-logical:')
+          ? logicalFolderId.slice('bilimi-logical:'.length)
+          : ''
+        const shards = snapshot.physicalShards.filter((shard) =>
+          shard.logicalLedgerId === ledgerId && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId) &&
+          position.remoteObservedPhysicalFolderIds.includes(shard.remoteFolderId!))
+        const folder = snapshot.folders.find((candidate) => candidate.id === logicalFolderId && candidate.kind === 'bilimi-logical')
+        return shards.length === 1 && folder
+          ? { logicalFolderId, remoteFolderId: shards[0].remoteFolderId!, title: folder.title }
+          : undefined
+      })
+      if (!targetPairs.length || targetPairs.some((target) => !target) ||
+        new Set(targetPairs.map((target) => target!.remoteFolderId)).size !== targetPairs.length) continue
+      const video = snapshot.videos[String(position.aid)]
+      await this.commitConfirmedReviewFavorite(account, {
+        operationId: `legacy-confirmed-review:${account}:${position.aid}`,
+        occurredAt: position.updatedAt,
+        aid: position.aid,
+        targets: targetPairs as Array<{ logicalFolderId: string; remoteFolderId: string; title: string }>,
+        classificationSource: deriveFavoriteRepositoryClassificationSource(video) ?? 'system-high',
+        event: {
+          kind: 'entered', titleAtTime: video.title,
+          folderTitlesAtTime: targetPairs.map((target) => target!.title),
+          detail: '批阅收藏已由 B 站接口确认并写入收藏库。'
+        }
+      })
+      repaired++
+    }
+    return repaired
   }
 
   async getLibraryFolderAids(accountMid: string, folderId: string): Promise<number[]> {
@@ -1654,10 +1995,6 @@ export class FavoriteRepositoryService {
         ? initialSource.folders.some((folder) => folder.kind === 'ordinary')
         : initialSource.folders.some((folder) => folder.kind === 'bilimi')
     }
-    // Callers without a library sort retain the legacy bounded aid-read path.
-    if (!query && filter === 'all' && options.sort === undefined && transcriptionFilters.size === 0 && classificationSources.size === 0) {
-      return sourceFilter || initialSourceFilter ? aids.filter((aid) => matchesSource(aid) && matchesInitialSource(aid)) : aids
-    }
     return aids.filter((aid) => {
       const video = snapshot.videos[String(aid)]
       if (!video) return false
@@ -1682,7 +2019,15 @@ export class FavoriteRepositoryService {
       const right = snapshot.videos[String(rightAid)]!
       if (sort === 'title-asc') return left.title.localeCompare(right.title) || leftAid - rightAid
       if (sort === 'title-desc') return right.title.localeCompare(left.title) || leftAid - rightAid
-      const difference = Date.parse(left.updatedAt) - Date.parse(right.updatedAt)
+      const leftOccurredAt = left.lastAdjustment?.occurredAt
+      const rightOccurredAt = right.lastAdjustment?.occurredAt
+      const leftTime = leftOccurredAt ? Date.parse(leftOccurredAt) : Number.NaN
+      const rightTime = rightOccurredAt ? Date.parse(rightOccurredAt) : Number.NaN
+      const leftKnown = Number.isFinite(leftTime)
+      const rightKnown = Number.isFinite(rightTime)
+      if (leftKnown !== rightKnown) return leftKnown ? -1 : 1
+      if (!leftKnown && !rightKnown) return leftAid - rightAid
+      const difference = leftTime - rightTime
       return (sort === 'updated-asc' ? difference : -difference) || leftAid - rightAid
     })
   }
@@ -1722,7 +2067,7 @@ export class FavoriteRepositoryService {
       sourceFilter: options.sourceFilter ?? '',
       initialSourceFilter: options.initialSourceFilter ?? '',
       stateFilters: options.stateFilters ?? {},
-      sort: options.sort ?? '',
+      sort: options.sort ?? 'updated-desc',
       transcriptionFilters: [...transcriptionFilters].sort(),
       classificationSources: [...new Set(options.classificationSources ?? [])].sort(),
       ...(dependsOnQueue ? { transcriptionQueueRevision: normalizedQueueRevision } : {}),
@@ -2053,6 +2398,56 @@ export class FavoriteRepositoryService {
     await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
   }
 
+  private async readConfirmedReviewJournal(accountMid: string): Promise<ConfirmedReviewJournalEntry[]> {
+    try {
+      const journal = JSON.parse(await readFile(this.confirmedReviewJournalPath(accountMid), 'utf8')) as Partial<ConfirmedReviewJournal>
+      if (journal.version !== 1 || journal.accountMid !== accountMid || !Array.isArray(journal.entries) || journal.entries.length > 100) {
+        throw new Error('Confirmed review recovery journal is invalid.')
+      }
+      const entries = journal.entries.map((entry) => {
+        if (!entry || typeof entry !== 'object' || !entry.input || typeof entry.fingerprint !== 'string' || !entry.fingerprint ||
+          typeof entry.checkpointedAt !== 'string' || Number.isNaN(Date.parse(entry.checkpointedAt))) {
+          throw new Error('Confirmed review recovery journal is invalid.')
+        }
+        const input = normalizeConfirmedReviewInput(entry.input)
+        const fingerprint = confirmedReviewInputFingerprint(input)
+        if (entry.fingerprint !== fingerprint) throw new Error('Confirmed review recovery journal is invalid.')
+        return { input, fingerprint, checkpointedAt: entry.checkpointedAt }
+      })
+      if (new Set(entries.map((entry) => entry.input.operationId)).size !== entries.length) {
+        throw new Error('Confirmed review recovery journal is invalid.')
+      }
+      return entries
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
+  private async writeConfirmedReviewJournal(accountMid: string, entries: ConfirmedReviewJournalEntry[]): Promise<void> {
+    if (!entries.length) {
+      await rm(this.confirmedReviewJournalPath(accountMid), { force: true })
+      return
+    }
+    await this.atomicWrite(this.confirmedReviewJournalPath(accountMid), JSON.stringify({
+      version: 1,
+      accountMid,
+      entries: entries.map((entry) => ({
+        input: clone(entry.input),
+        fingerprint: entry.fingerprint,
+        checkpointedAt: entry.checkpointedAt
+      }))
+    } satisfies ConfirmedReviewJournal))
+  }
+
+  private async clearConfirmedReviewJournalEntry(accountMid: string, operationId: string, fingerprint: string): Promise<void> {
+    const entries = await this.readConfirmedReviewJournal(accountMid)
+    const existing = entries.find((entry) => entry.input.operationId === operationId)
+    if (!existing) return
+    if (existing.fingerprint !== fingerprint) throw new Error('Confirmed review favorite operation id conflict.')
+    await this.writeConfirmedReviewJournal(accountMid, entries.filter((entry) => entry.input.operationId !== operationId))
+  }
+
   private async appendEvent(accountMid: string, event: FavoriteRepositoryEvent) {
     const path = this.eventPath(accountMid, event.aid)
     await mkdir(dirname(path), { recursive: true })
@@ -2199,6 +2594,10 @@ export class FavoriteRepositoryService {
 
   private eventJournalPath(accountMid: string) {
     return join(this.accountDirectory(accountMid), 'event-commands.jsonl')
+  }
+
+  private confirmedReviewJournalPath(accountMid: string) {
+    return join(this.accountDirectory(accountMid), 'confirmed-review-recovery.json')
   }
 
   private generationDirectory(accountMid: string, generation: string) {

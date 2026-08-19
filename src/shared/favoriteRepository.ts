@@ -13,6 +13,32 @@ export type FavoriteRepositoryLocalPlanPayload = {
   audit?: FavoriteRepositoryClassificationAdjustmentAudit
 }
 
+/**
+ * Main-process input for a Bilibili-confirmed review favorite.  The renderer
+ * supplies only the remote write evidence and the final logical targets; the
+ * main process resolves physical shard identity and constructs the protected
+ * local plan, so protected repository commands never cross the renderer IPC
+ * boundary.
+ */
+export type FavoriteRepositoryConfirmedReviewInput = {
+  operationId: string
+  occurredAt: string
+  aid: number
+  video?: FavoriteRepositoryVideo
+  targets: Array<{
+    logicalFolderId: string
+    remoteFolderId: string
+    title?: string
+  }>
+  classificationSource: FavoriteRepositoryClassificationSource
+  event: {
+    kind: Extract<FavoriteRepositoryEventKind, 'entered' | 'daily-review'>
+    titleAtTime?: string
+    folderTitlesAtTime?: string[]
+    detail?: string
+  }
+}
+
 /** Main-process snapshot of the account's current Bilibili source folders. */
 export type FavoriteRepositoryBilibiliMirrorPayload = {
   workspaceId: string

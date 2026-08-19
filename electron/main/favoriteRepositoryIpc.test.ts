@@ -103,6 +103,96 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getSnapshot).not.toHaveBeenCalled()
   })
 
+  it('repairs confirmed legacy review half-records before returning an account-open summary', async () => {
+    const ipcMain = new FakeIpcMain()
+    const repairLegacyConfirmedReviewFavorites = vi.fn().mockResolvedValue(1)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 2 })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { repairLegacyConfirmedReviewFavorites, getLibrarySummary } as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 2 })
+    expect(repairLegacyConfirmedReviewFavorites).toHaveBeenCalledWith('100')
+    expect(repairLegacyConfirmedReviewFavorites).toHaveBeenCalledBefore(getLibrarySummary)
+  })
+
+  it('recovers durable confirmed review checkpoints before legacy repair and the account-open summary', async () => {
+    const ipcMain = new FakeIpcMain()
+    const recoverConfirmedReviewFavorites = vi.fn().mockResolvedValue(1)
+    const repairLegacyConfirmedReviewFavorites = vi.fn().mockResolvedValue(0)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 3 })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { recoverConfirmedReviewFavorites, repairLegacyConfirmedReviewFavorites, getLibrarySummary } as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:open-account', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 3 })
+    expect(recoverConfirmedReviewFavorites).toHaveBeenCalledWith('100')
+    expect(recoverConfirmedReviewFavorites).toHaveBeenCalledBefore(repairLegacyConfirmedReviewFavorites)
+    expect(repairLegacyConfirmedReviewFavorites).toHaveBeenCalledBefore(getLibrarySummary)
+  })
+
+  it('routes confirmed review registration through the dedicated main-process channel', async () => {
+    const ipcMain = new FakeIpcMain()
+    const result = { accountMid: '100', revision: 4, commandId: 'review:local', affectedFolderIds: [], affectedAids: [101] }
+    const commitConfirmedReviewFavorite = vi.fn().mockResolvedValue(result)
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn(), commitConfirmedReviewFavorite } as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    const input = {
+      operationId: 'review-favorite:100:101:operation-1', occurredAt: '2026-08-20T01:00:00.000Z', aid: 101,
+      video: { aid: 101, title: '游戏攻略', tags: [], updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '游戏攻略', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'test' }
+    }
+    await expect(ipcMain.invoke('favorite-repository:commit-confirmed-review', 7, '100', input)).resolves.toEqual(result)
+    expect(commitConfirmedReviewFavorite).toHaveBeenCalledWith('100', input)
+  })
+
+  it('routes Bilibili-confirmed review checkpoints through the trusted main-process channel', async () => {
+    const ipcMain = new FakeIpcMain()
+    const checkpointConfirmedReviewFavorite = vi.fn().mockResolvedValue(undefined)
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn(), checkpointConfirmedReviewFavorite } as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    const input = {
+      operationId: 'review-favorite:100:101:checkpoint-1', occurredAt: '2026-08-20T01:00:00.000Z', aid: 101,
+      video: { aid: 101, title: '游戏攻略', tags: [], updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '游戏攻略', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'test' }
+    }
+    await expect(ipcMain.invoke('favorite-repository:checkpoint-confirmed-review', 7, '100', input)).resolves.toBeUndefined()
+    expect(checkpointConfirmedReviewFavorite).toHaveBeenCalledWith('100', input)
+  })
+
+  it('keeps protected organization commands rejected on the generic renderer channel', async () => {
+    const ipcMain = new FakeIpcMain()
+    const commit = vi.fn()
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary: vi.fn(), commit } as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+    await expect(ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'protected', accountMid: '100', issuedAt: '2026-08-20T01:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [] }
+    })).rejects.toThrow('reserved for the main process')
+    expect(commit).not.toHaveBeenCalled()
+  })
+
   it('passes persisted local draft ledger identities into summary projection', async () => {
     const ipcMain = new FakeIpcMain()
     const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 1 })

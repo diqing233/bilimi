@@ -143,6 +143,8 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     setAssistantPetHint: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
     adoptFavoriteRepositoryLedgerBinding: vi.fn().mockResolvedValue(undefined),
+    checkpointConfirmedFavoriteReview: vi.fn().mockResolvedValue(undefined),
+    commitConfirmedFavoriteReview: vi.fn().mockResolvedValue(undefined),
     registerAssistantRuntime,
     ...apiOverrides
   }
@@ -1476,6 +1478,7 @@ describe('App runtime integration', () => {
 
   it('persists confirmed review favorites with the stable ledger identity after its display name is edited', async () => {
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
     const preferences = createAppPreferences({
       favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
         ledger.id === 'game'
@@ -1489,7 +1492,8 @@ describe('App runtime integration', () => {
     const { requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(preferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      commitFavoriteRepositoryCommand
+      commitFavoriteRepositoryCommand,
+      commitConfirmedFavoriteReview
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -1550,12 +1554,12 @@ describe('App runtime integration', () => {
       requestRuntime({ id: 'review-favorite-701', type: 'run-action', action: '藏' })
     ).resolves.toMatchObject({ ok: true })
 
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledTimes(1)
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith(
       '100',
       expect.objectContaining({
-        accountMid: '100',
-        type: 'upsert-video',
-        payload: expect.objectContaining({
+        aid: 701,
+        video: expect.objectContaining({
           aid: 701,
           bvid: 'BV1review701',
           cid: 702,
@@ -1566,33 +1570,81 @@ describe('App runtime integration', () => {
         })
       })
     )
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
-      '100',
-      expect.objectContaining({
-        accountMid: '100',
-        type: 'set-favorite-position',
-        payload: expect.objectContaining({
-          aid: 701,
-          localDesiredFolderIds: ['bilimi-logical:game'],
-          remoteObservedPhysicalFolderIds: ['91000002'],
-          remoteObservedLogicalFolderIds: ['bilimi-logical:game'],
-          positionState: 'aligned'
-        })
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith('100', expect.objectContaining({
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '91000002', title: '我的游戏归档' }],
+      event: expect.objectContaining({ kind: 'entered', titleAtTime: '游戏机制解析', folderTitlesAtTime: ['我的游戏归档'] })
+    }))
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
+  })
+
+  it('keeps the confirmed Bilibili favorite result when checkpointed local registration rejects', async () => {
+    const checkpointConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockRejectedValue(new Error('local storage is temporarily unavailable'))
+    const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const preferences = createAppPreferences()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      checkpointConfirmedFavoriteReview,
+      commitConfirmedFavoriteReview,
+      commitFavoriteRepositoryCommand
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 702,
+            bvid: 'BV1review702',
+            cid: 703,
+            title: '本地登记失败仍保持远端结果',
+            author: '测试UP',
+            description: '测试简介',
+            tags: ['游戏']
+          }
+        }
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            favoriteFolderIdsByLedgerId: { game: '91000002' },
+            message: '已用 B 站接口归入 bilimi 收藏夹。'
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        return { ok: true, steps: ['favorite:open'], missingTargets: [], message: '已完成。' }
       })
-    )
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
-      '100',
-      expect.objectContaining({
-        accountMid: '100',
-        type: 'record-favorite-event',
-        payload: expect.objectContaining({
-          aid: 701,
-          kind: 'entered',
-          titleAtTime: '游戏机制解析',
-          folderTitlesAtTime: ['我的游戏归档']
-        })
+    })
+    await primeProvisionedFavoriteStatus(requestRuntime, preferences.favoriteLedgers)
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review702' }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: { title: '本地登记失败仍保持远端结果 - 哔哩哔哩' }
+      }))
+    })
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await expect(requestRuntime({ id: 'review-favorite-702', type: 'run-action', action: '藏' })).resolves.toMatchObject({
+        ok: true,
+        message: expect.not.stringContaining('待核对')
       })
-    )
+    } finally {
+      consoleError.mockRestore()
+    }
+
+    expect(checkpointConfirmedFavoriteReview).toHaveBeenCalledTimes(1)
+    expect(checkpointConfirmedFavoriteReview).toHaveBeenCalledBefore(commitConfirmedFavoriteReview)
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledTimes(1)
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
+    const feedback = (await requestRuntime({ id: 'review-favorite-702-feedback', type: 'snapshot' }))?.runtimeFeedback ?? ''
+    expect(feedback).not.toContain('待核对')
+    expect(feedback).not.toContain('Frozen favorite workspace plans')
   })
 
   it('persists existing Bilibili folder ids returned by backup before the next assistant snapshot', async () => {
@@ -4397,11 +4449,13 @@ describe('App runtime integration', () => {
       favoriteArchiveMultiMode: 'off'
     })
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      commitFavoriteRepositoryCommand
+      commitFavoriteRepositoryCommand,
+      commitConfirmedFavoriteReview
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -4464,17 +4518,12 @@ describe('App runtime integration', () => {
 
     expect(adjustmentScript).toContain('"addLedgerIds":["knowledge"]')
     expect(adjustmentScript).toContain('"removeLedgerIds":["inbox"]')
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith(
       '100',
       expect.objectContaining({
-        type: 'set-favorite-position',
-        payload: expect.objectContaining({
-          aid: 712,
-          localDesiredFolderIds: ['bilimi-logical:knowledge'],
-          remoteObservedPhysicalFolderIds: ['9001'],
-          remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
-          positionState: 'aligned'
-        })
+        aid: 712,
+        targets: [{ logicalFolderId: 'bilimi-logical:knowledge', remoteFolderId: '9001', title: 'bilimi·知识学习' }],
+        event: expect.objectContaining({ kind: 'daily-review' })
       })
     )
   })
@@ -4506,11 +4555,13 @@ describe('App runtime integration', () => {
       favoriteArchiveMultiMode: 'off'
     })
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      commitFavoriteRepositoryCommand
+      commitFavoriteRepositoryCommand,
+      commitConfirmedFavoriteReview
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -4644,11 +4695,13 @@ describe('App runtime integration', () => {
       })
     })
     const commitFavoriteRepositoryCommand = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      commitFavoriteRepositoryCommand
+      commitFavoriteRepositoryCommand,
+      commitConfirmedFavoriteReview
     })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -4733,30 +4786,15 @@ describe('App runtime integration', () => {
     expect(adjustmentScripts).toHaveLength(1)
     expect(adjustmentScripts[0]).toContain('"aid":710')
     expect(adjustmentScripts[0]).toContain('"accountMid":"100"')
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith(
       '100',
       expect.objectContaining({
-        type: 'set-favorite-position',
-        payload: expect.objectContaining({
-          aid: 710,
-          localDesiredFolderIds: ['bilimi-logical:game'],
-          remoteObservedPhysicalFolderIds: ['9002'],
-          remoteObservedLogicalFolderIds: ['bilimi-logical:game'],
-          positionState: 'aligned'
-        })
+        aid: 710,
+        targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9002', title: 'bilimi·游戏专区' }],
+        event: expect.objectContaining({ kind: 'daily-review', folderTitlesAtTime: ['bilimi·游戏专区'] })
       })
     )
-    expect(commitFavoriteRepositoryCommand).toHaveBeenCalledWith(
-      '100',
-      expect.objectContaining({
-        type: 'record-favorite-event',
-        payload: expect.objectContaining({
-          aid: 710,
-          kind: 'daily-review',
-          folderTitlesAtTime: ['bilimi·游戏专区']
-        })
-      })
-    )
+    expect(commitFavoriteRepositoryCommand).not.toHaveBeenCalled()
   })
 
   it('does not run the main action when the active tab changes while context is loading', async () => {

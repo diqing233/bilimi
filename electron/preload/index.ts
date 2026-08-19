@@ -42,6 +42,7 @@ import type { MultipartVideoSnapshot } from '../../src/renderer/src/features/not
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
+  FavoriteRepositoryConfirmedReviewInput,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
@@ -353,6 +354,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:resolve-document-export-selection', accountMid, selection) as Promise<{ selections: Array<{ archiveId: string; versionId: string }>; skippedAids: number[] }>,
   commitFavoriteRepositoryCommand: (accountMid: string, command: FavoriteRepositoryCommand) =>
     ipcRenderer.invoke('favorite-repository:commit-command', accountMid, command) as Promise<FavoriteRepositoryCommandResult>,
+  commitConfirmedFavoriteReview: (accountMid: string, input: FavoriteRepositoryConfirmedReviewInput) =>
+    ipcRenderer.invoke('favorite-repository:commit-confirmed-review', accountMid, input) as Promise<FavoriteRepositoryCommandResult>,
+  checkpointConfirmedFavoriteReview: (accountMid: string, input: FavoriteRepositoryConfirmedReviewInput) =>
+    ipcRenderer.invoke('favorite-repository:checkpoint-confirmed-review', accountMid, input) as Promise<void>,
   subscribeFavoriteRepository: (
     accountMid: string,
     folderId: string | undefined,

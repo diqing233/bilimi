@@ -5,6 +5,7 @@ import type {
   FavoriteRepositoryCommandResult,
   FavoriteRepositoryClassificationSource,
   FavoriteRepositoryClassificationAdjustment,
+  FavoriteRepositoryConfirmedReviewInput,
   FavoriteRepositoryEvent,
   FavoriteRepositoryFolder,
   FavoriteRepositoryOrganizationChange,
@@ -594,6 +595,15 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
+    // Both repairs are local-only and bounded. First complete durable facts
+    // checkpointed after a Bilibili success; then repair the older renderer-era
+    // half-write shape before publishing the first authoritative snapshot.
+    if (options.service.recoverConfirmedReviewFavorites) {
+      await options.service.recoverConfirmedReviewFavorites(accountMid)
+    }
+    if (options.service.repairLegacyConfirmedReviewFavorites) {
+      await options.service.repairLegacyConfirmedReviewFavorites(accountMid)
+    }
     // Reconciliation enriches the local projection but must not block reading
     // an already usable library when the page runtime is unavailable.
     recoverAccountInBackground(accountMid)
@@ -817,6 +827,24 @@ export function registerFavoriteRepositoryIpc(options: {
     const result = await options.service.commit(accountMid, commandForAccount(requestedCommand, accountMid))
     if (!servicePublishesChanges) publish(result)
     return result
+  })
+  options.ipcMain.handle('favorite-repository:commit-confirmed-review', async (
+    event, requestedAccountMid: string, requestedInput: FavoriteRepositoryConfirmedReviewInput
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    const result = await options.service.commitConfirmedReviewFavorite(accountMid, requestedInput)
+    if (!servicePublishesChanges) publish(result)
+    return result
+  })
+  options.ipcMain.handle('favorite-repository:checkpoint-confirmed-review', async (
+    event, requestedAccountMid: string, requestedInput: FavoriteRepositoryConfirmedReviewInput
+  ) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    await options.service.checkpointConfirmedReviewFavorite(accountMid, requestedInput)
   })
   options.ipcMain.handle('favorite-repository:subscribe', async (event, requestedAccountMid: string, folderId?: string) => {
     assertReader(event)
