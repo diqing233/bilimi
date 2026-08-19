@@ -666,19 +666,16 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 88px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+      '.memorial-panel__action-card--with-setting { position: relative; display: block; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.22);'
     )
-    expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 88px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+    expect(normalizedStyles).not.toContain(
+      '.memorial-panel__action-card--with-setting {\n  grid-template-columns:'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
-    )
-    expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border: 0; background: transparent;'
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control); border: 0; background: transparent;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
@@ -690,13 +687,16 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover), .memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) { border-color: rgba(31, 99, 181, 0.22); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) ); box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting { display: inline-flex; align-items: center; justify-content: center; gap: 2px; justify-self: stretch; min-width: 0; width: 88px; max-width: 88px; padding: 2px;'
+      '.memorial-panel__action-setting { position: absolute; top: 2px; right: 8px; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; width: 88px; max-width: 88px; padding: 2px;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting .memorial-panel__action-setting-option { appearance: none; min-width: 34px; min-height: 24px; padding: 2px 3px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--porcelain-muted);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting-option[aria-pressed="true"] { color: var(--porcelain-primary); text-decoration: underline; text-underline-offset: 3px;'
+      '.memorial-panel__action-setting-option[aria-pressed="true"] { color: var(--porcelain-primary);'
+    )
+    expect(normalizedStyles).not.toContain(
+      '.memorial-panel__action-setting-option[aria-pressed="true"] {\n  color: var(--porcelain-primary);\n  text-decoration:'
     )
     expectStyleSnippet('.memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled), .memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.72); outline: none; box-shadow: none; transform: none;')
     expectStyleSnippet('.memorial-panel__action-setting-separator { color: var(--porcelain-muted); font-size: 12px; line-height: 1; user-select: none;')
@@ -708,6 +708,12 @@ describe('renderer porcelain theme styles', () => {
     )
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting > .assistant-action-button > .assistant-action-button__label { padding-right: 104px; }'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting > .assistant-action-button > .assistant-action-button__description { padding-right: 4px; }'
+    )
     expect(normalizedStyles).toContain(
       '.assistant-action-button__icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
     )
@@ -837,6 +843,9 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label { padding-right: 104px; }')
     expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description { padding-right: 4px; }')
     expectStyleSnippet('.video-notes__transcription-mode-option[aria-pressed="true"] { color: var(--porcelain-primary);')
+    expect(normalizedStyles).not.toContain(
+      '.video-notes__transcription-mode-option[aria-pressed="true"] {\n  color: var(--porcelain-primary);\n  text-decoration:'
+    )
     expectStyleSnippet('.video-notes .video-notes__transcription-mode-option:hover:not(:disabled):not(.assistant-action-button), .video-notes .video-notes__transcription-mode-option:focus-visible:not(:disabled):not(.assistant-action-button) { border-color: rgba(31, 99, 181, 0.42);')
     expectStyleSnippet('outline: none; box-shadow: none; transform: none;')
     expectStyleSnippet('.video-notes__transcription-mode-separator { color: var(--porcelain-muted);')

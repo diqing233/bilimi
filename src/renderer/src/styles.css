@@ -2654,9 +2654,9 @@ body[data-floating-window="true"],
   min-width: 0;
 }
 .memorial-panel__action-card--with-setting {
-  grid-template-columns: minmax(0, 1fr) 88px;
-  gap: 0;
-  align-items: stretch;
+  position: relative;
+  display: block;
+  min-width: 0;
   border: 1px solid rgba(31, 99, 181, 0.22);
   border-radius: var(--porcelain-radius-control);
   background: linear-gradient(
@@ -2694,8 +2694,7 @@ body[data-floating-window="true"],
   transform: none;
 }
 .memorial-panel__action-card--with-setting .assistant-action-button {
-  border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join)
-    var(--porcelain-radius-join) var(--porcelain-radius-control);
+  border-radius: var(--porcelain-radius-control);
   border: 0;
   background: transparent;
 }
@@ -2708,11 +2707,14 @@ body[data-floating-window="true"],
   transform: none;
 }
 .memorial-panel__action-setting {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  justify-self: stretch;
   min-width: 0;
   width: 88px;
   max-width: 88px;
@@ -2741,8 +2743,6 @@ body[data-floating-window="true"],
 }
 .memorial-panel__action-setting-option[aria-pressed="true"] {
   color: var(--porcelain-primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled),
 .memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) {
@@ -2757,6 +2757,16 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1;
   user-select: none;
+}
+.memorial-panel__action-card--with-setting
+  > .assistant-action-button
+  > .assistant-action-button__label {
+  padding-right: 104px;
+}
+.memorial-panel__action-card--with-setting
+  > .assistant-action-button
+  > .assistant-action-button__description {
+  padding-right: 4px;
 }
 .memorial-panel__actions button,
 .memorial-panel__close,
@@ -3105,8 +3115,6 @@ body[data-floating-window="true"],
 }
 .video-notes__transcription-mode-option[aria-pressed="true"] {
   color: var(--porcelain-primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .video-notes .video-notes__transcription-mode-option:hover:not(:disabled):not(.assistant-action-button),
 .video-notes .video-notes__transcription-mode-option:focus-visible:not(:disabled):not(.assistant-action-button) {
