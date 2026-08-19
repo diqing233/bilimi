@@ -67,9 +67,14 @@ describe('VideoNotesPanel', () => {
       onEnqueueMultipartTranscription: enqueueMultipart
     })
 
-    expect(screen.getByRole('combobox', { name: '转写模式' })).toHaveValue('single')
-    fireEvent.change(screen.getByRole('combobox', { name: '转写模式' }), { target: { value: 'multi' } })
+    expect(screen.queryByRole('combobox', { name: '转写模式' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '单 P' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '单 P' })).toHaveAttribute('title', '单 P：只将当前正在播放的这一P视频加入转写队列')
+    expect(screen.getByRole('button', { name: '多 P' })).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(screen.getByRole('button', { name: '多 P' }))
     expect(readMultipartVideo).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '单 P' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '多 P' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: /转写音频/ }))
     await waitFor(() => expect(readMultipartVideo).toHaveBeenCalledOnce())
     expect(screen.getByRole('dialog', { name: '选择多 P 转写' })).toBeInTheDocument()
@@ -105,18 +110,55 @@ describe('VideoNotesPanel', () => {
       accountMid: '100'
     })
 
-    fireEvent.change(screen.getByRole('combobox', { name: '转写模式' }), { target: { value: 'multi' } })
+    fireEvent.click(screen.getByRole('button', { name: '多 P' }))
     fireEvent.click(screen.getByRole('button', { name: /转写音频/ }))
     await screen.findByRole('dialog', { name: '选择多 P 转写' })
     fireEvent.click(screen.getByRole('button', { name: '全选' }))
     expect(screen.getByRole('checkbox', { name: '选择 P1' })).toBeDisabled()
     expect(screen.getByRole('checkbox', { name: '选择 P2' })).toBeChecked()
+    expect(screen.getByRole('button', { name: '取消全选' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
+    expect(screen.getByRole('button', { name: '全选' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 P2' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '全选' }))
     fireEvent.click(screen.getByRole('button', { name: '加入转写队列' }))
     await waitFor(() => expect(enqueueMultipart).toHaveBeenCalledWith(
       expect.objectContaining({ aid: 7, bvid: 'BV1note' }),
       [expect.objectContaining({ number: 2, cid: 71 })],
       expect.anything()
     ))
+  })
+
+  it('disables 全选 when every multipart row is already busy', async () => {
+    const readMultipartVideo = vi.fn().mockResolvedValue({
+      aid: 7,
+      bvid: 'BV1note',
+      title: '机器学习入门',
+      url: 'https://www.bilibili.com/video/BV1note',
+      currentPart: { number: 1, cid: 70, title: 'P1', durationSeconds: 60 },
+      parts: [
+        { number: 1, cid: 70, title: 'P1', durationSeconds: 60 },
+        { number: 2, cid: 71, title: 'P2', durationSeconds: 90 }
+      ]
+    })
+    renderPanel({
+      note: null,
+      onTranscribeAudio: vi.fn(),
+      onReadMultipartVideo: readMultipartVideo,
+      transcriptionQueue: {
+        items: [
+          { id: 'queue-p1', aid: 7, cid: 70, bvid: 'BV1note', url: 'https://www.bilibili.com/video/BV1note?p=1', title: 'P1', status: 'pending', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' },
+          { id: 'queue-p2', aid: 7, cid: 71, bvid: 'BV1note', url: 'https://www.bilibili.com/video/BV1note?p=2', title: 'P2', status: 'running', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' }
+        ],
+        sessionCompletedCount: 0
+      }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '多 P' }))
+    fireEvent.click(screen.getByRole('button', { name: /转写音频/ }))
+    await screen.findByRole('dialog', { name: '选择多 P 转写' })
+
+    expect(screen.getByRole('button', { name: '全选' })).toBeDisabled()
   })
 
   it('opens only the queued title source when its title is clicked', () => {

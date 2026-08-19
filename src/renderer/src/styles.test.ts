@@ -825,6 +825,19 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('styles notes transcription modes as borderless toggles instead of a dropdown', () => {
+    expectStyleSnippet('.video-notes__transcription-mode { position: absolute; top: 8px; right: 8px;')
+    expectStyleSnippet('.video-notes__transcription-mode-option { appearance: none; min-width: 36px; min-height: 24px;')
+    expectStyleSnippet('width: auto; flex: 0 0 auto;')
+    expectStyleSnippet('border: 1px solid transparent; border-radius: 5px;')
+    expectStyleSnippet('background: transparent; color: var(--porcelain-muted);')
+    expectStyleSnippet('.video-notes__transcription-mode-option[aria-pressed="true"] { color: var(--porcelain-primary);')
+    expectStyleSnippet('.video-notes__transcription-mode-option:hover:not(:disabled), .video-notes__transcription-mode-option:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.42);')
+    expectStyleSnippet('.video-notes__transcription-mode-separator { color: var(--porcelain-muted);')
+    expectStyleSnippet('.video-notes__multipart-toolbar > button { min-height: 28px; padding: 4px 8px;')
+    expect(normalizedStyles).not.toContain('.video-notes__transcription-mode select')
+  })
+
   it('matches only the review title to the notes title hierarchy', () => {
     expectStyleSnippet('.memorial-panel__meta-eyebrow { color: var(--porcelain-text); font-size: 14px; font-weight: 700; line-height: 1.45;')
     expectStyleSnippet('.memorial-panel__meta-title { color: var(--porcelain-text); font-size: 16px; font-weight: 700; line-height: 1.3;')

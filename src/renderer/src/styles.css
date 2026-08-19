@@ -3057,17 +3057,70 @@ body[data-floating-window="true"],
   z-index: 1;
   display: inline-flex;
   align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
 }
-.video-notes__transcription-mode select {
-  min-width: 58px;
-  max-width: 72px;
-  border: 1px solid rgba(31, 99, 181, 0.26);
+.video-notes__transcription-mode-option {
+  appearance: none;
+  min-width: 36px;
+  min-height: 24px;
+  padding: 2px 5px;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: rgba(247, 251, 255, 0.96);
-  color: var(--porcelain-text);
+  background: transparent;
+  color: var(--porcelain-muted);
+  font: inherit;
   font-size: 12px;
+  font-weight: 700;
   line-height: 1.2;
-  padding: 3px 4px;
+  cursor: pointer;
+  width: auto;
+  flex: 0 0 auto;
+}
+.video-notes__transcription-mode-option[aria-pressed="true"] {
+  color: var(--porcelain-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.video-notes__transcription-mode-option:hover:not(:disabled),
+.video-notes__transcription-mode-option:focus-visible:not(:disabled) {
+  border-color: rgba(31, 99, 181, 0.42);
+  background: rgba(220, 238, 255, 0.72);
+  outline: none;
+}
+.video-notes__transcription-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.video-notes__transcription-mode-separator {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+.video-notes__multipart-toolbar > button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(31, 99, 181, 0.28);
+  border-radius: var(--porcelain-radius-control);
+  background: var(--porcelain-surface);
+  color: var(--porcelain-deep);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.video-notes__multipart-toolbar > button:hover:not(:disabled),
+.video-notes__multipart-toolbar > button:focus-visible:not(:disabled) {
+  border-color: rgba(31, 99, 181, 0.52);
+  background: var(--porcelain-ice);
+  outline: none;
+}
+.video-notes__multipart-toolbar > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 .video-notes__multipart-toolbar {
   display: flex;

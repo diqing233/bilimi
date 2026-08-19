@@ -637,11 +637,21 @@ export function VideoNotesPanel({
       : [...current, part.number])
   }
 
-  function selectAvailableMultipartParts(): void {
+  function toggleAvailableMultipartParts(): void {
     if (!multipartSnapshot) return
-    setSelectedMultipartParts(multipartSnapshot.parts
+    const availableNumbers = multipartSnapshot.parts
       .filter((part) => !partIsBusy(part) && !partIsArchived(part))
-      .map((part) => part.number))
+      .map((part) => part.number)
+    if (availableNumbers.length === 0) return
+    setSelectedMultipartParts((current) => {
+      const selected = new Set(current)
+      const allAvailableSelected = availableNumbers.every((number) => selected.has(number))
+      availableNumbers.forEach((number) => {
+        if (allAvailableSelected) selected.delete(number)
+        else selected.add(number)
+      })
+      return [...selected]
+    })
   }
 
   function resetMultipartMode(): void {
@@ -693,7 +703,11 @@ export function VideoNotesPanel({
 
   function renderMultipartDialog(): React.JSX.Element | null {
     if (!multipartDialogOpen) return null
-    const selectableCount = multipartSnapshot?.parts.filter((part) => !partIsBusy(part) && !partIsArchived(part)).length ?? 0
+    const selectableParts = multipartSnapshot?.parts.filter((part) => !partIsBusy(part) && !partIsArchived(part)) ?? []
+    const selectableCount = selectableParts.length
+    const selectedAvailableCount = selectableParts.filter((part) => selectedMultipartParts.includes(part.number)).length
+    const allAvailableSelected = selectableCount > 0 && selectedAvailableCount === selectableCount
+    const multipartSelectionActionLabel = allAvailableSelected ? '取消全选' : '全选'
     return <BilimiModal
       title="选择多 P 转写"
       busy={multipartLoading || multipartSubmitting}
@@ -706,7 +720,7 @@ export function VideoNotesPanel({
     >
       {multipartLoading ? <p role="status">正在读取当前视频的分 P 信息…</p> : multipartError ? <p role="alert">{multipartError}</p> : multipartSnapshot ? <>
         <div className="video-notes__multipart-toolbar">
-          <button type="button" onClick={selectAvailableMultipartParts} disabled={!selectableCount}>全选</button>
+          <button type="button" onClick={toggleAvailableMultipartParts} disabled={!selectableCount}>{multipartSelectionActionLabel}</button>
           <span>已选 {selectedMultipartParts.length} 个</span>
         </div>
         <ul className="video-notes__multipart-list">
@@ -1205,21 +1219,32 @@ export function VideoNotesPanel({
             label={displayedPrimaryActionLabel}
             description={primaryActionDescription}
           />
-          {onTranscribeAudio ? <label className="video-notes__transcription-mode" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+          {onTranscribeAudio ? <div
+            className="video-notes__transcription-mode"
+            role="group"
+            aria-label="转写模式"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
             <span className="sr-only">转写模式</span>
-            <select
-              aria-label="转写模式"
-              value={transcriptionMode}
+            <button
+              type="button"
+              className="video-notes__transcription-mode-option"
+              aria-pressed={transcriptionMode === 'single'}
+              title="单 P：只将当前正在播放的这一P视频加入转写队列"
               disabled={generationBusy || enqueueingTranscription || multipartLoading}
-              onChange={(event) => {
-                event.stopPropagation()
-                setTranscriptionMode(event.currentTarget.value as 'single' | 'multi')
-              }}
-            >
-              <option value="single">单 P</option>
-              <option value="multi">多 P</option>
-            </select>
-          </label> : null}
+              onClick={() => setTranscriptionMode('single')}
+            >单 P</button>
+            <span className="video-notes__transcription-mode-separator" aria-hidden="true">·</span>
+            <button
+              type="button"
+              className="video-notes__transcription-mode-option"
+              aria-pressed={transcriptionMode === 'multi'}
+              title="多 P：先选择多个分 P，再批量加入转写队列"
+              disabled={generationBusy || enqueueingTranscription || multipartLoading}
+              onClick={() => setTranscriptionMode('multi')}
+            >多 P</button>
+          </div> : null}
         </div>
         <AssistantActionButton
           type="button"
