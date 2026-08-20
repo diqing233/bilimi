@@ -153,6 +153,11 @@
 | I009 | R012 | 当本次更合适的预分类目标不可写，且没有合适的已备册/已绑定目标时：只要`暂存`已备册且已绑定，就必须将视频写入 B 站`暂存`。 | 批阅的最终 B 站写入目标、收藏库归属记录及结果提示。 | `暂存`必须已启用、已备册、已绑定且有真实可写远端分册；否则不发生 B 站写入。 | 预分类仍保留最合适未备册规则，并显示应备册的具体规则；最终远端目标改为`暂存`。结果必须同时说明“预分类建议：X（未备册）”与“已写入：暂存”，不能说已同步到 X。 | 仅向`暂存`实际 B 站 folder ID写入，并以`暂存`登记已确认收藏库归属；不得创建/绑定 X、不得隐式迁移或删除。 | 不把未备册目标误写成已同步；不因暂存回退取消用户的预分类建议或备册提醒。 | 可写目标决策表、暂存身份与绑定状态、B 站写入、收藏库确认事件及结果文案。 | 已实施，真实界面待验收 | 代码：`src/renderer/src/features/recommendation/favoriteWriteTargetPlan.ts:44-58`仅在没有可写匹配目标时选择已启用、绑定且具远端 ID 的`inbox`；`src/renderer/src/App.tsx:525-542,2748-2772,2946-2973`反馈“预分类建议：…（未备册/未绑定）”与“已写入：暂存”，并以暂存远端 ID登记。自动化：2026-08-21 聚焦 6 文件 170/170 通过，覆盖无匹配可写规则→暂存写入、双重反馈、暂存归属登记与远端草稿重发现后只写暂存；无任何可写目标时规划器返回空目标，故不发请求也不登记。未做真实 B 站收藏或 Electron 点击验收。 |
 | I010 | R013 | 批阅“当前视频”卡片中`最佳匹配：…（未备册）`的字号与紧邻上一行`小咪准备归类到：…`完全一致。 | 右侧助手批阅页“当前视频”卡片。 | 仅在两行同时显示时按同一正文文本规格渲染；未备册状态文字保留，不因统一字号被隐藏或降级。 | 无交互、状态、预分类、备册或同步行为变化。 | 不产生任何本地或 B 站副作用。 | 不改默认收藏夹始终勾选的既有策略；不改预分类结果、状态判断、颜色、其他行或卡片间距，除非后续原文明确。 | 批阅卡片 JSX、对应 CSS 文本规则与现有视觉回归。 | 已实施，界面已验收 | 代码：`src/renderer/src/features/assistant/MemorialPanel.tsx`让`favoriteProvisioningHint`同时使用`memorial-panel__meta-detail`，与上一行复用同一 12px / line-height 文本规格；不变更原有提示类带来的颜色或布局。自动化：先将`MemorialPanel.test.tsx`断言改为要求该类，2026-08-21 RED 因缺少类名失败；GREEN `npx vitest run src/renderer/src/features/assistant/MemorialPanel.test.tsx`：12/12 通过。Electron：开发版只读打开公开视频 `BV1jN8w6kEqu` 的批阅页，当前视频卡片同时显示“小咪准备归类到：游戏专区”和“最佳匹配：游戏专区（未备册）”，两行视觉字号一致，未备册文字保留，其他行/卡片布局未变；见`.codex-artifacts/2026-08-21-favorites-batch-c-best-match-font.jpg`。未点击`赏`、`藏`、`赐`或任何 B 站写入控件，无本地或远端副作用。 |
 
+### 2026-08-21 收尾验证补充
+
+- I001：`ControlledFavoriteLedgerPanel.test.tsx` 的工具栏备册、重新绑定确认、编辑后重选及重置后默认范围，均显式断言 `backupTargetLedgerIds`；`npx vitest run src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.test.tsx` 为 137/137 通过，`npm test` 为 237 文件 / 3961 测试通过，`npm run build` 通过。真实 B 站创建、竞态候选确认和创建失败副作用仍未执行。
+- I002：同一次完整回归覆盖 `favoriteLedgerApi` 的真实 `folderId` 草稿身份、同名远端夹分别投影、候选/失败/成功分支回传草稿，以及原有删除同意路径；`npm test` 为 237 文件 / 3961 测试通过，`npm run build` 通过。Electron 只读截图为`.codex-artifacts/2026-08-21-favorites-batch-a-readonly-overview.jpg`；当前账号无可安全观察的远端草稿，未执行真实 B 站创建、绑定或删除。
+
 ## 条目分类
 
 ### 已确认

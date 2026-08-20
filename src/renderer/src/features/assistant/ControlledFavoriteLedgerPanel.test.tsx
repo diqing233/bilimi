@@ -86,6 +86,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(sync).toHaveBeenLastCalledWith(
       [expect.objectContaining({ id: 'music' })],
       {
+        backupTargetLedgerIds: ['music'],
         deleteDisabled: false,
         rediscoverDeletedRemoteDrafts: true,
         rebindRemoteFolderIds: { music: 'remote-music' },
@@ -826,14 +827,31 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeEnabled())
     expect(screen.getByRole('button', { name: '备册收藏夹' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true
+    }))
 
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.getByRole('dialog', { name: '重置收藏夹规则？' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
     expect(screen.getAllByTestId('favorite-ledger-chip-music')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
-    expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+    expect(save).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: [
+        'knowledge',
+        'game',
+        'movie-tv',
+        'creative-aesthetic',
+        'life-interest',
+        'music',
+        'entertainment',
+        'inbox'
+      ],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true
+    })
   })
 
   it('keeps the local ledger editor closed until the legacy new-ledger entry is chosen', () => {
