@@ -3313,6 +3313,27 @@ body[data-floating-window="true"],
   text-align: left;
   cursor: pointer;
 }
+.video-notes .video-notes__queue-current-title:focus-visible,
+.video-notes .video-notes__queue-record-select:focus-visible {
+  outline: 2px solid rgba(31, 99, 181, 0.35);
+  outline-offset: 1px;
+}
+.video-notes .video-notes__queue-current-prefix {
+  display: inline;
+  color: var(--porcelain-primary);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.video-notes .video-notes__queue-current-accessible-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .video-notes .video-notes__queue-record-title {
   display: block;
   min-width: 0;

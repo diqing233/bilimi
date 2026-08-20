@@ -161,7 +161,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByRole('button', { name: '全选' })).toBeDisabled()
   })
 
-  it('opens only the queued title source when its title is clicked', () => {
+  it('opens only the queued title source when its title is clicked, not the row blank area', () => {
     const onOpenQueueSource = vi.fn()
     const queueItem = {
       id: 'account:100:aid:7:cid:71', accountMid: '100', aid: 7, cid: 71, bvid: 'BV1note',
@@ -177,8 +177,14 @@ describe('VideoNotesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
     expect(onOpenQueueSource).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '正在转写：P2 转写中' }))
+    const record = screen.getByRole('button', { name: '正在转写：P2 转写中' }).closest('.video-notes__queue-current-heading')
+    expect(record).not.toBeNull()
+    const title = within(record as HTMLElement).getByText('P2 转写中')
+    fireEvent.click(title)
     expect(onOpenQueueSource).toHaveBeenCalledWith(queueItem)
+    onOpenQueueSource.mockClear()
+    fireEvent.click(within(record as HTMLElement).getByRole('status'))
+    expect(onOpenQueueSource).not.toHaveBeenCalled()
   })
 
   it('keeps a queued video selected over the current page and never borrows its author', () => {

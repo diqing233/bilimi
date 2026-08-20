@@ -944,8 +944,13 @@ export function VideoNotesPanel({
           <>
             <div className="video-notes__queue-current-heading">
               <div className="video-notes__queue-current-content">
-                <button type="button" className="video-notes__queue-current-title" aria-current={activeQueueItem.id === visibleQueueItem?.id ? 'true' : undefined} title={activeQueueItem.title} aria-label={(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title} onClick={() => { selectQueueItem(activeQueueItem.id); onOpenQueueSource?.(activeQueueItem) }}>
-                  <span>{(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title}</span>
+                <button type="button" className="video-notes__queue-current-title" aria-current={activeQueueItem.id === visibleQueueItem?.id ? 'true' : undefined} title={activeQueueItem.title} aria-label={(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title} onClick={(event) => {
+                  selectQueueItem(activeQueueItem.id)
+                  if ((event.target as HTMLElement).closest('.video-notes__queue-record-title')) onOpenQueueSource?.(activeQueueItem)
+                }}>
+                  <span className="video-notes__queue-current-accessible-label">{(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title}</span>
+                  <span className="video-notes__queue-current-prefix">{activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：'}</span>
+                  <span className="video-notes__queue-record-title">{activeQueueItem.title}</span>
                   {activeQueueItem.actualDevice ? <span className="video-notes__queue-runtime">
                     {`正在使用${activeQueueItem.actualDevice === 'cuda' ? ' NVIDIA GPU' : ' CPU'} 转写${activeQueueItem.actualComputeType ? ` · ${activeQueueItem.actualComputeType}` : ''}`}
                     {activeQueueItem.runtimeFallbackMessage ? ` · ${activeQueueItem.runtimeFallbackMessage}` : ''}
@@ -1048,14 +1053,17 @@ export function VideoNotesPanel({
               <NoteSelectionCheckbox store={queueSelection} id={item.id} label={'选择 ' + item.title} />
               </label>
               <button
-                  type="button"
-                  className="video-notes__queue-record-select"
-                  title={item.title}
-                  aria-label={createQueueItemOptionLabel(item)}
-                  aria-current={item.id === visibleQueueItem?.id ? 'true' : undefined}
-                  onClick={() => { selectQueueItem(item.id); onOpenQueueSource?.(item) }}
-                >
-                  <span className="video-notes__queue-record-title">{item.title}</span>
+                type="button"
+                className="video-notes__queue-record-select"
+                title={item.title}
+                aria-label={createQueueItemOptionLabel(item)}
+                aria-current={item.id === visibleQueueItem?.id ? 'true' : undefined}
+                onClick={(event) => {
+                  selectQueueItem(item.id)
+                  if ((event.target as HTMLElement).closest('.video-notes__queue-record-title')) onOpenQueueSource?.(item)
+                }}
+              >
+                <span className="video-notes__queue-record-title">{item.title}</span>
                 {renderQueueItemProgress(item)}
               </button>
               {renderQueueItemAction(item)}

@@ -1245,6 +1245,83 @@ function formatTranscriptionModelStatus(
   return `视频转写模型：${transcriptionModelLabel(modelId)}${gpuReady ? ' · GPU 已就绪' : ''}`
 }
 
+export function resolveGlobalDeepSeekStatus(
+  preferences: AssistantPreferences,
+  connectionStatus: DeepSeekConnectionStatus,
+  localTasks: DeepSeekTask[],
+  remoteTasks: DeepSeekTask[],
+  transcriptionQueue: VideoAudioTranscriptionQueueSnapshot
+): GlobalStatusItem {
+  if (!preferences.deepseekEnabled) {
+    return {
+      label: 'DeepSeek 未启用',
+      detail: formatDeepSeekFeatureList(preferences),
+      tone: 'idle'
+    }
+  }
+
+  if (!preferences.deepseekApiKeyStored) {
+    return {
+      label: 'DeepSeek 待配置',
+      detail: formatDeepSeekFeatureList(preferences),
+      tone: 'warn'
+    }
+  }
+
+  const summaryTasks: DeepSeekTask[] = transcriptionQueue.items
+    .filter((item) => item.summarizeWithDeepSeek && ['queued', 'generating'].includes(item.summaryStatus ?? ''))
+    .map((item) => ({
+      id: `queue-summary:${item.id}`,
+      kind: 'summary' as const,
+      detail: item.summaryStatus === 'generating'
+        ? `正在生成 DeepSeek 总结：${item.title}`
+        : `等待生成 DeepSeek 总结：${item.title}`
+    }))
+  const activeDeepSeekTasks = [...localTasks, ...remoteTasks, ...summaryTasks].filter(
+    (task, index, tasks) => tasks.findIndex((candidate) => candidate.id === task.id) === index
+  )
+  if (activeDeepSeekTasks.length > 0) {
+    const validatingConnection = activeDeepSeekTasks.every(
+      (task) => task.kind === 'connection-test'
+    )
+    return {
+      label: validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
+      detail: formatDeepSeekRuntimeHoverDetail(preferences, activeDeepSeekTasks, validatingConnection),
+      menuDetail: formatDeepSeekRuntimeDetail(preferences, activeDeepSeekTasks),
+      tone: 'running'
+    }
+  }
+
+  if (connectionStatus === 'failed') {
+    return {
+      label: 'DeepSeek 连接失败',
+      detail: [
+        '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
+        ...formatDeepSeekFeatureLines(preferences)
+      ].join('\n'),
+      tone: 'error'
+    }
+  }
+
+  if (connectionStatus === 'pending') {
+    return {
+      label: 'DeepSeek 待测试',
+      detail: [
+        '配置已保存，尚未完成本次运行的连接验证。',
+        `当前模型：${preferences.deepseekModel || '未配置'}`,
+        ...formatDeepSeekFeatureLines(preferences)
+      ].join('\n'),
+      tone: 'warn'
+    }
+  }
+
+  return {
+    label: 'DeepSeek 已连接',
+    detail: formatDeepSeekFeatureList(preferences),
+    tone: 'ok'
+  }
+}
+
 export function resolveGlobalTranscriptionStatus(
   transcriptionQueue: VideoAudioTranscriptionQueueSnapshot,
   selectedModelId: TranscriptionModelId,
@@ -2949,79 +3026,14 @@ export function FloatingAssistantApp({
     [transcriptionQueue, selectedTranscriptionModelId, transcriptionGpuProbe]
   )
 
-  const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => {
-    if (!preferences.deepseekEnabled) {
-      return {
-        label: 'DeepSeek 未启用',
-        detail: formatDeepSeekFeatureList(preferences),
-        tone: 'idle'
-      }
-    }
-
-    if (!preferences.deepseekApiKeyStored) {
-      return {
-        label: 'DeepSeek 待配置',
-        detail: formatDeepSeekFeatureList(preferences),
-        tone: 'warn'
-      }
-    }
-
-    const activeDeepSeekTasks = [
-      ...localDeepSeekTasks,
-      ...remoteDeepSeekTasks
-    ].filter(
-      (task, index, tasks) => tasks.findIndex((candidate) => candidate.id === task.id) === index
-    )
-    if (activeDeepSeekTasks.length > 0) {
-      const validatingConnection = activeDeepSeekTasks.every(
-        (task) => task.kind === 'connection-test'
-      )
-      return {
-        label: validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
-        detail: formatDeepSeekRuntimeHoverDetail(preferences, activeDeepSeekTasks, validatingConnection),
-        menuDetail: formatDeepSeekRuntimeDetail(preferences, activeDeepSeekTasks),
-        tone: 'running'
-      }
-    }
-
-    if (deepSeekConnectionStatus === 'failed') {
-      return {
-        label: 'DeepSeek 连接失败',
-        detail: [
-          '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
-          ...formatDeepSeekFeatureLines(preferences)
-        ].join('\n'),
-        tone: 'error'
-      }
-    }
-
-    if (deepSeekConnectionStatus === 'pending') {
-      return {
-        label: 'DeepSeek 待测试',
-        detail: [
-          '配置已保存，尚未完成本次运行的连接验证。',
-          `当前模型：${preferences.deepseekModel || '未配置'}`,
-          ...formatDeepSeekFeatureLines(preferences)
-        ].join('\n'),
-        tone: 'warn'
-      }
-    }
-
-    return {
-      label: 'DeepSeek 已连接',
-      detail: formatDeepSeekFeatureList(preferences),
-      tone: 'ok'
-    }
-  }, [
-    preferences.deepseekApiKeyStored,
-    preferences.deepseekAutoSummaryEnabled,
-    preferences.deepseekCommentEnabled,
-    preferences.deepseekDailyClassificationEnabled,
-    preferences.deepseekArchiveOrganizationEnabled,
-    preferences.deepseekDailyClassificationMode,
-    preferences.deepseekEnabled,
-    preferences.deepseekModel,
-    preferences.deepseekPetChatEnabled,
+  const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => resolveGlobalDeepSeekStatus(
+    preferences,
+    deepSeekConnectionStatus,
+    localDeepSeekTasks,
+    remoteDeepSeekTasks,
+    transcriptionQueue
+  ), [
+    preferences,
     deepSeekConnectionStatus,
     localDeepSeekTasks,
     remoteDeepSeekTasks,
@@ -5484,9 +5496,7 @@ export function FloatingAssistantApp({
                     (task) => task.kind === 'summary'
                   ) ||
                   transcriptionQueue.items.some(
-                    (item) =>
-                      item.status === 'running' &&
-                      item.progress?.step === 'summarizing-deepseek'
+                    (item) => item.summarizeWithDeepSeek && ['queued', 'generating'].includes(item.summaryStatus ?? '')
                   )
                 }
                 videoCategory={videoCategory}

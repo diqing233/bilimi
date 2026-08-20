@@ -1122,6 +1122,85 @@ describe('resolveFavoriteOrganizationLamp', () => {
   })
 })
 
+describe('resolveGlobalDeepSeekStatus', () => {
+  const preferences = createInitialAssistantPreferences({
+    deepseekEnabled: true,
+    deepseekApiKeyStored: true,
+    deepseekModel: 'deepseek-v4-flash'
+  })
+
+  it('shows the queued transcription summary as DeepSeek work with its video title', () => {
+    const status = FloatingAssistantAppModule.resolveGlobalDeepSeekStatus(
+      preferences,
+      'connected',
+      [],
+      [],
+      {
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'summary-queued',
+          url: 'https://www.bilibili.com/video/BV1summary',
+          title: '排队总结的视频',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          summaryStatus: 'queued',
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:01.000Z'
+        }]
+      }
+    )
+
+    expect(status.label).toBe('DeepSeek 工作中')
+    expect(status.tone).toBe('running')
+    expect(status.detail).toContain('等待生成 DeepSeek 总结：排队总结的视频')
+  })
+
+  it('shows a generating transcription summary as DeepSeek work and returns to connected after saving', () => {
+    const generating = FloatingAssistantAppModule.resolveGlobalDeepSeekStatus(
+      preferences,
+      'connected',
+      [],
+      [],
+      {
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'summary-generating',
+          url: 'https://www.bilibili.com/video/BV1summary',
+          title: '正在总结的视频',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          summaryStatus: 'generating',
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:01.000Z'
+        }]
+      }
+    )
+    expect(generating.detail).toContain('正在生成 DeepSeek 总结：正在总结的视频')
+
+    const saved = FloatingAssistantAppModule.resolveGlobalDeepSeekStatus(
+      preferences,
+      'connected',
+      [],
+      [],
+      {
+        sessionCompletedCount: 1,
+        items: [{
+          id: 'summary-generating',
+          url: 'https://www.bilibili.com/video/BV1summary',
+          title: '正在总结的视频',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          summaryStatus: 'saved',
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:01.000Z'
+        }]
+      }
+    )
+    expect(saved.label).toBe('DeepSeek 已连接')
+    expect(saved.tone).toBe('ok')
+  })
+})
+
 describe('current settings copy and feedback continuation contract', () => {
   it('uses the confirmed default favorite-system wording without DeepSeek participation', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
