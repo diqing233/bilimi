@@ -81,8 +81,12 @@ export type DeletedFavoriteLedgerRecord = {
 
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
+  /** Logical ledgers locked by the current explicit batch-backup click; non-targets stay local only. */
+  backupTargetLedgerIds?: FavoriteLedgerId[]
   /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
   rediscoverDeletedRemoteDrafts?: boolean
+  /** Remote-only draft reminders the owner explicitly dismissed for this account. */
+  dismissedRemoteFolderIds?: string[]
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
   lightweightBackup?: boolean
   /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
@@ -368,6 +372,8 @@ export type AssistantAutomationResult = {
   missingTargets: string[]
   message: string
   resultUnknown?: boolean
+  /** Remote-only Bilimi drafts observed during the operation and projected locally. */
+  remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
   favoriteFolderIdsByLedgerId?: Record<string, string>
 }

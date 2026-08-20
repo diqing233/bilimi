@@ -1371,7 +1371,7 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true, bindingState: 'unbound' })
-    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
   })
 
   it('keeps an unbound default ledger selected and locked while the default system is enabled', () => {
@@ -1418,7 +1418,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'saved-custom', enabled: true })
-    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['saved-custom'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
     expect(screen.getByRole('alert')).toHaveTextContent('音乐尚未保存，已跳过本次备册，请先保存后再备册。')
   })
 
@@ -1523,7 +1523,7 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
-    expect(sync.mock.calls[0]?.[1]).toEqual({ deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+    expect(sync.mock.calls[0]?.[1]).toEqual({ backupTargetLedgerIds: ['knowledge', 'game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
@@ -1570,6 +1570,7 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(confirm)
 
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: ['music', 'film'],
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
       confirmCreateAndBind: true
@@ -1723,7 +1724,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true })
-    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
@@ -2085,7 +2086,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'enabled', enabled: true })
-    ], { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['enabled'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
   })
 
   it('keeps a selected default card while deleting its actual Bilibili folder', async () => {

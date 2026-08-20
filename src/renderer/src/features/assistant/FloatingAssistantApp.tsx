@@ -4949,7 +4949,7 @@ export function FloatingAssistantApp({
         : window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers, options))) ??
       createDefaultResult('掌库已同步。')
 
-    if (result.ok) {
+    if (result.ok || (result.remoteOnlyDraftLedgerIds?.length ?? 0) > 0) {
       await refreshFavoriteOrganizationRelationshipProjection()
       await loadSnapshot()
     }

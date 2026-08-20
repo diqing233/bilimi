@@ -730,7 +730,7 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('groups same-name Bilibili folders into one remote-only logical draft', async () => {
+  it('projects same-name Bilibili folders as separate remote-only drafts by folder id', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -744,13 +744,28 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript([]))
 
-    expect(result.ledgers).toEqual([expect.objectContaining({
-      displayName: 'bilimi·同名',
-      bilibiliFolderId: '88',
-      bilibiliFolderIds: ['88', '89'],
-      bindingState: 'unbound',
-      syncState: 'local-draft'
-    })])
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        displayName: 'bilimi·同名',
+        bilibiliFolderId: '88',
+        bilibiliFolderIds: ['88'],
+        bindingState: 'unbound',
+        syncState: 'local-draft'
+      }),
+      expect.objectContaining({
+        displayName: 'bilimi·同名',
+        bilibiliFolderId: '89',
+        bilibiliFolderIds: ['89'],
+        bindingState: 'unbound',
+        syncState: 'local-draft'
+      })
+    ]))
+    expect(result.ledgers).toHaveLength(2)
+    expect(result.ledgers.map((ledger) => ledger.id)).toEqual(expect.arrayContaining([
+      expect.any(String),
+      expect.any(String)
+    ]))
+    expect(new Set(result.ledgers.map((ledger) => ledger.id)).size).toBe(2)
   })
 
   it('attaches same-title remote shards to the existing default ledger as a recovery candidate', async () => {
@@ -1090,7 +1105,10 @@ describe('favorite ledger API scripts', () => {
         listCount += 1
         return Response.json({
           code: 0,
-          data: { list: listCount === 1 ? [] : [{ id: 77, title: ledger.displayName }] }
+          data: { list: listCount === 1 ? [] : [
+            { id: 77, title: ledger.displayName },
+            { id: 78, title: 'bilimi·远端草稿', media_count: 6 }
+          ] }
         })
       }
       if (url.includes('/x/v3/fav/folder/add')) {
@@ -1104,7 +1122,48 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(false)
     expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        displayName: 'bilimi·远端草稿',
+        bilibiliFolderId: '78',
+        bindingState: 'unbound',
+        syncState: 'local-draft'
+      })
+    ]))
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
+  })
+
+  it('keeps discovered remote-only drafts in a failed all-batch creation result', async () => {
+    installCookies()
+    const ledger = createDefaultFavoriteLedgers()[0]
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{ id: 78, title: 'bilimi·远端草稿', media_count: 6 }] }
+        })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: -500, message: 'create failed' })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
+
+    expect(result.ok).toBe(false)
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        displayName: 'bilimi·远端草稿',
+        bilibiliFolderId: '78',
+        bindingState: 'unbound',
+        syncState: 'local-draft'
+      })
+    ]))
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(1)
   })
 
   it('stops backup on exact duplicate titles without treating a ·2 volume as a duplicate', async () => {

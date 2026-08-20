@@ -1533,6 +1533,18 @@ export default function App() {
       : { ...currentPreferences, favoriteLedgers }
   }
 
+  function mergeBackupResultIntoLocalLedgers(
+    currentLedgers: FavoriteLedger[],
+    resultLedgers: FavoriteLedger[]
+  ): FavoriteLedger[] {
+    const resultById = new Map(resultLedgers.map((ledger) => [ledger.id, ledger]))
+    const currentIds = new Set(currentLedgers.map((ledger) => ledger.id))
+    return [
+      ...currentLedgers.map((ledger) => resultById.get(ledger.id) ?? ledger),
+      ...resultLedgers.filter((ledger) => !currentIds.has(ledger.id))
+    ]
+  }
+
   async function projectFavoriteLedgersToFormalBindings(
     accountMid: string,
     favoriteLedgers: FavoriteLedger[]
@@ -1750,19 +1762,6 @@ export default function App() {
       }
     }
     return { failures, successfulBindings }
-  }
-
-  async function previewFavoriteLedgerBindingCandidates(accountMid: string, ledgers: FavoriteLedger[]) {
-    if (!window.bilimiDesktop?.previewFavoriteRepositoryLedgerBindingCandidates) return []
-    try {
-      return await window.bilimiDesktop.previewFavoriteRepositoryLedgerBindingCandidates(accountMid, ledgers
-        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId)
-        .map((ledger) => ({ ledgerId: ledger.id, title: ledger.displayName })))
-    } catch {
-      // The legacy page script remains the fallback when the runtime bridge is
-      // temporarily unavailable; a preview failure must not block normal backup.
-      return []
-    }
   }
 
   function ledgersAfterBindingRegistration(
@@ -2155,27 +2154,22 @@ export default function App() {
 
     const accountMid = await readBilibiliAccountMid()
     const previousLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const backupTargetLedgerIdSet = new Set(options?.backupTargetLedgerIds ?? [])
+    const remoteOperationLedgers = backupTargetLedgerIdSet.size
+      ? nextLedgers.filter((ledger) => backupTargetLedgerIdSet.has(ledger.id))
+      : nextLedgers
+    const dismissedRemoteFolderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid)
+      .catch(() => []) ?? []
     const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
-      nextLedgers
+      remoteOperationLedgers
     )
 
-    if (!options?.rebindRemoteFolderIds && !options?.confirmCreateAndBind) {
-      const previewCandidates = await previewFavoriteLedgerBindingCandidates(accountMid, ledgersWithFormalBindings)
-      if (previewCandidates.length) {
-        return {
-          ok: false,
-          steps: ['favorite-repository:binding-preview'],
-          missingTargets: previewCandidates.map((entry) => entry.ledgerId),
-          unboundLedgerIds: previewCandidates.map((entry) => entry.ledgerId),
-          unboundCandidates: previewCandidates,
-          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的远端收藏夹。'
-        } as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
-      }
-    }
-
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, options)
+      buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, {
+        ...options,
+        dismissedRemoteFolderIds
+      })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
@@ -2209,7 +2203,10 @@ export default function App() {
         options?.rebindRemoteFolders,
         trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
+      const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
+      const persistedLedgers = options?.rediscoverDeletedRemoteDrafts || backupTargetLedgerIdSet.size
+        ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
+        : backupLedgers
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)

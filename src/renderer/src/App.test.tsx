@@ -2002,12 +2002,8 @@ describe('App runtime integration', () => {
   it('runs the confirmed creation path instead of repeating an empty binding preview', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
-    const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([
-      { ledgerId: 'music', candidates: [] }
-    ])
     const { requestRuntime } = renderAppWithRuntimeBridge({
-      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
-      previewFavoriteRepositoryLedgerBindingCandidates
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -2028,8 +2024,107 @@ describe('App runtime integration', () => {
       options: { deleteDisabled: false, confirmCreateAndBind: true }
     })).resolves.toMatchObject({ ok: true, ledgers: [expect.objectContaining({ id: 'music', bindingState: 'bound' })] })
 
-    expect(previewFavoriteRepositoryLedgerBindingCandidates).not.toHaveBeenCalled()
     expect(executeJavaScript).toHaveBeenCalled()
+  })
+
+  it('persists remote-only drafts returned alongside an all-batch binding candidate', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const remoteDraft = {
+      id: 'custom-remote-78', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 99,
+      bilibiliFolderId: '78', bilibiliFolderIds: ['78'], bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const, isDefault: false
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      expect(script).toContain('/x/v3/fav/folder/created/list-all')
+      return {
+        ok: false,
+        ledgers: [{ ...music, bindingState: 'unbound' as const }, remoteDraft],
+        steps: ['api:ledger:list'],
+        missingTargets: [music.id],
+        unboundLedgerIds: [music.id],
+        unboundCandidates: [{ ledgerId: music.id, candidates: [{ id: '77', title: music.displayName, memberCount: 0 }] }],
+        remoteOnlyDraftLedgerIds: [remoteDraft.id],
+        message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'candidate-backup-persists-remote-draft', type: 'save-ledgers', ledgers: [music],
+      options: { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      unboundCandidates: [{ ledgerId: music.id }]
+    })
+
+    expect(executeJavaScript).toHaveBeenCalled()
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })])
+        })
+      })
+    }))
+  })
+
+  it('persists same-round remote-only drafts after a direct batch creation succeeds', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const remoteDraft = {
+      id: 'custom-remote-78', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 99,
+      bilibiliFolderId: '78', bilibiliFolderIds: ['78'], bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const, isDefault: false
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture
+        ? { hasUserId: true, hasCsrf: true }
+        : {
+            ok: true,
+            ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }, remoteDraft],
+            steps: ['api:ledger:list', 'api:ledger:create:music'],
+            missingTargets: [],
+            remoteOnlyDraftLedgerIds: [remoteDraft.id],
+            message: '收藏夹已备册。'
+          })
+    })
+
+    await expect(requestRuntime({
+      id: 'created-backup-persists-remote-draft', type: 'save-ledgers', ledgers: [music],
+      options: { backupTargetLedgerIds: [music.id], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({
+      ok: true,
+      remoteOnlyDraftLedgerIds: [remoteDraft.id],
+      ledgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })])
+    })
+
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: music.id, bilibiliFolderId: '9001', bindingState: 'bound' }),
+            expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })
+          ])
+        })
+      })
+    }))
   })
 
   it('registers rebinding shards from their explicit numeric titles instead of selection order', async () => {
@@ -2380,7 +2475,7 @@ describe('App runtime integration', () => {
     }))
   })
 
-  it('preserves unchecked rules and local drafts when a full backup result is persisted', async () => {
+  it('keeps unchecked rules and local drafts out of the full backup remote script while preserving them locally', async () => {
     const accountMid = '100'
     const enabled = { id: 'enabled', displayName: 'bilimi·已勾选', keywords: [], enabled: true, priority: 10, isDefault: false }
     const unchecked = { id: 'unchecked', displayName: 'bilimi·未勾选', keywords: [], enabled: false, priority: 20, isDefault: false }
@@ -2404,8 +2499,10 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
         if (userGesture) return { hasUserId: true, hasCsrf: true }
-        expect(script).toContain('"id":"unchecked"')
-        expect(script).toContain('"id":"draft"')
+        if (script.includes('/x/v3/fav/folder/add')) {
+          expect(script).not.toContain('"id":"unchecked"')
+          expect(script).not.toContain('"id":"draft"')
+        }
         return {
           ok: true,
           ledgers: [
@@ -2422,7 +2519,7 @@ describe('App runtime integration', () => {
 
     await expect(requestRuntime({
       id: 'backup-preserves-local-ledgers', type: 'save-ledgers', ledgers,
-      options: { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+      options: { backupTargetLedgerIds: ['enabled'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
     })).resolves.toMatchObject({ ok: true })
 
     const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []

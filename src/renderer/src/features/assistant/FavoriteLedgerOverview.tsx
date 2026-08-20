@@ -815,7 +815,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (!eligibleLedgers.length) {
         return { ok: false, message: '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。' }
       }
-      const result = await onSyncLedgers(eligibleLedgers, { deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }) as {
+      const result = await onSyncLedgers(eligibleLedgers, {
+        deleteDisabled: false,
+        backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
+        rediscoverDeletedRemoteDrafts: true
+      }) as {
         ok?: boolean
         unboundCandidates?: RebindCandidateEntry[]
       } | undefined
@@ -1118,6 +1122,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const rebindRemoteFolderIds = Object.fromEntries(Object.entries(rebindSelections)
       .filter(([ledgerId, remoteFolderId]) => rebindCandidates.some((entry) => entry.ledgerId === ledgerId && entry.candidates.length > 0) && Boolean(remoteFolderId)))
     const result = await onSyncLedgers(projectEnabled(draftLedgers), {
+      backupTargetLedgerIds: rebindCandidates.map((entry) => entry.ledgerId),
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
       ...(hasCreationConfirmation ? { confirmCreateAndBind: true } : {}),
