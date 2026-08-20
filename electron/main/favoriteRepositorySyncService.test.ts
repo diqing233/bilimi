@@ -746,6 +746,52 @@ describe('FavoriteRepositorySyncService', () => {
     }))
   })
 
+  it('previews and deletes a remote-only draft by its verified remote folder id', async () => {
+    const repository = await createRepository()
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-draft', title: 'bilimi·远端草稿', memberCount: 2 }
+        ] })
+      }
+    })
+    const remoteDraftTargets = { 'remote-draft-ledger': { remoteFolderId: 'remote-draft', title: 'bilimi·远端草稿' } }
+
+    await expect(service.previewManagedFolderDeletion('100', [], {}, remoteDraftTargets)).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'remote-draft-ledger', remoteFolderId: 'remote-draft', state: 'unbound-name-match', requiresUnboundAcknowledgement: true })
+    ])
+    await expect(service.deleteManagedRemoteFolders('100', [], true, {}, {
+      'remote-draft-ledger': ['remote-draft']
+    }, remoteDraftTargets)).resolves.toMatchObject({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-draft']
+    })
+    expect(deleteFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'remote-draft' }))
+  })
+
+  it('refuses a remote-only draft deletion when the verified folder title changes', async () => {
+    const repository = await createRepository()
+    const deleteFolder = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-draft', title: 'bilimi·已改名', memberCount: 2 }
+        ] })
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', [], true, {}, {
+      'remote-draft-ledger': ['remote-draft']
+    }, {
+      'remote-draft-ledger': { remoteFolderId: 'remote-draft', title: 'bilimi·远端草稿' }
+    })).rejects.toThrow('remote-draft-deletion-preview-stale')
+    expect(deleteFolder).not.toHaveBeenCalled()
+  })
+
   it('refuses managed deletion when the remote ids differ from its confirmed preview', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

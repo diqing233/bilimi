@@ -1901,6 +1901,59 @@ describe('App runtime integration', () => {
     expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
   })
 
+  it('formally binds a newly created folder that replaces a locally deleted default folder id', async () => {
+    const accountMid = '100'
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      ...(ledger.id === 'music'
+        ? { bilibiliFolderId: 'old-music', managedFolderDeletedByUser: true, bindingState: 'unbound' as const }
+        : {}),
+      enabled: true
+    }))
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
+        }
+      })),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const returnedLedgers = ledgers.map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: ledger.id === 'music' ? 'new-music' : String(9900 + index),
+      bindingState: 'bound' as const
+    }))
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+
+    await expect(requestRuntime({ id: 'backup-replaces-deleted-default-folder', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'music', remoteFolderId: 'new-music'
+    }))
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).toMatchObject({
+      bilibiliFolderId: 'new-music', bindingState: 'bound'
+    })
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
+  })
+
   it('does not treat a legacy preference folder id as a formal remote binding during backup', async () => {
     const accountMid = '100'
     const legacyLedger = {

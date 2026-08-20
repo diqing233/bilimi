@@ -84,9 +84,9 @@ type BilimiDesktopApi = {
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   prepareOldFavoriteWorkspaceRecoveryV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceRecoverySummary | null>
-  previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'; requiresUnboundAcknowledgement: boolean }>>
+  previewManagedFavoriteFolderDeletion?: (accountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>, remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>) => Promise<Array<{ logicalLedgerId: string; remoteFolderId?: string; title: string; memberCount: number; state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'; requiresUnboundAcknowledgement: boolean }>>
   deleteManagedFavoriteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<ManagedFavoriteRemoteFolderDeletionResult>
-  deleteManagedRemoteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>) => Promise<ManagedFavoriteRemoteFolderDeletionResult>
+  deleteManagedRemoteFolders?: (accountMid: string, ledgerIds: string[], acknowledgeUnboundRemoteDeletion?: boolean, ledgerTitleHints?: Record<string, string>, expectedRemoteFolderIds?: Record<string, string[]>, remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>) => Promise<ManagedFavoriteRemoteFolderDeletionResult>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {

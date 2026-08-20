@@ -1675,7 +1675,13 @@ export default function App() {
       const shardNumber = Number(match[1])
       return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
     }
-    const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
+    const inputRemoteFolderIds = new Map(inputLedgers.map((ledger) => [
+      ledger.id,
+      new Set([
+        ledger.bilibiliFolderId,
+        ...(ledger.bilibiliFolderIds ?? [])
+      ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId)))
+    ]))
     const registrations: Array<{
       ledger: FavoriteLedger
       remoteFolderId: string
@@ -1696,7 +1702,12 @@ export default function App() {
       if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
       const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
-      if (selectedFolders.length || explicitlySelectedFolderId === remoteFolderId || !inputFolderIds.get(ledger.id)) {
+      // A newly created remote folder has no matching input ID, even if a
+      // locally deleted default rule still carries its former ID for display.
+      // It must be registered in the same backup operation; otherwise the
+      // next authoritative inventory projects it back as unbound.
+      const knownInputRemoteFolderIds = inputRemoteFolderIds.get(ledger.id) ?? new Set<string>()
+      if (selectedFolders.length || explicitlySelectedFolderId === remoteFolderId || !knownInputRemoteFolderIds.has(remoteFolderId)) {
         const folders = selectedFolders.length ? selectedFolders : [{ id: remoteFolderId, title: ledger.displayName }]
         const knownShardNumbers = trustedRemoteShardNumbers?.get(ledger.id) ?? new Map<string, number>()
         const occupiedShardNumbers = new Set(knownShardNumbers.values())
@@ -1785,10 +1796,16 @@ export default function App() {
       }
       const successfulIds = successful.map((binding) => binding.remoteFolderId)
       const formalLedger = formalLedgerById.get(ledger.id)
-      const existingIds = [...new Set([
-        formalLedger?.bilibiliFolderId,
-        ...(formalLedger?.bilibiliFolderIds ?? [])
-      ].filter((folderId): folderId is string => Boolean(folderId) && !successfulIds.includes(folderId)))]
+      // A local-only deletion leaves the former remote ID on the rule only as
+      // historical display data. A successful newly-created binding replaces
+      // it; retaining that stale ID would make the next save point back to a
+      // folder the user has deliberately released.
+      const existingIds = formalLedger?.managedFolderDeletedByUser
+        ? []
+        : [...new Set([
+            formalLedger?.bilibiliFolderId,
+            ...(formalLedger?.bilibiliFolderIds ?? [])
+          ].filter((folderId): folderId is string => Boolean(folderId) && !successfulIds.includes(folderId)))]
       const folderIds = [...existingIds, ...successfulIds]
       // The main process clears this durable default-deletion marker after the
       // same formal adoption. Keep the renderer's subsequent preference save

@@ -3501,9 +3501,16 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  async previewManagedFolderDeletion(accountMid: string, logicalLedgerIds: string[], ledgerTitleHints?: Record<string, string>) {
+  async previewManagedFolderDeletion(
+    accountMid: string,
+    logicalLedgerIds: string[],
+    ledgerTitleHints?: Record<string, string>,
+    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>
+  ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints)
+    return remoteDraftTargets
+      ? this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints, remoteDraftTargets)
+      : this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints)
   }
 
   async deleteManagedFolderCandidates(
@@ -3539,10 +3546,13 @@ export class OldFavoriteWorkspaceCoordinator {
     logicalLedgerIds: string[],
     acknowledgeUnboundRemoteDeletion = false,
     ledgerTitleHints?: Record<string, string>,
-    expectedRemoteFolderIds?: Record<string, string[]>
+    expectedRemoteFolderIds?: Record<string, string[]>,
+    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+    return remoteDraftTargets
+      ? this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets)
+      : this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
   }
 
   private async autoClassifyCurrentSegmentUnsafe(

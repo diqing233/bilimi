@@ -90,6 +90,7 @@ type ManagedDeletionScope = 'local-only' | 'bilibili'
 type ManagedDeletionPlan = {
   remoteCustomLedgerIds: string[]
   remoteDefaultLedgerIds: string[]
+  remoteDraftTargets: Record<string, { remoteFolderId: string; title: string }>
   localCustomLedgerIds: string[]
   localDefaultLedgerIds: string[]
   draftLedgerIds: string[]
@@ -859,6 +860,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const recommendationCancellationLedgerIds = selectedLedgers.filter(isRecommendationCancellationOnly).map((ledger) => ledger.id)
     const deletionLedgers = selectedLedgers.filter((ledger) => !recommendationCancellationLedgerIds.includes(ledger.id))
     const draftLedgerIds = deletionLedgers.filter(isDraftDirectlyDeletable).map((ledger) => ledger.id)
+    const remoteDraftTargets = Object.fromEntries(deletionLedgers
+      .filter(isRemoteOnlyDraft)
+      .flatMap((ledger) => {
+        const remoteFolderId = ledger.bilibiliFolderId?.trim()
+        return remoteFolderId ? [[ledger.id, { remoteFolderId, title: ledger.displayName }]] : []
+      }))
     const selectedCustomLedgers = deletionLedgers.filter((ledger) => !ledger.isDefault && !draftLedgerIds.includes(ledger.id))
     const selectedDefaultLedgers = deletionLedgers.filter((ledger) => ledger.isDefault)
     const remoteCustomLedgerIds = selectedCustomLedgers
@@ -873,8 +880,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const localDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
-    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
-    if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length) {
+    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
+    if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length || Object.keys(remoteDraftTargets).length) {
       await requestManagedDeletion(plan)
       return
     }
@@ -955,15 +962,20 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const requestManagedDeletion = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
     if (destructiveActionLocked) return
     const ledgerIds = [...plan.remoteCustomLedgerIds, ...plan.remoteDefaultLedgerIds]
-    if (!ledgerIds.length) return
+    if (!ledgerIds.length && !Object.keys(plan.remoteDraftTargets).length) return
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !window.bilimiDesktop?.previewManagedFavoriteFolderDeletion) {
       setDeletionError('删除未成功，请稍后重试。')
       return
     }
     try {
-      const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
-      const candidates = await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
+      const ledgerTitleHints = Object.fromEntries(ledgerIds.flatMap((ledgerId) => {
+        const ledger = draftLedgers.find((item) => item.id === ledgerId)
+        return ledger ? [[ledgerId, ledger.displayName]] : []
+      }))
+      const candidates = Object.keys(plan.remoteDraftTargets).length
+        ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, plan.remoteDraftTargets)
+        : await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
       if (!candidates.length) throw new Error('Managed folder deletion preview is unavailable.')
       setDeletionPlan({ ...plan, candidates })
       setDeletionScope('local-only')
@@ -1070,7 +1082,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const remoteIds = new Set([...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.remoteDefaultLedgerIds])
-    const ledgerTitleHints = Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName]))
+    const remoteDraftLedgerIds = new Set(Object.keys(deletionPlan.remoteDraftTargets))
+    const remotePlanLedgerIds = new Set([...remoteIds, ...remoteDraftLedgerIds])
+    const ledgerTitleHints = Object.fromEntries([...remoteIds].flatMap((ledgerId) => {
+      const ledger = draftLedgers.find((item) => item.id === ledgerId)
+      return ledger ? [[ledgerId, ledger.displayName]] : []
+    }))
     const expectedRemoteFolderIds = (ids: ReadonlySet<string>) => Object.fromEntries([...ids].map((ledgerId) => [
       ledgerId,
       [...new Set(deletionPlan.candidates
@@ -1080,16 +1097,36 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDeletionExecuting(true)
     setDeletionError(null)
     try {
-      if (deletionScope === 'bilibili' && remoteIds.size) {
-        const result = await window.bilimiDesktop?.deleteManagedRemoteFolders?.(accountMid, [...remoteIds], deletionAcknowledgedUnbound, ledgerTitleHints, expectedRemoteFolderIds(remoteIds))
+      if (deletionScope === 'bilibili' && remotePlanLedgerIds.size) {
+        const result = remoteDraftLedgerIds.size
+          ? await window.bilimiDesktop?.deleteManagedRemoteFolders?.(
+              accountMid,
+              [...remoteIds],
+              deletionAcknowledgedUnbound,
+              ledgerTitleHints,
+              expectedRemoteFolderIds(remotePlanLedgerIds),
+              deletionPlan.remoteDraftTargets
+            )
+          : await window.bilimiDesktop?.deleteManagedRemoteFolders?.(
+              accountMid,
+              [...remoteIds],
+              deletionAcknowledgedUnbound,
+              ledgerTitleHints,
+              expectedRemoteFolderIds(remotePlanLedgerIds)
+            )
         if (isManagedRemoteDeletionResult(result) && result.status === 'partial-failed') {
+          const succeededIds = new Set(result.succeededRemoteFolderIds)
+          const succeededDraftLedgerIds = deletionPlan.candidates
+            .filter((candidate) => remoteDraftLedgerIds.has(candidate.logicalLedgerId) && candidate.remoteFolderId && succeededIds.has(candidate.remoteFolderId))
+            .map((candidate) => candidate.logicalLedgerId)
+          await deletePersistedDraftLedgers(accountMid, succeededDraftLedgerIds)
           const next = removeConfirmedRemoteBindings(draftLedgers, result.succeededRemoteFolderIds)
+            .filter((ledger) => !succeededDraftLedgerIds.includes(ledger.id))
           await onSaveLedgers(next, { deleteDisabled: false })
           setDraftLedgers(next)
           enableStore.reset(enableEntries(next, false))
           deletionStore.reset(enableEntries(next, true))
           setSavedLedgerSnapshots(Object.fromEntries(next.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
-          const succeededIds = new Set(result.succeededRemoteFolderIds)
           setDeletionPlan({
             ...deletionPlan,
             candidates: deletionPlan.candidates.filter((candidate) => !candidate.remoteFolderId || !succeededIds.has(candidate.remoteFolderId))
@@ -1237,12 +1274,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <fieldset className="favorite-ledger-panel__deletion-scope"><legend>删除范围</legend><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'local-only'} onChange={() => setDeletionScope('local-only')} /><span>仅删除右侧 bilimi 收藏夹（保留收藏库和 B 站收藏夹）</span></label><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'bilibili'} onChange={() => setDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹（保留收藏库）</span></label></fieldset>
         <ul className="favorite-ledger-panel__deletion-list">{deletionPlan.candidates.map((candidate) => {
           const remoteDeletionCount = remoteDeletionCounts.get(candidate.logicalLedgerId) ?? 0
+          const isRemoteDraftCandidate = Boolean(deletionPlan.remoteDraftTargets[candidate.logicalLedgerId])
           const remoteSummary = deletionScope === 'local-only'
             ? 'B站：保留'
             : remoteDeletionCount
               ? `B站：删除 ${remoteDeletionCount} 个实际收藏夹`
               : 'B站：无绑定，不会删除'
-          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
+          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}{isRemoteDraftCandidate ? '（未保存 · 未绑定 / 仅名称识别）' : ''}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
         })}</ul>
         <p>{deletionScope === 'local-only'
           ? '只移除右侧规则或草稿；收藏库和 B 站保留。'
