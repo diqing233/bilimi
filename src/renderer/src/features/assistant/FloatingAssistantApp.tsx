@@ -907,10 +907,11 @@ export function archiveSnapshotNeedsRefresh(
 
   return queueItems.some((item) => {
     if (!hasVerifiedQueuedArchive(item) || item.accountMid !== accountMid) return false
-    return !archives.some((archive) =>
-      archive.id === item.archiveNoteId &&
-      archive.versions.some((version) => version.id === item.archiveVersionId)
-    )
+    const archive = archives.find((candidate) => candidate.id === item.archiveNoteId)
+    const version = archive?.versions.find((candidate) => candidate.id === item.archiveVersionId)
+    if (!version) return true
+    const summarySaved = item.summaryStatus === 'saved' || item.summaryStatus === 'generated'
+    return summarySaved && !version.summaryText.trim()
   })
 }
 
@@ -2976,6 +2977,22 @@ export function FloatingAssistantApp({
     videoNoteArchiveRefreshAttemptRef.current = attemptKey
     void loadVideoNoteArchives({ silent: true, accountMid })
   }, [loadVideoNoteArchives, snapshot?.accountMid, transcriptionQueue.items, videoNoteArchives])
+
+  useEffect(() => {
+    const accountMid = snapshot?.accountMid
+    if (!accountMid || !videoNote) return
+    const matchingItem = transcriptionQueue.items.find((item) =>
+      hasVerifiedQueuedArchive(item) && item.accountMid === accountMid && matchesCurrentQueueVideo(item, snapshotRef.current) &&
+      (item.summaryStatus === 'saved' || item.summaryStatus === 'generated')
+    )
+    if (!matchingItem) return
+    const archive = videoNoteArchives.find((entry) => entry.id === matchingItem.archiveNoteId)
+    const version = archive?.versions.find((entry) => entry.id === matchingItem.archiveVersionId)
+    if (version && version.note.id === videoNote.id && version.summaryText.trim() &&
+      (version.note.updatedAt !== videoNote.updatedAt || findArchivedSummaryTextForNote(videoNoteArchives, videoNote) !== version.summaryText.trim())) {
+      setVideoNote(version.note)
+    }
+  }, [snapshot?.accountMid, transcriptionQueue.items, videoNote, videoNoteArchives])
 
   const refreshLocalDataInfo = useCallback(async ({ force = false, retryTransient = false } = {}) => {
     if (!window.bilimiDesktop?.getLocalDataInfo) return

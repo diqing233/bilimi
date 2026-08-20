@@ -918,10 +918,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const confirmAndExecuteBilibiliPlan = useCallback((includeInbox = false) => sendCommand({
     type: 'confirm-and-execute-bilibili-plan', ...(includeInbox ? { includeInbox: true } : {})
   }, true), [sendCommand])
-  const saveCurrentSegmentLocally = useCallback(() => sendCommand({ type: 'save-current-segment-locally' }), [sendCommand])
-  const setWholeRunExecutionIntent = useCallback((mode: 'local' | 'bilibili', includeInbox = false) => sendCommand({
-    type: 'set-whole-run-execution-intent', mode, ...(includeInbox ? { includeInbox: true } : {})
-  }, mode === 'bilibili'), [sendCommand])
+  const saveCurrentSegmentLocally = useCallback(async () => {
+    await waitForRecommendationQueue()
+    return sendCommand({ type: 'save-current-segment-locally' })
+  }, [sendCommand, waitForRecommendationQueue])
+  const setWholeRunExecutionIntent = useCallback(async (mode: 'local' | 'bilibili', includeInbox = false) => {
+    if (mode === 'local') await waitForRecommendationQueue()
+    return sendCommand({
+      type: 'set-whole-run-execution-intent', mode, ...(includeInbox ? { includeInbox: true } : {})
+    }, mode === 'bilibili')
+  }, [sendCommand, waitForRecommendationQueue])
   const cancelWholeRunExecutionIntent = useCallback(() => sendCommand({
     type: 'cancel-whole-run-execution-intent'
   }), [sendCommand])

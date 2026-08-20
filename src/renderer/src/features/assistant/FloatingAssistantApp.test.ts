@@ -923,6 +923,21 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(archiveSnapshotNeedsRefresh([{ id: 'bvid:BV1done', source: otherVersion.note.source, versions: [{ ...otherVersion, id: 'version-done' }], createdAt: item.createdAt, updatedAt: item.updatedAt }], [item], '100')).toBe(false)
   })
 
+  it('refreshes an existing archive version when its DeepSeek summary is saved asynchronously', () => {
+    const item = {
+      id: 'account:100:bvid:BV1summary', accountMid: '100', bvid: 'BV1summary', url: 'https://www.bilibili.com/video/BV1summary', title: 'Video', status: 'completed' as const,
+      archiveRegistrationStatus: 'registered' as const, archiveNoteId: 'bvid:BV1summary', archiveVersionId: 'version-summary', summaryStatus: 'saved' as const,
+      createdAt: '2026-07-28T00:00:00.000Z', updatedAt: '2026-07-28T00:00:01.000Z'
+    }
+    const version = {
+      id: 'version-summary', createdAt: item.createdAt, plainTranscript: '文稿', summaryText: '',
+      note: { id: 'bvid:BV1summary', source: { accountMid: '100', bvid: 'BV1summary', title: 'Video', tags: [], url: '' }, transcriptSource: 'audio' as const, transcript: [], chapters: [], overview: emptyOverview, annotations: [], userMemo: '', starred: false, createdAt: item.createdAt, updatedAt: item.updatedAt }
+    }
+
+    expect(archiveSnapshotNeedsRefresh([{ id: 'bvid:BV1summary', source: version.note.source, versions: [version], createdAt: item.createdAt, updatedAt: item.updatedAt }], [item], '100')).toBe(true)
+    expect(archiveSnapshotNeedsRefresh([{ id: 'bvid:BV1summary', source: version.note.source, versions: [{ ...version, summaryText: '已生成总结' }], createdAt: item.createdAt, updatedAt: item.updatedAt }], [item], '100')).toBe(false)
+  })
+
   it('places local data and motion tuning after the Bilibili connection setting', () => {
     expect(SETTINGS_JUMP_OPTIONS.slice(-5).map((option) => option.value)).toEqual([
       'motion-tuning',

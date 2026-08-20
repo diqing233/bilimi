@@ -1235,6 +1235,30 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'completed' })
   })
 
+  it('waits for a pending recommendation save before committing the local workspace', async () => {
+    const recommendationSave = deferred<ReturnType<typeof recommendationWorkspace>>()
+    const command = vi.fn((_: string, value: { type?: string }) => {
+      if (value.type === 'set-recommended-candidates') return recommendationSave.promise
+      return Promise.resolve({ ...recommendationWorkspace(['author-a']), status: 'completed' as const })
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(true))
+    let saving!: Promise<unknown>
+    act(() => { saving = result.current.saveCurrentSegmentLocally() })
+
+    expect(command).not.toHaveBeenCalledWith('100', { type: 'save-current-segment-locally' })
+    await act(async () => recommendationSave.resolve(recommendationWorkspace(['author-a'])))
+    await act(async () => { await saving })
+    expect(command).toHaveBeenLastCalledWith('100', { type: 'save-current-segment-locally' })
+  })
+
   it('abandons the current pending workspace through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue(null)
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop

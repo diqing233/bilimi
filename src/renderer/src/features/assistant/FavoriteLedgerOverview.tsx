@@ -765,7 +765,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const next = projectEnabled(draftLedgers).map((ledger) => {
       if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger))) return ledger
       const { syncState: _syncState, ...savedLedger } = ledger
-      return savedLedger
+      return savedLedger.bindingState || savedLedger.bilibiliFolderId
+        ? savedLedger
+        : { ...savedLedger, bindingState: 'unbacked' as const }
     })
     const nextUnsavedLedgerIds = new Set(locallyUnsavedLedgerIds)
     nextUnsavedLedgerIds.delete(savingLedgerId)

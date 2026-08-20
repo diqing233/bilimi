@@ -1223,6 +1223,20 @@ describe('FavoriteLedgerOverview', () => {
     expect(draftChip.querySelector('.favorite-ledger-panel__chip-action')).toBeDisabled()
   })
 
+  it('marks a newly saved local ledger as unbacked', async () => {
+    const save = vi.fn().mockResolvedValue(undefined)
+    render(<FavoriteLedgerOverview ledgers={[]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '册名' }), { target: { value: '临时工作夹' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0]?.[0]).toEqual([
+      expect.objectContaining({ bindingState: 'unbacked' })
+    ])
+  })
+
   it('does not add a pending-sync label to a local recommendation', () => {
     render(<FavoriteLedgerOverview
       ledgers={[{ id: 'recommended-up', displayName: 'bilimi·影视飓风', keywords: ['影视飓风'], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft' }]}
