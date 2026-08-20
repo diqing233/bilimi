@@ -52,4 +52,20 @@ describe('favorite repository page target', () => {
 
     await expect(target.run(binding, 'append', input)).resolves.toMatchObject({ status: 'unknown', reason: 'target-navigated' })
   })
+
+  it('routes a confirmed remote rename only through the bound page target', async () => {
+    const first = { getURL: () => 'https://www.bilibili.com/', executeJavaScript: vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100' }) }
+    const second = { getURL: () => 'https://www.bilibili.com/', executeJavaScript: vi.fn() }
+    const target = createFavoriteRepositoryPageTarget({
+      findWebviewById: (id) => id === 101 ? first : id === 202 ? second : undefined,
+      getNavigationEpoch: (id, instanceId) => id === 101 && instanceId === 'webview-a' ? 3 : undefined
+    })
+
+    await expect(target.run(binding, 'rename-folder', {
+      accountMid: '100', operationKey: 'run-1:rename-game-2', folderId: 'game-2', title: 'bilimi·游戏专区·2'
+    })).resolves.toMatchObject({ status: 'ok' })
+
+    expect(first.executeJavaScript).toHaveBeenCalledOnce()
+    expect(second.executeJavaScript).not.toHaveBeenCalled()
+  })
 })

@@ -43,6 +43,24 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     })
   })
 
+  it('routes a confirmed remote rename through the same account-bound target', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100' })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+    const renameInput = {
+      accountMid: '100', operationKey: 'run-1:rename-game-2', folderId: 'game-2', title: 'bilimi·游戏专区·2'
+    }
+
+    await manager.bind('100', 'run-1')
+    await expect(manager.pageBridge('100', 'run-1').renameFolder(renameInput)).resolves.toEqual({ observedAccountMid: '100' })
+
+    expect(request).toHaveBeenLastCalledWith({
+      type: 'favorite-repository-page-operation', accountMid: '100', runId: 'run-1', target,
+      action: 'rename-folder', input: renameInput
+    })
+  })
+
   it('isolates same run ids across accounts and rejects an account-changed result', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })

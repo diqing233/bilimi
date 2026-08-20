@@ -289,6 +289,21 @@ describe('FavoriteLibraryCommandService', () => {
 })
 
 describe('registerFavoriteLibraryCommandsIpc', () => {
+  it('preserves the physical shard when resolving an all-results batch selection', async () => {
+    const ipcMain = { handle: vi.fn() }
+    const resolveSelection = vi.fn().mockResolvedValue([7])
+    const commands = { syncSelection: vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [7] }) }
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: commands as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection })
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'favorite-library:sync-selection')?.[1] as ((event: unknown, accountMid: string, selection: unknown) => Promise<unknown>)
+    await handler({ sender: { id: 1 } }, '100', {
+      kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:music' },
+      options: { physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } }, excludedAids: []
+    })
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({
+      options: { physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } }
+    }))
+  })
+
   it('preserves the complete filtered scope when resolving a batch document-export selection', async () => {
     const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
     const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }

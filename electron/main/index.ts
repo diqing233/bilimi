@@ -1307,7 +1307,18 @@ function registerAssistantPreferenceHandlers() {
       throw new Error('Favorite ledger draft is unavailable.')
     }
 
-    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+    const deletedRecords = draft
+      ? [...(current.deletedFavoriteLedgerRecords ?? []).filter((record) => record.logicalLedgerId !== draft.id), {
+        logicalLedgerId: draft.id,
+        deletedAt: new Date().toISOString(),
+        ledger: draft
+      }]
+      : current.deletedFavoriteLedgerRecords
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      favoriteLedgers,
+      ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
+    })
     const remoteFolderIds = [...new Set([
       draft?.bilibiliFolderId,
       ...(draft?.bilibiliFolderIds ?? [])
@@ -1337,15 +1348,53 @@ function registerAssistantPreferenceHandlers() {
       throw new Error('Favorite ledger local deletion is unavailable.')
     }
 
+    const deletedRecords = removedLedgers.length
+      ? [
+        ...(current.deletedFavoriteLedgerRecords ?? []).filter((record) => !removedLedgers.some((ledger) => ledger.id === record.logicalLedgerId)),
+        ...removedLedgers.map((ledger) => ({
+          logicalLedgerId: ledger.id,
+          deletedAt: new Date().toISOString(),
+          ledger
+        }))
+      ]
+      : current.deletedFavoriteLedgerRecords
+
     const remoteFolderIds = [...new Set(removedLedgers.flatMap((ledger) => [
       ledger.bilibiliFolderId,
       ...(ledger.bilibiliFolderIds ?? [])
     ]).map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
-    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      favoriteLedgers,
+      ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
+    })
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }
+  })
+  ipcMain.handle('assistant:restore-favorite-ledgers-local', async (event, accountMid: unknown, requestedLedgerIds: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (typeof accountMid !== 'string' || !Array.isArray(requestedLedgerIds) || requestedLedgerIds.length === 0 ||
+      requestedLedgerIds.some((ledgerId) => typeof ledgerId !== 'string' || !ledgerId.trim()) ||
+      accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Favorite ledger local recovery is unavailable.')
+    }
+    const ledgerIds = [...new Set(requestedLedgerIds.map((ledgerId) => ledgerId.trim()))]
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+    const records = current.deletedFavoriteLedgerRecords ?? []
+    const selected = records.filter((record) => ledgerIds.includes(record.logicalLedgerId))
+    if (!selected.length) throw new Error('Favorite ledger local recovery is unavailable.')
+    const activeIds = new Set(current.favoriteLedgers.map((ledger) => ledger.id))
+    const restored = selected.map((record) => record.ledger).filter((ledger) => !activeIds.has(ledger.id))
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      favoriteLedgers: [...current.favoriteLedgers, ...restored],
+      deletedFavoriteLedgerRecords: records.filter((record) => !ledgerIds.includes(record.logicalLedgerId))
+    })
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    notifyFloatingAssistantSnapshotChanged()
+    return { status: 'succeeded' as const, ledgerIds: restored.map((ledger) => ledger.id) }
   })
   ipcMain.handle('assistant:release-default-favorite-ledger-bindings', async (event, accountMid: unknown, requestedLedgerIds: unknown) => {
     assertTrustedOldFavoriteAssistantSender(event)
@@ -2398,10 +2447,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       // proved a unique matching remote folder.
       await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
       const store = getDesktopStore()
+      const favoriteAccountPreferences = loadFavoriteAccountPreferences(store, accountMid)
       await restoreFavoriteLibraryManagedFolderProjection({
         accountMid,
         repository: favoriteRepositoryService!,
-        ledgers: loadFavoriteAccountPreferences(store, accountMid).favoriteLedgers
+        ledgers: favoriteAccountPreferences.favoriteLedgers,
+        deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords
       })
     },
     getRemoteDraftReminderDismissed: (accountMid) => [...new Set([

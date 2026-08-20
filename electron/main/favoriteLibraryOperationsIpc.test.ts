@@ -80,6 +80,29 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 3], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:music' })
   })
 
+  it('keeps a physical shard on the server-side scope descriptor for a batch operation', async () => {
+    const ipcMain = new FakeIpcMain()
+    const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
+    const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
+    const resolveSelection = vi.fn().mockResolvedValue([2])
+    registerFavoriteLibraryOperationsIpc({
+      ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      resolveSourceScope: vi.fn(async () => ({ kind: 'bilimi-logical', folderId: 'bilimi-logical:music' })) as never,
+      resolveSelection
+    })
+
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
+      kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:music' },
+      options: { physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } }, excludedAids: []
+    }, 4, { kind: 'folder', folderId: 'bilimi-logical:music' })
+
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({
+      options: expect.objectContaining({ physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } })
+    }))
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [2], 4, { kind: 'bilimi-logical', folderId: 'bilimi-logical:music' })
+  })
+
   it('keeps transcription filters on a scope descriptor passed to a copy operation', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn().mockResolvedValue({ status: 'succeeded' }), move: vi.fn(), deleteLocal: vi.fn(), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }

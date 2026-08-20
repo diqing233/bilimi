@@ -8,6 +8,7 @@ export type FavoriteRepositoryPageBridgeInput = {
 export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
 export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
 export type FavoriteRepositoryFolderDeleteInput = { accountMid: string; operationKey: string; folderId: string }
+export type FavoriteRepositoryFolderRenameInput = { accountMid: string; operationKey: string; folderId: string; title: string }
 
 export type FavoriteRepositoryRemoteFolder = { id: string; title: string; memberCount: number }
 
@@ -29,7 +30,7 @@ export type FavoriteRepositoryPageBridgeReadResult = FavoriteRepositoryPageBridg
 
 type ExecuteJavaScript = (script: string, userGesture?: boolean) => Promise<unknown>
 
-type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 export const FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS = 15_000
 
@@ -77,7 +78,7 @@ function isPageResult(value: unknown, action: PageBridgeAction): value is Favori
   return true
 }
 
-function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): string {
+function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): string {
   const payload = JSON.stringify(input)
   const mutationField = action === 'append' ? 'add_media_ids' : 'del_media_ids'
   const mutation = action === 'append' || action === 'remove'
@@ -131,6 +132,30 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         const csrf = readCookie('bili_jct'); if (!csrf) return { status: 'rejected', observedAccountMid, reason: 'csrf-missing' };
         const body = new URLSearchParams(); body.set('csrf', csrf); body.set('media_ids', String(input.folderId).trim());
         let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        const httpStatus = Number(response?.status || 0);
+        const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);
+        const responseCategory = !contentType ? 'unknown' : contentType.includes('json') ? 'json' : contentType.includes('html') ? 'html' : contentType.startsWith('text/') ? 'text' : 'unknown';
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response', httpStatus, ...(contentType ? { contentType } : {}), responseCategory }; }
+        if (response.ok && json?.code === 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid };
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous', httpStatus, ...(contentType ? { contentType } : {}), responseCategory, ...(Number.isSafeInteger(json?.code) ? { bilibiliCode: json.code } : {}) };
+      })()
+    `
+  }
+
+  if (action === 'rename-folder') {
+    return `
+      (async () => {
+        const input = ${payload};
+        const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
+        const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+        const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
+        const folderId = String(input.folderId || '').trim();
+        const title = String(input.title || '').trim();
+        if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim() || !folderId) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
+        if (!title || Array.from(title).length > 20) return { status: 'rejected', observedAccountMid, reason: 'invalid-folder-title' };
+        const csrf = readCookie('bili_jct'); if (!csrf) return { status: 'rejected', observedAccountMid, reason: 'csrf-missing' };
+        const body = new URLSearchParams(); body.set('csrf', csrf); body.set('media_id', folderId); body.set('title', title); body.set('privacy', '0');
+        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/edit', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
         const httpStatus = Number(response?.status || 0);
         const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);
         const responseCategory = !contentType ? 'unknown' : contentType.includes('json') ? 'json' : contentType.includes('html') ? 'html' : contentType.startsWith('text/') ? 'text' : 'unknown';
@@ -298,7 +323,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
 }
 
 export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript; timeoutMs?: number }) {
-  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
+  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
     try {
       const execution = options.executeJavaScript(pageScript(action, input), true)
       const result = await new Promise<unknown>((resolve, reject) => {
@@ -325,6 +350,7 @@ export function createFavoriteRepositoryPageBridge(options: { executeJavaScript:
     readFolderInventory: (input: FavoriteRepositoryFolderInventoryInput) => run('read-folder-inventory', input),
     createFolder: (input: FavoriteRepositoryFolderCreateInput) => run('create-folder', input)
     ,deleteFolder: (input: FavoriteRepositoryFolderDeleteInput) => run('delete-folder', input)
+    ,renameFolder: (input: FavoriteRepositoryFolderRenameInput) => run('rename-folder', input)
   }
 }
 

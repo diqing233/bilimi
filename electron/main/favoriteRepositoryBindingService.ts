@@ -124,7 +124,7 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
 
 export type FavoriteRepositoryLedgerBindingCandidate = {
   ledgerId: string
-  candidates: Array<{ id: string; title: string; memberCount: number }>
+  candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
 }
 
 function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
@@ -211,7 +211,7 @@ export class FavoriteRepositoryBindingService {
       // Adoption is deliberately ID-only: duplicate names must never affect the target.
       const matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
-      const remote = matches[0]
+      let remote = matches[0]
       const remoteTitleMatches = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
       const remoteTitleIsManaged = /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(remote.title.trim())
       if (!remoteTitleMatches && !(normalized.allowRemoteRename && remoteTitleIsManaged)) {
@@ -233,9 +233,39 @@ export class FavoriteRepositoryBindingService {
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
-      if (exactExisting) return this.getBindings(account)
+      const expectedManagedTitle = favoriteRepositoryManagedShardTitleForDisplay(
+        normalized.logicalLedgerId, input.shardNumber, 'explicit-adoption', normalized.logicalTitle
+      )
+      const requiresRename = normalized.allowRemoteRename &&
+        comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)
+      if (requiresRename) {
+        await bridge.renameFolder({
+          accountMid: account,
+          operationKey: `${runId}:rename:${normalized.remoteFolderId}`,
+          folderId: normalized.remoteFolderId,
+          title: expectedManagedTitle
+        })
+        let verifiedInventory
+        try {
+          verifiedInventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}` })
+        } catch {
+          throw new Error('Favorite repository remote shard rename is not confirmed.')
+        }
+        if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
+          throw new Error('Favorite repository remote account mismatch.')
+        }
+        const verifiedMatches = verifiedInventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+        if (verifiedMatches.length !== 1 ||
+          comparableManagedShardTitle(verifiedMatches[0].title) !== comparableManagedShardTitle(expectedManagedTitle)) {
+          throw new Error('Favorite repository remote shard rename is not confirmed.')
+        }
+        remote = verifiedMatches[0]
+      }
+      if (exactExisting && !requiresRename) return this.getBindings(account)
       await this.options.repository.commit(account, {
-        id: `favorite-adoption:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}`,
+        id: exactExisting
+          ? `favorite-adoption-title-repair:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}:${randomUUID()}`
+          : `favorite-adoption:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}`,
         accountMid: account,
         issuedAt: this.now(),
         type: 'upsert-physical-shard-binding',
@@ -474,6 +504,12 @@ export class FavoriteRepositoryBindingService {
         const formallyBoundRemoteFolderIds = new Set(snapshot.physicalShards
           .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
           .map((shard) => shard.remoteFolderId!))
+        const historicalShardNumberByRemoteId = new Map<string, number>()
+        for (const shard of snapshot.physicalShards) {
+          for (const remoteFolderId of [shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])].filter(Boolean) as string[]) {
+            if (!historicalShardNumberByRemoteId.has(remoteFolderId)) historicalShardNumberByRemoteId.set(remoteFolderId, shard.shardNumber)
+          }
+        }
         const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
         const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*[2-9]\d*$/u, '').trim()
         return ledgers.map((ledger) => ({
@@ -481,7 +517,12 @@ export class FavoriteRepositoryBindingService {
           candidates: inventory.folders
             .filter((folder) => !formallyBoundRemoteFolderIds.has(folder.id))
             .filter((folder) => normalizeLogicalTitle(folder.title) === normalizeLogicalTitle(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
-            .map((folder) => ({ id: folder.id, title: folder.title, memberCount: folder.memberCount }))
+            .map((folder) => ({
+              id: folder.id,
+              title: folder.title,
+              memberCount: folder.memberCount,
+              ...(historicalShardNumberByRemoteId.has(folder.id) ? { shardNumber: historicalShardNumberByRemoteId.get(folder.id)! } : {})
+            }))
         })).filter((entry) => entry.ledgerId && entry.candidates.length)
       } finally {
         pageBridgeManager.release(account, runId)

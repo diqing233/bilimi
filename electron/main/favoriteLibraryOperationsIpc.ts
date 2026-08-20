@@ -45,7 +45,7 @@ type RendererSource =
 type RendererScopeSelection = {
   kind: 'scope'
   scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' } | { kind: 'protected' } | { kind: 'unsynced' }
-  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>; classificationSources?: FavoriteRepositoryClassificationSource[] }
+  options: { query?: string; filter?: 'all' | 'pending' | 'protected' | 'unsynced'; sort?: 'updated-desc' | 'updated-asc' | 'title-asc' | 'title-desc'; transcriptionFilters?: Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>; classificationSources?: FavoriteRepositoryClassificationSource[]; physicalShard?: { logicalLedgerId: string; shardNumber: number } }
   excludedAids: number[]
 }
 type RendererSelection = { kind: 'aids'; aids: number[] } | RendererScopeSelection
@@ -100,14 +100,24 @@ function rendererSelection(value: unknown): RendererSelection {
     !['system-high', 'system-low', 'deepseek', 'manual'].includes(String(source))))) {
     throw new Error('Favorite operation selection is invalid.')
   }
-  if ((options.query !== undefined && typeof options.query !== 'string') ||
+  const physicalShard = options.physicalShard
+  const validPhysicalShard = physicalShard === undefined || Boolean(physicalShard) && !Array.isArray(physicalShard) &&
+    Object.keys(physicalShard as object).length === 2 &&
+    typeof (physicalShard as { logicalLedgerId?: unknown }).logicalLedgerId === 'string' &&
+    Boolean((physicalShard as { logicalLedgerId: string }).logicalLedgerId.trim()) &&
+    Number.isSafeInteger((physicalShard as { shardNumber?: unknown }).shardNumber) &&
+    Number((physicalShard as { shardNumber: number }).shardNumber) >= 1
+  const physicalShardValue = physicalShard as { logicalLedgerId: string; shardNumber: number } | undefined
+  const physicalShardMatchesScope = physicalShardValue === undefined || scope.kind === 'folder' &&
+    (scope.folderId === physicalShardValue.logicalLedgerId || scope.folderId === `bilimi-logical:${physicalShardValue.logicalLedgerId}`)
+  if (!validPhysicalShard || !physicalShardMatchesScope || (options.query !== undefined && typeof options.query !== 'string') ||
     (options.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(String(options.filter))) ||
     (options.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(String(options.sort)))) {
     throw new Error('Favorite operation selection is invalid.')
   }
   return {
     kind: 'scope', scope: scope.kind === 'folder' ? { kind: 'folder', folderId: scope.folderId as string } : { kind: scope.kind as Exclude<RendererScopeSelection['scope']['kind'], 'folder'> },
-    options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as RendererScopeSelection['options']['filter'] } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as RendererScopeSelection['options']['sort'] } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>)].sort() } : {}), ...(Array.isArray(classificationSources) && classificationSources.length ? { classificationSources: [...new Set(classificationSources as FavoriteRepositoryClassificationSource[])].sort() } : {}) },
+    options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as RendererScopeSelection['options']['filter'] } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as RendererScopeSelection['options']['sort'] } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as Array<'completed' | 'none' | 'pending' | 'running' | 'failed'>)].sort() } : {}), ...(Array.isArray(classificationSources) && classificationSources.length ? { classificationSources: [...new Set(classificationSources as FavoriteRepositoryClassificationSource[])].sort() } : {}), ...(physicalShardValue ? { physicalShard: { logicalLedgerId: physicalShardValue.logicalLedgerId.trim(), shardNumber: physicalShardValue.shardNumber } } : {}) },
     excludedAids: [...new Set(selection.excludedAids as number[])].sort((left, right) => left - right)
   }
 }

@@ -2088,10 +2088,10 @@ describe('App runtime integration', () => {
     })
 
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
-      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·游戏专区'
+      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·游戏专区', allowRemoteRename: true
     }))
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
-      logicalLedgerId: 'game', remoteFolderId: '89', remoteTitle: 'bilimi·游戏专区·2'
+      logicalLedgerId: 'game', remoteFolderId: '89', remoteTitle: 'bilimi·游戏专区·2', allowRemoteRename: true
     }))
   })
 

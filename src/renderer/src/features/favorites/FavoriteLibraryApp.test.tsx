@@ -361,6 +361,42 @@ describe('FavoriteLibraryApp', () => {
     expect(await screen.findByText('总计 3 个 · 当前显示 1 个')).toBeInTheDocument()
   })
 
+  it('shows a read-only all/shard selector only for multi-shard work folders', async () => {
+    const getFavoriteRepositoryLibraryPage = vi.fn(async (_accountMid: string, scope: { kind: string }, options: { physicalShard?: { logicalLedgerId: string; shardNumber: number } }) => ({
+      version: 1 as const,
+      accountMid: '100',
+      revision: 1,
+      totalCount: options.physicalShard?.shardNumber === 2 ? 1 : 2,
+      items: options.physicalShard?.shardNumber === 2
+        ? [{ video: { aid: 2, title: '分册二视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }]
+        : [{ video: { aid: 1, title: '分册一视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }, { video: { aid: 2, title: '分册二视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }]
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 2, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '11', remoteTitle: '音乐', bindingState: 'bound', remoteMemberCount: 1 },
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteFolderId: '12', remoteTitle: '音乐·2', bindingState: 'bound', remoteMemberCount: 1 }
+        ],
+        physicalShardCount: 2, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    const selector = await screen.findByRole('combobox', { name: '分册视图' })
+    expect(selector).toHaveValue('all')
+    expect(screen.getByRole('option', { name: '全部' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /分册 2/ })).toBeInTheDocument()
+    fireEvent.change(selector, { target: { value: '2' } })
+    await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, expect.objectContaining({ physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } })))
+    expect(await screen.findByText('分册二视频')).toBeInTheDocument()
+  })
+
   it('provisions only the current logical folder without synchronizing its videos', async () => {
     const synchronizeFavoriteLibraryPlacements = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: '已备册' })
@@ -440,6 +476,36 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: '备册当前收藏夹' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '去掌库收藏夹设置保存后绑定' }))
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, ledgerId: 'custom-author-honker233', ledgerTitle: 'bilimi·honker233-小王爱马枪' })
+  })
+
+  it('keeps a right-deleted work folder recoverable without backing it up', async () => {
+    const restoreFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['music'] })
+    const ensureFavoriteLedger = vi.fn()
+    let preferenceListener: ((preferences: Record<string, unknown>) => void) | undefined
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      loadPreferences: vi.fn().mockResolvedValue({ favoriteAccountPreferences: { '100': { deletedFavoriteLedgerRecords: [{ logicalLedgerId: 'music', deletedAt: '2026-08-05T00:00:00.000Z', ledger: { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false } }] } } }),
+      onAssistantPreferencesChanged: vi.fn((callback) => { preferenceListener = callback; return () => undefined }),
+      restoreFavoriteLedgersLocal,
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    expect(await screen.findByText('收藏夹已删除')).toBeInTheDocument()
+    const restore = screen.getByRole('button', { name: '恢复当前收藏夹' })
+    expect(screen.queryByRole('button', { name: '备册当前收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(restore)
+    await waitFor(() => expect(restoreFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['music']))
+    expect(ensureFavoriteLedger).not.toHaveBeenCalled()
+    preferenceListener?.({ favoriteAccountPreferences: { '100': { deletedFavoriteLedgerRecords: [] } } })
   })
 
   it('shows no ledger binding state for an ordinary Bilibili folder', async () => {
@@ -859,15 +925,16 @@ describe('FavoriteLibraryApp', () => {
     expect(binding).toHaveTextContent('音乐 ← bilimi·音乐（12 个视频）')
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐' })).toBeChecked()
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐·2' })).toBeChecked()
+    fireEvent.click(within(binding).getByRole('button', { name: '将 bilimi·音乐·2 上移' }))
     fireEvent.click(within(binding).getByRole('button', { name: '确认绑定' }))
 
     await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenNthCalledWith(2, 'bilimi-logical:music', {
       lightweightBackup: true,
-      rebindRemoteFolderIds: { music: '81' },
+      rebindRemoteFolderIds: { music: '82' },
       rebindRemoteFolders: {
         music: [
-          { id: '81', title: 'bilimi·音乐', memberCount: 12 },
-          { id: '82', title: 'bilimi·音乐·2', memberCount: 4 }
+          { id: '82', title: 'bilimi·音乐·2', memberCount: 4 },
+          { id: '81', title: 'bilimi·音乐', memberCount: 12 }
         ]
       }
     }))

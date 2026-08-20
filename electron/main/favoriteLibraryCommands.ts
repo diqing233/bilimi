@@ -14,7 +14,7 @@ export type FavoriteLibrarySyncSelection =
 export type FavoriteLibraryScopeSelection = {
   kind: 'scope'
   scope: FavoriteRepositoryLibraryPageScope
-  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; stateFilters?: FavoriteRepositoryLibraryStateFilters; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] }
+  options: { query?: string; filter?: FavoriteRepositoryLibraryFilter; stateFilters?: FavoriteRepositoryLibraryStateFilters; sort?: FavoriteRepositoryLibrarySort; transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[]; physicalShard?: { logicalLedgerId: string; shardNumber: number } }
   excludedAids: number[]
 }
 
@@ -431,13 +431,20 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && Object.keys(candidate).length === 2) return { kind: 'folder', folderId: candidate.folderId.trim() }
   if (candidate.kind === 'scope' && Object.keys(candidate).length === 4 && candidate.scope && typeof candidate.scope === 'object' && candidate.options && typeof candidate.options === 'object' && Array.isArray(candidate.excludedAids)) {
     const scope = candidate.scope as { kind?: unknown; folderId?: unknown }
-    const options = candidate.options as { query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
+    const options = candidate.options as { query?: unknown; filter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown; physicalShard?: unknown }
     const transcriptionFilters = options.transcriptionFilters
     if (transcriptionFilters !== undefined && (!Array.isArray(transcriptionFilters) || transcriptionFilters.length > 5 || transcriptionFilters.some((filter) =>
       !['completed', 'none', 'pending', 'running', 'failed'].includes(String(filter))))) throw new Error('Selected videos are invalid.')
     const classificationSources = options.classificationSources
     if (classificationSources !== undefined && (!Array.isArray(classificationSources) || classificationSources.length > 4 || classificationSources.some((source) =>
       !['system-high', 'system-low', 'deepseek', 'manual'].includes(String(source))))) throw new Error('Selected videos are invalid.')
+    const physicalShard = options.physicalShard
+    const validPhysicalShard = physicalShard === undefined || Boolean(physicalShard) && !Array.isArray(physicalShard) &&
+      Object.keys(physicalShard as object).length === 2 &&
+      typeof (physicalShard as { logicalLedgerId?: unknown }).logicalLedgerId === 'string' &&
+      Boolean((physicalShard as { logicalLedgerId: string }).logicalLedgerId.trim()) &&
+      Number.isSafeInteger((physicalShard as { shardNumber?: unknown }).shardNumber) &&
+      Number((physicalShard as { shardNumber: number }).shardNumber) >= 1
     const validScope = scope.kind === 'all' || scope.kind === 'pending' || scope.kind === 'protected' || scope.kind === 'unsynced' ||
       scope.kind === 'folder' && typeof scope.folderId === 'string' && !!scope.folderId.trim()
     const stateFilters = options.stateFilters as Record<string, unknown> | undefined
@@ -446,7 +453,10 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
       (stateFilters.sync === undefined || ['synced', 'unsynced'].includes(String(stateFilters.sync))) &&
       (stateFilters.protection === undefined || ['protected', 'unprotected'].includes(String(stateFilters.protection))) &&
       (stateFilters.organization === undefined || ['organized', 'unorganized'].includes(String(stateFilters.organization)))
-    if (!validScope || !validStateFilters || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||
+    const physicalShardValue = physicalShard as { logicalLedgerId: string; shardNumber: number } | undefined
+    const physicalShardMatchesScope = physicalShardValue === undefined || scope.kind === 'folder' &&
+      (scope.folderId === physicalShardValue.logicalLedgerId || scope.folderId === `bilimi-logical:${physicalShardValue.logicalLedgerId}`)
+    if (!validScope || !validStateFilters || !validPhysicalShard || !physicalShardMatchesScope || candidate.excludedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0) ||
       (options.query !== undefined && typeof options.query !== 'string') ||
       (options.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(String(options.filter))) ||
       (options.sort !== undefined && !['updated-desc', 'updated-asc', 'title-asc', 'title-desc'].includes(String(options.sort)))) throw new Error('所选视频无效。')
@@ -454,7 +464,7 @@ function librarySelection(value: unknown): FavoriteLibrarySyncSelection | Favori
       kind: 'scope', scope: scope.kind === 'folder'
         ? { kind: 'folder', folderId: (scope.folderId as string).trim() }
         : { kind: scope.kind as Exclude<FavoriteRepositoryLibraryPageScope['kind'], 'folder'> },
-      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}), ...(Array.isArray(classificationSources) && classificationSources.length ? { classificationSources: [...new Set(classificationSources as FavoriteRepositoryClassificationSource[])].sort() } : {}) },
+      options: { ...(typeof options.query === 'string' ? { query: options.query } : {}), ...(typeof options.filter === 'string' ? { filter: options.filter as FavoriteRepositoryLibraryFilter } : {}), ...(stateFilters && Object.keys(stateFilters).length ? { stateFilters: { ...stateFilters } as FavoriteRepositoryLibraryStateFilters } : {}), ...(typeof options.sort === 'string' ? { sort: options.sort as FavoriteRepositoryLibrarySort } : {}), ...(Array.isArray(transcriptionFilters) && transcriptionFilters.length ? { transcriptionFilters: [...new Set(transcriptionFilters as FavoriteRepositoryTranscriptionFilter[])].sort() } : {}), ...(Array.isArray(classificationSources) && classificationSources.length ? { classificationSources: [...new Set(classificationSources as FavoriteRepositoryClassificationSource[])].sort() } : {}), ...(physicalShardValue ? { physicalShard: { logicalLedgerId: physicalShardValue.logicalLedgerId.trim(), shardNumber: physicalShardValue.shardNumber } } : {}) },
       excludedAids: [...new Set(candidate.excludedAids as number[])].sort((left, right) => left - right)
     }
   }

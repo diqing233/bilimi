@@ -179,6 +179,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
   classificationSources?: FavoriteRepositoryClassificationSource[]
+  physicalShard?: { logicalLedgerId: string; shardNumber: number }
 }
 
 function clone<T>(value: T): T {
@@ -1070,7 +1071,7 @@ export class FavoriteRepositoryService {
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
     const index = this.libraryIndex(cached, snapshot)
-    const scopedAids = this.cachedLibraryAids(cached, snapshot, scope, index, options)
+    const scopedAids = this.filterPhysicalShardAids(snapshot, index, scope, this.cachedLibraryAids(cached, snapshot, scope, index, options), options)
     const page = options.page ?? 1
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Favorite repository page number is invalid.')
     const start = options.page ? (page - 1) * limit : options.cursor ? Number(options.cursor) : 0
@@ -1114,8 +1115,27 @@ export class FavoriteRepositoryService {
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
     const index = this.libraryIndex(cached, snapshot)
     const excluded = new Set(excludedAids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))
-    return this.cachedLibraryAids(cached, snapshot, scope, index, options)
+    return this.filterPhysicalShardAids(snapshot, index, scope, this.cachedLibraryAids(cached, snapshot, scope, index, options), options)
       .filter((aid) => !excluded.has(aid))
+  }
+
+  private filterPhysicalShardAids(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    index: FavoriteRepositoryLibraryIndex,
+    scope: FavoriteRepositoryLibraryPageScope,
+    aids: number[],
+    options: FavoriteRepositoryLibraryPageOptions
+  ) {
+    const shard = options.physicalShard && scope.kind === 'folder'
+      ? snapshot.physicalShards.find((candidate) => candidate.logicalLedgerId === options.physicalShard!.logicalLedgerId && candidate.shardNumber === options.physicalShard!.shardNumber)
+      : undefined
+    if (options.physicalShard && !shard) return []
+    if (!shard) return aids
+    // Physical shard memberships are stored under their raw folder ID. The
+    // library index intentionally canonicalizes those IDs to the logical
+    // folder, so using the index here would return the whole logical folder.
+    const shardAids = new Set(snapshot.memberships[shard.folderId] ?? [])
+    return aids.filter((aid) => shardAids.has(aid))
   }
 
   async getLibraryDetail(accountMid: string, aid: number): Promise<FavoriteRepositoryLibraryDetail | null> {
@@ -2070,6 +2090,7 @@ export class FavoriteRepositoryService {
       sort: options.sort ?? 'updated-desc',
       transcriptionFilters: [...transcriptionFilters].sort(),
       classificationSources: [...new Set(options.classificationSources ?? [])].sort(),
+      physicalShard: options.physicalShard ?? null,
       ...(dependsOnQueue ? { transcriptionQueueRevision: normalizedQueueRevision } : {}),
       ...(dependsOnArchives ? { transcriptionArchiveRevision: normalizedArchiveRevision } : {})
     })

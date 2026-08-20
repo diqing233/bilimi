@@ -97,7 +97,7 @@ export type AssistantRuntimeRequest =
       runId: string
       target: FavoriteRepositoryPageTarget
       action: FavoriteRepositoryPageOperationAction
-      input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
+      input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput
     }
   | { id: string; type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | {
@@ -163,6 +163,7 @@ export type FavoriteRepositoryUnfavoriteInput = { accountMid: string; operationK
 export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
 export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
 export type FavoriteRepositoryFolderDeleteInput = { accountMid: string; operationKey: string; folderId: string }
+export type FavoriteRepositoryFolderRenameInput = { accountMid: string; operationKey: string; folderId: string; title: string }
 export type FavoriteRepositoryPageOperationAction =
   | 'append'
   | 'remove'
@@ -171,6 +172,7 @@ export type FavoriteRepositoryPageOperationAction =
   | 'read-folder-inventory'
   | 'create-folder'
   | 'delete-folder'
+  | 'rename-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number

@@ -16,7 +16,7 @@ import type {
   FavoriteRepositoryRestorePlan
 } from '../../../../../electron/main/favoriteRepositoryArchiveService'
 import type { ManagedFavoriteRemoteFolderDeletionResult } from '../../../../../electron/main/favoriteRepositorySyncService'
-import type { VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
+import type { DeletedFavoriteLedgerRecord, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { FloatingAssistantWorkspaceRequest } from '../assistant/assistantRuntimeTypes'
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import { FavoriteLibraryHeader } from './FavoriteLibraryHeader'
@@ -97,7 +97,7 @@ function apiStateFilters(filters: FavoriteLibraryStateFilterSelection): Favorite
 type FavoriteLibraryOperationSelection = number[] | {
   kind: 'scope'
   scope: MutableLibraryScope
-  options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] }
+  options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[]; physicalShard?: { logicalLedgerId: string; shardNumber: number } }
   excludedAids: number[]
 }
 
@@ -251,7 +251,7 @@ type LightweightBackupBindingCandidate = {
   folderId: string
   logicalLedgerId: string
   title: string
-  candidates: Array<{ id: string; title: string; memberCount: number; bindingFailureReason?: string }>
+  candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number; bindingFailureReason?: string }>
 }
 
 type LightweightBackupResult = {
@@ -259,8 +259,21 @@ type LightweightBackupResult = {
   message?: string
   unboundCandidates?: Array<{
     ledgerId: string
-    candidates: Array<{ id: string; title: string; memberCount: number; bindingFailureReason?: string }>
+    candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number; bindingFailureReason?: string }>
   }>
+}
+
+function candidateShardHint(title: string, shardNumber?: number) {
+  if (Number.isSafeInteger(shardNumber) && shardNumber! > 0) return shardNumber!
+  const match = title.trim().match(/·([2-9]\d*)$/u)
+  return match ? Number(match[1]) : 1
+}
+
+function orderBindingCandidates(candidates: LightweightBackupBindingCandidate['candidates']) {
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((left, right) => candidateShardHint(left.candidate.title, left.candidate.shardNumber) - candidateShardHint(right.candidate.title, right.candidate.shardNumber) || left.index - right.index)
+    .map(({ candidate }) => candidate)
 }
 
 function FavoriteLibraryMenuChevron() {
@@ -421,8 +434,21 @@ function transcriptionQueueCommandLabel(
   return fallback.label
 }
 
+type FavoriteLibraryPreferences = Awaited<ReturnType<NonNullable<typeof window.bilimiDesktop.loadPreferences>>>
+let sharedPreferencesApi: typeof window.bilimiDesktop | undefined
+let sharedPreferencesPromise: Promise<FavoriteLibraryPreferences | undefined> | undefined
+
+function loadFavoriteLibraryPreferences(api: typeof window.bilimiDesktop) {
+  if (!api?.loadPreferences) return Promise.resolve(undefined)
+  if (sharedPreferencesApi !== api || !sharedPreferencesPromise) {
+    sharedPreferencesApi = api
+    sharedPreferencesPromise = api.loadPreferences()
+  }
+  return sharedPreferencesPromise
+}
+
 async function readFavoriteTranscriptionOptions(api: typeof window.bilimiDesktop) {
-  const preferences = await api.loadPreferences?.()
+  const preferences = await loadFavoriteLibraryPreferences(api)
   return {
     summarizeWithDeepSeek: Boolean(
       preferences?.deepseekEnabled && preferences.deepseekAutoSummaryEnabled
@@ -459,8 +485,10 @@ export function FavoriteLibraryApp({
   const [accountMid, setAccountMid] = useState<string>()
   const [accountNickname, setAccountNickname] = useState<string>()
   const [summary, setSummary] = useState<FavoriteRepositorySnapshotSummary>()
+  const [deletedFavoriteLedgerRecords, setDeletedFavoriteLedgerRecords] = useState<DeletedFavoriteLedgerRecord[]>([])
   const [libraryLoadState, setLibraryLoadState] = useState<'loading' | 'ready' | 'refreshing' | 'error'>('loading')
   const [scopeId, setScopeId] = useState('all')
+  const [selectedShardNumber, setSelectedShardNumber] = useState<number | 'all'>('all')
   const [pageScopeId, setPageScopeId] = useState('all')
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(50)
   const [page, setPage] = useState<FavoriteRepositoryLibraryPage>()
@@ -603,17 +631,20 @@ export function FavoriteLibraryApp({
       ...(Object.keys(stateFilters).length ? { stateFilters } : {}),
       sort: rowSort,
       transcriptionFilters,
-      ...(classificationSources.length ? { classificationSources } : {})
+      ...(classificationSources.length ? { classificationSources } : {}),
+      ...(scope.kind === 'folder' && selectedShardNumber !== 'all' ? { physicalShard: { logicalLedgerId: scope.folderId.replace(/^bilimi-logical:/u, ''), shardNumber: selectedShardNumber } } : {})
     }
-  }, [classificationSources, libraryStateFilters, rowSort, searchQuery, sourceFilter, transcriptionFilters])
+  }, [classificationSources, libraryStateFilters, rowSort, searchQuery, selectedShardNumber, sourceFilter, scope, transcriptionFilters])
   const pageOptionsRef = useRef(pageOptions)
   pageOptionsRef.current = pageOptions
+  const libraryUiRef = useRef({ searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, classificationSources })
+  libraryUiRef.current = { searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, classificationSources }
   const load = useCallback(async (
     mid: string,
     nextScope: LibraryScope,
     requestedPage = pageNumberRef.current,
     limit = pageSize,
-    options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[] } = {},
+    options: { query?: string; filter?: FavoriteLibraryFilter; sourceFilter?: FavoriteRepositoryLibrarySourceFilter; stateFilters?: FavoriteLibraryApiStateFilters; sort?: FavoriteLibrarySort; transcriptionFilters?: FavoriteLibraryTranscriptionFilter[]; classificationSources?: FavoriteRepositoryClassificationSource[]; physicalShard?: { logicalLedgerId: string; shardNumber: number } } = {},
     preserveSelection = false
   ) => {
     const requestId = ++requestIdRef.current
@@ -628,7 +659,8 @@ export function FavoriteLibraryApp({
       ...(options.stateFilters && Object.keys(options.stateFilters).length ? { stateFilters: options.stateFilters } : {}),
       sort: options.sort ?? 'updated-desc',
       ...(options.transcriptionFilters?.length ? { transcriptionFilters: options.transcriptionFilters } : {}),
-      ...(options.classificationSources?.length ? { classificationSources: options.classificationSources } : {})
+      ...(options.classificationSources?.length ? { classificationSources: options.classificationSources } : {}),
+      ...(options.physicalShard ? { physicalShard: options.physicalShard } : {})
     })
     if (requestId === requestIdRef.current) {
       setPage(next)
@@ -879,8 +911,13 @@ export function FavoriteLibraryApp({
       const nextScope = sameAccount ? scopeRef.current : cachedUi ? scopeForNavigation(cachedUi.scopeId) : { kind: 'all' } as const
       const nextPageNumber = sameAccount ? pageNumberRef.current : cachedUi?.pageNumber ?? 1
       const nextPageSize = sameAccount ? pageSize : cachedUi?.pageSize ?? 50
-      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'sourceFilter' | 'rowSort' | 'transcriptionFilters' | 'classificationSources'> = sameAccount
-        ? { searchQuery, libraryStateFilters, sourceFilter, rowSort, transcriptionFilters, classificationSources }
+      const currentPageOptions = pageOptionsRef.current
+      const currentUi = libraryUiRef.current
+      const nextOptions: Pick<CachedFavoriteLibraryUi, 'searchQuery' | 'libraryStateFilters' | 'sourceFilter' | 'rowSort' | 'transcriptionFilters' | 'classificationSources'> & { physicalShard?: { logicalLedgerId: string; shardNumber: number } } = sameAccount
+        ? {
+          ...currentUi,
+          ...(currentPageOptions.physicalShard ? { physicalShard: currentPageOptions.physicalShard } : {})
+        }
         : cachedUi
           ? { searchQuery: cachedUi.searchQuery, libraryStateFilters: cachedUi.libraryStateFilters, sourceFilter: cachedUi.sourceFilter ?? 'all', rowSort: cachedUi.rowSort, transcriptionFilters: cachedUi.transcriptionFilters, classificationSources: cachedUi.classificationSources ?? [] }
           : { searchQuery: '', libraryStateFilters: { sync: 'all', protection: 'all', organization: 'all' }, sourceFilter: 'all', rowSort: 'updated-desc', transcriptionFilters: [], classificationSources: [] }
@@ -893,7 +930,8 @@ export function FavoriteLibraryApp({
         ...(Object.keys(apiStateFilters(nextOptions.libraryStateFilters)).length ? { stateFilters: apiStateFilters(nextOptions.libraryStateFilters) } : {}),
         sort: nextOptions.rowSort,
         ...(nextOptions.transcriptionFilters?.length ? { transcriptionFilters: nextOptions.transcriptionFilters } : {}),
-        ...(nextOptions.classificationSources?.length ? { classificationSources: nextOptions.classificationSources } : {})
+        ...(nextOptions.classificationSources?.length ? { classificationSources: nextOptions.classificationSources } : {}),
+        ...(nextOptions.physicalShard ? { physicalShard: nextOptions.physicalShard } : {})
       })
       if (!pageRequest) throw new Error(text.unavailable)
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
@@ -925,7 +963,7 @@ export function FavoriteLibraryApp({
         setLibraryLoadState('error')
       }
     }
-  }, [pageOptions, pageSize, sourceFilter])
+  }, [pageSize])
 
   useEffect(() => {
     if (!active) return
@@ -963,6 +1001,21 @@ export function FavoriteLibraryApp({
     setLibraryLoadState('loading')
     void refresh(normalizedAccountMid)
   }) : undefined, [accountMid, active, refresh])
+
+  useEffect(() => {
+    if (!active || !accountMid) {
+      setDeletedFavoriteLedgerRecords([])
+      return
+    }
+    let disposed = false
+    const apply = (preferences: import('../../../../../electron/main/store').AssistantPreferences) => {
+      if (disposed) return
+      setDeletedFavoriteLedgerRecords(preferences.favoriteAccountPreferences?.[accountMid]?.deletedFavoriteLedgerRecords ?? [])
+    }
+    void loadFavoriteLibraryPreferences(window.bilimiDesktop).then(apply).catch(() => undefined)
+    const unsubscribe = window.bilimiDesktop?.onAssistantPreferencesChanged?.(apply)
+    return () => { disposed = true; unsubscribe?.() }
+  }, [accountMid, active])
 
   useEffect(() => {
     if (!active || !accountMid) return
@@ -1084,6 +1137,7 @@ export function FavoriteLibraryApp({
     return [...options.values()]
   }, [navigation])
   const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
+    const deletedIds = new Set(deletedFavoriteLedgerRecords.map((record) => record.logicalLedgerId))
     const items = navigation.map((item) => {
       const label = item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title
       const unmatchedClassification = item.kind === 'folder' && item.folderId === 'local:inbox'
@@ -1092,7 +1146,7 @@ export function FavoriteLibraryApp({
       const workspace = item.kind === 'folder' && (managed || localDraft)
       return {
         id: item.id,
-        label,
+        label: item.kind === 'folder' && item.logicalLedgerId && deletedIds.has(item.logicalLedgerId) ? `${label}（收藏夹已删除）` : label,
         count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'recycle' ? (summary?.scopeCounts?.recycle ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
         managed,
         workspace,
@@ -1108,7 +1162,7 @@ export function FavoriteLibraryApp({
       { id: 'workspace', label: 'bilimi 工作夹', videoCount: summary?.workspaceVideoCount, items: workspaceItems },
       { id: 'bilibili', label: '其他收藏夹', videoCount: summary?.otherFavoriteVideoCount, items: otherFavoriteItems }
     ]
-  }, [navigation, summary?.workspaceVideoCount, summary?.otherFavoriteVideoCount])
+  }, [deletedFavoriteLedgerRecords, navigation, summary?.workspaceVideoCount, summary?.otherFavoriteVideoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
   const collapsedNavigationGroupsByAccountRef = useRef(new Map<string, Record<string, boolean>>())
   const collapsedNavigationSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -1594,7 +1648,7 @@ export function FavoriteLibraryApp({
         setWorkspaceBindingCandidates(bindingCandidates)
         setWorkspaceBindingSelections(Object.fromEntries(bindingCandidates.map((entry) => [
           entry.logicalLedgerId,
-          entry.candidates.map((candidate) => candidate.id)
+          orderBindingCandidates(entry.candidates).map((candidate) => candidate.id)
         ])))
       }
       setWorkspaceSyncResult(bindingCandidates.length
@@ -1616,14 +1670,16 @@ export function FavoriteLibraryApp({
       let failed = 0
       for (const entry of workspaceBindingCandidates) {
         const selectedIds = workspaceBindingSelections[entry.logicalLedgerId] ?? []
+        const selectedCandidates = selectedIds
+          .map((id) => entry.candidates.find((candidate) => candidate.id === id))
+          .filter((candidate): candidate is typeof entry.candidates[number] => Boolean(candidate))
         try {
           const result = await api.ensureFavoriteLedger(entry.folderId, {
             lightweightBackup: true,
             rebindRemoteFolderIds: { [entry.logicalLedgerId]: selectedIds[0]! },
             rebindRemoteFolders: {
-              [entry.logicalLedgerId]: entry.candidates
-                .filter((candidate) => selectedIds.includes(candidate.id))
-                .map(({ id, title, memberCount }) => ({ id, title, memberCount }))
+              [entry.logicalLedgerId]: selectedCandidates
+                .map(({ id, title, memberCount, shardNumber }) => ({ id, title, memberCount, ...(shardNumber === undefined ? {} : { shardNumber }) }))
             }
           }) as LightweightBackupResult
           if (result.ok === false) failed++
@@ -1649,7 +1705,7 @@ export function FavoriteLibraryApp({
     const unbound = result.unboundCandidates?.find((entry) => entry.ledgerId === logicalLedgerId)
     if (unbound?.candidates.length) {
       setWorkspaceBindingCandidates([{ folderId, logicalLedgerId, title, candidates: unbound.candidates }])
-      setWorkspaceBindingSelections({ [logicalLedgerId]: unbound.candidates.map((candidate) => candidate.id) })
+      setWorkspaceBindingSelections({ [logicalLedgerId]: orderBindingCandidates(unbound.candidates).map((candidate) => candidate.id) })
       setWorkspaceSyncResult('发现未绑定的 B 站收藏夹，请确认后绑定。')
       return
     }
@@ -1803,10 +1859,21 @@ export function FavoriteLibraryApp({
   const isRecycleScope = scope.kind === 'recycle'
   const eligibilityIndex = useMemo(() => buildFavoriteLibraryEligibilityIndex(folders, page?.items ?? []), [folders, page?.items])
   const currentFolder = currentFolderId ? eligibilityIndex.folderById.get(currentFolderId) : undefined
-  const currentLedgerBindingStatus = favoriteLibraryLedgerBindingStatus(currentFolder)
+  const currentDeletedRecord = currentFolder?.logicalLedgerId
+    ? deletedFavoriteLedgerRecords.find((record) => record.logicalLedgerId === currentFolder.logicalLedgerId)
+    : undefined
+  const currentLedgerBindingStatus = currentDeletedRecord
+    ? { kind: 'missing' as const, label: '收藏夹已删除' as const, actionLabel: '恢复当前收藏夹' as const }
+    : favoriteLibraryLedgerBindingStatus(currentFolder)
   const currentLogicalFolderId = currentFolderId && eligibilityIndex.folderById.get(currentFolderId)?.kind === 'bilimi-logical'
     ? currentFolderId
     : undefined
+  const currentPhysicalShards = useMemo(() => currentFolder?.logicalLedgerId
+    ? (summary?.physicalShards ?? []).filter((shard) => shard.logicalLedgerId === currentFolder.logicalLedgerId).sort((left, right) => left.shardNumber - right.shardNumber)
+    : [], [currentFolder?.logicalLedgerId, summary?.physicalShards])
+  useEffect(() => {
+    if (!currentPhysicalShards.some((shard) => shard.shardNumber === selectedShardNumber)) setSelectedShardNumber('all')
+  }, [currentPhysicalShards, selectedShardNumber])
   const resolvedOperationSource = useMemo(() => resolveFavoriteLibrarySource(currentFolderId, eligibilityIndex.folderById, scope.kind), [currentFolderId, eligibilityIndex.folderById, scope.kind])
   const selectionEligibility = useCallback((selection: FavoriteLibrarySelectionSnapshot) => determineFavoriteOperationEligibility({
     source: resolvedOperationSource.source,
@@ -2063,18 +2130,34 @@ export function FavoriteLibraryApp({
         }
       }}>
         <p>检测到所选工作夹在 B 站有同名、但尚未正式绑定的收藏夹。请确认要绑定的实际收藏夹；未选中的候选不会被修改。</p>
-        <ul className="favorite-library__managed-folder-preview">{workspaceBindingCandidates.flatMap((entry) => entry.candidates.map((candidate) => {
-          const selected = (workspaceBindingSelections[entry.logicalLedgerId] ?? []).includes(candidate.id)
-          return <li key={`${entry.logicalLedgerId}:${candidate.id}`}><label><input type="checkbox" aria-label={`绑定 ${entry.title} 到 ${candidate.title}`} checked={selected} disabled={workspaceSyncExecuting || Boolean(candidate.bindingFailureReason)} onChange={(event) => setWorkspaceBindingSelections((current) => {
-            const selectedIds = current[entry.logicalLedgerId] ?? []
-            return {
-              ...current,
-              [entry.logicalLedgerId]: event.currentTarget.checked
-                ? [...new Set([...selectedIds, candidate.id])]
-                : selectedIds.filter((id) => id !== candidate.id)
-            }
-          })} /><span>{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label></li>
-        }))}</ul>
+        <ul className="favorite-library__managed-folder-preview">{workspaceBindingCandidates.flatMap((entry) => {
+          const selectedIds = workspaceBindingSelections[entry.logicalLedgerId] ?? []
+          const candidates = [...selectedIds.map((id) => entry.candidates.find((candidate) => candidate.id === id)).filter((candidate): candidate is typeof entry.candidates[number] => Boolean(candidate)), ...orderBindingCandidates(entry.candidates).filter((candidate) => !selectedIds.includes(candidate.id))]
+          return candidates.map((candidate) => {
+            const selectedIndex = selectedIds.indexOf(candidate.id)
+            const selected = selectedIndex >= 0
+            const move = (direction: -1 | 1) => setWorkspaceBindingSelections((current) => {
+              const ids = [...(current[entry.logicalLedgerId] ?? [])]
+              const index = ids.indexOf(candidate.id)
+              const target = index + direction
+              if (index < 0 || target < 0 || target >= ids.length) return current
+              ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
+              return { ...current, [entry.logicalLedgerId]: ids }
+            })
+            return <li key={`${entry.logicalLedgerId}:${candidate.id}`} className="favorite-library__binding-candidate">
+              <label><input type="checkbox" aria-label={`绑定 ${entry.title} 到 ${candidate.title}`} checked={selected} disabled={workspaceSyncExecuting || Boolean(candidate.bindingFailureReason)} onChange={(event) => setWorkspaceBindingSelections((current) => {
+                const ids = current[entry.logicalLedgerId] ?? []
+                return {
+                  ...current,
+                  [entry.logicalLedgerId]: event.currentTarget.checked
+                    ? [...ids, candidate.id]
+                    : ids.filter((id) => id !== candidate.id)
+                }
+              })} /><span>{selected ? `分册 ${selectedIndex + 1}：` : '候选：'}{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label>
+              {selected ? <span className="favorite-library__binding-candidate-actions"><button type="button" aria-label={`将 ${candidate.title} 上移`} disabled={workspaceSyncExecuting || selectedIndex === 0} onClick={() => move(-1)}>上移</button><button type="button" aria-label={`将 ${candidate.title} 下移`} disabled={workspaceSyncExecuting || selectedIndex === selectedIds.length - 1} onClick={() => move(1)}>下移</button></span> : null}
+            </li>
+          })
+        })}</ul>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => {
           setWorkspaceBindingCandidates(undefined)
           setWorkspaceBindingSelections({})
@@ -2138,6 +2221,7 @@ export function FavoriteLibraryApp({
             const enteringRecycle = nextScope.kind === 'recycle'
             const nextPageOptions = enteringRecycle ? { sort: rowSort } : pageOptions
             setScopeId(id)
+            setSelectedShardNumber('all')
             return load(accountMid, nextScope, 1, pageSize, nextPageOptions).then((applied) => {
               if (selectionAttempt !== selectionAttemptRef.current) return false
               if (!applied) {
@@ -2211,13 +2295,33 @@ export function FavoriteLibraryApp({
             <h2 {...(!page ? { role: 'status', 'aria-label': workspaceTitle } : {})}>{workspaceTitle}{workspaceVideoCount !== undefined ? <small className="favorite-library__workspace-video-count"> {workspaceVideoCount} 个视频</small> : null}</h2>
             {currentLedgerBindingStatus ? <span className="favorite-library__ledger-binding-status" data-state={currentLedgerBindingStatus.kind}>
               <strong>{currentLedgerBindingStatus.label}</strong>
-              {currentLedgerBindingStatus.actionLabel && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
-                tab: 'ledger', sidebar: true, ledgerId: currentFolder.logicalLedgerId, ...(currentFolder.kind === 'local' ? { ledgerTitle: currentFolder.title } : {})
+              {currentLedgerBindingStatus.actionLabel && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void runAction(async () => {
+                if (currentLedgerBindingStatus.actionLabel === '恢复当前收藏夹') {
+                  if (!accountMid || !window.bilimiDesktop?.restoreFavoriteLedgersLocal) throw new Error(text.unavailable)
+                  await window.bilimiDesktop.restoreFavoriteLedgersLocal(accountMid, [currentFolder.logicalLedgerId])
+                  return
+                }
+                await window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+                  tab: 'ledger', sidebar: true, ledgerId: currentFolder.logicalLedgerId, ...(currentFolder.kind === 'local' ? { ledgerTitle: currentFolder.title } : {})
+                })
               })}>{currentLedgerBindingStatus.actionLabel}</button> : null}
             </span> : null}
             {page && libraryLoadState === 'refreshing' ? <p className="sr-only" role="status" aria-label="正在刷新收藏库">正在刷新收藏库</p> : null}
             {shouldShowFilteredCount ? <small>{`总计 ${currentScopeTotal} 个 · 当前显示 ${displayedTotal} 个`}</small> : null}
-            {currentLogicalFolderId ? <span className="favorite-library__workspace-actions">
+            {currentPhysicalShards.length >= 2 ? <label className="favorite-library__shard-selector"><span className="sr-only">分册视图</span><select aria-label="分册视图" value={selectedShardNumber === 'all' ? 'all' : String(selectedShardNumber)} onChange={(event) => {
+              const value = event.currentTarget.value === 'all' ? 'all' : Number(event.currentTarget.value)
+              setSelectedShardNumber(value)
+              selectionStore.clear()
+              setSelected(undefined)
+              setPageNumber(1)
+              if (accountMid && currentLogicalFolderId) {
+                void load(accountMid, { kind: 'folder', folderId: currentLogicalFolderId }, 1, pageSize, {
+                  ...pageOptions,
+                  ...(value === 'all' ? { physicalShard: undefined } : { physicalShard: { logicalLedgerId: currentFolder?.logicalLedgerId ?? '', shardNumber: value } })
+                }).catch(() => setError(text.cannotRead))
+              }
+            }}><option value="all">全部</option>{currentPhysicalShards.map((shard) => <option key={shard.shardNumber} value={shard.shardNumber}>{`分册 ${shard.shardNumber} · ${shard.remoteTitle}（${shard.remoteMemberCount ?? 0}）`}</option>)}</select></label> : null}
+            {currentLogicalFolderId && !currentDeletedRecord ? <span className="favorite-library__workspace-actions">
               <button type="button" disabled={!accountMid} title="为当前分类创建并绑定对应的 B 站 bilimi 收藏夹，不会同步视频。视频需通过“同步到B站”另行同步。" onClick={() => void runAction(() => backupCurrentWorkspaceFolder(currentLogicalFolderId, currentFolder?.logicalLedgerId ?? currentLogicalFolderId.replace(/^bilimi-logical:/, ''), currentFolder?.title ?? currentLogicalFolderId))}>{text.syncFolder}</button>
             </span> : null}
           </div>

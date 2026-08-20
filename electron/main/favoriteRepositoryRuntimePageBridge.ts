@@ -13,7 +13,7 @@ export type FavoriteRepositoryRuntimePageBridgeInput = {
   folderId?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -115,6 +115,10 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
       },
       async deleteFolder(input) {
         const result = await execute('delete-folder', input)
+        return { observedAccountMid: result.observedAccountMid }
+      },
+      async renameFolder(input) {
+        const result = await execute('rename-folder', input)
         return { observedAccountMid: result.observedAccountMid }
       }
     }

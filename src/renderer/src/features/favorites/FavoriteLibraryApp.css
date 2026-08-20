@@ -141,6 +141,8 @@
 .favorite-library__workspace-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .favorite-library__workspace-actions button { border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .favorite-library__workspace-actions button:hover, .favorite-library__workspace-actions button:focus-visible { border-color: #8eb5e6; background: #edf5ff; }
+.favorite-library__shard-selector { display: inline-flex; align-items: center; margin-left: auto; }
+.favorite-library__shard-selector select { min-width: 150px; max-width: min(36vw, 300px); min-height: 30px; padding: 4px 28px 4px 8px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1f3f68; font: inherit; }
 .favorite-library[data-embedded='true'] .favorite-library__layout { grid-row: 3; height: 100%; min-height: 0; }
 .favorite-library__nav { display: grid; align-content: start; gap: 4px; padding: 12px 10px 12px 0; border-right: 1px solid #dbe7f7; }
 .favorite-library__nav { overflow-x: hidden; overflow-y: auto; }
@@ -277,6 +279,11 @@
 .favorite-library__managed-folder-preview { max-height: min(36vh, 240px); overflow-y: auto; padding-right: 4px; }
 .favorite-library__managed-folder-preview li > label { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 6px; }
 .favorite-library__managed-folder-preview li > label input { margin: .35em 0 0; }
+.favorite-library__binding-candidate { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.favorite-library__binding-candidate > label { min-width: 0; flex: 1; }
+.favorite-library__binding-candidate-actions { display: inline-flex; flex: 0 0 auto; gap: 4px; }
+.favorite-library__binding-candidate-actions button { min-height: 24px; padding: 2px 6px; border: 1px solid #cbdcf5; border-radius: 5px; background: #fff; color: #1e3a8a; font-size: 12px; }
+.favorite-library__binding-candidate-actions button:disabled { cursor: default; opacity: .45; }
 .favorite-library__dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
 .bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),

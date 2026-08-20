@@ -50,6 +50,7 @@ export type FavoriteRepositoryLibraryPageOptions = FolderPageOptions & {
   sort?: FavoriteRepositoryLibrarySort
   transcriptionFilters?: FavoriteRepositoryTranscriptionFilter[]
   classificationSources?: FavoriteRepositoryClassificationSource[]
+  physicalShard?: { logicalLedgerId: string; shardNumber: number }
 }
 type Subscription = { id: string; accountMid: string; folderId?: string }
 type LibraryPageScope =
@@ -181,6 +182,12 @@ function pageOptions(value: unknown): FolderPageOptions {
 function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOptions {
   const base = pageOptions(value)
   const candidate = value as { page?: unknown; query?: unknown; filter?: unknown; sourceFilter?: unknown; initialSourceFilter?: unknown; stateFilters?: unknown; sort?: unknown; transcriptionFilters?: unknown; classificationSources?: unknown }
+  const physicalShard = (candidate as { physicalShard?: unknown }).physicalShard
+  if (physicalShard !== undefined && (!physicalShard || typeof physicalShard !== 'object' || Array.isArray(physicalShard) ||
+    typeof (physicalShard as { logicalLedgerId?: unknown }).logicalLedgerId !== 'string' || !(physicalShard as { logicalLedgerId: string }).logicalLedgerId.trim() ||
+    !Number.isSafeInteger((physicalShard as { shardNumber?: unknown }).shardNumber) || Number((physicalShard as { shardNumber: number }).shardNumber) < 1)) {
+    throw new Error('Favorite library page options are invalid.')
+  }
   if (candidate.page !== undefined && (!Number.isSafeInteger(candidate.page) || (candidate.page as number) < 1)) throw new Error('Favorite library page options are invalid.')
   if (candidate.query !== undefined && typeof candidate.query !== 'string') throw new Error('Favorite library page options are invalid.')
   if (candidate.filter !== undefined && !['all', 'pending', 'protected', 'unsynced'].includes(candidate.filter as string)) {
@@ -231,6 +238,7 @@ function libraryPageOptions(value: unknown): FavoriteRepositoryLibraryPageOption
     ...(candidate.sort ? { sort: candidate.sort as FavoriteRepositoryLibrarySort } : {}),
     ...(transcriptionFilters?.length ? { transcriptionFilters } : {}),
     ...(classificationSources?.length ? { classificationSources } : {})
+    , ...(physicalShard ? { physicalShard: { logicalLedgerId: (physicalShard as { logicalLedgerId: string }).logicalLedgerId.trim(), shardNumber: Number((physicalShard as { shardNumber: number }).shardNumber) } } : {})
   }
 }
 

@@ -122,8 +122,8 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 
 export type FavoriteLibraryLedgerBindingStatus = {
   kind: 'backed' | 'missing' | 'unbound' | 'draft'
-  label: '已备册' | '未备册' | '已生成草稿'
-  actionLabel?: '去掌库收藏夹设置保存后绑定'
+  label: '已备册' | '未备册' | '已生成草稿' | '收藏夹已删除'
+  actionLabel?: '去掌库收藏夹设置保存后绑定' | '恢复当前收藏夹'
 }
 
 export function favoriteLibraryLedgerBindingStatus(folder: FavoriteRepositoryFolder | undefined): FavoriteLibraryLedgerBindingStatus | undefined {

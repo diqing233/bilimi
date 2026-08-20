@@ -5,10 +5,11 @@ import {
   type FavoriteRepositoryFolderCreateInput,
   type FavoriteRepositoryFolderInventoryInput,
   type FavoriteRepositoryFolderDeleteInput,
+  type FavoriteRepositoryFolderRenameInput,
   type FavoriteRepositoryPageBridgeReadResult
 } from './favoriteRepositoryPageBridge'
 
-type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
@@ -39,7 +40,7 @@ export function createFavoriteRepositoryPageTarget(options: {
     async run(
       binding: FavoriteRepositoryPageTarget,
       action: PageBridgeAction,
-      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput
+      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput
     ): Promise<FavoriteRepositoryPageBridgeReadResult> {
       const target = options.findWebviewById(binding.webContentsId) ?? null
       if (!target?.executeJavaScript) {
@@ -64,7 +65,9 @@ export function createFavoriteRepositoryPageTarget(options: {
               ? bridge.readFolderInventory(input as FavoriteRepositoryFolderInventoryInput)
               : action === 'create-folder'
                 ? bridge.createFolder(input as FavoriteRepositoryFolderCreateInput)
-                : bridge.deleteFolder(input as FavoriteRepositoryFolderDeleteInput))
+                : action === 'delete-folder'
+                  ? bridge.deleteFolder(input as FavoriteRepositoryFolderDeleteInput)
+                  : bridge.renameFolder(input as FavoriteRepositoryFolderRenameInput))
       if (options.getNavigationEpoch(binding.webContentsId, binding.instanceId) !== binding.navigationEpoch) {
         return { status: 'unknown', observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
       }

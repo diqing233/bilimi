@@ -846,7 +846,7 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
   })
 
-  it('keeps name synchronization in a full backup', async () => {
+  it('keeps the observed remote title in a full backup', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-full-backup', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
@@ -867,8 +867,33 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
     expect(result.ok).toBe(true)
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(1)
-    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·新名称' })])
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
+    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·旧名称' })])
+  })
+
+  it('does not rename an existing remote folder during an ordinary backup', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-no-rename', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
+      priority: 90, isDefault: false, bindingState: 'bound',
+      bilibiliFolderId: '43', bilibiliFolderIds: ['43'], bilibiliFolderTitle: 'bilimi·旧名称'
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 43, title: 'bilimi·旧名称' }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/edit')) {
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
+    expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·旧名称' })])
   })
 
   it('creates only missing enabled ledgers', async () => {

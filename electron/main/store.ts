@@ -46,6 +46,7 @@ import type {
   FavoriteKeywordSuggestionAction,
   FavoriteKeywordSuggestionStatus,
   FavoriteAccountPreferences,
+  DeletedFavoriteLedgerRecord,
   FavoriteLedger,
   FavoriteLedgerEnabledPatch,
   MainWindowCloseBehavior,
@@ -184,6 +185,17 @@ function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPre
   return {
     defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
     favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers),
+    ...(Array.isArray(candidate.deletedFavoriteLedgerRecords)
+      ? { deletedFavoriteLedgerRecords: candidate.deletedFavoriteLedgerRecords.flatMap((record) => {
+          if (!record || typeof record !== 'object' || Array.isArray(record)) return []
+          const item = record as Partial<DeletedFavoriteLedgerRecord>
+          if (typeof item.logicalLedgerId !== 'string' || !item.logicalLedgerId.trim() ||
+            typeof item.deletedAt !== 'string' || !Number.isFinite(Date.parse(item.deletedAt)) ||
+            !item.ledger || typeof item.ledger !== 'object' || Array.isArray(item.ledger)) return []
+          const ledger = normalizeFavoriteLedgers([item.ledger as FavoriteLedger])[0]
+          return ledger ? [{ logicalLedgerId: item.logicalLedgerId.trim(), deletedAt: new Date(Date.parse(item.deletedAt)).toISOString(), ledger }] : []
+        }) }
+      : {}),
     ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
       ? { favoriteLibraryCollapsedGroups: Object.fromEntries(Object.entries(candidate.favoriteLibraryCollapsedGroups)
         .filter(([key, value]) => /^[a-z-]+$/u.test(key) && typeof value === 'boolean')) }

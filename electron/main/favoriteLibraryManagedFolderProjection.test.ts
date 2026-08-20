@@ -73,6 +73,30 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
+  it('retains a deleted rule\'s logical folder identity from its saved remote id', () => {
+    const base = snapshot([{ id: 'music-remote', title: 'bilimi·音乐', aids: [2] }])
+    const result = planFavoriteLibraryManagedFolderProjection({
+      snapshot: {
+        ...base,
+        physicalShards: [{
+          logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
+          remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'music-remote', remoteMemberCount: 1
+        }]
+      },
+      ledgers: [],
+      deletedFavoriteLedgerRecords: [{
+        logicalLedgerId: 'music', deletedAt: '2026-08-20T00:00:00.000Z',
+        ledger: ledger('music', 'bilimi·音乐', 'music-remote')
+      }],
+      dismissedRemoteFolderIds: []
+    })
+
+    expect(result).toEqual([expect.objectContaining({
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1,
+      bindingState: 'bound', remoteFolderId: 'music-remote', memberAids: [2]
+    })])
+  })
+
   it('projects an unknown bilimi folder as a stable draft while leaving an ordinary folder untouched', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([

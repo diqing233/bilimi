@@ -73,6 +73,12 @@ export type FavoriteLedger = {
   isDefault: boolean
 }
 
+export type DeletedFavoriteLedgerRecord = {
+  logicalLedgerId: FavoriteLedgerId
+  deletedAt: string
+  ledger: FavoriteLedger
+}
+
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
   /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
@@ -258,6 +264,8 @@ export type FavoriteLedgerStatus = {
       id: string
       title: string
       memberCount: number
+      /** Previously persisted physical-shard number for this exact remote ID, when known. */
+      shardNumber?: number
       /** Safe user-facing explanation when this exact remote shard was rejected. */
       bindingFailureReason?: string
       /** Original binding-service error retained for diagnostics. */
@@ -342,6 +350,7 @@ export type AssistantPreferences = {
 export type FavoriteAccountPreferences = {
   defaultFavoriteSystemEnabled: boolean
   favoriteLedgers: FavoriteLedger[]
+  deletedFavoriteLedgerRecords?: DeletedFavoriteLedgerRecord[]
   /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
   favoriteLibraryCollapsedGroups?: Record<string, boolean>
   transcriptionModelId?: TranscriptionModelId

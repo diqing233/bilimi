@@ -108,6 +108,7 @@ type FavoriteLedgerBindingFailureCandidate = {
   id: string
   title: string
   memberCount: number
+  shardNumber?: number
   bindingFailureReason: string
   bindingFailureDetail: string
 }
@@ -1205,7 +1206,7 @@ export default function App() {
     accountMid: string,
     runId: string,
     target: FavoriteRepositoryPageTarget,
-    action: 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder',
+    action: 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder',
     input: { accountMid: string; operationKey: string; aid?: number; folderIds?: string[]; title?: string; folderId?: string }
   ) {
     favoriteRepositoryPageTargetRef.current ??= createFavoriteRepositoryPageTarget({
@@ -1623,7 +1624,7 @@ export default function App() {
     inputLedgers: FavoriteLedger[],
     resultLedgers: FavoriteLedger[],
     rebindRemoteFolderIds?: Record<string, string>,
-    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number }>>,
+    rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number; shardNumber?: number }>>,
     trustedRemoteShardNumbers?: ReadonlyMap<string, ReadonlyMap<string, number>>
   ): Promise<FavoriteLedgerBindingRegistrationResult> {
     const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1637,7 +1638,16 @@ export default function App() {
       return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
     }
     const inputFolderIds = new Map(inputLedgers.map((ledger) => [ledger.id, ledger.bilibiliFolderId]))
-    const registrations: Array<{ ledger: FavoriteLedger; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
+    const registrations: Array<{
+      ledger: FavoriteLedger
+      remoteFolderId: string
+      remoteTitle: string
+      memberCount: number
+      shardNumber: number
+      // Only a folder selected in the explicit binding-confirmation dialog
+      // receives permission to repair its displayed remote shard name.
+      allowRemoteRename: boolean
+    }> = []
     for (const ledger of resultLedgers) {
       // A discovered same-name candidate remains explicitly unbound until the
       // owner confirms it in the rebind dialog. Older successful create
@@ -1656,7 +1666,7 @@ export default function App() {
           const titledShardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
           if (titledShardNumber === undefined) continue
           const existingShardNumber = knownShardNumbers.get(folder.id.trim())
-          let shardNumber = existingShardNumber ?? titledShardNumber
+          let shardNumber = existingShardNumber ?? folder.shardNumber ?? titledShardNumber
           if (titledShardNumber === 1 && !existingShardNumber && occupiedShardNumbers.has(1)) {
             shardNumber = 2
             while (occupiedShardNumbers.has(shardNumber)) shardNumber += 1
@@ -1667,7 +1677,8 @@ export default function App() {
             remoteFolderId: folder.id.trim(),
             remoteTitle: folder.title.trim() || ledger.displayName,
             memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
-            shardNumber
+            shardNumber,
+            allowRemoteRename: selectedFolders.length > 0
           })
         }
       }
@@ -1675,7 +1686,7 @@ export default function App() {
 
     const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
     const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
-    for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber } of registrations) {
+    for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber, allowRemoteRename } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
         failures.push({
           ledgerId: ledger.id,
@@ -1694,7 +1705,8 @@ export default function App() {
           logicalLedgerId: ledger.id, shardNumber,
           logicalTitle: ledger.displayName,
           remoteFolderId,
-          remoteTitle
+          remoteTitle,
+          ...(allowRemoteRename ? { allowRemoteRename: true } : {})
         })
         successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle, memberCount, shardNumber })
       } catch (error) {
@@ -2682,8 +2694,7 @@ export default function App() {
           logicalTitle: pendingTargetLedger.displayName,
           remoteFolderId,
           remoteTitle,
-          shardNumber: Math.max(1, (pendingTargetLedger.bilibiliFolderIds ?? []).length),
-          allowRemoteRename: true
+          shardNumber: Math.max(1, (pendingTargetLedger.bilibiliFolderIds ?? []).length)
         })
       } catch (error) {
         return {
@@ -2766,8 +2777,7 @@ export default function App() {
               logicalTitle: ledger.displayName,
               remoteFolderId: folder.id,
               remoteTitle: folder.title,
-              shardNumber: folder.shardNumber,
-              allowRemoteRename: true
+              shardNumber: folder.shardNumber
             })
           } catch (error) {
             pendingFavoriteShardBindingsRef.current.set(pendingKey, { folder })

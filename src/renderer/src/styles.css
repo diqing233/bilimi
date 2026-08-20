@@ -2733,8 +2733,9 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.25;
+  text-decoration: none;
   cursor: pointer;
   width: auto;
   flex: 0 0 auto;
@@ -2743,6 +2744,7 @@ body[data-floating-window="true"],
 }
 .memorial-panel__action-setting-option[aria-pressed="true"] {
   color: var(--porcelain-primary);
+  font-weight: 700;
 }
 .memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled),
 .memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) {
@@ -3105,8 +3107,9 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.2;
+  text-decoration: none;
   cursor: pointer;
   width: auto;
   flex: 0 0 auto;
@@ -3115,6 +3118,7 @@ body[data-floating-window="true"],
 }
 .video-notes__transcription-mode-option[aria-pressed="true"] {
   color: var(--porcelain-primary);
+  font-weight: 700;
 }
 .video-notes .video-notes__transcription-mode-option:hover:not(:disabled):not(.assistant-action-button),
 .video-notes .video-notes__transcription-mode-option:focus-visible:not(:disabled):not(.assistant-action-button) {
@@ -4910,12 +4914,22 @@ body[data-floating-window="true"],
   gap: 6px;
   margin-left: 26px;
 }
-.favorite-ledger-panel__rebind-candidates > label {
+.favorite-ledger-panel__rebind-candidate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.favorite-ledger-panel__rebind-candidate > label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-weight: 400;
 }
+.favorite-ledger-panel__rebind-order { display: inline-flex; gap: 2px; }
+.favorite-ledger-panel__rebind-order button { min-width: 24px; min-height: 24px; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #365d88; cursor: pointer; font: inherit; line-height: 1; }
+.favorite-ledger-panel__rebind-order button:hover:not(:disabled), .favorite-ledger-panel__rebind-order button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, .42); background: #eaf4ff; color: #1f63b5; outline: none; }
+.favorite-ledger-panel__rebind-order button:disabled { cursor: default; opacity: .4; }
 .favorite-ledger-panel__remote-draft-notice {
   display: flex;
   align-items: flex-start;

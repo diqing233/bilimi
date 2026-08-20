@@ -1529,6 +1529,34 @@ describe('FavoriteLedgerOverview', () => {
     })))
   })
 
+  it('submits recovery shards in the user-adjusted order', async () => {
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'game', candidates: [
+        { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 },
+        { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 }
+      ] }] })
+      .mockResolvedValueOnce({ ok: true })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbound', isDefault: true
+    }]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByText('确认绑定 bilimi 收藏夹')
+    fireEvent.click(screen.getByRole('button', { name: '将分册 2 上移' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
+      rebindRemoteFolderIds: { game: '89' },
+      rebindRemoteFolders: {
+        game: [
+          { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 },
+          { id: '88', title: 'bilimi·游戏专区', memberCount: 1000 }
+        ]
+      }
+    })))
+  })
+
   it('keeps a rejected recovery shard visible with its binding reason', async () => {
     const game = {
       id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,

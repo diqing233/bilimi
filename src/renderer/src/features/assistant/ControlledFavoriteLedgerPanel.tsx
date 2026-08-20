@@ -361,9 +361,10 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     promoteSelectedRecommendationLedgers(workspace.recommendedCandidateIds)
   }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds])
-  const handleDeleteLedger = useCallback(async (ledgerId: string) => {
-    return true
-  }, [])
+  // FavoriteLedgerOverview owns its narrow deletion IPC. This callback only
+  // acknowledges the completed local-rule deletion so the overview can update
+  // its transient editor state without submitting the same IPC a second time.
+  const handleDeleteLedger = useCallback(async () => true, [])
   const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
     await pendingRecommendationSavesRef.current.get(ledgerId)
   }, [])

@@ -525,24 +525,8 @@ export function buildEnsureFavoriteLedgersScript(
         };
       }
 
-      // An explicit folder ID remains bound across either side renaming. On a
-      // later backup, Bilimi's saved name is the deliberate source of truth.
-      for (let index = 0; index < nextLedgers.length; index += 1) {
-        const ledger = nextLedgers[index];
-        if (payload.options?.lightweightBackup || !ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
-        const body = new URLSearchParams();
-        body.set('csrf', csrf);
-        body.set('media_id', String(ledger.bilibiliFolderId));
-        body.set('title', ledger.displayName);
-        body.set('privacy', '0');
-        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/edit', {
-          method: 'POST', credentials: 'include',
-          headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body
-        });
-        await ensureApiOk(response, 'favorite ledger rename');
-        nextLedgers[index] = { ...ledger, bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
-        steps.push('api:ledger:rename:' + ledger.id);
-      }
+      // Existing remote folder IDs are authoritative during ordinary backup.
+      // Renaming is reserved for an explicit user-confirmed binding repair.
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
@@ -658,24 +642,8 @@ export function buildSaveFavoriteLedgersScript(
         };
       }
 
-      // An explicit folder ID remains bound across either side renaming. On a
-      // later backup, Bilimi's saved name is the deliberate source of truth.
-      for (let index = 0; index < nextLedgers.length; index += 1) {
-        const ledger = nextLedgers[index];
-        if (!ledger.enabled || ledger.syncState === 'local-draft' || !ledger.bilibiliFolderId || ledger.bilibiliFolderTitle === ledger.displayName) continue;
-        const body = new URLSearchParams();
-        body.set('csrf', csrf);
-        body.set('media_id', String(ledger.bilibiliFolderId));
-        body.set('title', ledger.displayName);
-        body.set('privacy', '0');
-        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/edit', {
-          method: 'POST', credentials: 'include',
-          headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body
-        });
-        await ensureApiOk(response, 'favorite ledger rename');
-        nextLedgers[index] = { ...ledger, bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
-        steps.push('api:ledger:rename:' + ledger.id);
-      }
+      // Existing remote folder IDs are authoritative during ordinary save.
+      // Renaming is reserved for an explicit user-confirmed binding repair.
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];

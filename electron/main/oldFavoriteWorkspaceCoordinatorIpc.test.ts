@@ -450,7 +450,7 @@ describe('old favorite workspace coordinator IPC', () => {
         new Error('Old favorite workspace segment is unavailable.'),
         { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]: true }
       )),
-      getSnapshot: vi.fn().mockResolvedValue(failed)
+      getSnapshot: vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValueOnce(failed)
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
       ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
@@ -464,14 +464,17 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.getSnapshot).toHaveBeenCalledWith('100')
   })
 
-  it('does not mistake a prior tag-adoption failure for the current command failure', async () => {
+  it('does not mistake a prior tag-adoption failure for the current persisted command failure', async () => {
     const ipcMain = new FakeIpcMain()
     const priorFailure = {
       ...snapshot,
       tagAdoption: { status: 'failed' as const, failureCode: 'classification-recompute-failed' as const }
     }
     const coordinator = {
-      acceptCurrentTags: vi.fn().mockRejectedValue(new Error('workspace storage is unavailable')),
+      acceptCurrentTags: vi.fn().mockRejectedValue(Object.assign(
+        new Error('workspace storage is unavailable'),
+        { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]: true }
+      )),
       getSnapshot: vi.fn().mockResolvedValue(priorFailure)
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({

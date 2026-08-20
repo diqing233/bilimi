@@ -1055,9 +1055,36 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['music']))
+    expect(deleteFavoriteLedgersLocal).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()
+  })
+
+  it('deletes a persisted remote draft without issuing a second local-rule deletion', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerId: 'remote-draft' })
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['remote-draft'] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      deleteFavoriteLedgerDraft,
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      remoteOnlyDraftLedgerIds={['remote-draft']}
+      ledgers={[{
+        id: 'remote-draft', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 0,
+        bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+      }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '远端草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledWith('100', 'remote-draft'))
+    expect(deleteFavoriteLedgerDraft).toHaveBeenCalledTimes(1)
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '远端草稿' })).not.toBeInTheDocument()
   })
 
   it('places the organize and library entries as peers in the shared toolbar', async () => {

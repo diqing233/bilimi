@@ -1,7 +1,7 @@
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
 import { isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
 import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
-import type { FavoriteLedger } from '../../src/shared/types'
+import type { DeletedFavoriteLedgerRecord, FavoriteLedger } from '../../src/shared/types'
 
 export type FavoriteLibraryManagedFolderProjection = {
   logicalLedgerId: string
@@ -109,6 +109,12 @@ function assignStableShardNumbers(candidates: FavoriteLibraryManagedFolderProjec
 export function planFavoriteLibraryManagedFolderProjection(input: {
   snapshot: AccountFavoriteRepositorySnapshot
   ledgers: FavoriteLedger[]
+  /**
+   * A locally deleted rule may retain a visible 收藏夹已删除 recovery window.
+   * These records preserve only their own prior ID evidence; they never cause
+   * a same-title remote folder to be claimed.
+   */
+  deletedFavoriteLedgerRecords?: readonly DeletedFavoriteLedgerRecord[]
   /** Retained for persisted-call compatibility; legacy dismissals no longer suppress discovery. */
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
@@ -122,6 +128,16 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   const configuredLedgersByLogicalTitle = new Map(input.ledgers
     .map((ledger) => [normalizedLedgerDisplayTitle(ledger.displayName), ledger] as const)
     .filter(([title]) => Boolean(title)))
+  const deletedRecordsByLogicalLedgerId = new Map((input.deletedFavoriteLedgerRecords ?? [])
+    .filter((record) => record.logicalLedgerId.trim() && record.ledger?.id === record.logicalLedgerId)
+    .map((record) => [record.logicalLedgerId, record]))
+  const deletedRecordsByRemoteFolderId = new Map<string, DeletedFavoriteLedgerRecord>()
+  for (const record of deletedRecordsByLogicalLedgerId.values()) {
+    for (const remoteFolderId of [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])]) {
+      const normalizedRemoteFolderId = remoteFolderId?.trim()
+      if (normalizedRemoteFolderId) deletedRecordsByRemoteFolderId.set(normalizedRemoteFolderId, record)
+    }
+  }
   const formalBindingsByRemoteId = new Map(input.snapshot.physicalShards
     .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
     .map((shard) => [shard.remoteFolderId!, shard]))
@@ -139,7 +155,8 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // A saved remote ID can restore the local logical identity as an unbound
     // candidate, but only a repository shard makes it a formal binding.
     const formallyBoundLedger = formalBinding
-      ? input.ledgers.find((candidate) => candidate.id === formalBinding.logicalLedgerId)
+      ? input.ledgers.find((candidate) => candidate.id === formalBinding.logicalLedgerId) ??
+        deletedRecordsByLogicalLedgerId.get(formalBinding.logicalLedgerId)?.ledger
       : undefined
     if (formalBinding && formallyBoundLedger) {
       const logicalTitle = formallyBoundLedger.displayName.trim() || title
@@ -159,14 +176,15 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // A configured remote ID can recover the local logical ledger as an
     // explicitly unbound candidate. Title suffixes are ignored only in this
     // ID-directed case; otherwise they are user-authored candidate names.
+    const deletedRecord = deletedRecordsByRemoteFolderId.get(folder.remoteFolderId)
     const titleShard = configuredLedgerShard(title, input.ledgers)
-    const ledger = configuredById ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
+    const ledger = configuredById ?? deletedRecord?.ledger ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
     // A default rule deliberately deleted by the user stays visible in settings
     // but must not be reconstructed from a same-name remote candidate. A formal
     // repository binding above remains the only explicit recovery authority.
     if (ledger?.isDefault && ledger.managedFolderDeletedByUser) continue
     const logicalTitle = ledger?.displayName.trim() || title
-    const logicalLedgerId = ledger?.id ?? stableCustomLedgerId(title)
+    const logicalLedgerId = deletedRecord?.logicalLedgerId ?? ledger?.id ?? stableCustomLedgerId(title)
     const shardNumber = configuredById ? 1 : titleShard?.shardNumber ?? 1
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     candidates.push({
@@ -203,6 +221,7 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   accountMid: string
   repository: ProjectionRepository
   ledgers: FavoriteLedger[]
+  deletedFavoriteLedgerRecords?: readonly DeletedFavoriteLedgerRecord[]
   now?: () => string
 }) {
   let snapshot = await input.repository.getSnapshot(input.accountMid)
@@ -219,6 +238,7 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   const candidates = planFavoriteLibraryManagedFolderProjection({
     snapshot,
     ledgers: input.ledgers,
+    deletedFavoriteLedgerRecords: input.deletedFavoriteLedgerRecords,
     dismissedRemoteFolderIds: []
   })
   let current = snapshot

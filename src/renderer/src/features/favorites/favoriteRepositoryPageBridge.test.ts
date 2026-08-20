@@ -269,6 +269,30 @@ describe('favorite repository page bridge', () => {
     expect(String(fetch.mock.calls[0][1].body)).not.toContain('media_id=41')
   })
 
+  it('renames only an explicit folder id through the Bilibili folder edit endpoint', async () => {
+    document.cookie = 'DedeUserID=100'
+    document.cookie = 'bili_jct=csrf'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: vi.fn().mockReturnValue('application/json') },
+      json: vi.fn().mockResolvedValue({ code: 0 })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.renameFolder({
+      accountMid: '100', operationKey: 'adopt:rename:game-2', folderId: 'game-2', title: 'bilimi·游戏专区·2'
+    })).resolves.toMatchObject({ status: 'ok', observedAccountMid: '100' })
+
+    expect(fetch).toHaveBeenCalledWith('https://api.bilibili.com/x/v3/fav/folder/edit', expect.objectContaining({ method: 'POST' }))
+    expect(String(fetch.mock.calls[0][1].body)).toContain('media_id=game-2')
+    expect(String(fetch.mock.calls[0][1].body)).toContain(encodeURIComponent('bilimi·游戏专区·2'))
+  })
+
   it('fails closed when the page returns an invalid bridge result', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100', unexpected: true })
     const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })

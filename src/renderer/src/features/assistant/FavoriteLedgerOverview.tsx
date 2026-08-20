@@ -71,6 +71,7 @@ type RebindCandidateEntry = {
     id: string
     title: string
     memberCount: number
+    shardNumber?: number
     bindingFailureReason?: string
   }>
 }
@@ -146,6 +147,15 @@ function rebindShardNumber(title: string, logicalTitle: string) {
   if (candidateTitle === logicalTitle) return 1
   const match = candidateTitle.match(new RegExp(`^${logicalTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}·([2-9]\\d*)$`, 'u'))
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+}
+function orderedRebindCandidates(
+  candidates: RebindCandidateEntry['candidates'],
+  logicalTitle: string
+) {
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((left, right) => (left.candidate.shardNumber ?? rebindShardNumber(left.candidate.title, logicalTitle)) - (right.candidate.shardNumber ?? rebindShardNumber(right.candidate.title, logicalTitle)) || left.index - right.index)
+    .map(({ candidate }) => candidate)
 }
 function idFor(title: string) {
   return `custom-${title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-').replace(/^-|-$/g, '') || 'ledger'}-${Date.now()}`
@@ -803,9 +813,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         setRebindCandidates(result.unboundCandidates)
         setRebindSelections(Object.fromEntries(result.unboundCandidates
           .filter((entry) => entry.candidates.length)
-          .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+          .map((entry) => {
+            const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
+            return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle)[0]!.id]
+          })))
         setRebindSelectedFolderIds(Object.fromEntries(result.unboundCandidates
-          .map((entry) => [entry.ledgerId, entry.candidates.map((candidate) => candidate.id)])))
+          .map((entry) => {
+            const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
+            return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle).map((candidate) => candidate.id)]
+          })))
       }
       return result
     })()
@@ -1084,8 +1100,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (ledgerIds.some((ledgerId) => !(rebindSelectedFolderIds[ledgerId] ?? []).length)) return
     const rebindRemoteFolders = Object.fromEntries(rebindCandidates.map((entry) => [
       entry.ledgerId,
-      entry.candidates.filter((candidate) => (rebindSelectedFolderIds[entry.ledgerId] ?? []).includes(candidate.id))
-        .map(({ id, title, memberCount }) => ({ id, title, memberCount }))
+      (rebindSelectedFolderIds[entry.ledgerId] ?? [])
+        .map((candidateId) => entry.candidates.find((candidate) => candidate.id === candidateId))
+        .filter((candidate): candidate is RebindCandidateEntry['candidates'][number] => Boolean(candidate))
+        .map(({ id, title, memberCount, shardNumber }) => ({ id, title, memberCount, ...(shardNumber === undefined ? {} : { shardNumber }) }))
     ]))
     const result = await onSyncLedgers(projectEnabled(draftLedgers), {
       deleteDisabled: false,
@@ -1097,9 +1115,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setRebindCandidates(result.unboundCandidates)
       setRebindSelections(Object.fromEntries(result.unboundCandidates
         .filter((entry) => entry.candidates.length)
-        .map((entry) => [entry.ledgerId, entry.candidates[0].id])))
+        .map((entry) => {
+          const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
+          return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle)[0]!.id]
+        })))
       setRebindSelectedFolderIds(Object.fromEntries(result.unboundCandidates
-        .map((entry) => [entry.ledgerId, entry.candidates.map((candidate) => candidate.id)])))
+        .map((entry) => {
+          const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
+          return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle).map((candidate) => candidate.id)]
+        })))
       return
     }
     if (result?.ok !== false) {
@@ -1212,32 +1236,49 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
           const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
-          const candidates = entry.candidates
-            .map((candidate, index) => ({ candidate, index }))
-            .sort((left, right) => rebindShardNumber(left.candidate.title, logicalTitle) - rebindShardNumber(right.candidate.title, logicalTitle) || left.index - right.index)
-            .map(({ candidate }) => candidate)
+          const defaultCandidates = orderedRebindCandidates(entry.candidates, logicalTitle)
           const selectedIds = rebindSelectedFolderIds[entry.ledgerId] ?? []
-          const allSelected = candidates.length > 0 && selectedIds.length === candidates.length
+          const candidates = [
+            ...selectedIds.map((candidateId) => defaultCandidates.find((candidate) => candidate.id === candidateId))
+              .filter((candidate): candidate is RebindCandidateEntry['candidates'][number] => Boolean(candidate)),
+            ...defaultCandidates.filter((candidate) => !selectedIds.includes(candidate.id))
+          ]
+          const allSelected = defaultCandidates.length > 0 && selectedIds.length === defaultCandidates.length
+          const moveSelectedCandidate = (candidateId: string, direction: -1 | 1) => {
+            setRebindSelectedFolderIds((current) => {
+              const currentIds = current[entry.ledgerId] ?? []
+              const index = currentIds.indexOf(candidateId)
+              const targetIndex = index + direction
+              if (index < 0 || targetIndex < 0 || targetIndex >= currentIds.length) return current
+              const nextIds = [...currentIds]
+              ;[nextIds[index], nextIds[targetIndex]] = [nextIds[targetIndex]!, nextIds[index]!]
+              setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
+              return { ...current, [entry.ledgerId]: nextIds }
+            })
+          }
           return <div key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
             <label>
               <input type="checkbox" checked={allSelected} ref={(node) => { if (node) node.indeterminate = selectedIds.length > 0 && !allSelected }} onChange={(event) => {
-                const nextIds = event.currentTarget.checked ? candidates.map((candidate) => candidate.id) : []
+                const nextIds = event.currentTarget.checked ? defaultCandidates.map((candidate) => candidate.id) : []
                 setRebindSelectedFolderIds((current) => ({ ...current, [entry.ledgerId]: nextIds }))
                 setRebindSelections((current) => ({ ...current, [entry.ledgerId]: nextIds[0] ?? '' }))
               }} />
-              <span>{logicalTitle}（共 {candidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
+              <span>{logicalTitle}（共 {defaultCandidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
             </label>
             {candidates.length > 1 || candidates.some((candidate) => candidate.bindingFailureReason) ? <div className="favorite-ledger-panel__rebind-candidates">
               {candidates.map((candidate, index) => {
-                const shardNumber = rebindShardNumber(candidate.title, logicalTitle)
-                const displayedShardNumber = shardNumber === Number.MAX_SAFE_INTEGER ? index + 1 : shardNumber
-                return <label key={candidate.id}><input type="checkbox" checked={selectedIds.includes(candidate.id)} onChange={(event) => setRebindSelectedFolderIds((current) => {
+                const selectedIndex = selectedIds.indexOf(candidate.id)
+                const titleShardNumber = candidate.title.trim().match(/·([2-9]\d*)$/u)?.[1]
+                const displayedShardNumber = selectedIndex >= 0 && selectedIds.length > 1
+                  ? selectedIndex + 1
+                  : titleShardNumber ? Number(titleShardNumber) : index + 1
+                return <div key={candidate.id} className="favorite-ledger-panel__rebind-candidate"><label><input type="checkbox" checked={selectedIndex >= 0} onChange={(event) => setRebindSelectedFolderIds((current) => {
                   const nextIds = event.currentTarget.checked
-                    ? [...new Set([...selectedIds, candidate.id])]
+                    ? defaultCandidates.filter((item) => new Set([...selectedIds, candidate.id]).has(item.id)).map((item) => item.id)
                     : selectedIds.filter((id) => id !== candidate.id)
                   setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
                   return { ...current, [entry.ledgerId]: nextIds }
-                })} />分册 {displayedShardNumber}：{candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>
+                })} />分册 {displayedShardNumber}：{candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>{selectedIndex >= 0 && selectedIds.length > 1 ? <span className="favorite-ledger-panel__rebind-order"><button type="button" aria-label={`将分册 ${displayedShardNumber} 上移`} title="上移" disabled={selectedIndex === 0} onClick={() => moveSelectedCandidate(candidate.id, -1)}>↑</button><button type="button" aria-label={`将分册 ${displayedShardNumber} 下移`} title="下移" disabled={selectedIndex === selectedIds.length - 1} onClick={() => moveSelectedCandidate(candidate.id, 1)}>↓</button></span> : null}</div>
               })}
             </div> : null}
           </div>

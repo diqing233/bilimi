@@ -416,8 +416,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       'set-recommended-candidates', 'prepare-recommendation-preview', 'create-local-ledger-and-reclassify',
       'freeze-segment', 'save-current-segment-locally', 'freeze-bilibili-execution', 'apply-classifications'
     ])
+    let commandPreflightSnapshot: Awaited<ReturnType<typeof options.coordinator.getSnapshot>> | undefined
     if (commandsLockedByExecutionIntent.has(requested.type)) {
       const active = await options.coordinator.getSnapshot(accountMid)
+      commandPreflightSnapshot = active
       if (active && !('recovery' in active) && active.executionIntent) {
         throw new Error('Old favorite workspace is waiting for whole-run execution.')
       }
@@ -471,11 +473,16 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
           (error as { [OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED]?: unknown })[
             OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED
           ] === true) {
-          try {
-            const latest = await options.coordinator.getSnapshot(accountMid)
-            if (latest && !('recovery' in latest) && latest.tagAdoption?.status === 'failed') return latest
-          } catch {
-            // Preserve the original adoption error when its durable state cannot be read.
+          const hadPriorPersistedFailure = commandPreflightSnapshot &&
+            !('recovery' in commandPreflightSnapshot) &&
+            commandPreflightSnapshot.tagAdoption?.status === 'failed'
+          if (!hadPriorPersistedFailure) {
+            try {
+              const latest = await options.coordinator.getSnapshot(accountMid)
+              if (latest && !('recovery' in latest) && latest.tagAdoption?.status === 'failed') return latest
+            } catch {
+              // Preserve the original adoption error when its durable state cannot be read.
+            }
           }
         }
         throw error
