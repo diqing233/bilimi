@@ -837,13 +837,6 @@ export function resolveFavoriteOrganizationLamp(args: {
   }
 
   const backupGap = favoriteLedgerBackupGap(args.ledgers)
-  if (args.favoriteLedgerStatus?.remoteOnlyDraftLedgerIds?.length) {
-    return {
-      label: '未绑定',
-      detail: detail('当前未整理。'),
-      tone: 'warn'
-    }
-  }
   if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
     return {
       label: '未绑定',

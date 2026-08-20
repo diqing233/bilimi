@@ -1064,7 +1064,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     ])
   })
 
-  it('keeps remote-only draft dismissal out of the global status light while summarizing its local draft', () => {
+  it('keeps a remote-only draft out of the global backup status while summarizing its local draft', () => {
     const onDismiss = vi.fn()
     const draft: FavoriteLedger = {
       id: 'custom-remote-hello', displayName: 'bilimi\u00b7\u4f60\u597d', keywords: [], enabled: false,
@@ -1085,7 +1085,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
       onDismissRemoteDraftReminder: onDismiss
     })
 
-    expect(status).toMatchObject({ label: '\u672a\u7ed1\u5b9a', tone: 'warn' })
+    expect(status).toMatchObject({ label: '\u672a\u5907\u518c', tone: 'error' })
     expect(status.detail).toContain('其中 1 个未启用、1 个未保存。')
     expect(status.detail).not.toContain('发现几个 B 站疑似 bilimi 收藏夹')
     expect(status.detailAction).toBeUndefined()

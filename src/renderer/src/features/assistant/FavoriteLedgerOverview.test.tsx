@@ -1,4 +1,5 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -1543,19 +1544,27 @@ describe('FavoriteLedgerOverview', () => {
     })))
   })
 
-  it('confirms creation for an unbacked folder without treating an empty candidate list as a selection', async () => {
+  it('shows every locked unbacked backup target as selected before confirming creation', async () => {
     const sync = vi.fn()
-      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'music', candidates: [] }] })
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [
+        { ledgerId: 'music', candidates: [] },
+        { ledgerId: 'film', candidates: [] }
+      ] })
       .mockResolvedValueOnce({ ok: true })
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: true
+    }, {
+      id: 'film', displayName: 'bilimi·影视动漫', keywords: [], enabled: true, priority: 20,
       bindingState: 'unbacked', isDefault: true
     }]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
-    const dialog = await screen.findByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })
-    expect(dialog).toHaveTextContent('当前 B 站没有可复用的同名 bilimi 收藏夹')
+    const dialog = await screen.findByRole('dialog', { name: '确认创建并绑定 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('未找到可复用同名 bilimi 收藏夹')
+    expect(within(dialog).getByRole('checkbox', { name: '音乐（将创建并绑定）' })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '影视动漫（将创建并绑定）' })).toBeChecked()
     const confirm = screen.getByRole('button', { name: '确认创建并绑定' })
     expect(confirm).toBeEnabled()
     fireEvent.click(confirm)

@@ -1157,6 +1157,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     return counts
   }, new Map<string, number>())
   const duplicateLedgerTitleIndexes = new Map<string, number>()
+  const rebindHasCreationTarget = Boolean(rebindCandidates?.some((entry) => entry.candidates.length === 0))
+  const rebindHasExistingCandidate = Boolean(rebindCandidates?.some((entry) => entry.candidates.length > 0))
   return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
@@ -1244,9 +1246,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title="确认绑定 bilimi 收藏夹" confirmLabel={rebindCandidates.some((entry) => entry.candidates.length === 0) ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
-        {rebindCandidates.some((entry) => entry.candidates.length === 0)
-          ? <p>当前 B 站没有可复用的同名 bilimi 收藏夹。确认后只会为当前收藏夹创建并绑定一个新的 B 站收藏夹；不会同步视频或处理其他收藏夹。</p>
+      {rebindCandidates ? <OldFavoriteModal title={rebindHasCreationTarget ? '确认创建并绑定 bilimi 收藏夹' : '确认绑定 bilimi 收藏夹'} confirmLabel={rebindHasCreationTarget ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
+        {rebindHasCreationTarget
+          ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
           : <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>}
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
@@ -1272,14 +1274,16 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             })
           }
           return <div key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
-            <label>
-              <input type="checkbox" checked={allSelected} ref={(node) => { if (node) node.indeterminate = selectedIds.length > 0 && !allSelected }} onChange={(event) => {
-                const nextIds = event.currentTarget.checked ? defaultCandidates.map((candidate) => candidate.id) : []
-                setRebindSelectedFolderIds((current) => ({ ...current, [entry.ledgerId]: nextIds }))
-                setRebindSelections((current) => ({ ...current, [entry.ledgerId]: nextIds[0] ?? '' }))
-              }} />
-              <span>{logicalTitle}（共 {defaultCandidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
-            </label>
+            {defaultCandidates.length === 0
+              ? <label><input type="checkbox" checked readOnly aria-label={`${logicalTitle}（将创建并绑定）`} /><span>{logicalTitle}（将创建并绑定）</span></label>
+              : <label>
+                  <input type="checkbox" checked={allSelected} ref={(node) => { if (node) node.indeterminate = selectedIds.length > 0 && !allSelected }} onChange={(event) => {
+                    const nextIds = event.currentTarget.checked ? defaultCandidates.map((candidate) => candidate.id) : []
+                    setRebindSelectedFolderIds((current) => ({ ...current, [entry.ledgerId]: nextIds }))
+                    setRebindSelections((current) => ({ ...current, [entry.ledgerId]: nextIds[0] ?? '' }))
+                  }} />
+                  <span>{logicalTitle}（共 {defaultCandidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
+                </label>}
             {candidates.length > 1 || candidates.some((candidate) => candidate.bindingFailureReason) ? <div className="favorite-ledger-panel__rebind-candidates">
               {candidates.map((candidate, index) => {
                 const selectedIndex = selectedIds.indexOf(candidate.id)
