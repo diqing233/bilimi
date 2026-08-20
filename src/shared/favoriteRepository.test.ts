@@ -1384,6 +1384,38 @@ describe('account favorite repository contracts', () => {
     expect(result.physicalShards).toEqual([expect.objectContaining({ remoteFolderId: 'remote-knowledge' })])
   })
 
+  it('marks a logical folder pending when its last physical shard is removed', () => {
+    const now = '2026-08-20T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical' as const, logicalLedgerId: 'music', syncState: 'bound' as const },
+        { id: 'bilimi:music:001', title: 'Music', kind: 'bilibili' as const, logicalLedgerId: 'music', remoteFolderId: 'remote-music', syncState: 'bound' as const },
+        { id: 'bilimi-logical:knowledge', title: 'Knowledge', kind: 'bilimi-logical' as const, logicalLedgerId: 'knowledge', syncState: 'bound' as const },
+        { id: 'bilimi:knowledge:001', title: 'Knowledge', kind: 'bilibili' as const, logicalLedgerId: 'knowledge', remoteFolderId: 'remote-knowledge', syncState: 'bound' as const }
+      ],
+      memberships: { 'bilimi:music:001': [1], 'bilimi:knowledge:001': [2] },
+      physicalShards: [
+        { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: 'remote-music', remoteTitle: 'Music', bindingState: 'bound' as const },
+        { logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteFolderId: 'remote-knowledge', remoteTitle: 'Knowledge', bindingState: 'bound' as const }
+      ]
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'remove-last-music-shard', accountMid: '100', issuedAt: now, type: 'remove-physical-shard-binding',
+      payload: { remoteFolderId: 'remote-music' }
+    }, now)
+
+    expect(result.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', syncState: 'pending-reconcile' }),
+      expect.objectContaining({ id: 'bilimi-logical:knowledge', syncState: 'bound' })
+    ]))
+    expect(result.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi:music:001' })
+    ]))
+    expect(result.memberships['bilimi-logical:music']).toBeUndefined()
+  })
+
   it('keeps each organization recovery record immutable and projects a confirmed remove from logical membership', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),

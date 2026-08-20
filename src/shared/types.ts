@@ -85,6 +85,8 @@ export type FavoriteLedgerSaveOptions = {
   rediscoverDeletedRemoteDrafts?: boolean
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
   lightweightBackup?: boolean
+  /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
+  confirmCreateAndBind?: boolean
   /** Explicit user choices from the rebind confirmation dialog. */
   rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
   /** All confirmed physical Bilibili folders for one recovered logical ledger. */

@@ -154,7 +154,7 @@ function sharedScriptHelpers(): string {
       ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
       ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
     ].map((folderId) => String(folderId || '').trim()).filter(Boolean)));
-    const syncLedgerFolderIds = (ledgers, folders, selectedRemoteFolderIds = {}) => {
+    const syncLedgerFolderIds = (ledgers, folders, selectedRemoteFolderIds = {}, confirmCreateAndBind = false) => {
       const folderById = new Map(
         folders
           .map((folder) => [String(findFolderId(folder) || ''), folder])
@@ -170,6 +170,23 @@ function sharedScriptHelpers(): string {
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
           normalizeLogicalFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
           return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
+        }
+        // A user explicitly released this default work-folder binding. Its old
+        // remote ID is only evidence for a later, explicitly selected rebind;
+        // ordinary inventory polling must never silently restore authority.
+        if (ledger.managedFolderDeletedByUser) {
+          if (confirmCreateAndBind) {
+            const {
+              bilibiliFolderId: _bilibiliFolderId,
+              bilibiliFolderIds: _bilibiliFolderIds,
+              bilibiliFolderTitle: _bilibiliFolderTitle,
+              bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+              bindingState: _bindingState,
+              ...releasedLedger
+            } = ledger;
+            return { ...releasedLedger, bindingState: 'unbacked' };
+          }
+          return { ...ledger, bindingState: 'unbound' };
         }
         // A create response already gave us this exact remote ID, but it has
         // not passed the repository's independent inventory verification.
@@ -474,13 +491,14 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
 
 export function buildEnsureFavoriteLedgersScript(
   ledgers: FavoriteLedger[],
-  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup'> = {}
+  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind'> = {}
 ): string {
   const payload = scriptPayload({
     ledgers: normalizeLedgerPayload(ledgers),
     options: {
       rebindRemoteFolderIds: options.rebindRemoteFolderIds,
-      lightweightBackup: options.lightweightBackup
+      lightweightBackup: options.lightweightBackup,
+      confirmCreateAndBind: options.confirmCreateAndBind
     }
   })
 
@@ -509,7 +527,7 @@ export function buildEnsureFavoriteLedgersScript(
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds);
+      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
         .map((ledger) => ledger.id);

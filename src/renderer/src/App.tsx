@@ -1529,7 +1529,10 @@ export default function App() {
       shardNumbers.set(shard.remoteFolderId, shard.shardNumber)
       trustedRemoteShardNumbers.set(shard.logicalLedgerId, shardNumbers)
     }
-    if (!repositoryShards.length) {
+    // Older summaries may omit shard details, but an explicit zero means the
+    // logical folder has no formal binding.  Never recover authority from a
+    // stale logical-folder remote ID in that case.
+    if (!repositoryShards.length && Number(repositorySummary?.physicalShardCount ?? 0) > 0) {
       for (const folder of repositorySummary?.folders ?? []) {
         if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId || !folder.remoteFolderId) continue
         trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
@@ -1545,7 +1548,7 @@ export default function App() {
         // preserving its Bilibili folder. Until a later backup explicitly
         // confirms a binding, an older repository snapshot must not silently
         // restore that physical association.
-        if (ledger.managedFolderDeletedByUser && ledger.bindingState === 'unbound') {
+        if (ledger.managedFolderDeletedByUser) {
           return ledger
         }
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []

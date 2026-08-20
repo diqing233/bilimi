@@ -126,7 +126,10 @@ export type FavoriteLibraryLedgerBindingStatus = {
   actionLabel?: '去掌库收藏夹设置保存后绑定' | '恢复当前收藏夹'
 }
 
-export function favoriteLibraryLedgerBindingStatus(folder: FavoriteRepositoryFolder | undefined): FavoriteLibraryLedgerBindingStatus | undefined {
+export function favoriteLibraryLedgerBindingStatus(
+  folder: FavoriteRepositoryFolder | undefined,
+  evidence: { hasFormalPhysicalBinding?: boolean } = {}
+): FavoriteLibraryLedgerBindingStatus | undefined {
   if (!folder?.logicalLedgerId) return undefined
   if (folder.kind === 'local') {
     return folder.id === `local:${folder.logicalLedgerId}`
@@ -134,7 +137,9 @@ export function favoriteLibraryLedgerBindingStatus(folder: FavoriteRepositoryFol
       : undefined
   }
   if (folder.kind !== 'bilimi-logical') return undefined
-  if (folder.syncState === 'pending-reconcile') return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  if (folder.syncState === 'pending-reconcile' || evidence.hasFormalPhysicalBinding === false) {
+    return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
   if (folder.syncState === 'bound') return { kind: 'backed', label: '已备册' }
   const actionLabel = '去掌库收藏夹设置保存后绑定' as const
   return folder.logicalLedgerId.startsWith('custom-')

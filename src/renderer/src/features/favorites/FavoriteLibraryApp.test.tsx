@@ -404,7 +404,10 @@ describe('FavoriteLibraryApp', () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 3, folderCount: 1,
-        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShardCount: 1,
+        physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '81', remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteMemberCount: 3 }],
+        syncRecordCount: 0,
         syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage,
       synchronizeFavoriteLibraryPlacements,
@@ -423,6 +426,92 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: '刷新信息' })).toBeInTheDocument()
   })
 
+  it('preflights an unbound current work folder and requires confirmation before creating it', async () => {
+    const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true, message: '已备册' })
+    const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([
+      { ledgerId: 'music', candidates: [] }
+    ])
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-20T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }],
+        physicalShardCount: 0, physicalShards: [], syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      previewFavoriteRepositoryLedgerBindingCandidates,
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册当前收藏夹' }))
+
+    await waitFor(() => expect(previewFavoriteRepositoryLedgerBindingCandidates).toHaveBeenCalledWith('100', [{ ledgerId: 'music', title: '音乐' }]))
+    expect(ensureFavoriteLedger).not.toHaveBeenCalled()
+    const confirmation = await screen.findByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })
+    expect(confirmation).toHaveTextContent('当前 B 站没有可复用的同名 bilimi 收藏夹')
+    expect(confirmation).toHaveTextContent('当前账号：100')
+
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认创建并绑定' }))
+    await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenCalledTimes(1))
+    expect(ensureFavoriteLedger).toHaveBeenCalledWith('bilimi-logical:music', { lightweightBackup: true, confirmCreateAndBind: true })
+  })
+
+  it('preflights only the current work folder and confirms the chosen remote binding before writing', async () => {
+    const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true, message: '已备册' })
+    const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([
+      {
+        ledgerId: 'music',
+        candidates: [
+          { id: '81', title: 'bilimi·音乐', memberCount: 12 },
+          { id: '82', title: 'bilimi·音乐·2', memberCount: 4, shardNumber: 2 }
+        ]
+      }
+    ])
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-20T00:00:00.000Z', videoCount: 0, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' },
+          { id: 'bilimi-logical:knowledge', title: '知识', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'pending-reconcile' }
+        ],
+        physicalShardCount: 0, physicalShards: [], syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      previewFavoriteRepositoryLedgerBindingCandidates,
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册当前收藏夹' }))
+
+    const confirmation = await screen.findByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })
+    expect(confirmation).toHaveTextContent('B 站夹 ID：81')
+    expect(confirmation).toHaveTextContent('B 站夹 ID：82')
+    expect(ensureFavoriteLedger).not.toHaveBeenCalled()
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认绑定' }))
+
+    await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenCalledTimes(1))
+    expect(ensureFavoriteLedger).toHaveBeenCalledWith('bilimi-logical:music', {
+      lightweightBackup: true,
+      rebindRemoteFolderIds: { music: '81' },
+      rebindRemoteFolders: {
+        music: [
+          { id: '81', title: 'bilimi·音乐', memberCount: 12 },
+          { id: '82', title: 'bilimi·音乐·2', memberCount: 4, shardNumber: 2 }
+        ]
+      }
+    })
+    expect(ensureFavoriteLedger).not.toHaveBeenCalledWith('bilimi-logical:knowledge', expect.anything())
+  })
+
   it('shows the current ledger binding state beside the folder title and opens its ledger settings', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
     window.bilimiDesktop = {
@@ -431,7 +520,9 @@ describe('FavoriteLibraryApp', () => {
         folders: [
           { id: 'bilimi-logical:music', title: 'bilimi·音乐舞台', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
           { id: 'bilimi-logical:custom-genshin', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-genshin', syncState: 'pending-reconcile' }
-        ], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+        ], physicalShardCount: 1,
+        physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '81', remoteTitle: 'bilimi·音乐舞台', bindingState: 'bound', remoteMemberCount: 0 }],
+        syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
       openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
@@ -446,6 +537,33 @@ describe('FavoriteLibraryApp', () => {
     expect(await screen.findByText('未绑定')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '去掌库收藏夹设置保存后绑定' }))
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, ledgerId: 'custom-genshin' })
+  })
+
+  it('does not display or reuse a stale bound logical state when no physical shard exists', async () => {
+    const ensureFavoriteLedger = vi.fn()
+    const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([{ ledgerId: 'music', candidates: [] }])
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-20T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShardCount: 0, physicalShards: [], syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      previewFavoriteRepositoryLedgerBindingCandidates,
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+
+    expect(await screen.findByText('未绑定')).toBeInTheDocument()
+    expect(screen.queryByText('已备册')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '备册当前收藏夹' }))
+    await waitFor(() => expect(previewFavoriteRepositoryLedgerBindingCandidates).toHaveBeenCalledWith('100', [{ ledgerId: 'music', title: '音乐' }]))
+    expect(ensureFavoriteLedger).not.toHaveBeenCalled()
   })
 
   it('lists an explicitly projected local draft as a workspace without granting remote folder actions', async () => {
@@ -922,7 +1040,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(within(backup).getByRole('button', { name: '开始备册' }))
 
     const binding = await screen.findByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })
-    expect(binding).toHaveTextContent('音乐 ← bilimi·音乐（12 个视频）')
+    expect(binding).toHaveTextContent('音乐 ← bilimi·音乐（12 个视频，B 站夹 ID：81）')
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐' })).toBeChecked()
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐·2' })).toBeChecked()
     fireEvent.click(within(binding).getByRole('button', { name: '将 bilimi·音乐·2 上移' }))

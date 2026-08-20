@@ -2575,6 +2575,48 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('does not treat a stale logical binding as formal when the repository has no physical shards', async () => {
+    const accountMid = '100'
+    const ledger = {
+      ...createDefaultFavoriteLedgers()[0],
+      bilibiliFolderId: 'stale-folder',
+      bilibiliFolderIds: ['stale-folder'],
+      bindingState: 'bound' as const,
+      managedFolderDeletedByUser: true
+    }
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [ledger] }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 9, updatedAt: '2026-08-20T00:00:00.000Z',
+        videoCount: 0, folderCount: 1,
+        folders: [{ id: `bilimi-logical:${ledger.id}`, title: ledger.displayName, kind: 'bilimi-logical', logicalLedgerId: ledger.id, remoteFolderId: 'stale-folder', syncState: 'bound' }],
+        physicalShardCount: 0, physicalShards: [], folderCounts: {}, scopeCounts: {}, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & { executeJavaScript?: (script: string) => Promise<unknown> }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          const staleBindingWasTrusted = script.includes('stale-folder')
+          return staleBindingWasTrusted
+            ? { ok: true, ledgers: [{ ...ledger, bindingState: 'bound' as const }], missingLedgerIds: [], unboundLedgerIds: [], unboundCandidates: [] }
+            : { ok: false, ledgers: [{ ...ledger, bindingState: 'unbound' as const }], missingLedgerIds: [ledger.id], unboundLedgerIds: [ledger.id], unboundCandidates: [{ ledgerId: ledger.id, candidates: [{ id: 'stale-folder', title: ledger.displayName, memberCount: 0 }] }] }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-without-formal-shard', type: 'snapshot' })
+
+    expect(snapshot).toMatchObject({ favoriteLedgerStatus: { ok: false, unboundLedgerIds: [ledger.id] } })
+  })
+
   it('uses trusted repository bindings when the page ledger check temporarily misses an already scanned folder', async () => {
     const accountMid = '100'
     const ledger = createDefaultFavoriteLedgers()[0]

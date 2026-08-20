@@ -494,8 +494,20 @@ export type FavoriteRepositoryLibrarySummary = {
 }
 
 function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): AccountFavoriteRepositorySnapshot {
+  const formalBoundLogicalLedgerIds = new Set(
+    [...new Set(snapshot.physicalShards.map((shard) => shard.logicalLedgerId))].filter((logicalLedgerId) => {
+      const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+      return shards.length > 0 && shards.every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+    })
+  )
   return {
     ...snapshot,
+    folders: snapshot.folders.map((folder) => {
+      if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId ||
+        formalBoundLogicalLedgerIds.has(folder.logicalLedgerId)) return folder
+      const { remoteFolderId: _staleRemoteFolderId, ...unboundFolder } = folder
+      return { ...unboundFolder, syncState: 'pending-reconcile' as const }
+    }),
     libraryMirrors: snapshot.libraryMirrors ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
     organizationBatches: snapshot.organizationBatches ?? [],

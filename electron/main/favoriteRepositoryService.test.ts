@@ -137,6 +137,52 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('normalizes a persisted bound logical folder without formal physical shards on restart', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-08-20T00:00:00.000Z' })
+    await first.commit('100', {
+      id: 'bind-knowledge', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await first.commit('100', {
+      id: 'persist-stale-source', accountMid: '100', issuedAt: '2026-08-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: '旧快照', tags: [], updatedAt: '2026-08-20T00:00:01.000Z' }
+    })
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifestPath = join(accountDirectory, 'repository.manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const generationDirectory = join(accountDirectory, 'generations', manifest.generation)
+    const repositoryPath = join(generationDirectory, 'repository.json')
+    const persisted = JSON.parse(await readFile(repositoryPath, 'utf8')) as {
+      snapshot: {
+        physicalShards: unknown[]
+        folders: Array<{ id: string; kind: string; syncState: string; remoteFolderId?: string }>
+      }
+    }
+    persisted.snapshot.physicalShards = []
+    persisted.snapshot.folders = persisted.snapshot.folders.map((folder) => folder.id === 'bilimi-logical:knowledge'
+      ? { ...folder, syncState: 'bound', remoteFolderId: '9001' }
+      : folder)
+    const repositoryContent = JSON.stringify(persisted)
+    await writeFile(repositoryPath, repositoryContent, 'utf8')
+    const generationManifestPath = join(generationDirectory, 'manifest.json')
+    const generationManifest = JSON.parse(await readFile(generationManifestPath, 'utf8')) as { checksums: { repository: string } }
+    generationManifest.checksums.repository = createHash('sha256').update(repositoryContent).digest('hex')
+    await writeFile(generationManifestPath, JSON.stringify(generationManifest), 'utf8')
+    await writeFile(manifestPath, JSON.stringify(generationManifest), 'utf8')
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-08-20T00:01:00.000Z' })
+    const snapshot = await restarted.getSnapshot('100')
+    const logicalFolder = snapshot.folders.find((folder) => folder.id === 'bilimi-logical:knowledge')
+
+    expect(logicalFolder).toMatchObject({ syncState: 'pending-reconcile' })
+    expect(logicalFolder).not.toHaveProperty('remoteFolderId')
+    expect(snapshot.physicalShards).toEqual([])
+  })
+
   it('preserves the first observed source while recording later local adjustments and filtering by original source', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })

@@ -1829,8 +1829,8 @@ export function applyFavoriteRepositoryCommand(
         ...(payload.remoteMemberCount !== undefined ? { remoteMemberCount: payload.remoteMemberCount } : {})
       }
     ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
-    const logicalSyncState = physicalShards
-      .filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+    const logicalShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+    const logicalSyncState = logicalShards.length > 0 && logicalShards
       .every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
       ? 'bound' as const
       : 'pending-reconcile' as const
@@ -2261,10 +2261,23 @@ export function applyFavoriteRepositoryCommand(
       const removedShards = physicalShards.filter((shard) => shard.remoteFolderId === remoteFolderId)
       if (!removedShards.length) throw new Error('Favorite repository remote shard binding was not found.')
       const removedFolderIds = new Set(removedShards.map((shard) => shard.folderId))
+      const affectedLogicalLedgerIds = new Set(removedShards.map((shard) => shard.logicalLedgerId))
       affectedFolderIds = [...removedFolderIds].sort()
       affectedAids = uniquePositiveAids(removedShards.flatMap((shard) => memberships[shard.folderId] ?? [])).sort((left, right) => left - right)
       physicalShards = physicalShards.filter((shard) => shard.remoteFolderId !== remoteFolderId)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
+      folders = folders.map((folder) => {
+        if (folder.kind !== 'bilimi-logical' || !folder.logicalLedgerId || !affectedLogicalLedgerIds.has(folder.logicalLedgerId)) return folder
+        const remainingShards = physicalShards.filter((shard) => shard.logicalLedgerId === folder.logicalLedgerId)
+        const syncState = remainingShards.length > 0 && remainingShards
+          .every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+          ? 'bound' as const
+          : 'pending-reconcile' as const
+        if (syncState === 'bound') return { ...folder, syncState }
+        const { remoteFolderId: _remoteFolderId, ...unboundFolder } = folder
+        return { ...unboundFolder, syncState }
+      })
+      affectedFolderIds.push(...[...affectedLogicalLedgerIds].map((logicalLedgerId) => `bilimi-logical:${logicalLedgerId}`))
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId)))
       organizationRecords = organizationRecords.flatMap((record) => {
         const targetFolderIds = record.targetFolderIds.filter((folderId) => folderId !== remoteFolderId)

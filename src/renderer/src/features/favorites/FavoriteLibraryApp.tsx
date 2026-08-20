@@ -1663,7 +1663,7 @@ export function FavoriteLibraryApp({
   const confirmWorkspaceBindings = async () => {
     const api = window.bilimiDesktop
     if (!accountMid || !api?.ensureFavoriteLedger || !workspaceBindingCandidates?.length) throw new Error(text.unavailable)
-    if (workspaceBindingCandidates.some((entry) => !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)) return
+    if (workspaceBindingCandidates.some((entry) => entry.candidates.length > 0 && !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)) return
     setWorkspaceSyncExecuting(true)
     try {
       let succeeded = 0
@@ -1674,14 +1674,16 @@ export function FavoriteLibraryApp({
           .map((id) => entry.candidates.find((candidate) => candidate.id === id))
           .filter((candidate): candidate is typeof entry.candidates[number] => Boolean(candidate))
         try {
-          const result = await api.ensureFavoriteLedger(entry.folderId, {
-            lightweightBackup: true,
-            rebindRemoteFolderIds: { [entry.logicalLedgerId]: selectedIds[0]! },
-            rebindRemoteFolders: {
-              [entry.logicalLedgerId]: selectedCandidates
-                .map(({ id, title, memberCount, shardNumber }) => ({ id, title, memberCount, ...(shardNumber === undefined ? {} : { shardNumber }) }))
-            }
-          }) as LightweightBackupResult
+          const result = await api.ensureFavoriteLedger(entry.folderId, selectedCandidates.length
+            ? {
+                lightweightBackup: true,
+                rebindRemoteFolderIds: { [entry.logicalLedgerId]: selectedIds[0]! },
+                rebindRemoteFolders: {
+                  [entry.logicalLedgerId]: selectedCandidates
+                    .map(({ id, title, memberCount, shardNumber }) => ({ id, title, memberCount, ...(shardNumber === undefined ? {} : { shardNumber }) }))
+                }
+              }
+            : { lightweightBackup: true, confirmCreateAndBind: true }) as LightweightBackupResult
           if (result.ok === false) failed++
           else succeeded++
         } catch {
@@ -1698,9 +1700,25 @@ export function FavoriteLibraryApp({
       setWorkspaceSyncExecuting(false)
     }
   }
-  const backupCurrentWorkspaceFolder = async (folderId: string, logicalLedgerId: string, title: string) => {
+  const backupCurrentWorkspaceFolder = async (
+    folderId: string,
+    logicalLedgerId: string,
+    title: string,
+    hasFormalPhysicalBinding: boolean
+  ) => {
     const api = window.bilimiDesktop
     if (!accountMid || !api?.ensureFavoriteLedger) throw new Error(text.unavailable)
+    if (!hasFormalPhysicalBinding) {
+      if (!api.previewFavoriteRepositoryLedgerBindingCandidates) throw new Error(text.unavailable)
+      const preview = await api.previewFavoriteRepositoryLedgerBindingCandidates(accountMid, [{ ledgerId: logicalLedgerId, title }])
+      const candidates = preview.find((entry) => entry.ledgerId === logicalLedgerId)?.candidates ?? []
+      setWorkspaceBindingCandidates([{ folderId, logicalLedgerId, title, candidates }])
+      setWorkspaceBindingSelections({ [logicalLedgerId]: orderBindingCandidates(candidates).map((candidate) => candidate.id) })
+      setWorkspaceSyncResult(candidates.length
+        ? '发现未绑定的 B 站收藏夹，请确认后绑定。'
+        : '当前收藏夹等待确认创建并绑定。')
+      return
+    }
     const result = await api.ensureFavoriteLedger(folderId, { lightweightBackup: true }) as LightweightBackupResult
     const unbound = result.unboundCandidates?.find((entry) => entry.ledgerId === logicalLedgerId)
     if (unbound?.candidates.length) {
@@ -1862,15 +1880,17 @@ export function FavoriteLibraryApp({
   const currentDeletedRecord = currentFolder?.logicalLedgerId
     ? deletedFavoriteLedgerRecords.find((record) => record.logicalLedgerId === currentFolder.logicalLedgerId)
     : undefined
-  const currentLedgerBindingStatus = currentDeletedRecord
-    ? { kind: 'missing' as const, label: '收藏夹已删除' as const, actionLabel: '恢复当前收藏夹' as const }
-    : favoriteLibraryLedgerBindingStatus(currentFolder)
   const currentLogicalFolderId = currentFolderId && eligibilityIndex.folderById.get(currentFolderId)?.kind === 'bilimi-logical'
     ? currentFolderId
     : undefined
   const currentPhysicalShards = useMemo(() => currentFolder?.logicalLedgerId
     ? (summary?.physicalShards ?? []).filter((shard) => shard.logicalLedgerId === currentFolder.logicalLedgerId).sort((left, right) => left.shardNumber - right.shardNumber)
     : [], [currentFolder?.logicalLedgerId, summary?.physicalShards])
+  const currentHasFormalPhysicalBinding = currentPhysicalShards.length > 0 && currentPhysicalShards
+    .every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+  const currentLedgerBindingStatus = currentDeletedRecord
+    ? { kind: 'missing' as const, label: '收藏夹已删除' as const, actionLabel: '恢复当前收藏夹' as const }
+    : favoriteLibraryLedgerBindingStatus(currentFolder, { hasFormalPhysicalBinding: currentHasFormalPhysicalBinding })
   useEffect(() => {
     if (!currentPhysicalShards.some((shard) => shard.shardNumber === selectedShardNumber)) setSelectedShardNumber('all')
   }, [currentPhysicalShards, selectedShardNumber])
@@ -2129,7 +2149,10 @@ export function FavoriteLibraryApp({
           setWorkspaceBindingSelections({})
         }
       }}>
-        <p>检测到所选工作夹在 B 站有同名、但尚未正式绑定的收藏夹。请确认要绑定的实际收藏夹；未选中的候选不会被修改。</p>
+        {workspaceBindingCandidates.some((entry) => !entry.candidates.length)
+          ? <p>当前 B 站没有可复用的同名 bilimi 收藏夹。确认后只会为当前收藏夹创建并绑定一个新的 B 站收藏夹；不会同步视频或处理其他收藏夹。</p>
+          : <p>检测到所选工作夹在 B 站有同名、但尚未正式绑定的收藏夹。请确认要绑定的实际收藏夹；未选中的候选不会被修改。</p>}
+        <p>当前账号：{accountMid || '未识别'}</p>
         <ul className="favorite-library__managed-folder-preview">{workspaceBindingCandidates.flatMap((entry) => {
           const selectedIds = workspaceBindingSelections[entry.logicalLedgerId] ?? []
           const candidates = [...selectedIds.map((id) => entry.candidates.find((candidate) => candidate.id === id)).filter((candidate): candidate is typeof entry.candidates[number] => Boolean(candidate)), ...orderBindingCandidates(entry.candidates).filter((candidate) => !selectedIds.includes(candidate.id))]
@@ -2153,7 +2176,7 @@ export function FavoriteLibraryApp({
                     ? [...ids, candidate.id]
                     : ids.filter((id) => id !== candidate.id)
                 }
-              })} /><span>{selected ? `分册 ${selectedIndex + 1}：` : '候选：'}{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label>
+              })} /><span>{selected ? `分册 ${selectedIndex + 1}：` : '候选：'}{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频，B 站夹 ID：{candidate.id}）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label>
               {selected ? <span className="favorite-library__binding-candidate-actions"><button type="button" aria-label={`将 ${candidate.title} 上移`} disabled={workspaceSyncExecuting || selectedIndex === 0} onClick={() => move(-1)}>上移</button><button type="button" aria-label={`将 ${candidate.title} 下移`} disabled={workspaceSyncExecuting || selectedIndex === selectedIds.length - 1} onClick={() => move(1)}>下移</button></span> : null}
             </li>
           })
@@ -2161,7 +2184,7 @@ export function FavoriteLibraryApp({
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => {
           setWorkspaceBindingCandidates(undefined)
           setWorkspaceBindingSelections({})
-        }}>取消</button><button type="button" disabled={workspaceSyncExecuting || workspaceBindingCandidates.some((entry) => !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)} onClick={() => void runAction(confirmWorkspaceBindings)}>确认绑定</button></div>
+        }}>取消</button><button type="button" disabled={workspaceSyncExecuting || workspaceBindingCandidates.some((entry) => entry.candidates.length > 0 && !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)} onClick={() => void runAction(confirmWorkspaceBindings)}>{workspaceBindingCandidates.some((entry) => !entry.candidates.length) ? '确认创建并绑定' : '确认绑定'}</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
         if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
@@ -2322,7 +2345,12 @@ export function FavoriteLibraryApp({
               }
             }}><option value="all">全部</option>{currentPhysicalShards.map((shard) => <option key={shard.shardNumber} value={shard.shardNumber}>{`分册 ${shard.shardNumber} · ${shard.remoteTitle}（${shard.remoteMemberCount ?? 0}）`}</option>)}</select></label> : null}
             {currentLogicalFolderId && !currentDeletedRecord ? <span className="favorite-library__workspace-actions">
-              <button type="button" disabled={!accountMid} title="为当前分类创建并绑定对应的 B 站 bilimi 收藏夹，不会同步视频。视频需通过“同步到B站”另行同步。" onClick={() => void runAction(() => backupCurrentWorkspaceFolder(currentLogicalFolderId, currentFolder?.logicalLedgerId ?? currentLogicalFolderId.replace(/^bilimi-logical:/, ''), currentFolder?.title ?? currentLogicalFolderId))}>{text.syncFolder}</button>
+              <button type="button" disabled={!accountMid} title="为当前分类创建并绑定对应的 B 站 bilimi 收藏夹，不会同步视频。视频需通过“同步到B站”另行同步。" onClick={() => void runAction(() => backupCurrentWorkspaceFolder(
+                currentLogicalFolderId,
+                currentFolder?.logicalLedgerId ?? currentLogicalFolderId.replace(/^bilimi-logical:/, ''),
+                currentFolder?.title ?? currentLogicalFolderId,
+                currentHasFormalPhysicalBinding
+              ))}>{text.syncFolder}</button>
             </span> : null}
           </div>
           <FavoriteLibrarySelectionSubscriber store={selectionStore}>{(selectionSnapshot) => {

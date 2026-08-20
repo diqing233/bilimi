@@ -184,6 +184,9 @@ describe('favoriteLibraryModel', () => {
       id: 'bilimi-logical:music', title: 'bilimi·音乐舞台', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound'
     })).toEqual({ kind: 'backed', label: '已备册' })
     expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilimi-logical:stale', title: 'bilimi·历史状态', kind: 'bilimi-logical', logicalLedgerId: 'stale', syncState: 'bound'
+    }, { hasFormalPhysicalBinding: false })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'pending-reconcile'
     })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
     expect(favoriteLibraryLedgerBindingStatus({

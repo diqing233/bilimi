@@ -560,6 +560,84 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
   })
 
+  it('does not restore a user-deleted binding from a stale remote folder id', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '42', bilibiliFolderIds: ['42'],
+      bindingState: 'bound', managedFolderDeletedByUser: true
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·音乐', media_count: 0 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
+
+    expect(result.ok).toBe(false)
+    expect(result.unboundLedgerIds).toEqual(['music'])
+    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'music', bindingState: 'unbound', managedFolderDeletedByUser: true })])
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'music', candidates: [{ id: '42', title: 'bilimi·音乐', memberCount: 0 }]
+    }])
+  })
+
+  it('accepts a user-confirmed binding even when the previous binding was released', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '42', bilibiliFolderIds: ['42'],
+      bindingState: 'unbound', managedFolderDeletedByUser: true
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·音乐', media_count: 0 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], {
+      lightweightBackup: true,
+      rebindRemoteFolderIds: { music: '42' }
+    }))
+
+    expect(result).toMatchObject({ ok: true, missingTargets: [] })
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'music', bilibiliFolderId: '42', bindingState: 'bound'
+    })])
+  })
+
+  it('creates a released work folder only after an explicit create confirmation', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+    }
+    const fetch = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 43 } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], {
+      lightweightBackup: true,
+      confirmCreateAndBind: true
+    }))
+
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(true)
+    expect(result).toMatchObject({ ok: true, missingTargets: [] })
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'music', bilibiliFolderId: '43', bindingState: 'bound', managedFolderDeletedByUser: true
+    })])
+  })
+
   it('creates an unsaved local draft for an unconfigured remote bilimi folder', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
