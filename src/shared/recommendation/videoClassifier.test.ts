@@ -19,13 +19,13 @@ describe('shared video classifier', () => {
     expect(classification.diagnostic?.confidence).toBe('high')
   })
 
-  it('does not classify into an unbound ledger', () => {
+  it('uses a saved enabled unbound ledger for local preclassification', () => {
     const classification = classifyVideoContent({ title: '摄影教程' }, [
       { id: 'inbox', displayName: '暂存', keywords: [], enabled: true, priority: 0, isDefault: false },
       { id: 'unbound-photo', displayName: 'bilimi·光影', keywords: ['摄影'], enabled: true, priority: 1, isDefault: false, bindingState: 'unbound' }
     ])
 
-    expect(classification.ledgerId).toBe('inbox')
+    expect(classification.ledgerId).toBe('unbound-photo')
   })
 
   it('keeps an exact UP-author match high confidence when another rule is also plausible', () => {
