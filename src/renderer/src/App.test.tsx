@@ -1078,7 +1078,134 @@ describe('App runtime integration', () => {
     ).toBe(false)
   })
 
-  it('preflights the current favorite bindings before a review writes to Bilibili', async () => {
+  it('writes a review to the best matching bound rule when the best local suggestion is unbacked', async () => {
+    const checkpointConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'movie-tv'
+        ? { ...ledger, keywords: ['游戏'], bilibiliFolderId: 'remote-movie', bindingState: 'bound' as const }
+        : ledger.id === 'inbox'
+          ? { ...ledger, bilibiliFolderId: 'remote-inbox', bindingState: 'bound' as const }
+          : { ...ledger, bindingState: 'unbacked' as const }
+    )
+    const preferences = createAppPreferences({ favoriteLedgers: ledgers })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      checkpointConfirmedFavoriteReview,
+      commitConfirmedFavoriteReview
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: false,
+          ledgers,
+          missingLedgerIds: ['game'],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          message: '游戏攻略尚未备册。'
+        }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return { aid: 711, bvid: 'BV1review711', title: '游戏攻略', pageText: '游戏攻略', tags: ['游戏'] }
+      }
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        expect(script).toContain('"targetLedgerIds":["movie-tv"]')
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          favoriteFolderIdsByLedgerId: { 'movie-tv': 'remote-movie' },
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
+        }
+      }
+      if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+      return { ok: true, steps: [], missingTargets: [], message: '操作完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review711' }
+      }))
+    })
+
+    await expect(requestRuntime({ id: 'unbacked-suggestion-bound-write', type: 'run-action', action: '藏' })).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining('预分类建议：bilimi·游戏专区（未备册）')
+    })
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith('100', expect.objectContaining({
+      targets: [expect.objectContaining({ logicalFolderId: 'bilimi-logical:movie-tv', remoteFolderId: 'remote-movie' })]
+    }))
+    expect(executeJavaScript.mock.calls.some(([script]) => String(script).includes('/x/v3/fav/resource/deal'))).toBe(true)
+  })
+
+  it('writes to backed 暂存 and reports both targets when no matching rule is remotely writable', async () => {
+    const checkpointConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox'
+        ? { ...ledger, bilibiliFolderId: 'remote-inbox', bindingState: 'bound' as const }
+        : { ...ledger, bindingState: 'unbacked' as const }
+    )
+    const preferences = createAppPreferences({ favoriteLedgers: ledgers })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      checkpointConfirmedFavoriteReview,
+      commitConfirmedFavoriteReview
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: false,
+          ledgers,
+          missingLedgerIds: ['game'],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          message: '游戏攻略尚未备册。'
+        }
+      }
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return { aid: 712, bvid: 'BV1review712', title: '游戏攻略', pageText: '游戏攻略', tags: ['游戏'] }
+      }
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        expect(script).toContain('"targetLedgerIds":["inbox"]')
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          favoriteFolderIdsByLedgerId: { inbox: 'remote-inbox' },
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
+        }
+      }
+      if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+      return { ok: true, steps: [], missingTargets: [], message: '操作完成。' }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://www.bilibili.com/video/BV1review712' }
+      }))
+    })
+
+    await expect(requestRuntime({ id: 'unbacked-suggestion-inbox-write', type: 'run-action', action: '藏' })).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining('预分类建议：bilimi·游戏专区（未备册）\n已写入：暂存')
+    })
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith('100', expect.objectContaining({
+      targets: [expect.objectContaining({ logicalFolderId: 'bilimi-logical:inbox', remoteFolderId: 'remote-inbox' })]
+    }))
+  })
+
+  it('preflights a rediscovered remote draft and writes only to bound 暂存', async () => {
     const provisionedLedgers = createDefaultFavoriteLedgers().map((ledger, index) =>
       ledger.id === 'knowledge'
         ? { ...ledger, keywords: ['国际尬聊'], bilibiliFolderId: String(9_100 + index), bindingState: 'bound' as const }
@@ -1095,9 +1222,11 @@ describe('App runtime integration', () => {
         : ledger
     )
     const preferences = createAppPreferences({ favoriteLedgers: provisionedLedgers })
+    const commitConfirmedFavoriteReview = vi.fn().mockResolvedValue(undefined)
     const { requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(preferences),
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100')
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      commitConfirmedFavoriteReview
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -1133,12 +1262,14 @@ describe('App runtime integration', () => {
           tags: ['国际尬聊']
         }
       }
-      if (script.includes('/x/v3/fav/resource/deal') || script.includes('/x/v3/fav/folder/add')) {
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        expect(script).toContain('"targetLedgerIds":["inbox"]')
         return {
           ok: true,
-          steps: ['unexpected:favorite-write'],
+          steps: ['api:favorite:list', 'api:favorite:add'],
           missingTargets: [],
-          message: '不应执行收藏写入。'
+          favoriteFolderIdsByLedgerId: { inbox: provisionedLedgers.find((ledger) => ledger.id === 'inbox')!.bilibiliFolderId! },
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
         }
       }
       return { ok: true, steps: [], missingTargets: [], message: '操作完成。' }
@@ -1156,14 +1287,13 @@ describe('App runtime integration', () => {
       requestRuntime({ id: 'preflight-unbound-review', type: 'run-action', action: '藏' })
     ).resolves.toMatchObject({
       ok: true,
-      message: expect.stringContaining('当前收藏夹尚未备册或未绑定，本次仅完成预分类')
+      message: expect.stringContaining('已归类存入 bilimi·暂存')
     })
-    expect(statusReadCount).toBe(2)
-    expect(
-      executeJavaScript.mock.calls.some(([script]) =>
-        String(script).includes('/x/v3/fav/resource/deal') || String(script).includes('/x/v3/fav/folder/add')
-      )
-    ).toBe(false)
+    expect(statusReadCount).toBe(3)
+    expect(executeJavaScript.mock.calls.filter(([script]) => String(script).includes('/x/v3/fav/resource/deal'))).toHaveLength(1)
+    expect(commitConfirmedFavoriteReview).toHaveBeenCalledWith('100', expect.objectContaining({
+      targets: [expect.objectContaining({ logicalFolderId: 'bilimi-logical:inbox' })]
+    }))
   })
 
   it('asks before creating a new physical shard and only writes after its binding succeeds', async () => {

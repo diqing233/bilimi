@@ -21,9 +21,9 @@ describe('favorite ledger capabilities', () => {
     })
   })
 
-  it('keeps an unbound ledger out of classification until it is backed up again', () => {
+  it('keeps a saved unbound ledger available for local classification without granting remote authority', () => {
     expect(resolveFavoriteLedgerCapabilities(ledger({ bindingState: 'unbound' }))).toEqual({
-      identity: 'managed', canClassify: false, canProvisionRemote: true, canOpenRemote: false, canDeleteRemote: false
+      identity: 'managed', canClassify: true, canProvisionRemote: true, canOpenRemote: false, canDeleteRemote: false
     })
   })
 

@@ -255,6 +255,8 @@ export type FavoriteLedgerClassificationDiagnostic = {
 
 export type FavoriteLedgerStatus = {
   ok: boolean
+  /** Whether the current status was read successfully; `ok` may still be false for unrelated ledger gaps. */
+  verified?: boolean
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
   unboundLedgerIds?: FavoriteLedgerId[]

@@ -27,7 +27,11 @@ import {
   classifyVideoContent,
   type VideoContentContext
 } from './features/recommendation/videoClassifier'
-import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
+import { planFavoriteArchiveTargets, type FavoriteArchiveTarget } from './features/recommendation/archivePlanning'
+import {
+  isFavoriteLedgerRemoteWritable,
+  planFavoriteReviewWriteTargets
+} from './features/recommendation/favoriteWriteTargetPlan'
 import {
   applyImmediatePreferencePatch,
   createInitialAssistantPreferences,
@@ -516,6 +520,25 @@ function pendingQueueItemFromCurrentVideo(
 
 function ledgerDisplayName(ledgers: FavoriteLedger[], ledgerId: string) {
   return ledgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId
+}
+
+function reviewWriteFallbackFeedback(args: {
+  ledgers: FavoriteLedger[]
+  suggestedLedgerIds: string[]
+  writeLedgerIds: string[]
+}): string | undefined {
+  const suggestedLedgerId = args.suggestedLedgerIds[0]
+  const writtenLedgerId = args.writeLedgerIds[0]
+  if (!suggestedLedgerId || !writtenLedgerId || suggestedLedgerId === writtenLedgerId) return undefined
+
+  const suggestedLedger = args.ledgers.find((ledger) => ledger.id === suggestedLedgerId)
+  if (!suggestedLedger || isFavoriteLedgerRemoteWritable(suggestedLedger)) return undefined
+
+  const suggestionState = suggestedLedger.bindingState === 'unbound' ? '未绑定' : '未备册'
+  const writtenLabel = writtenLedgerId === 'inbox'
+    ? '暂存'
+    : ledgerDisplayName(args.ledgers, writtenLedgerId)
+  return `预分类建议：${suggestedLedger.displayName}（${suggestionState}）\n已写入：${writtenLabel}`
 }
 
 function uniqueLedgerIds(ledgerIds: string[]) {
@@ -1815,6 +1838,7 @@ export default function App() {
     if (statusGeneration !== favoriteLedgerStatusGenerationRef.current) {
       return {
         ok: false,
+        verified: false,
         ledgers: favoriteLedgersForActiveAccount(accountMid),
         missingLedgerIds: [],
         unboundLedgerIds: [],
@@ -1828,6 +1852,7 @@ export default function App() {
       const missingLedgerIds = status.missingLedgerIds
       const recoveredStatus: FavoriteLedgerStatus = {
         ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.length),
+        verified: true,
         ledgers: recoveredLedgers,
         missingLedgerIds,
         backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
@@ -1870,6 +1895,7 @@ export default function App() {
 
     const fallbackStatus = {
       ok: false,
+      verified: false,
       ledgers: favoriteLedgers,
       missingLedgerIds: [],
       message: status.message
@@ -1890,6 +1916,7 @@ export default function App() {
 
     const pending = readFavoriteLedgerStatus(accountMid, { force: true }).catch(() => ({
       ok: false,
+      verified: false,
       ledgers: favoriteLedgersForActiveAccount(accountMid),
       missingLedgerIds: [],
       unboundLedgerIds: [],
@@ -2547,25 +2574,22 @@ export default function App() {
     const areFavoriteTargetsWriteAuthorized = (ledgerIds: string[]) =>
       ledgerIds.every((ledgerId) =>
         actionFavoriteLedgers.some(
-          (ledger) =>
-            ledger.id === ledgerId &&
-            ledger.enabled &&
-            ledger.syncState !== 'local-draft' &&
-            (ledger.bindingState === 'bound' ||
-              (ledger.bindingState === undefined && Boolean(ledger.bilibiliFolderId?.trim()))) &&
-            Boolean(ledger.bilibiliFolderId?.trim())
+          (ledger) => ledger.id === ledgerId && isFavoriteLedgerRemoteWritable(ledger)
         )
       )
     const isFavoriteWriteProvisioned = (
       status: FavoriteLedgerStatus | null | undefined,
       ledgerIds: string[]
-    ) => Boolean(
-      status?.ok &&
-      status.missingLedgerIds.length === 0 &&
-      !(status.backupConflictLedgerIds?.length) &&
-      !(status.unboundLedgerIds?.length) &&
-      areFavoriteTargetsWriteAuthorized(ledgerIds)
-    )
+    ) => {
+      if (!status || status.verified === false || ledgerIds.length === 0) return false
+      const unavailableLedgerIds = new Set([
+        ...status.missingLedgerIds,
+        ...(status.backupConflictLedgerIds ?? []),
+        ...(status.unboundLedgerIds ?? [])
+      ])
+      return !ledgerIds.some((ledgerId) => unavailableLedgerIds.has(ledgerId)) &&
+        areFavoriteTargetsWriteAuthorized(ledgerIds)
+    }
     const hasMatchingLocalDraftTarget = () =>
       actionFavoriteLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState === 'local-draft')
@@ -2724,6 +2748,30 @@ export default function App() {
       favoriteLedgerStatus = await preflightFavoriteLedgerStatus(actionAccountMid)
       actionFavoriteLedgers = effectiveFavoriteLedgersForAccount(preferencesRef.current, actionAccountMid)
     }
+    const writeTargetPlan = actionUsesFavorite(action) && !preActionCorrectionTargets
+      ? planFavoriteReviewWriteTargets({
+          context: videoContentContext,
+          ledgers: actionFavoriteLedgers,
+          multiArchiveMode: preferences.favoriteArchiveMultiMode
+        })
+      : undefined
+    const writeFallbackFeedback = writeTargetPlan && writeTargetPlan.writeLedgerIds.length > 0
+      ? reviewWriteFallbackFeedback({
+          ledgers: actionFavoriteLedgers,
+          suggestedLedgerIds: writeTargetPlan.suggestedLedgerIds,
+          writeLedgerIds: writeTargetPlan.writeLedgerIds
+        })
+      : undefined
+    if (writeTargetPlan?.writeLedgerIds.length) {
+      targetLedgerIds = writeTargetPlan.writeLedgerIds
+      targetLedgerId = writeTargetPlan.writeLedgerIds[0]!
+      if (writeFallbackFeedback) {
+        resultMessagePrefix = [resultMessagePrefix, writeFallbackFeedback].filter(Boolean).join('\n')
+      }
+    }
+    const feedbackTargetLedgerId = writeFallbackFeedback
+      ? localTargetLedgerId
+      : targetLedgerId
     const favoriteProvisioned = isFavoriteWriteProvisioned(favoriteLedgerStatus, targetLedgerIds)
     if (actionUsesFavorite(action) && favoriteProvisioned) {
       const capacity = await runScript(
@@ -2882,7 +2930,7 @@ export default function App() {
         targetLedgerId,
         targetLedgerIds,
         favoriteProvisioned,
-        resultMessagePrefix: undefined
+        resultMessagePrefix
       })
     } finally {
       suppressPageInteractionHintsUntilRef.current = Date.now() + AUTOMATED_PAGE_HINT_COOLDOWN_MS
@@ -2933,7 +2981,7 @@ export default function App() {
 
     if (result.ok && action !== '阅') {
       if (favoriteProvisioned && targetLedgerId === 'inbox' && action === '藏') {
-        const queueItem = pendingQueueItemFromCurrentVideo(videoContentContext, targetLedgerId)
+        const queueItem = pendingQueueItemFromCurrentVideo(videoContentContext, feedbackTargetLedgerId)
 
         if (queueItem) {
           await window.bilimiDesktop?.upsertPendingFavoriteQueueItems?.([queueItem])
@@ -2983,7 +3031,7 @@ export default function App() {
       }
 
       let nextPreferences = applyDailyCorrectionLearning(
-        recordAssistantPreferenceFeedback(preferences, targetLedgerId, action),
+        recordAssistantPreferenceFeedback(preferences, feedbackTargetLedgerId, action),
         deepSeekCorrection
       )
       setPreferences(nextPreferences)
