@@ -321,6 +321,7 @@ type BilimiDesktopApi = {
   deleteFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[] }>
   restoreFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[] }>
   releaseDefaultFavoriteLedgerBindings?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[]; remoteFolderIds: string[] }>
+  getFavoriteLedgerRemoteDraftRediscoveryPending?: (accountMid: string) => Promise<string[]>
   consumeFavoriteLedgerRemoteDraftRediscoveryPending?: (accountMid: string) => Promise<string[]>
   writeDefaultFavoriteSystemEnabled?: (accountMid: string, enabled: boolean) => Promise<boolean>
   previewPreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => void

@@ -1829,9 +1829,16 @@ export default function App() {
       accountMid,
       favoriteLedgers
     )
-    const dismissedRemoteDraftReminderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? []
+    const [dismissedRemoteDraftReminderIds, pendingRemoteDraftRediscoveryIds] = await Promise.all([
+      window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
+      window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
+    ])
+    const suppressedRemoteDraftFolderIds = [...new Set([
+      ...dismissedRemoteDraftReminderIds,
+      ...pendingRemoteDraftRediscoveryIds
+    ])]
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates, dismissedRemoteDraftReminderIds)
+      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates, suppressedRemoteDraftFolderIds)
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (statusGeneration !== favoriteLedgerStatusGenerationRef.current) {
@@ -1936,9 +1943,19 @@ export default function App() {
       accountMid,
       favoriteLedgers
     )
+    const [dismissedRemoteDraftReminderIds, pendingRemoteDraftRediscoveryIds] = await Promise.all([
+      window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
+      window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
+    ])
+    const suppressedRemoteDraftFolderIds = [...new Set([
+      ...dismissedRemoteDraftReminderIds,
+      ...pendingRemoteDraftRediscoveryIds
+    ])]
 
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings)
+      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings, {
+        dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds
+      })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
@@ -2171,6 +2188,13 @@ export default function App() {
         dismissedRemoteFolderIds
       })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+    const observedRemoteOnlyDrafts = Array.isArray(result.remoteOnlyDraftLedgerIds) && result.remoteOnlyDraftLedgerIds.length > 0
+    const releaseObservedRemoteDraftRediscovery = async () => {
+      if (!options?.rediscoverDeletedRemoteDrafts || !(result.ok === true || observedRemoteOnlyDrafts)) return
+      await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
+      favoriteLedgerStatusCacheRef.current = null
+      await readFavoriteLedgerStatus(accountMid, { force: true })
+    }
 
     if (Array.isArray(result.ledgers)) {
       const formalLedgerById = new Map(ledgersWithFormalBindings.map((ledger) => [ledger.id, ledger]))
@@ -2220,6 +2244,7 @@ export default function App() {
           preferencesRef.current = savedPreferences
           setPreferences(savedPreferences)
         }
+        await releaseObservedRemoteDraftRediscovery()
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
           ...result,
@@ -2244,11 +2269,11 @@ export default function App() {
         setPreferences(savedPreferences)
       }
 
-      if (options?.rediscoverDeletedRemoteDrafts && result.ok === true) {
-        await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
-        favoriteLedgerStatusCacheRef.current = null
-        await readFavoriteLedgerStatus(accountMid, { force: true })
-      }
+      // A completed inventory can rediscover a locally removed remote-only
+      // draft even if another selected ledger then fails to create or register.
+      // Release only after that observation; a failure before the inventory
+      // leaves the temporary suppression intact for the next explicit backup.
+      await releaseObservedRemoteDraftRediscovery()
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       return { ...result, ledgers: persistedLedgers }
     }

@@ -45,6 +45,7 @@ import {
   writeFavoriteLedgerEnabled,
   getFavoriteLedgerEnabledOverrideStore,
   saveFavoriteAccountPreferences,
+  loadFavoriteLedgerRemoteDraftRediscoveryPending,
   markFavoriteLedgerRemoteDraftRediscoveryPending,
   consumeFavoriteLedgerRemoteDraftRediscoveryPending,
   loadFavoriteLedgerRemoteDraftReminderDismissals,
@@ -1446,6 +1447,13 @@ function registerAssistantPreferenceHandlers() {
       throw new Error('Favorite ledger remote draft rediscovery is unavailable.')
     }
     return consumeFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
+  })
+  ipcMain.handle('assistant:get-favorite-ledger-remote-draft-rediscovery-pending', async (event, accountMid: unknown) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (typeof accountMid !== 'string' || accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Favorite ledger remote draft rediscovery is unavailable.')
+    }
+    return loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
   })
   ipcMain.on('assistant:preview-preference-patch', (_event, patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => {
     const normalizedPatch = normalizeAssistantPreferencePatch(patch)

@@ -1823,6 +1823,41 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('keeps locally deleted and manually dismissed remote drafts suppressed during the pet full backup', async () => {
+    const accountMid = '100'
+    const getFavoriteLedgerRemoteDraftReminderDismissals = vi.fn().mockResolvedValue(['manual-dismissal'])
+    const getFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
+    const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      getFavoriteLedgerRemoteDraftReminderDismissals,
+      getFavoriteLedgerRemoteDraftRediscoveryPending,
+      consumeFavoriteLedgerRemoteDraftRediscoveryPending
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+        return { ok: true, ledgers: createDefaultFavoriteLedgers(), steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+      }
+      if (isLedgerStatusScript(script)) return emptyLedgerStatus()
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'pet-backup-keeps-remote-drafts-suppressed', type: 'ensure-ledgers' }))
+      .resolves.toMatchObject({ ok: true })
+
+    const [ensureScript] = executeJavaScript.mock.calls.find(([script]) =>
+      typeof script === 'string' && script.includes(LEDGER_SAVE_SCRIPT_MARKER)
+    ) ?? []
+    expect(ensureScript).toContain('manual-dismissal')
+    expect(ensureScript).toContain('88')
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).not.toHaveBeenCalled()
+  })
+
   it('clears a default deletion marker when formal backup binding succeeds', async () => {
     const accountMid = '100'
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
@@ -2395,7 +2430,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
   })
 
-  it('does not release remote-draft rediscovery when the backup fails', async () => {
+  it('does not release remote-draft rediscovery when the backup fails before observing any remote-only draft', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
     const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn()
@@ -2418,6 +2453,110 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({ ok: false })
 
     expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).not.toHaveBeenCalled()
+  })
+
+  it('releases remote-draft rediscovery after a failed backup that observed a remote-only draft', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      consumeFavoriteLedgerRemoteDraftRediscoveryPending
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) return emptyLedgerStatus()
+      return {
+        ok: false,
+        ledgers: [game, {
+          id: 'custom-remote-88', displayName: 'bilimi·待恢复', keywords: [], enabled: false, priority: 99,
+          bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+        }],
+        steps: ['api:ledger:list'],
+        missingTargets: [game.id],
+        remoteOnlyDraftLedgerIds: ['custom-remote-88'],
+        message: '创建 B 站收藏夹失败。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'failed-backup-rediscovers-remote-draft', type: 'save-ledgers', ledgers: [game],
+      options: { rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: false, remoteOnlyDraftLedgerIds: ['custom-remote-88'] })
+
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+  })
+
+  it('releases remote-draft rediscovery after an observed draft survives a binding-registration failure', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      consumeFavoriteLedgerRemoteDraftRediscoveryPending,
+      adoptFavoriteRepositoryLedgerBinding: vi.fn().mockRejectedValue(new Error('remote shard is absent from inventory'))
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) return emptyLedgerStatus()
+      return {
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '77', bilibiliFolderIds: ['77'], bindingState: 'bound' }, {
+          id: 'custom-remote-88', displayName: 'bilimi·待恢复', keywords: [], enabled: false, priority: 99,
+          bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+        }],
+        steps: ['api:ledger:list'],
+        missingTargets: [],
+        remoteOnlyDraftLedgerIds: ['custom-remote-88'],
+        message: '收藏夹已备册。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'binding-registration-failure-rediscovers-remote-draft', type: 'save-ledgers', ledgers: [game],
+      options: { rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: false, unboundLedgerIds: [game.id] })
+
+    expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+  })
+
+  it('keeps locally deleted remote drafts out of ordinary status reads until an explicit backup releases them', async () => {
+    const accountMid = '100'
+    const getFavoriteLedgerRemoteDraftReminderDismissals = vi.fn().mockResolvedValue(['manual-dismissal'])
+    const getFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      getFavoriteLedgerRemoteDraftReminderDismissals,
+      getFavoriteLedgerRemoteDraftRediscoveryPending
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) return emptyLedgerStatus()
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({ id: 'ordinary-status-hides-deleted-remote-draft', type: 'snapshot' }))
+      .resolves.toMatchObject({ favoriteLedgerStatus: { ok: true } })
+
+    expect(getFavoriteLedgerRemoteDraftReminderDismissals).toHaveBeenCalledWith(accountMid)
+    expect(getFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
+    const [statusScript] = executeJavaScript.mock.calls.find(([script]) => typeof script === 'string' && isLedgerStatusScript(script)) ?? []
+    expect(statusScript).toContain('manual-dismissal')
+    expect(statusScript).toContain('88')
   })
 
   it('provisions one requested ledger while retaining every other account ledger', async () => {

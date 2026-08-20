@@ -52,6 +52,12 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(rendererTypesSource).toContain('consumeFavoriteLedgerRemoteDraftRediscoveryPending?: (accountMid: string)')
   })
 
+  it('exposes a read-only account-scoped pending-draft suppression contract for ordinary status scans', () => {
+    expect(preloadSource).toContain('getFavoriteLedgerRemoteDraftRediscoveryPending: (accountMid: string)')
+    expect(preloadSource).toContain("ipcRenderer.invoke('assistant:get-favorite-ledger-remote-draft-rediscovery-pending', accountMid)")
+    expect(rendererTypesSource).toContain('getFavoriteLedgerRemoteDraftRediscoveryPending?: (accountMid: string)')
+  })
+
   it('persists only a verified unsaved draft and refreshes preferences without repository or remote calls', () => {
     const { handlerStart, handler } = handlerSource('assistant:delete-favorite-ledger-draft')
 
@@ -113,6 +119,18 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).toContain('consumeFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
     expect(handler).not.toContain('favoriteRepository')
     expect(handler).not.toContain('removeUnsavedFavoriteLedgerDraft')
+    expect(handler).not.toContain('dismissFavoriteLedgerRemoteDraftReminder')
+  })
+
+  it('reads pending remote drafts for a trusted current account without consuming or changing remote state', () => {
+    const { handlerStart, handler } = handlerSource('assistant:get-favorite-ledger-remote-draft-rediscovery-pending')
+
+    expect(handlerStart).toBeGreaterThan(-1)
+    expect(handler).toContain('assertTrustedOldFavoriteAssistantSender(event)')
+    expect(handler).toContain('accountMid !== await readCurrentBilibiliAccountMid()')
+    expect(handler).toContain('loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
+    expect(handler).not.toContain('consumeFavoriteLedgerRemoteDraftRediscoveryPending')
+    expect(handler).not.toContain('favoriteRepository')
     expect(handler).not.toContain('dismissFavoriteLedgerRemoteDraftReminder')
   })
 
