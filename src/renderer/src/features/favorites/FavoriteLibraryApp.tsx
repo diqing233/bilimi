@@ -1714,9 +1714,7 @@ export function FavoriteLibraryApp({
       const candidates = preview.find((entry) => entry.ledgerId === logicalLedgerId)?.candidates ?? []
       setWorkspaceBindingCandidates([{ folderId, logicalLedgerId, title, candidates }])
       setWorkspaceBindingSelections({ [logicalLedgerId]: orderBindingCandidates(candidates).map((candidate) => candidate.id) })
-      setWorkspaceSyncResult(candidates.length
-        ? '发现未绑定的 B 站收藏夹，请确认后绑定。'
-        : '当前收藏夹等待确认创建并绑定。')
+      setWorkspaceSyncResult('未绑定 B 站收藏夹，请到右侧点击“备册”确认绑定。')
       return
     }
     const result = await api.ensureFavoriteLedger(folderId, { lightweightBackup: true }) as LightweightBackupResult
@@ -1724,7 +1722,7 @@ export function FavoriteLibraryApp({
     if (unbound?.candidates.length) {
       setWorkspaceBindingCandidates([{ folderId, logicalLedgerId, title, candidates: unbound.candidates }])
       setWorkspaceBindingSelections({ [logicalLedgerId]: orderBindingCandidates(unbound.candidates).map((candidate) => candidate.id) })
-      setWorkspaceSyncResult('发现未绑定的 B 站收藏夹，请确认后绑定。')
+      setWorkspaceSyncResult('未绑定 B 站收藏夹，请到右侧点击“备册”确认绑定。')
       return
     }
     if (result.ok === false) throw new Error(result.message || text.unavailable)

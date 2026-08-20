@@ -29,6 +29,18 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('uses red for unbound status and a concise left-library binding prompt', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),
+      'utf8'
+    )
+
+    expect(favoriteLibraryStyles).toMatch(/\.favorite-library__ledger-binding-status\[data-state='unbound'\]\s+strong\s*\{\s*color:\s*#9f3d3d;/)
+    expect(source).toContain('未绑定 B 站收藏夹，请到右侧点击“备册”确认绑定。')
+    expect(source).not.toContain('发现未绑定的 B 站收藏夹，请确认后绑定。')
+    expect(source).not.toContain('当前收藏夹等待确认创建并绑定。')
+  })
+
   it('contains no ordinary-folder dismissal or organization-record clearing UI path', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),
