@@ -2073,6 +2073,41 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
   })
 
+  it('passes explicit acknowledgement when deleting an unbound name-matched default folder', async () => {
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-music'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const save = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+        ]),
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bilibiliFolderId: 'remote-music', bindingState: 'unbound'
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledWith(
+      '100', ['music'], true, { music: 'bilimi·音乐' }, { music: ['remote-music'] }
+    ))
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+  })
+
   it('deletes a saved local-only ledger through local configuration deletion', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-only'] })
     const previewFavoriteLibraryManagedFolderDelete = vi.fn()

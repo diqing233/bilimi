@@ -917,7 +917,10 @@ export class FavoriteRepositorySyncService {
           account, requestedLedgerIds, bridge, runId, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds
         )
         if (remoteDeletion.status !== 'succeeded') {
-          for (const remoteFolderId of remoteDeletion.succeededRemoteFolderIds) {
+          const locallyBoundRemoteFolderIds = new Set(remoteDeletion.candidates
+            .filter((candidate) => candidate.state === 'bound' || candidate.state === 'missing-remote')
+            .flatMap((candidate) => candidate.remoteFolderId ? [candidate.remoteFolderId] : []))
+          for (const remoteFolderId of remoteDeletion.succeededRemoteFolderIds.filter((id) => locallyBoundRemoteFolderIds.has(id))) {
             await this.options.repository.commit(account, {
               id: `favorite-remove-confirmed-remote-binding:${randomUUID()}`,
               accountMid: account,
@@ -997,7 +1000,10 @@ export class FavoriteRepositorySyncService {
         // This entry point deliberately preserves the logical work folder, but
         // every confirmed Bilibili deletion must stop being a bound shard before
         // the user can retry the remaining remote folders.
-        for (const remoteFolderId of result.succeededRemoteFolderIds) {
+        const locallyBoundRemoteFolderIds = new Set(result.candidates
+          .filter((candidate) => candidate.state === 'bound' || candidate.state === 'missing-remote')
+          .flatMap((candidate) => candidate.remoteFolderId ? [candidate.remoteFolderId] : []))
+        for (const remoteFolderId of result.succeededRemoteFolderIds.filter((id) => locallyBoundRemoteFolderIds.has(id))) {
           await this.options.repository.commit(account, {
             id: `${runId}:remove-confirmed-binding:${remoteFolderId}`,
             accountMid: account,
