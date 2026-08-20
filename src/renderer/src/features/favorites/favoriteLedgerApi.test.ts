@@ -993,7 +993,7 @@ describe('favorite ledger API scripts', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { confirmCreateAndBind: true }))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
     expect(result.ok).toBe(true)
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
@@ -1025,7 +1025,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·旧名称' })])
   })
 
-  it('creates only missing enabled ledgers', async () => {
+  it('creates only missing enabled ledgers during all-batch backup without a confirmation dialog', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => index === 0 ? { ...ledger, bilibiliFolderId: '1' } : ledger)
     const requests: Array<{ body?: string; url: string }> = []
@@ -1046,9 +1046,10 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers, { confirmCreateAndBind: true }))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
 
     expect(result.ok).toBe(true)
+    expect(result).not.toHaveProperty('unboundCandidates')
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:game'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
     const createRequest = requests.find((request) => request.url.includes('/folder/add'))
@@ -1074,6 +1075,32 @@ describe('favorite ledger API scripts', () => {
     vi.stubGlobal('fetch', fetchSpy)
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { confirmCreateAndBind: true }))
+
+    expect(result.ok).toBe(false)
+    expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
+  })
+
+  it('returns an explicit rebind candidate when a remote bilimi folder appears during an all-batch save recheck', async () => {
+    installCookies()
+    const ledger = createDefaultFavoriteLedgers()[0]
+    let listCount = 0
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        listCount += 1
+        return Response.json({
+          code: 0,
+          data: { list: listCount === 1 ? [] : [{ id: 77, title: ledger.displayName }] }
+        })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 88 } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
 
     expect(result.ok).toBe(false)
     expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
@@ -1221,14 +1248,15 @@ describe('favorite ledger API scripts', () => {
     expect(result.message).toBe('收藏夹已备册。')
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:custom-bilimi'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
-    expect(requests[1].body).toContain('csrf=csrf-token')
-    expect(requests[1].body).toContain(`title=${encodeURIComponent('bilimi·Custom')}`)
+    const createRequest = requests.find((request) => request.url.includes('/folder/add'))
+    expect(createRequest?.body).toContain('csrf=csrf-token')
+    expect(createRequest?.body).toContain(`title=${encodeURIComponent('bilimi·Custom')}`)
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )
   })
 
-  it('requires creation confirmation before saving an unbacked enabled ledger', async () => {
+  it('creates and binds an unbacked selected ledger without a confirmation dialog', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
@@ -1238,6 +1266,9 @@ describe('favorite ledger API scripts', () => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [] } })
       }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 9001 } })
+      }
       throw new Error(`Unexpected request: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -1245,12 +1276,12 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
 
     expect(result).toMatchObject({
-      ok: false,
-      missingTargets: ['music'],
-      unboundLedgerIds: [],
-      unboundCandidates: [{ ledgerId: 'music', candidates: [] }]
+      ok: true,
+      missingTargets: [],
+      ledgers: [expect.objectContaining({ id: 'music', bilibiliFolderId: '9001', bindingState: 'bound' })]
     })
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(result).not.toHaveProperty('unboundCandidates')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(true)
   })
 
   it('keeps a saved remote draft unbound until the user explicitly selects its remote folder', async () => {

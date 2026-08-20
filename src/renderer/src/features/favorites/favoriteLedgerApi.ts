@@ -574,7 +574,8 @@ export function buildEnsureFavoriteLedgersScript(
        const unbackedLedgerIds = nextLedgers
          .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')
          .map((ledger) => ledger.id);
-       if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && payload.options?.confirmCreateAndBind !== true)) {
+       const requiresCreateConfirmation = payload.options?.lightweightBackup === true && payload.options?.confirmCreateAndBind !== true;
+       if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && requiresCreateConfirmation)) {
          return {
            ok: false,
            ledgers: nextLedgers,
@@ -699,7 +700,8 @@ export function buildSaveFavoriteLedgersScript(
       const unbackedLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')
         .map((ledger) => ledger.id);
-      if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && payload.options?.confirmCreateAndBind !== true)) {
+      const requiresCreateConfirmation = payload.options?.lightweightBackup === true && payload.options?.confirmCreateAndBind !== true;
+      if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && requiresCreateConfirmation)) {
         return {
           ok: false,
           ledgers: nextLedgers,
@@ -723,6 +725,22 @@ export function buildSaveFavoriteLedgersScript(
         const ledger = nextLedgers[index];
         if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
           continue;
+        }
+
+        const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+        const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
+        const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
+        const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
+        if (recheckedCandidates.length > 0) {
+          return {
+            ok: false,
+            ledgers: nextLedgers,
+            steps,
+            missingTargets: [ledger.id],
+            unboundLedgerIds: [ledger.id],
+            unboundCandidates: [{ ledgerId: ledger.id, candidates: recheckedCandidates }],
+            message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+          };
         }
 
         const body = new URLSearchParams();
