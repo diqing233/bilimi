@@ -283,7 +283,7 @@ export function MemorialPanel({
                 <>
                   <p className="memorial-panel__meta-detail">UP 主：{authorLabel}</p>
                   <p className="memorial-panel__meta-detail">小咪准备归类到：{videoCategory}</p>
-                  {favoriteProvisioningHint ? <p className="memorial-panel__favorite-provisioning-hint">{favoriteProvisioningHint}</p> : null}
+                  {favoriteProvisioningHint ? <p className="memorial-panel__favorite-provisioning-hint memorial-panel__meta-detail">{favoriteProvisioningHint}</p> : null}
                 </>
               ) : (
                 <>

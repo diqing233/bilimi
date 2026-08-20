@@ -54,7 +54,7 @@ describe('MemorialPanel', () => {
 
     expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
     expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
-    expect(screen.getByText('最佳匹配：影视动漫（未备册）')).toBeInTheDocument()
+    expect(screen.getByText('最佳匹配：影视动漫（未备册）')).toHaveClass('memorial-panel__meta-detail')
   })
 
   it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
