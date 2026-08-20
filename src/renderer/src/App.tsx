@@ -2133,7 +2133,7 @@ export default function App() {
       nextLedgers
     )
 
-    if (!options?.rebindRemoteFolderIds) {
+    if (!options?.rebindRemoteFolderIds && !options?.confirmCreateAndBind) {
       const previewCandidates = await previewFavoriteLedgerBindingCandidates(accountMid, ledgersWithFormalBindings)
       if (previewCandidates.length) {
         return {

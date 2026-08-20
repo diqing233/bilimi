@@ -283,6 +283,22 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(ipcMain.handlers.has('favorite-repository:dismiss-ordinary-folder')).toBe(false)
   })
 
+  it('returns only an explicit remote-draft reminder dismissal to the status reader', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getRemoteDraftReminderDismissed = vi.fn().mockReturnValue(['explicit-dismissal'])
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: {} as never,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      getRemoteDraftReminderDismissed
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-remote-draft-reminder-dismissals', 7, '100'))
+      .resolves.toEqual(['explicit-dismissal'])
+    expect(getRemoteDraftReminderDismissed).toHaveBeenCalledWith('100')
+  })
+
   it('only accepts logical placement targets and forwards a revision-guarded local move to the command service', async () => {
     const ipcMain = new FakeIpcMain()
     const setLocalPlacements = vi.fn().mockResolvedValue({ status: 'succeeded', affectedAids: [1] })

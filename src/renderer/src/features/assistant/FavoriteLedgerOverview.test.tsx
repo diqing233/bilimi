@@ -1543,6 +1543,49 @@ describe('FavoriteLedgerOverview', () => {
     })))
   })
 
+  it('confirms creation for an unbacked folder without treating an empty candidate list as a selection', async () => {
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'music', candidates: [] }] })
+      .mockResolvedValueOnce({ ok: true })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: true
+    }]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('当前 B 站没有可复用的同名 bilimi 收藏夹')
+    const confirm = screen.getByRole('button', { name: '确认创建并绑定' })
+    expect(confirm).toBeEnabled()
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      confirmCreateAndBind: true
+    }))
+  })
+
+  it('saves a recovered remote draft as pending binding instead of an authoritative binding', () => {
+    const save = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
+      bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '你好' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(save).toHaveBeenCalledWith([expect.objectContaining({
+      id: 'custom-remote-hello',
+      bilibiliFolderId: '88',
+      bindingState: 'unbound',
+      pendingRemoteBinding: true,
+      pendingRemoteFolderId: '88'
+    })], { deleteDisabled: false })
+  })
+
   it('submits recovery shards in the user-adjusted order', async () => {
     const sync = vi.fn()
       .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'game', candidates: [

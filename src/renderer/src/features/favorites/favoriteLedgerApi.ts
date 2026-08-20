@@ -141,7 +141,7 @@ function sharedScriptHelpers(): string {
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
-      return folders
+      const candidates = folders
         .filter((candidate) => isBilimiManagedFolder(candidate) &&
           normalizeLogicalFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate))
         .map((candidate) => ({
@@ -149,6 +149,16 @@ function sharedScriptHelpers(): string {
           title: String(candidate.title || ''),
           memberCount: Math.max(0, Number(candidate.media_count ?? candidate.count ?? 0) || 0)
         }));
+      // Saving a remote-only draft preserves the exact folder the user was
+      // looking at. It is not a name-based invitation to claim another
+      // same-name folder: that other folder remains an independent remote
+      // draft until the user saves it separately.
+      const pendingRemoteFolderId = ledger?.pendingRemoteBinding
+        ? String(ledger.pendingRemoteFolderId || ledger.bilibiliFolderId || '').trim()
+        : '';
+      return pendingRemoteFolderId
+        ? candidates.filter((candidate) => candidate.id === pendingRemoteFolderId)
+        : candidates;
     };
     const ledgerRemoteFolderIds = (ledger) => Array.from(new Set([
       ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
@@ -164,36 +174,62 @@ function sharedScriptHelpers(): string {
         const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
         const candidates = remoteFolderCandidates(ledger, folders);
         const selectedRemoteFolderId = String(selectedRemoteFolderIds?.[ledger.id] || '').trim();
-        const selectedFolder = selectedRemoteFolderId
+        const selectedFolder = selectedRemoteFolderId && candidates.some((candidate) => candidate.id === selectedRemoteFolderId)
           ? folderById.get(selectedRemoteFolderId)
           : null;
         if (selectedFolder && isBilimiManagedFolder(selectedFolder) &&
           normalizeLogicalFolderTitle(selectedFolder.title) === normalizedLedgerTitle) {
-          return { ...ledger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
+          const { pendingRemoteBinding: _pendingRemoteBinding, pendingRemoteFolderId: _pendingRemoteFolderId, pendingRemoteFolderTitle: _pendingRemoteFolderTitle, ...boundLedger } = ledger;
+          return { ...boundLedger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
         // A user explicitly released this default work-folder binding. Its old
         // remote ID is only evidence for a later, explicitly selected rebind;
         // ordinary inventory polling must never silently restore authority.
         if (ledger.managedFolderDeletedByUser) {
-          if (confirmCreateAndBind) {
-            const {
-              bilibiliFolderId: _bilibiliFolderId,
-              bilibiliFolderIds: _bilibiliFolderIds,
-              bilibiliFolderTitle: _bilibiliFolderTitle,
-              bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
-              bindingState: _bindingState,
-              ...releasedLedger
-            } = ledger;
-            return { ...releasedLedger, bindingState: 'unbacked' };
+          // A create confirmation authorizes creation only while the fresh
+          // inventory is still empty. If a matching folder appeared in the
+          // meantime, return to the existing explicit binding confirmation
+          // instead of creating a duplicate.
+          if (candidates.length) {
+            const folderIds = candidates.map((candidate) => candidate.id);
+            return {
+              ...ledger,
+              bilibiliFolderId: folderIds[0],
+              bilibiliFolderIds: folderIds,
+              bilibiliFolderTitle: candidates[0].title,
+              bilibiliFolderVideoCount: candidates.reduce((count, candidate) => count + candidate.memberCount, 0),
+              bindingState: 'unbound'
+            };
           }
-          return { ...ledger, bindingState: 'unbound' };
+          const {
+            bilibiliFolderId: _bilibiliFolderId,
+            bilibiliFolderIds: _bilibiliFolderIds,
+            bilibiliFolderTitle: _bilibiliFolderTitle,
+            bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+            bindingState: _bindingState,
+            ...releasedLedger
+          } = ledger;
+          return { ...releasedLedger, bindingState: 'unbacked' };
         }
-        // A create response already gave us this exact remote ID, but it has
-        // not passed the repository's independent inventory verification.
-        // Keep it pending even if the page list has caught up: treating it as
-        // bound here would permit a write before the formal binding exists.
+        // A recovered remote draft remains unbound only while its exact
+        // remote candidate can still be observed. A disappeared remote folder
+        // must not leave stale identity data behind: it is again a normal
+        // local, unbacked rule and must pass the explicit create confirmation
+        // before a future backup can create anything.
         if (ledger.pendingRemoteBinding && (ledger.pendingRemoteFolderId || ledger.bilibiliFolderId)) {
-          return { ...ledger, bindingState: 'unbound' };
+          if (candidates.length) return { ...ledger, bindingState: 'unbound' };
+          const {
+            bilibiliFolderId: _bilibiliFolderId,
+            bilibiliFolderIds: _bilibiliFolderIds,
+            bilibiliFolderTitle: _bilibiliFolderTitle,
+            bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+            bindingState: _bindingState,
+            pendingRemoteBinding: _pendingRemoteBinding,
+            pendingRemoteFolderId: _pendingRemoteFolderId,
+            pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
+            ...ledgerWithoutMissingPendingRemote
+          } = ledger;
+          return { ...ledgerWithoutMissingPendingRemote, bindingState: 'unbacked' };
         }
         // A persisted binding is keyed by the remote folder ID. Bilibili users
         // may rename a bound folder, so a title mismatch must not silently
@@ -202,7 +238,11 @@ function sharedScriptHelpers(): string {
           .map((folderId) => folderById.get(folderId))
           .filter(Boolean);
         if (storedFolders.length) {
-          if (ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound') return ledger;
+          // A persisted folder ID is not itself a formal binding. This also
+          // protects legacy saved remote drafts created before the pending
+          // marker existed: an explicit unbound state always stays in the
+          // confirmation flow until the user selects the candidate.
+          if (ledger.bindingState === 'unbound') return ledger;
           const primaryFolder = storedFolders[0];
           const folderIds = storedFolders.map((folder) => String(findFolderId(folder)));
           return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: 'bound' };
@@ -220,7 +260,7 @@ function sharedScriptHelpers(): string {
       });
     };
     const collectUnboundCandidates = (ledgers, folders) => ledgers
-      .filter((ledger) => ledger.bindingState === 'unbound')
+      .filter((ledger) => ledger.bindingState === 'unbound' && ledger.syncState !== 'local-draft')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
     const stableRemoteDraftLedgerId = (remoteFolderId) => {
       let hash = 2166136261;
@@ -528,20 +568,28 @@ export function buildEnsureFavoriteLedgersScript(
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
       const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true);
-      const unboundLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
-        .map((ledger) => ledger.id);
-      if (unboundLedgerIds.length > 0) {
-        return {
-          ok: false,
-          ledgers: nextLedgers,
-          steps,
-          missingTargets: unboundLedgerIds,
-          unboundLedgerIds,
-          unboundCandidates: collectUnboundCandidates(nextLedgers, folders),
-          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
-        };
-      }
+       const unboundLedgerIds = nextLedgers
+         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+         .map((ledger) => ledger.id);
+       const unbackedLedgerIds = nextLedgers
+         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')
+         .map((ledger) => ledger.id);
+       if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && payload.options?.confirmCreateAndBind !== true)) {
+         return {
+           ok: false,
+           ledgers: nextLedgers,
+           steps,
+           missingTargets: [...unboundLedgerIds, ...unbackedLedgerIds],
+           unboundLedgerIds,
+           unboundCandidates: [
+             ...collectUnboundCandidates(nextLedgers, folders),
+             ...unbackedLedgerIds.map((ledgerId) => ({ ledgerId, candidates: [] }))
+           ],
+           message: unboundLedgerIds.length
+             ? '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+             : '当前没有可复用的 bilimi 收藏夹，请确认创建并绑定。'
+         };
+       }
 
       // Existing remote folder IDs are authoritative during ordinary backup.
       // Renaming is reserved for an explicit user-confirmed binding repair.
@@ -644,19 +692,27 @@ export function buildSaveFavoriteLedgersScript(
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      let nextLedgers = syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds);
+      let nextLedgers = syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true);
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
         .map((ledger) => ledger.id);
-      if (unboundLedgerIds.length > 0) {
+      const unbackedLedgerIds = nextLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')
+        .map((ledger) => ledger.id);
+      if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && payload.options?.confirmCreateAndBind !== true)) {
         return {
           ok: false,
           ledgers: nextLedgers,
           steps,
-          missingTargets: unboundLedgerIds,
+          missingTargets: [...unboundLedgerIds, ...unbackedLedgerIds],
           unboundLedgerIds,
-          unboundCandidates: collectUnboundCandidates(nextLedgers, folders),
-          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+          unboundCandidates: [
+            ...collectUnboundCandidates(nextLedgers, folders),
+            ...unbackedLedgerIds.map((ledgerId) => ({ ledgerId, candidates: [] }))
+          ],
+          message: unboundLedgerIds.length
+            ? '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+            : '当前没有可复用的 bilimi 收藏夹，请确认创建并绑定。'
         };
       }
 

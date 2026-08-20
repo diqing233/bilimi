@@ -115,4 +115,13 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).not.toContain('removeUnsavedFavoriteLedgerDraft')
     expect(handler).not.toContain('dismissFavoriteLedgerRemoteDraftReminder')
   })
+
+  it('does not treat a locally deleted remote draft as an explicit do-not-remind choice', () => {
+    const registrationStart = mainSource.indexOf('registerFavoriteRepositoryIpc({')
+    const registration = mainSource.slice(registrationStart, mainSource.indexOf('registerFavoriteLibraryCommandsIpc({', registrationStart))
+
+    expect(registration).toContain('getRemoteDraftReminderDismissed: (accountMid) =>')
+    expect(registration).toContain('loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid)')
+    expect(registration).not.toContain('loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
+  })
 })

@@ -47,7 +47,6 @@ import {
   saveFavoriteAccountPreferences,
   markFavoriteLedgerRemoteDraftRediscoveryPending,
   consumeFavoriteLedgerRemoteDraftRediscoveryPending,
-  loadFavoriteLedgerRemoteDraftRediscoveryPending,
   loadFavoriteLedgerRemoteDraftReminderDismissals,
   dismissFavoriteLedgerRemoteDraftReminder,
   deleteVideoNoteArchiveEntry,
@@ -2455,10 +2454,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords
       })
     },
-    getRemoteDraftReminderDismissed: (accountMid) => [...new Set([
-      ...loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid),
-      ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
-    ])].sort(),
+    // A user-local deletion is not the same as choosing “不再提醒”. The
+    // former must not hide a still-existing remote bilimi folder from the
+    // next inventory projection; only the explicit reminder dismissal does.
+    getRemoteDraftReminderDismissed: (accountMid) =>
+      loadFavoriteLedgerRemoteDraftReminderDismissals(getDesktopStore(), accountMid),
     dismissRemoteDraftReminder: (accountMid, remoteFolderId) => {
       dismissFavoriteLedgerRemoteDraftReminder(getDesktopStore(), accountMid, remoteFolderId)
       return { status: 'succeeded' as const, remoteFolderId }

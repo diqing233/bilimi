@@ -584,6 +584,57 @@ describe('favorite ledger API scripts', () => {
     }])
   })
 
+  it('projects a released default work folder with no remote candidate as unbacked', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '42', bilibiliFolderIds: ['42'],
+      bindingState: 'bound', managedFolderDeletedByUser: true
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
+
+    expect(result.missingLedgerIds).toEqual(['music'])
+    expect(result.unboundLedgerIds).toEqual([])
+    expect(result.unboundCandidates).toEqual([])
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'music', bindingState: 'unbacked', managedFolderDeletedByUser: true
+    })])
+    expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
+    expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderIds')
+  })
+
+  it('requires confirmation before creating a released work folder without a remote candidate', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bindingState: 'unbound', managedFolderDeletedByUser: true
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { lightweightBackup: true }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['music'],
+      unboundLedgerIds: [],
+      unboundCandidates: [{ ledgerId: 'music', candidates: [] }]
+    })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
   it('accepts a user-confirmed binding even when the previous binding was released', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
@@ -889,7 +940,7 @@ describe('favorite ledger API scripts', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers, { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(false)
     expect(result.unboundCandidates).toEqual([{
@@ -942,7 +993,7 @@ describe('favorite ledger API scripts', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(true)
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
@@ -995,7 +1046,7 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers, { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:game'])
@@ -1022,7 +1073,7 @@ describe('favorite ledger API scripts', () => {
     })
     vi.stubGlobal('fetch', fetchSpy)
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(false)
     expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
@@ -1115,7 +1166,7 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildEnsureFavoriteLedgersScript([inboxLedger]))
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([inboxLedger], { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])
@@ -1164,7 +1215,7 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers))
+    const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers, { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(true)
     expect(result.message).toBe('收藏夹已备册。')
@@ -1175,6 +1226,166 @@ describe('favorite ledger API scripts', () => {
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )
+  })
+
+  it('requires creation confirmation before saving an unbacked enabled ledger', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: true
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['music'],
+      unboundLedgerIds: [],
+      unboundCandidates: [{ ledgerId: 'music', candidates: [] }]
+    })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
+  it('keeps a saved remote draft unbound until the user explicitly selects its remote folder', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: ['你好'], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound',
+      pendingRemoteBinding: true, pendingRemoteFolderId: '88', isDefault: false
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 0 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const beforeConfirmation = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
+    const afterConfirmation = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger], {
+      rebindRemoteFolderIds: { 'custom-remote-hello': '88' }
+    }))
+
+    expect(beforeConfirmation.ledgers).toEqual([expect.objectContaining({
+      bindingState: 'unbound', pendingRemoteBinding: true, pendingRemoteFolderId: '88'
+    })])
+    expect(afterConfirmation.ledgers).toEqual([expect.objectContaining({
+      bindingState: 'bound', bilibiliFolderId: '88'
+    })])
+    expect(afterConfirmation.ledgers[0]).not.toHaveProperty('pendingRemoteBinding')
+    expect(afterConfirmation.ledgers[0]).not.toHaveProperty('pendingRemoteFolderId')
+  })
+
+  it('does not silently bind a legacy saved remote draft without the pending marker', async () => {
+    installCookies()
+    const legacyLedger: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: ['你好'], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', isDefault: false
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 0 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([legacyLedger]))
+
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'custom-remote-hello', bindingState: 'unbound', bilibiliFolderId: '88'
+    })])
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-remote-hello',
+      candidates: [{ id: '88', title: 'bilimi·你好', memberCount: 0 }]
+    }])
+  })
+
+  it('only offers a saved remote draft its own observed folder for confirmation', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: ['你好'], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound',
+      pendingRemoteBinding: true, pendingRemoteFolderId: '88', isDefault: false
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 88, title: 'bilimi·你好', media_count: 0 },
+          { id: 89, title: 'bilimi·你好', media_count: 4 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
+
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-remote-hello',
+      candidates: [{ id: '88', title: 'bilimi·你好', memberCount: 0 }]
+    }])
+  })
+
+  it('rejects a confirmation that tries to bind a saved remote draft to another same-name folder', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: ['你好'], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound',
+      pendingRemoteBinding: true, pendingRemoteFolderId: '88', isDefault: false
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 88, title: 'bilimi·你好', media_count: 0 },
+          { id: 89, title: 'bilimi·你好', media_count: 4 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger], {
+      rebindRemoteFolderIds: { 'custom-remote-hello': '89' }
+    }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      unboundLedgerIds: ['custom-remote-hello'],
+      unboundCandidates: [{
+        ledgerId: 'custom-remote-hello',
+        candidates: [{ id: '88', title: 'bilimi·你好', memberCount: 0 }]
+      }]
+    })
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'custom-remote-hello', bindingState: 'unbound', bilibiliFolderId: '88'
+    })])
+  })
+
+  it('returns a saved remote draft to unbacked when its pending remote folder is no longer observed', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-remote-hello', displayName: 'bilimi·你好', keywords: ['你好'], enabled: true, priority: 10,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound',
+      pendingRemoteBinding: true, pendingRemoteFolderId: '88', isDefault: false
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
+
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'custom-remote-hello', bindingState: 'unbacked'
+    })])
+    expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
+    expect(result.ledgers[0]).not.toHaveProperty('pendingRemoteBinding')
   })
 
   it('rejects an enabled ledger name over 20 Unicode characters before any network request', async () => {
@@ -1224,7 +1435,7 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildSaveFavoriteLedgersScript([inboxLedger], [inboxLedger]))
+    const result = await window.eval(buildSaveFavoriteLedgersScript([inboxLedger], [inboxLedger], { confirmCreateAndBind: true }))
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])

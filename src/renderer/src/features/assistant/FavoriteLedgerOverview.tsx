@@ -765,6 +765,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const next = projectEnabled(draftLedgers).map((ledger) => {
       if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger))) return ledger
       const { syncState: _syncState, ...savedLedger } = ledger
+      if (isRecoveredRemoteDraft(ledger) && savedLedger.bilibiliFolderId) {
+        return {
+          ...savedLedger,
+          bindingState: 'unbound' as const,
+          pendingRemoteBinding: true,
+          pendingRemoteFolderId: savedLedger.bilibiliFolderId
+        }
+      }
       return savedLedger.bindingState || savedLedger.bilibiliFolderId
         ? savedLedger
         : { ...savedLedger, bindingState: 'unbacked' as const }
@@ -1098,20 +1106,23 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const confirmRebinding = async () => {
     if (!rebindCandidates || destructiveActionLocked) return
-    const ledgerIds = rebindCandidates.map((entry) => entry.ledgerId)
-    if (ledgerIds.some((ledgerId) => !(rebindSelectedFolderIds[ledgerId] ?? []).length)) return
-    const rebindRemoteFolders = Object.fromEntries(rebindCandidates.map((entry) => [
+    if (rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)) return
+    const hasCreationConfirmation = rebindCandidates.some((entry) => entry.candidates.length === 0)
+    const rebindRemoteFolders = Object.fromEntries(rebindCandidates.filter((entry) => entry.candidates.length > 0).map((entry) => [
       entry.ledgerId,
       (rebindSelectedFolderIds[entry.ledgerId] ?? [])
         .map((candidateId) => entry.candidates.find((candidate) => candidate.id === candidateId))
         .filter((candidate): candidate is RebindCandidateEntry['candidates'][number] => Boolean(candidate))
         .map(({ id, title, memberCount, shardNumber }) => ({ id, title, memberCount, ...(shardNumber === undefined ? {} : { shardNumber }) }))
     ]))
+    const rebindRemoteFolderIds = Object.fromEntries(Object.entries(rebindSelections)
+      .filter(([ledgerId, remoteFolderId]) => rebindCandidates.some((entry) => entry.ledgerId === ledgerId && entry.candidates.length > 0) && Boolean(remoteFolderId)))
     const result = await onSyncLedgers(projectEnabled(draftLedgers), {
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
-      rebindRemoteFolderIds: rebindSelections,
-      rebindRemoteFolders
+      ...(hasCreationConfirmation ? { confirmCreateAndBind: true } : {}),
+      ...(Object.keys(rebindRemoteFolderIds).length ? { rebindRemoteFolderIds } : {}),
+      ...(Object.keys(rebindRemoteFolders).length ? { rebindRemoteFolders } : {})
     }) as { ok?: boolean; unboundCandidates?: RebindCandidateEntry[] } | undefined
     if (result?.unboundCandidates?.length) {
       setRebindCandidates(result.unboundCandidates)
@@ -1233,8 +1244,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title="确认绑定 bilimi 收藏夹" confirmLabel="确认绑定" confirmDisabled={rebindCandidates.some((entry) => !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
-        <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>
+      {rebindCandidates ? <OldFavoriteModal title="确认绑定 bilimi 收藏夹" confirmLabel={rebindCandidates.some((entry) => entry.candidates.length === 0) ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
+        {rebindCandidates.some((entry) => entry.candidates.length === 0)
+          ? <p>当前 B 站没有可复用的同名 bilimi 收藏夹。确认后只会为当前收藏夹创建并绑定一个新的 B 站收藏夹；不会同步视频或处理其他收藏夹。</p>
+          : <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>}
         {rebindCandidates.map((entry) => {
           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
           const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)

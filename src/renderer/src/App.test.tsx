@@ -1869,6 +1869,39 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('runs the confirmed creation path instead of repeating an empty binding preview', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([
+      { ledgerId: 'music', candidates: [] }
+    ])
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      previewFavoriteRepositoryLedgerBindingCandidates
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      expect(script).toContain('"confirmCreateAndBind":true')
+      return {
+        ok: true,
+        ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+        steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [], message: '册目已备齐。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'confirmed-empty-candidate-create', type: 'save-ledgers', ledgers: [music],
+      options: { deleteDisabled: false, confirmCreateAndBind: true }
+    })).resolves.toMatchObject({ ok: true, ledgers: [expect.objectContaining({ id: 'music', bindingState: 'bound' })] })
+
+    expect(previewFavoriteRepositoryLedgerBindingCandidates).not.toHaveBeenCalled()
+    expect(executeJavaScript).toHaveBeenCalled()
+  })
+
   it('registers rebinding shards from their explicit numeric titles instead of selection order', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
