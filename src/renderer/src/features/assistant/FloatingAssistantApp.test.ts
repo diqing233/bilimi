@@ -209,7 +209,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(ensureFunction).not.toContain('requestAssistantSnapshot')
   })
 
-  it('refreshes the authoritative relationship projection after successful backup and workspace reconciliation', () => {
+  it('refreshes the authoritative relationship projection after backup or remote-draft discovery and workspace reconciliation', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const relationshipRefresh = source.slice(
       source.indexOf('const refreshFavoriteOrganizationRelationshipProjection'),
@@ -235,7 +235,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(ensureFunction).toContain('if (result.ok)')
     expect(ensureFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
     expect(ensureFunction).toContain('await loadSnapshot()')
-    expect(saveFunction).toContain('if (result.ok)')
+    expect(saveFunction).toContain('if (result.ok || (result.remoteOnlyDraftLedgerIds?.length ?? 0) > 0)')
     expect(saveFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
   })
 
