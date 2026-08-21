@@ -720,6 +720,29 @@ describe('FavoriteRepositorySyncService', () => {
     ])
   })
 
+  it('includes an extra same-title unbound folder beside a formally bound shard in the deletion preview', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-08-21T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·Music', bindingState: 'bound', remoteFolderId: 'bound-music' }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'bound-music', title: 'bilimi·Music', memberCount: 1 },
+          { id: 'unbound-music', title: 'bilimi·Music', memberCount: 2 }
+        ] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['music'], { music: 'bilimi·Music' })).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'bound-music', state: 'bound', requiresUnboundAcknowledgement: false }),
+      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'unbound-music', state: 'unbound-name-match', requiresUnboundAcknowledgement: true })
+    ])
+  })
+
   it('deletes an acknowledged unbound name match without trying to remove a nonexistent local binding', async () => {
     const repository = await createRepository()
     const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })

@@ -27,7 +27,17 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
     if (!deleted?.size) return ledger
     const remoteFolderIds = normalizedRemoteFolderIds(ledger)
     const remainingRemoteFolderIds = remoteFolderIds.filter((id) => !deleted.has(id))
-    if (remainingRemoteFolderIds.length === remoteFolderIds.length) return ledger
+    const confirmedDeletedRemoteFolderIds = ledger.isDefault
+      ? [...new Set([
+          ...(ledger.confirmedDeletedRemoteFolderIds ?? []),
+          ...deleted
+        ].map((id) => id.trim()).filter(Boolean))]
+      : undefined
+    if (remainingRemoteFolderIds.length === remoteFolderIds.length) {
+      return confirmedDeletedRemoteFolderIds
+        ? { ...ledger, confirmedDeletedRemoteFolderIds }
+        : ledger
+    }
     if (remainingRemoteFolderIds.length) {
       const primaryChanged = ledger.bilibiliFolderId !== remainingRemoteFolderIds[0]
       const {
@@ -43,7 +53,8 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
         bilibiliFolderIds: remainingRemoteFolderIds,
         bindingState: 'bound',
         ...(!primaryChanged && bilibiliFolderTitle !== undefined ? { bilibiliFolderTitle } : {}),
-        ...(!primaryChanged && bilibiliFolderVideoCount !== undefined ? { bilibiliFolderVideoCount } : {})
+        ...(!primaryChanged && bilibiliFolderVideoCount !== undefined ? { bilibiliFolderVideoCount } : {}),
+        ...(confirmedDeletedRemoteFolderIds ? { confirmedDeletedRemoteFolderIds } : {})
       }
     }
     const {
@@ -61,10 +72,7 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
     return {
       ...restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger),
       bindingState: 'unbacked',
-      confirmedDeletedRemoteFolderIds: [...new Set([
-        ...(ledger.confirmedDeletedRemoteFolderIds ?? []),
-        ...deleted
-      ].map((id) => id.trim()).filter(Boolean))]
+      confirmedDeletedRemoteFolderIds
     }
   })
 }

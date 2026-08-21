@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultFavoriteLedgers } from './favoriteLedgers'
-import { applyManagedFavoriteLedgerDeletion } from './favoriteLedgerDeletion'
+import { applyConfirmedManagedFavoriteRemoteFolderDeletion, applyManagedFavoriteLedgerDeletion } from './favoriteLedgerDeletion'
 
 describe('applyManagedFavoriteLedgerDeletion', () => {
   it('restores a default card while clearing only the Bilibili binding that was actually deleted', () => {
@@ -48,5 +48,19 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
     expect(next).not.toHaveProperty('pendingRemoteBindingCreatedByBackup')
     expect(next).not.toHaveProperty('pendingRemoteFolderId')
     expect(next).not.toHaveProperty('pendingRemoteFolderTitle')
+  })
+
+  it('records an acknowledged same-title remote deletion even when that ID was never a formal binding', () => {
+    const [next] = applyConfirmedManagedFavoriteRemoteFolderDeletion([
+      {
+        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
+        bilibiliFolderId: 'bound-music', bilibiliFolderIds: ['bound-music'], bindingState: 'bound'
+      }
+    ], new Map([['music', new Set(['unbound-music'])]]))
+
+    expect(next).toEqual(expect.objectContaining({
+      id: 'music', bindingState: 'bound', bilibiliFolderId: 'bound-music',
+      confirmedDeletedRemoteFolderIds: ['unbound-music']
+    }))
   })
 })

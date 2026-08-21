@@ -207,12 +207,21 @@ function remoteBindingIdsForLedger(ledger: FavoriteLedger) {
     .filter((id): id is string => Boolean(id && id !== pendingId)))]
 }
 
-function removeConfirmedRemoteBindings(ledgers: FavoriteLedger[], deletedRemoteFolderIds: Iterable<string>) {
+function removeConfirmedRemoteBindings(
+  ledgers: FavoriteLedger[],
+  deletedRemoteFolderIds: Iterable<string>,
+  candidates: readonly ManagedFolderDeletionCandidate[] = []
+) {
   const deletedIds = new Set([...deletedRemoteFolderIds].map((id) => id.trim()).filter(Boolean))
   if (!deletedIds.size) return ledgers
   return applyConfirmedManagedFavoriteRemoteFolderDeletion(ledgers, new Map(ledgers.map((ledger) => [
     ledger.id,
-    new Set(remoteBindingIdsForLedger(ledger).filter((remoteId) => deletedIds.has(remoteId)))
+    new Set([
+      ...remoteBindingIdsForLedger(ledger).filter((remoteId) => deletedIds.has(remoteId)),
+      ...candidates
+        .filter((candidate) => candidate.logicalLedgerId === ledger.id && candidate.remoteFolderId && deletedIds.has(candidate.remoteFolderId))
+        .map((candidate) => candidate.remoteFolderId!)
+    ])
   ])))
 }
 
@@ -1042,7 +1051,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }))
     const next = removeConfirmedRemoteBindings(retained, deletionScope === 'bilibili'
       ? plan.confirmedRemoteFolderIds ?? []
-      : []).map((ledger) => locallyResetDefaultIds.has(ledger.id)
+      : [], plan.candidates).map((ledger) => locallyResetDefaultIds.has(ledger.id)
       ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
       : ledger)
     if (locallyResetDefaultIds.size || remotelyDeletedDefaultIds.size) {
@@ -1132,7 +1141,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             .filter((candidate) => remoteDraftLedgerIds.has(candidate.logicalLedgerId) && candidate.remoteFolderId && succeededIds.has(candidate.remoteFolderId))
             .map((candidate) => candidate.logicalLedgerId)
           await deletePersistedDraftLedgers(accountMid, succeededDraftLedgerIds)
-          const next = removeConfirmedRemoteBindings(draftLedgers, remoteDeletionResult.succeededRemoteFolderIds)
+          const next = removeConfirmedRemoteBindings(
+            draftLedgers,
+            remoteDeletionResult.succeededRemoteFolderIds,
+            deletionPlan.candidates
+          )
             .filter((ledger) => !succeededDraftLedgerIds.includes(ledger.id))
           await onSaveLedgers(next, { deleteDisabled: false })
           setDraftLedgers(next)

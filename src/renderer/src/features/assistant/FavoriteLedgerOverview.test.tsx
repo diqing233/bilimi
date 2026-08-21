@@ -2142,6 +2142,49 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
   })
 
+  it('requires the existing acknowledgement and records every confirmed same-title remote id beside a bound default folder', async () => {
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['bound-music', 'unbound-music'], failedRemoteFolderIds: [],
+      unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const save = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'music', remoteFolderId: 'bound-music', title: 'bilimi·音乐', memberCount: 1, state: 'bound', requiresUnboundAcknowledgement: false },
+          { logicalLedgerId: 'music', remoteFolderId: 'unbound-music', title: 'bilimi·音乐', memberCount: 2, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+        ]),
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bilibiliFolderId: 'bound-music', bilibiliFolderIds: ['bound-music'], bindingState: 'bound'
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledWith(
+      '100', ['music'], true, { music: 'bilimi·音乐' }, { music: ['bound-music', 'unbound-music'] }
+    ))
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'music', bindingState: 'unbacked',
+        confirmedDeletedRemoteFolderIds: ['bound-music', 'unbound-music']
+      })
+    ], { deleteDisabled: false }))
+  })
+
   it('passes explicit acknowledgement when deleting an unbound name-matched default folder', async () => {
     const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
       status: 'succeeded', succeededRemoteFolderIds: ['remote-music'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []

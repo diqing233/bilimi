@@ -1227,6 +1227,23 @@ export class FavoriteRepositorySyncService {
             requiresUnboundAcknowledgement: false
           })
         }
+        const expectedTitle = logicalFolder?.title ?? ledgerTitleHints?.[logicalLedgerId]?.trim() ?? bound[0]?.remoteTitle
+        const boundRemoteFolderIds = new Set(bound.map((shard) => shard.remoteFolderId!))
+        const unboundMatches = expectedTitle
+          ? inventory.folders.filter((folder) => isBilimiRemoteFolder(folder.title) &&
+            normalizedRemoteFolderTitle(folder.title) === normalizedRemoteFolderTitle(expectedTitle) &&
+            !boundRemoteFolderIds.has(folder.id))
+          : []
+        for (const folder of unboundMatches) {
+          results.push({
+            logicalLedgerId,
+            remoteFolderId: folder.id,
+            title: folder.title,
+            memberCount: folder.memberCount,
+            state: 'unbound-name-match',
+            requiresUnboundAcknowledgement: true
+          })
+        }
         continue
       }
 
