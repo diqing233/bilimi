@@ -109,6 +109,19 @@ function validRemoteDraftDeletionTargets(value: unknown): value is Record<string
       Boolean((target as { title: string }).title.trim()))
 }
 
+function validHistoricalBindingDeletionTargets(value: unknown): value is Record<string, Array<{ remoteFolderId: string; title: string }>> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.entries(value as Record<string, unknown>).length <= 500 &&
+    Object.entries(value as Record<string, unknown>).every(([ledgerId, targets]) =>
+      ledgerId.trim().length > 0 && ledgerId.trim().length <= 128 &&
+      Array.isArray(targets) && targets.length <= 32 && targets.every((target) =>
+        Boolean(target) && typeof target === 'object' && !Array.isArray(target) &&
+        Object.keys(target as Record<string, unknown>).length === 2 &&
+        typeof (target as { remoteFolderId?: unknown }).remoteFolderId === 'string' &&
+        Boolean((target as { remoteFolderId: string }).remoteFolderId.trim()) &&
+        typeof (target as { title?: unknown }).title === 'string' &&
+        Boolean((target as { title: string }).title.trim())))
+}
+
 function validAssignments(value: unknown): value is ApplyWorkspaceClassificationBatchOptions['assignments'] {
   return Array.isArray(value) && value.length <= MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE && value.every((assignment) => {
     if (!assignment || typeof assignment !== 'object') return false
@@ -358,13 +371,14 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (!options.prepareRecovery) return options.coordinator.getRecoverySummary(accountMid) as Promise<WorkspaceRecoverySummary | null>
     return options.prepareRecovery(accountMid)
   })
-  options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>, remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>) => {
+  options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>, remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>, historicalBindingTargets?: Record<string, Array<{ remoteFolderId: string; title: string }>>) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
-    if (!Array.isArray(ledgerIds) || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || (!ledgerIds.length && !remoteDraftTargets)) throw new Error('Old favorite workspace deletion preview selection is empty or invalid.')
+    if (!Array.isArray(ledgerIds) || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || (!ledgerIds.length && !remoteDraftTargets && !historicalBindingTargets)) throw new Error('Old favorite workspace deletion preview selection is empty or invalid.')
     if (ledgerTitleHints !== undefined && (!ledgerTitleHints || typeof ledgerTitleHints !== 'object' || Array.isArray(ledgerTitleHints) || Object.entries(ledgerTitleHints).some(([id, title]) => !id.trim() || typeof title !== 'string'))) throw new Error('Old favorite workspace deletion preview is invalid.')
     if (remoteDraftTargets !== undefined && !validRemoteDraftDeletionTargets(remoteDraftTargets)) throw new Error('Old favorite workspace remote draft deletion preview is invalid.')
-    return remoteDraftTargets
-      ? options.coordinator.previewManagedFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, remoteDraftTargets)
+    if (historicalBindingTargets !== undefined && !validHistoricalBindingDeletionTargets(historicalBindingTargets)) throw new Error('Old favorite workspace historical binding deletion preview is invalid.')
+    return remoteDraftTargets || historicalBindingTargets
+      ? options.coordinator.previewManagedFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, remoteDraftTargets, historicalBindingTargets)
       : options.coordinator.previewManagedFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
   })
   options.ipcMain.handle('old-favorite-workspace-v1:delete-managed-folders', async (
@@ -386,12 +400,13 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     acknowledgeUnboundRemoteDeletion = false,
     ledgerTitleHints?: Record<string, string>,
     expectedRemoteFolderIds?: Record<string, string[]>,
-    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>
+    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>,
+    historicalBindingTargets?: Record<string, Array<{ remoteFolderId: string; title: string }>>
   ) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
-    if (!Array.isArray(ledgerIds) || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || (!ledgerIds.length && !remoteDraftTargets) || typeof acknowledgeUnboundRemoteDeletion !== 'boolean' || (ledgerTitleHints !== undefined && (!ledgerTitleHints || typeof ledgerTitleHints !== 'object' || Array.isArray(ledgerTitleHints) || Object.entries(ledgerTitleHints).some(([id, title]) => !id.trim() || typeof title !== 'string'))) || (expectedRemoteFolderIds !== undefined && (!expectedRemoteFolderIds || typeof expectedRemoteFolderIds !== 'object' || Array.isArray(expectedRemoteFolderIds) || Object.entries(expectedRemoteFolderIds).some(([id, values]) => !id.trim() || !Array.isArray(values) || values.some((value) => typeof value !== 'string')))) || (remoteDraftTargets !== undefined && !validRemoteDraftDeletionTargets(remoteDraftTargets))) throw new Error('Old favorite workspace deletion request selection is empty or invalid.')
-    return remoteDraftTargets
-      ? options.coordinator.deleteManagedRemoteFolderCandidates(accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets)
+    if (!Array.isArray(ledgerIds) || ledgerIds.some((id) => typeof id !== 'string' || !id.trim()) || (!ledgerIds.length && !remoteDraftTargets && !historicalBindingTargets) || typeof acknowledgeUnboundRemoteDeletion !== 'boolean' || (ledgerTitleHints !== undefined && (!ledgerTitleHints || typeof ledgerTitleHints !== 'object' || Array.isArray(ledgerTitleHints) || Object.entries(ledgerTitleHints).some(([id, title]) => !id.trim() || typeof title !== 'string'))) || (expectedRemoteFolderIds !== undefined && (!expectedRemoteFolderIds || typeof expectedRemoteFolderIds !== 'object' || Array.isArray(expectedRemoteFolderIds) || Object.entries(expectedRemoteFolderIds).some(([id, values]) => !id.trim() || !Array.isArray(values) || values.some((value) => typeof value !== 'string')))) || (remoteDraftTargets !== undefined && !validRemoteDraftDeletionTargets(remoteDraftTargets)) || (historicalBindingTargets !== undefined && !validHistoricalBindingDeletionTargets(historicalBindingTargets))) throw new Error('Old favorite workspace deletion request selection is empty or invalid.')
+    return remoteDraftTargets || historicalBindingTargets
+      ? options.coordinator.deleteManagedRemoteFolderCandidates(accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets, historicalBindingTargets)
       : options.coordinator.deleteManagedRemoteFolderCandidates(accountMid, ledgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
   })
   options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, scope?: DeepSeekArchiveScope, ...args: unknown[]) => {

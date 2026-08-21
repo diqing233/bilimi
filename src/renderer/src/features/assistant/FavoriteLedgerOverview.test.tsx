@@ -2185,6 +2185,37 @@ describe('FavoriteLedgerOverview', () => {
     ], { deleteDisabled: false }))
   })
 
+  it('passes a missing-formal-shard history id as an exact deletion target', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'game', remoteFolderId: '4115311554', title: 'bilimi·游戏专区·2', memberCount: 2, state: 'unbound-historical-id', requiresUnboundAcknowledgement: true }
+    ])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bindingState: 'unbacked', historicalBilibiliFolderIds: ['4115311554'], historicalBilibiliFolderTitle: 'bilimi·游戏专区·2'
+    }]} missingLedgerIds={['game']} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏专区' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('历史分册 / 精确 ID 核验')
+    expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith(
+      '100',
+      ['game'],
+      { game: 'bilimi·游戏专区' },
+      undefined,
+      { game: [{ remoteFolderId: '4115311554', title: 'bilimi·游戏专区·2' }] }
+    )
+  })
+
   it('passes explicit acknowledgement when deleting an unbound name-matched default folder', async () => {
     const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
       status: 'succeeded', succeededRemoteFolderIds: ['remote-music'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []

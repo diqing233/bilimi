@@ -64,6 +64,10 @@ export type FavoriteLedger = {
   managedFolderDeletedByUser?: boolean
   /** Exact remote IDs confirmed deleted during the current unbacked recovery; only suppresses stale list residues. */
   confirmedDeletedRemoteFolderIds?: string[]
+  /** Exact remote IDs retained only as deletion/reconciliation history when formal physical shards are gone. */
+  historicalBilibiliFolderIds?: string[]
+  /** Last observed titles for historical remote IDs; never grants backup or sync authority. */
+  historicalBilibiliFolderTitle?: string
   /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
   pendingRemoteBinding?: boolean
   /** The pending shard came from this backup's create response, never a name-based candidate. */

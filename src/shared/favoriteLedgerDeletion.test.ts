@@ -63,4 +63,17 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
       confirmedDeletedRemoteFolderIds: ['unbound-music']
     }))
   })
+
+  it('clears a historical id after the authoritative inventory confirms it is already missing', () => {
+    const [next] = applyConfirmedManagedFavoriteRemoteFolderDeletion([{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bindingState: 'unbacked', historicalBilibiliFolderIds: ['4115311554'], historicalBilibiliFolderTitle: 'bilimi·游戏专区·2'
+    }], new Map([['game', new Set(['4115311554'])]]))
+
+    expect(next).toEqual(expect.objectContaining({
+      id: 'game', bindingState: 'unbacked', confirmedDeletedRemoteFolderIds: ['4115311554']
+    }))
+    expect(next).not.toHaveProperty('historicalBilibiliFolderIds')
+    expect(next).not.toHaveProperty('historicalBilibiliFolderTitle')
+  })
 })

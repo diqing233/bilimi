@@ -81,7 +81,7 @@ type ManagedFolderDeletionCandidate = {
   remoteFolderId?: string
   title: string
   memberCount: number
-  state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'
+  state: 'bound' | 'local-only' | 'unbound-name-match' | 'unbound-historical-id' | 'missing-remote'
   requiresUnboundAcknowledgement: boolean
 }
 
@@ -91,6 +91,7 @@ type ManagedDeletionPlan = {
   remoteCustomLedgerIds: string[]
   remoteDefaultLedgerIds: string[]
   remoteDraftTargets: Record<string, { remoteFolderId: string; title: string }>
+  historicalBindingTargets: Record<string, Array<{ remoteFolderId: string; title: string }>>
   localCustomLedgerIds: string[]
   localDefaultLedgerIds: string[]
   draftLedgerIds: string[]
@@ -890,11 +891,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }))
     const selectedCustomLedgers = deletionLedgers.filter((ledger) => !ledger.isDefault && !draftLedgerIds.includes(ledger.id))
     const selectedDefaultLedgers = deletionLedgers.filter((ledger) => ledger.isDefault)
+    const historicalBindingTargets = Object.fromEntries(selectedDefaultLedgers
+      .filter((ledger) => remoteBindingIdsForLedger(ledger).length === 0 && (ledger.historicalBilibiliFolderIds ?? []).length > 0)
+      .map((ledger) => [ledger.id, (ledger.historicalBilibiliFolderIds ?? []).map((remoteFolderId) => ({
+        remoteFolderId,
+        title: ledger.historicalBilibiliFolderTitle ?? ledger.bilibiliFolderTitle ?? ledger.displayName
+      }))]))
     const remoteCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
     const remoteDefaultLedgerIds = selectedDefaultLedgers
-      .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0)
+      .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0 || Object.prototype.hasOwnProperty.call(historicalBindingTargets, ledger.id))
       .map((ledger) => ledger.id)
     const localCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => !remoteCustomLedgerIds.includes(ledger.id))
@@ -902,7 +909,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const localDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
-    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
+    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, historicalBindingTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
     if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length || Object.keys(remoteDraftTargets).length) {
       await requestManagedDeletion(plan)
       return
@@ -995,9 +1002,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         const ledger = draftLedgers.find((item) => item.id === ledgerId)
         return ledger ? [[ledgerId, ledger.displayName]] : []
       }))
-      const candidates = Object.keys(plan.remoteDraftTargets).length
-        ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, plan.remoteDraftTargets)
-        : await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
+      const hasRemoteDraftTargets = Object.keys(plan.remoteDraftTargets).length > 0
+      const hasHistoricalBindingTargets = Object.keys(plan.historicalBindingTargets).length > 0
+      const candidates = hasHistoricalBindingTargets
+        ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, hasRemoteDraftTargets ? plan.remoteDraftTargets : undefined, plan.historicalBindingTargets)
+        : hasRemoteDraftTargets
+          ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, plan.remoteDraftTargets)
+          : await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
       if (!candidates.length) throw new Error('Managed folder deletion preview is unavailable.')
       setDeletionPlan({ ...plan, candidates })
       setDeletionScope('local-only')
@@ -1119,7 +1130,18 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     try {
       let remoteDeletionResult: unknown
       if (deletionScope === 'bilibili' && remotePlanLedgerIds.size) {
-        remoteDeletionResult = remoteDraftLedgerIds.size
+        const historicalBindingTargetIds = Object.keys(deletionPlan.historicalBindingTargets)
+        remoteDeletionResult = historicalBindingTargetIds.length
+          ? await window.bilimiDesktop?.deleteManagedRemoteFolders?.(
+              accountMid,
+              [...remoteIds],
+              deletionAcknowledgedUnbound,
+              ledgerTitleHints,
+              expectedRemoteFolderIds(remotePlanLedgerIds),
+              remoteDraftLedgerIds.size ? deletionPlan.remoteDraftTargets : undefined,
+              deletionPlan.historicalBindingTargets
+            )
+          : remoteDraftLedgerIds.size
           ? await window.bilimiDesktop?.deleteManagedRemoteFolders?.(
               accountMid,
               [...remoteIds],
@@ -1303,18 +1325,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <ul className="favorite-ledger-panel__deletion-list">{deletionPlan.candidates.map((candidate) => {
           const remoteDeletionCount = remoteDeletionCounts.get(candidate.logicalLedgerId) ?? 0
           const isRemoteDraftCandidate = Boolean(deletionPlan.remoteDraftTargets[candidate.logicalLedgerId])
+          const isHistoricalCandidate = candidate.state === 'unbound-historical-id'
           const remoteSummary = deletionScope === 'local-only'
             ? 'B站：保留'
             : remoteDeletionCount
               ? `B站：删除 ${remoteDeletionCount} 个实际收藏夹`
               : 'B站：无绑定，不会删除'
-          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}{isRemoteDraftCandidate ? '（未保存 · 未绑定 / 仅名称识别）' : ''}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
+          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}{isRemoteDraftCandidate ? '（未保存 · 未绑定 / 仅名称识别）' : isHistoricalCandidate ? '（历史分册 / 精确 ID 核验）' : ''}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
         })}</ul>
         <p>{deletionScope === 'local-only'
           ? '只移除右侧规则或草稿；收藏库和 B 站保留。'
           : '收藏库工作夹和成员保留。'}</p>
         <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
-        {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。它们仅通过名称识别，未建立本地绑定。请确认这些不是你在 B 站手动创建的同名普通收藏夹再勾选。</label> : null}
+        {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。请确认名称识别候选不是你在 B 站手动创建的同名普通收藏夹，并确认历史分册候选的精确 ID后再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
       {rebindCandidates ? <OldFavoriteModal title={rebindHasCreationTarget ? '确认创建并绑定 bilimi 收藏夹' : '确认绑定 bilimi 收藏夹'} confirmLabel={rebindHasCreationTarget ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>

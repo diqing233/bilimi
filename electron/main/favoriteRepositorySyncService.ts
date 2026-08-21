@@ -46,7 +46,7 @@ export type ManagedFavoriteFolderDeletionCandidate = {
   remoteFolderId?: string
   title: string
   memberCount: number
-  state: 'bound' | 'local-only' | 'unbound-name-match' | 'missing-remote'
+  state: 'bound' | 'local-only' | 'unbound-name-match' | 'unbound-historical-id' | 'missing-remote'
   requiresUnboundAcknowledgement: boolean
 }
 
@@ -55,6 +55,12 @@ export type ManagedFavoriteRemoteDraftDeletionTargets = Record<string, {
   remoteFolderId: string
   title: string
 }>
+
+/** Historical remote IDs are deletion-only evidence after formal shards disappear. */
+export type ManagedFavoriteHistoricalBindingDeletionTargets = Record<string, Array<{
+  remoteFolderId: string
+  title: string
+}>>
 
 /** Every remote deletion is reported explicitly because a Bilibili batch is not atomic. */
 export type ManagedFavoriteRemoteFolderDeletionResult = {
@@ -153,6 +159,26 @@ function normalizedRemoteDraftDeletionTargets(
     seenRemoteFolderIds.add(remoteFolderId)
     return { logicalLedgerId: ledgerId, remoteFolderId, title }
   }).sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
+}
+
+function normalizedHistoricalBindingDeletionTargets(
+  targets: ManagedFavoriteHistoricalBindingDeletionTargets | undefined
+) {
+  if (!targets) return []
+  const seenRemoteFolderIds = new Set<string>()
+  return Object.entries(targets).flatMap(([logicalLedgerId, entries]) => {
+    const ledgerId = logicalLedgerId.trim()
+    if (!ledgerId || !Array.isArray(entries)) throw new Error('Managed historical binding deletion target is invalid.')
+    return entries.map((target) => {
+      const remoteFolderId = target?.remoteFolderId?.trim()
+      const title = target?.title?.trim()
+      if (!remoteFolderId || !title || seenRemoteFolderIds.has(remoteFolderId)) {
+        throw new Error('Managed historical binding deletion target is invalid.')
+      }
+      seenRemoteFolderIds.add(remoteFolderId)
+      return { logicalLedgerId: ledgerId, remoteFolderId, title }
+    })
+  }).sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.remoteFolderId.localeCompare(right.remoteFolderId))
 }
 
 function clonePlan(plan: FavoriteRepositoryFrozenSyncPlan): FavoriteRepositoryFrozenSyncPlan {
@@ -1003,13 +1029,15 @@ export class FavoriteRepositorySyncService {
     acknowledgeUnboundRemoteDeletion = false,
     ledgerTitleHints?: Record<string, string>,
     expectedRemoteFolderIds?: Record<string, string[]>,
-    remoteDraftTargets?: ManagedFavoriteRemoteDraftDeletionTargets
+    remoteDraftTargets?: ManagedFavoriteRemoteDraftDeletionTargets,
+    historicalBindingTargets?: ManagedFavoriteHistoricalBindingDeletionTargets
   ) {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
       const normalizedRemoteDraftTargets = normalizedRemoteDraftDeletionTargets(remoteDraftTargets)
-      if (!requestedLedgerIds.size && !normalizedRemoteDraftTargets.length) throw new Error('Managed folder deletion selection is empty.')
+      const normalizedHistoricalBindingTargets = normalizedHistoricalBindingDeletionTargets(historicalBindingTargets)
+      if (!requestedLedgerIds.size && !normalizedRemoteDraftTargets.length && !normalizedHistoricalBindingTargets.length) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-remote-delete:${this.now()}`
       await this.bindPageTarget(account, runId)
       try {
@@ -1021,7 +1049,8 @@ export class FavoriteRepositorySyncService {
           acknowledgeUnboundRemoteDeletion,
           ledgerTitleHints,
           expectedRemoteFolderIds,
-          normalizedRemoteDraftTargets
+          normalizedRemoteDraftTargets,
+          normalizedHistoricalBindingTargets
         )
         // This entry point deliberately preserves the logical work folder, but
         // every confirmed Bilibili deletion must stop being a bound shard before
@@ -1053,11 +1082,16 @@ export class FavoriteRepositorySyncService {
     acknowledgeUnboundRemoteDeletion: boolean,
     ledgerTitleHints?: Record<string, string>,
     expectedRemoteFolderIds?: Record<string, string[]>,
-    remoteDraftTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = []
+    remoteDraftTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = [],
+    historicalBindingTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = []
   ): Promise<ManagedFavoriteRemoteFolderDeletionResult> {
-    const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints, remoteDraftTargets)
+    const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints, remoteDraftTargets, historicalBindingTargets)
     if (expectedRemoteFolderIds !== undefined) {
-      const expectedLedgerIds = new Set([...requestedLedgerIds, ...remoteDraftTargets.map((target) => target.logicalLedgerId)])
+      const expectedLedgerIds = new Set([
+        ...requestedLedgerIds,
+        ...remoteDraftTargets.map((target) => target.logicalLedgerId),
+        ...historicalBindingTargets.map((target) => target.logicalLedgerId)
+      ])
       for (const logicalLedgerId of expectedLedgerIds) {
         const expected = [...new Set((expectedRemoteFolderIds[logicalLedgerId] ?? []).map((id) => id.trim()).filter(Boolean))].sort()
         const actual = [...new Set(candidates
@@ -1140,18 +1174,20 @@ export class FavoriteRepositorySyncService {
     accountMid: string,
     logicalLedgerIds: string[],
     ledgerTitleHints?: Record<string, string>,
-    remoteDraftTargets?: ManagedFavoriteRemoteDraftDeletionTargets
+    remoteDraftTargets?: ManagedFavoriteRemoteDraftDeletionTargets,
+    historicalBindingTargets?: ManagedFavoriteHistoricalBindingDeletionTargets
   ) {
     const account = normalizeAccountMid(accountMid)
     return this.runRemote(account, async () => {
       const requestedLedgerIds = new Set(logicalLedgerIds.map((id) => id.trim()).filter(Boolean))
       const normalizedRemoteDraftTargets = normalizedRemoteDraftDeletionTargets(remoteDraftTargets)
-      if (!requestedLedgerIds.size && !normalizedRemoteDraftTargets.length) throw new Error('Managed folder deletion selection is empty.')
+      const normalizedHistoricalBindingTargets = normalizedHistoricalBindingDeletionTargets(historicalBindingTargets)
+      if (!requestedLedgerIds.size && !normalizedRemoteDraftTargets.length && !normalizedHistoricalBindingTargets.length) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-delete-preview:${this.now()}`
       await this.bindPageTarget(account, runId)
       try {
         const candidates = await this.managedFolderDeletionCandidates(
-          account, requestedLedgerIds, this.pageBridge(account, runId), `${runId}:inventory`, ledgerTitleHints, normalizedRemoteDraftTargets
+          account, requestedLedgerIds, this.pageBridge(account, runId), `${runId}:inventory`, ledgerTitleHints, normalizedRemoteDraftTargets, normalizedHistoricalBindingTargets
         )
         return candidates
       } finally {
@@ -1186,7 +1222,8 @@ export class FavoriteRepositorySyncService {
     bridge: FavoriteRepositoryPageBridge,
     operationKey: string,
     ledgerTitleHints?: Record<string, string>,
-    remoteDraftTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = []
+    remoteDraftTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = [],
+    historicalBindingTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = []
   ): Promise<ManagedFavoriteFolderDeletionCandidate[]> {
     const snapshot = await this.options.repository.getSnapshot(account)
     const inventory = await bridge.readFolderInventory({ accountMid: account, operationKey })
@@ -1243,6 +1280,35 @@ export class FavoriteRepositorySyncService {
             state: 'unbound-name-match',
             requiresUnboundAcknowledgement: true
           })
+        }
+        continue
+      }
+
+      // A historical ID is accepted only when the renderer explicitly carries
+      // it into this deletion flow.  It is checked by exact ID against the
+      // fresh inventory; title matching is deliberately bypassed so a stale
+      // `·2` title can never make a different folder deletable.
+      const historicalForLedger = historicalBindingTargets.filter((target) => target.logicalLedgerId === logicalLedgerId)
+      if (historicalForLedger.length) {
+        for (const target of historicalForLedger) {
+          const folder = foldersById.get(target.remoteFolderId)
+          results.push(folder
+            ? {
+                logicalLedgerId,
+                remoteFolderId: folder.id,
+                title: folder.title,
+                memberCount: folder.memberCount,
+                state: 'unbound-historical-id',
+                requiresUnboundAcknowledgement: true
+              }
+            : {
+                logicalLedgerId,
+                remoteFolderId: target.remoteFolderId,
+                title: target.title,
+                memberCount: 0,
+                state: 'missing-remote',
+                requiresUnboundAcknowledgement: false
+              })
         }
         continue
       }

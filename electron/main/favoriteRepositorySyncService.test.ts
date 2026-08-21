@@ -720,6 +720,48 @@ describe('FavoriteRepositorySyncService', () => {
     ])
   })
 
+  it('includes a verified historical remote id when formal shards are missing', async () => {
+    const repository = await createRepository()
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: '4115311554', title: 'bilimi·游戏专区·2', memberCount: 2 }
+        ] })
+      }
+    })
+
+    const preview = service.previewManagedFolderDeletion.bind(service) as unknown as (...args: unknown[]) => Promise<unknown[]>
+    await expect(preview(
+      '100',
+      ['game'],
+      { game: 'bilimi·游戏专区·2' },
+      undefined,
+      { game: [{ remoteFolderId: '4115311554', title: 'bilimi·游戏专区·2' }] }
+    )).resolves.toEqual([
+      expect.objectContaining({
+        logicalLedgerId: 'game',
+        remoteFolderId: '4115311554',
+        state: 'unbound-historical-id',
+        requiresUnboundAcknowledgement: true
+      })
+    ])
+
+    const deleteManaged = service.deleteManagedRemoteFolders.bind(service) as unknown as (...args: unknown[]) => Promise<unknown>
+    await expect(deleteManaged(
+      '100',
+      ['game'],
+      true,
+      { game: 'bilimi·游戏专区·2' },
+      { game: ['4115311554'] },
+      undefined,
+      { game: [{ remoteFolderId: '4115311554', title: 'bilimi·游戏专区·2' }] }
+    )).resolves.toMatchObject({ status: 'succeeded', succeededRemoteFolderIds: ['4115311554'] })
+    expect(deleteFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: '4115311554' }))
+  })
+
   it('includes an extra same-title unbound folder beside a formally bound shard in the deletion preview', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

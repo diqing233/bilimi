@@ -49,7 +49,7 @@ import {
 import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
-import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
+import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService, ManagedFavoriteHistoricalBindingDeletionTargets } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
@@ -3505,11 +3505,12 @@ export class OldFavoriteWorkspaceCoordinator {
     accountMid: string,
     logicalLedgerIds: string[],
     ledgerTitleHints?: Record<string, string>,
-    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>
+    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>,
+    historicalBindingTargets?: ManagedFavoriteHistoricalBindingDeletionTargets
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return remoteDraftTargets
-      ? this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints, remoteDraftTargets)
+    return remoteDraftTargets || historicalBindingTargets
+      ? this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints, remoteDraftTargets, historicalBindingTargets)
       : this.options.syncService.previewManagedFolderDeletion(accountMid, logicalLedgerIds, ledgerTitleHints)
   }
 
@@ -3547,11 +3548,12 @@ export class OldFavoriteWorkspaceCoordinator {
     acknowledgeUnboundRemoteDeletion = false,
     ledgerTitleHints?: Record<string, string>,
     expectedRemoteFolderIds?: Record<string, string[]>,
-    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>
+    remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>,
+    historicalBindingTargets?: ManagedFavoriteHistoricalBindingDeletionTargets
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return remoteDraftTargets
-      ? this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets)
+    return remoteDraftTargets || historicalBindingTargets
+      ? this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets, historicalBindingTargets)
       : this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
   }
 

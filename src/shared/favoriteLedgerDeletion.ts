@@ -3,6 +3,7 @@ import type { FavoriteLedger } from './types'
 
 function normalizedRemoteFolderIds(ledger: FavoriteLedger) {
   return [...new Set([ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
+    .concat(ledger.historicalBilibiliFolderIds ?? [])
     .map((id) => id?.trim())
     .filter((id): id is string => Boolean(id)))]
 }
@@ -25,8 +26,16 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
   return ledgers.map((ledger) => {
     const deleted = deletedRemoteFolderIdsByLedger.get(ledger.id)
     if (!deleted?.size) return ledger
-    const remoteFolderIds = normalizedRemoteFolderIds(ledger)
-    const remainingRemoteFolderIds = remoteFolderIds.filter((id) => !deleted.has(id))
+    const formalRemoteFolderIds = [...new Set([ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
+      .map((id) => id?.trim())
+      .filter((id): id is string => Boolean(id)))]
+    const historicalRemoteFolderIds = [...new Set((ledger.historicalBilibiliFolderIds ?? [])
+      .map((id) => id.trim())
+      .filter(Boolean))]
+    const remoteFolderIds = [...new Set([...formalRemoteFolderIds, ...historicalRemoteFolderIds])]
+    const remainingFormalRemoteFolderIds = formalRemoteFolderIds.filter((id) => !deleted.has(id))
+    const remainingHistoricalRemoteFolderIds = historicalRemoteFolderIds.filter((id) => !deleted.has(id))
+    const remainingRemoteFolderIds = [...remainingFormalRemoteFolderIds, ...remainingHistoricalRemoteFolderIds]
     const confirmedDeletedRemoteFolderIds = ledger.isDefault
       ? [...new Set([
           ...(ledger.confirmedDeletedRemoteFolderIds ?? []),
@@ -39,21 +48,32 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
         : ledger
     }
     if (remainingRemoteFolderIds.length) {
-      const primaryChanged = ledger.bilibiliFolderId !== remainingRemoteFolderIds[0]
+      const primaryChanged = remainingFormalRemoteFolderIds.length > 0 &&
+        ledger.bilibiliFolderId !== remainingFormalRemoteFolderIds[0]
       const {
         bilibiliFolderId: _bilibiliFolderId,
         bilibiliFolderIds: _bilibiliFolderIds,
         bilibiliFolderTitle,
         bilibiliFolderVideoCount,
+        historicalBilibiliFolderIds: _historicalBilibiliFolderIds,
+        historicalBilibiliFolderTitle: _historicalBilibiliFolderTitle,
         ...ledgerWithoutRemoteIds
       } = ledger
       return {
         ...ledgerWithoutRemoteIds,
-        bilibiliFolderId: remainingRemoteFolderIds[0],
-        bilibiliFolderIds: remainingRemoteFolderIds,
-        bindingState: 'bound',
-        ...(!primaryChanged && bilibiliFolderTitle !== undefined ? { bilibiliFolderTitle } : {}),
-        ...(!primaryChanged && bilibiliFolderVideoCount !== undefined ? { bilibiliFolderVideoCount } : {}),
+        ...(remainingFormalRemoteFolderIds.length ? {
+          bilibiliFolderId: remainingFormalRemoteFolderIds[0],
+          bilibiliFolderIds: remainingFormalRemoteFolderIds,
+          bindingState: 'bound' as const,
+          ...(!primaryChanged && bilibiliFolderTitle !== undefined ? { bilibiliFolderTitle } : {}),
+          ...(!primaryChanged && bilibiliFolderVideoCount !== undefined ? { bilibiliFolderVideoCount } : {})
+        } : { bindingState: 'unbacked' as const }),
+        ...(remainingHistoricalRemoteFolderIds.length ? {
+          historicalBilibiliFolderIds: remainingHistoricalRemoteFolderIds,
+          ...(ledger.historicalBilibiliFolderTitle !== undefined
+            ? { historicalBilibiliFolderTitle: ledger.historicalBilibiliFolderTitle }
+            : {})
+        } : {}),
         ...(confirmedDeletedRemoteFolderIds ? { confirmedDeletedRemoteFolderIds } : {})
       }
     }
@@ -62,6 +82,8 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
       bilibiliFolderIds: _bilibiliFolderIds,
       bilibiliFolderTitle: _bilibiliFolderTitle,
       bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+      historicalBilibiliFolderIds: _historicalBilibiliFolderIds,
+      historicalBilibiliFolderTitle: _historicalBilibiliFolderTitle,
       pendingRemoteBinding: _pendingRemoteBinding,
       pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
       pendingRemoteFolderId: _pendingRemoteFolderId,

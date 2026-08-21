@@ -1603,6 +1603,30 @@ export default function App() {
             } : {})
           }
         }
+        const legacyRemoteFolderIds = [...new Set([
+          ledger.bilibiliFolderId,
+          ...(ledger.bilibiliFolderIds ?? [])
+        ].filter((folderId): folderId is string => Boolean(folderId?.trim())))].filter((folderId) =>
+          !(ledger.confirmedDeletedRemoteFolderIds ?? []).includes(folderId)
+        )
+        if (legacyRemoteFolderIds.length && ledger.bindingState !== 'unbound' && !ledger.managedFolderDeletedByUser && !ledger.pendingRemoteBinding && ledger.syncState !== 'local-draft') {
+          return (() => {
+              const {
+                bilibiliFolderId: _bilibiliFolderId,
+                bilibiliFolderIds: _bilibiliFolderIds,
+                bilibiliFolderTitle: _bilibiliFolderTitle,
+                bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+                bindingState: _bindingState,
+                ...ledgerWithoutStaleBinding
+              } = ledger
+              return {
+                ...ledgerWithoutStaleBinding,
+                historicalBilibiliFolderIds: legacyRemoteFolderIds,
+                ...(ledger.bilibiliFolderTitle ? { historicalBilibiliFolderTitle: ledger.bilibiliFolderTitle } : {}),
+                bindingState: 'unbacked' as const
+              }
+            })()
+        }
         // A shard creation has an authoritative Bilibili folder ID even while
         // the next inventory read has not caught up. Preserve it solely for a
         // retry of that exact ID; it is never considered write-authorized.
@@ -1913,7 +1937,19 @@ export default function App() {
     }
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
-      const recoveredLedgers = status.ledgers ?? ledgersWithRepositoryCandidates
+      const recoveredLedgers = (status.ledgers ?? ledgersWithRepositoryCandidates).map((ledger) => {
+        const historicalSource = ledgersWithRepositoryCandidates.find((candidate) => candidate.id === ledger.id)
+        const hasFormalOrObservedRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
+        return !hasFormalOrObservedRemoteId && historicalSource?.historicalBilibiliFolderIds?.length
+          ? {
+              ...ledger,
+              historicalBilibiliFolderIds: [...historicalSource.historicalBilibiliFolderIds],
+              ...(historicalSource.historicalBilibiliFolderTitle
+                ? { historicalBilibiliFolderTitle: historicalSource.historicalBilibiliFolderTitle }
+                : {})
+            }
+          : ledger
+      })
       const missingLedgerIds = status.missingLedgerIds
       const recoveredStatus: FavoriteLedgerStatus = {
         ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.length),
@@ -2027,10 +2063,23 @@ export default function App() {
         trustedRemoteShardNumbers
       )
       const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
+      const persistedLedgersWithHistory = persistedLedgers.map((ledger) => {
+        const historicalSource = ledgersWithFormalBindings.find((candidate) => candidate.id === ledger.id)
+        const hasRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
+        return !hasRemoteId && historicalSource?.historicalBilibiliFolderIds?.length
+          ? {
+              ...ledger,
+              historicalBilibiliFolderIds: [...historicalSource.historicalBilibiliFolderIds],
+              ...(historicalSource.historicalBilibiliFolderTitle
+                ? { historicalBilibiliFolderTitle: historicalSource.historicalBilibiliFolderTitle }
+                : {})
+            }
+          : ledger
+      })
       if (bindingResult.failures.length) {
-        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgers)
+        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgersWithHistory)
         const nextPreferences = createInitialAssistantPreferences({
-          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
         })
         preferencesRef.current = nextPreferences
         setPreferences(nextPreferences)
@@ -2042,15 +2091,15 @@ export default function App() {
         return {
           ...result,
           ok: false,
-          ledgers: persistedLedgers,
+          ledgers: persistedLedgersWithHistory,
           unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
           unboundCandidates: bindingResult.failures,
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
-      const ledgersChanged = JSON.stringify(persistedLedgers) !== JSON.stringify(favoriteLedgers)
+      const ledgersChanged = JSON.stringify(persistedLedgersWithHistory) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
       })
 
       if (ledgersChanged) {
@@ -2064,7 +2113,7 @@ export default function App() {
 
       const favoriteLedgerStatus: FavoriteLedgerStatus = {
         ok: result.ok,
-        ledgers: persistedLedgers,
+        ledgers: persistedLedgersWithHistory,
         missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
         backupConflictLedgerIds: Array.isArray(result.backupConflictLedgerIds)
           ? result.backupConflictLedgerIds

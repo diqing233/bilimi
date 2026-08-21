@@ -42,12 +42,17 @@ function normalizeLedgerDisplayName(displayName: string) {
 
 function normalizeLedgerPayload(ledgers: FavoriteLedger[]) {
   return ledgers.map((ledger) => {
+    const {
+      historicalBilibiliFolderIds: _historicalBilibiliFolderIds,
+      historicalBilibiliFolderTitle: _historicalBilibiliFolderTitle,
+      ...ledgerWithoutHistoricalBinding
+    } = ledger
     const bilibiliFolderIds = [...new Set([
-      ...(ledger.bilibiliFolderIds ?? []),
-      ...(ledger.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+      ...(ledgerWithoutHistoricalBinding.bilibiliFolderIds ?? []),
+      ...(ledgerWithoutHistoricalBinding.bilibiliFolderId ? [ledgerWithoutHistoricalBinding.bilibiliFolderId] : [])
     ].map((folderId) => String(folderId).trim()).filter(Boolean))]
     return {
-      ...ledger,
+      ...ledgerWithoutHistoricalBinding,
       ...(bilibiliFolderIds.length ? {
         bilibiliFolderId: bilibiliFolderIds[0],
         bilibiliFolderIds

@@ -2175,8 +2175,10 @@ describe('App runtime integration', () => {
       }
     })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const { requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
         version: 1, accountMid, revision: 0, updatedAt: '2026-08-09T00:00:00.000Z',
@@ -2210,6 +2212,8 @@ describe('App runtime integration', () => {
       unboundLedgerIds: [legacyLedger.id]
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    const savedLedger = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers?.find((ledger) => ledger.id === legacyLedger.id)
+    expect(savedLedger).toMatchObject({ bindingState: 'unbound', historicalBilibiliFolderIds: ['9000'] })
   })
 
   it('does not adopt an unbound remote candidate before the user confirms rebinding', async () => {
