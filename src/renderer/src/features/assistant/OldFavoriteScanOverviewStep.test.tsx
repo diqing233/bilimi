@@ -753,6 +753,31 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeDisabled()
   })
 
+  it('does not show pending adoption after a naturally completed tag run', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 1, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'complete', totalItemCount: 1, completedItemCount: 1, pendingItemCount: 0, failedItemCount: 0,
+          currentSegmentCanResumeTagEnrichment: false,
+          currentSegmentHasUnacceptedTagChanges: false
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+    />)
+
+    expect(screen.getByText('标签补取已完成：已处理 1 / 1 条。')).toBeInTheDocument()
+    expect(screen.queryByText(/发现新增或变化标签，待采用/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeDisabled()
+  })
+
   it('keeps classified source folders selectable and makes the header control select all only', () => {
     const selectSourceFolders = vi.fn()
     render(<OldFavoriteScanOverviewStep

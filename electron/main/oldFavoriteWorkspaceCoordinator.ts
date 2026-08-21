@@ -4631,7 +4631,7 @@ export class OldFavoriteWorkspaceCoordinator {
     // A naturally completed tag run has no adoption step. Once a cutoff was
     // accepted, however, a late result must still match every accepted version
     // even when it clears the pending queue.
-    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0 &&
+    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0 && enrichment.failedAids.length === 0 &&
       Object.keys(enrichment.acceptedTagVersionsBySegment).length === 0) return true
     const accepted = new Set(enrichment.acceptedSegmentIds)
     return segmentIds.every((segmentId) =>
@@ -6460,6 +6460,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const currentSegmentHasAcceptedTagVersion = Boolean(currentSegmentId && tagEnrichment &&
       hasTagVersion(acceptedTagVersionsBySegment, currentSegmentId))
     const currentSegmentHasUnacceptedTagChanges = Boolean(currentSegmentId && tagEnrichment &&
+      !wholeRunTagCutoffAccepted &&
       !acceptedTagSegments.has(currentSegmentId) &&
       (!currentSegmentHasAcceptedTagVersion || currentTagVersion > currentAcceptedTagVersion))
     const currentSegmentCanContinueTagEnrichment = Boolean(currentSegmentId && tagEnrichment &&

@@ -2961,7 +2961,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.recordTagEnrichment('100', 2, ['音乐'], (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId)
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
+      tagEnrichment: {
+        status: 'complete', completedItemCount: 2, pendingItemCount: 0,
+        wholeRunTagCutoffAccepted: true,
+        currentSegmentHasUnacceptedTagChanges: false
+      },
       scan: { scannedItemCount: 2, taggedItemCount: 2, untaggedItemCount: 0 },
       recommendations: { candidates: expect.arrayContaining([expect.objectContaining({ kind: 'tag', displayName: 'bilimi·音乐' })]) }
     })
@@ -3050,7 +3054,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(classifyCurrentItem).toHaveBeenCalledTimes(2)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0, failedItemCount: 1 },
+      tagEnrichment: {
+        status: 'complete', completedItemCount: 2, pendingItemCount: 0, failedItemCount: 1,
+        wholeRunTagCutoffAccepted: false
+      },
       scan: { taggedItemCount: 1, untaggedItemCount: 1 },
       planReadiness: { classifiedAidCount: 2, unclassifiedAidCount: 0 }
     })
