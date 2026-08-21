@@ -14,7 +14,7 @@ const SOURCE_COUNT_MODES: Record<SourceCountMode, {
   next: SourceCountMode
   field: 'plannedAidCount' | 'protectedAidCount' | 'unavailableAidCount'
 }> = {
-  planned: { label: '本轮待整理', next: 'protected', field: 'plannedAidCount' },
+  planned: { label: '待整理', next: 'protected', field: 'plannedAidCount' },
   protected: { label: '已保护', next: 'unavailable', field: 'protectedAidCount' },
   unavailable: { label: '失效视频', next: 'planned', field: 'unavailableAidCount' }
 }
@@ -211,6 +211,17 @@ export function OldFavoriteScanOverviewStep({
   const sourceModeSummary = sourceModeValues.some((value) => value === '待确认')
     ? '待确认'
     : sourceModeValues.reduce<number>((count, value) => count + (typeof value === 'number' ? value : 0), 0)
+  const sourceDuplicateCount = showSourceSelection && effectiveSourceCountMode === 'planned' &&
+    inventoryMetrics?.authority === 'complete' && typeof sourceModeSummary === 'number'
+    ? Math.max(0, sourceModeSummary - plannedAidCount)
+    : null
+  const sourceModeSummaryLabel = sourceDuplicateCount === null
+    ? `（${sourceModeSummary}）`
+    : `（${sourceModeSummary}·${sourceDuplicateCount}）`
+  const sourceModeHeadingLabel = `${sourceModeLabel}${sourceModeSummaryLabel}`
+  const sourceModeHeadingTitle = sourceDuplicateCount === null
+    ? undefined
+    : `${sourceModeSummary}：已选 B 站收藏夹中的待整理来源关系数。${sourceDuplicateCount}：重叠来源产生的重复计数。顶部“本轮待整理”${plannedAidCount}：去重后的实际整理视频数。`
   const guidance = checkingRiskControlRecovery
     ? '正在检查 B 站收藏读取是否已恢复；检测成功后会继续扫描，不会重复读取已保存分页。'
     : retryCoolingDown
@@ -340,16 +351,16 @@ export function OldFavoriteScanOverviewStep({
         <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
           <span>总数</span><small>（{totalUserSourceItemCount}）</small>
         </span>
-        <span role="columnheader" aria-label={!showSourceSelection ? `${sourceModeLabel}（${sourceModeSummary}）` : undefined}
+        <span role="columnheader" aria-label={sourceModeHeadingLabel} title={sourceModeHeadingTitle}
           className={`favorite-ledger-panel__source-metric-heading${showSourceSelection ? ' favorite-ledger-panel__source-metric-heading--toggle' : ''}`}>
           <span>{sourceModeLabel}</span>
           {showSourceSelection ? <button type="button" className="favorite-ledger-panel__source-count-toggle"
-            aria-label={`${sourceModeLabel}（${sourceModeSummary}）`}
+            aria-label={sourceModeHeadingLabel}
             title={`切换为${SOURCE_COUNT_MODES[sourceMode.next].label}`}
             onClick={() => setSourceCountMode(sourceMode.next)}>
             <span aria-hidden="true">⇄</span>
           </button> : null}
-          <small>（{sourceModeSummary}）</small>
+          <small>{sourceModeSummaryLabel}</small>
         </span>
       </div>
       <ul role="rowgroup" className="favorite-ledger-panel__source-list">

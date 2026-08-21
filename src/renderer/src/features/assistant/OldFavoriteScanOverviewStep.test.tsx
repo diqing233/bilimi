@@ -241,13 +241,13 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(selectAllLabel).toHaveTextContent('全选（1）')
     expect(sourceTable.querySelector('.favorite-ledger-panel__source-heading > small')).not.toBeInTheDocument()
     expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
-    expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
-    fireEvent.click(within(sourceTable).getByRole('button', { name: /本轮待整理/ }))
+    expect(within(sourceTable).getByText('待整理')).toBeInTheDocument()
+    fireEvent.click(within(sourceTable).getByRole('button', { name: /待整理/ }))
     expect(within(sourceTable).getByRole('button', { name: /已保护/ })).toBeInTheDocument()
     fireEvent.click(within(sourceTable).getByRole('button', { name: /已保护/ }))
     expect(within(sourceTable).getByRole('button', { name: /失效视频/ })).toBeInTheDocument()
     fireEvent.click(within(sourceTable).getByRole('button', { name: /失效视频/ }))
-    expect(within(sourceTable).getByRole('button', { name: /本轮待整理/ })).toBeInTheDocument()
+    expect(within(sourceTable).getByRole('button', { name: /待整理/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
@@ -270,7 +270,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
     const singleRoundSourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
     expect(within(singleRoundSourceTable).getByRole('checkbox', { name: '全选来源' })).toBeInTheDocument()
-    expect(within(singleRoundSourceTable).getByRole('button', { name: /本轮待整理/ })).toBeInTheDocument()
+    expect(within(singleRoundSourceTable).getByRole('button', { name: /待整理/ })).toBeInTheDocument()
   })
 
   it('shows unique current-batch video metrics without a separate source-selection table', () => {
@@ -280,10 +280,10 @@ describe('OldFavoriteScanOverviewStep', () => {
         segmentSize: 500, hasMultipleSegments: true,
         scan: { phase: 'complete', failureCount: 0, totalItemCount: 2_767, scannedItemCount: 2_767, taggedItemCount: 94, untaggedItemCount: 2_458 },
         inventoryMetrics: {
-          authority: 'complete', relationshipCount: 2_866, plannedAidCount: 2_552, protectedAidCount: 0, unavailableAidCount: 215,
+          authority: 'complete', relationshipCount: 2_866, plannedAidCount: 2_569, protectedAidCount: 0, unavailableAidCount: 215,
           sourceFolders: [
-            { id: 'default', title: '默认收藏夹', relationshipCount: 1_273, plannedAidCount: 1_262, protectedAidCount: 0, unavailableAidCount: 11, selected: true, isBilimiWorkFolder: false, confirmed: true },
-            { id: 'duplicate', title: '重复来源', relationshipCount: 1_593, plannedAidCount: 1_290, protectedAidCount: 0, unavailableAidCount: 204, selected: true, isBilimiWorkFolder: false, confirmed: true }
+            { id: 'default', title: '默认收藏夹', relationshipCount: 1_273, plannedAidCount: 1_300, protectedAidCount: 0, unavailableAidCount: 11, selected: true, isBilimiWorkFolder: false, confirmed: true },
+            { id: 'duplicate', title: '重复来源', relationshipCount: 1_593, plannedAidCount: 1_336, protectedAidCount: 0, unavailableAidCount: 204, selected: true, isBilimiWorkFolder: false, confirmed: true }
           ]
         },
         currentSegmentMetrics: {
@@ -312,7 +312,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     />)
 
     const metrics = screen.getByLabelText('本批整理统计')
-    expect(metrics).toHaveTextContent('本轮待整理2552')
+    expect(metrics).toHaveTextContent('本轮待整理2569')
     expect(metrics).toHaveTextContent('本批待整理500')
     expect(within(metrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
@@ -321,6 +321,38 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.queryByRole('checkbox', { name: '全选来源' })).not.toBeInTheDocument()
     expect(screen.queryByText('默认收藏夹')).not.toBeInTheDocument()
     expect(screen.queryByText('重复来源')).not.toBeInTheDocument()
+  })
+
+  it('explains overlapping source relationships in the pending header', () => {
+    const sourceSnapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 2_000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 2_700, scannedItemCount: 2_700 },
+      inventoryMetrics: {
+        authority: 'complete' as const, relationshipCount: 2_700, plannedAidCount: 2_569, protectedAidCount: 0, unavailableAidCount: 0,
+        sourceFolders: [
+          { id: 'source-a', title: '来源 A', relationshipCount: 1_300, plannedAidCount: 1_300, protectedAidCount: 0, unavailableAidCount: 0, selected: true, isBilimiWorkFolder: false, confirmed: true },
+          { id: 'source-b', title: '来源 B', relationshipCount: 1_336, plannedAidCount: 1_336, protectedAidCount: 0, unavailableAidCount: 0, selected: true, isBilimiWorkFolder: false, confirmed: true }
+        ]
+      },
+      continuationCount: 0,
+      sourceFolders: [
+        { id: 'source-a', title: '来源 A', itemCount: 1_300, selected: true, isBilimiWorkFolder: false },
+        { id: 'source-b', title: '来源 B', itemCount: 1_336, selected: true, isBilimiWorkFolder: false }
+      ],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 2_700, readiness: 'ready' as const, completedTagItemCount: 0, pendingTagItemCount: 0 }],
+      currentSegment: { id: 'segment-1', aids: [], items: [] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    render(<OldFavoriteScanOverviewStep snapshot={sourceSnapshot as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(within(sourceTable).getByRole('columnheader', { name: '待整理（2636·67）' }))
+      .toHaveAttribute('title', '2636：已选 B 站收藏夹中的待整理来源关系数。67：重叠来源产生的重复计数。顶部“本轮待整理”2569：去重后的实际整理视频数。')
   })
 
   it('keeps the current multi-batch scan view to its two pending organization metrics', () => {
@@ -850,7 +882,7 @@ describe('OldFavoriteScanOverviewStep', () => {
     const sourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
     expect(sourceTable).toBeInTheDocument()
     expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
-    expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
+    expect(within(sourceTable).getByText('待整理')).toBeInTheDocument()
     const selectAll = screen.getByRole('checkbox', { name: '全选来源' })
     fireEvent.click(selectAll)
     expect(selectSourceFolders).toHaveBeenLastCalledWith(['source-a', 'source-b'])
