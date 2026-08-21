@@ -441,6 +441,37 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('status')).toHaveTextContent('增量扫描已跳过 3 条已保护视频')
   })
 
+  it('does not announce a completed round while tag enrichment is paused with pending videos', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2_000, hasMultipleSegments: true,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 2_888, scannedItemCount: 2_788 },
+        continuationCount: 0, sourceFolders: [],
+        segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 2_000, readiness: 'ready', completedTagItemCount: 2_000, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 788, readiness: 'tagging', completedTagItemCount: 189, pendingTagItemCount: 383 }
+        ],
+        currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'paused', totalItemCount: 2_572, completedItemCount: 2_189, pendingItemCount: 383, failedItemCount: 0,
+          scopes: {
+            currentSegment: { totalItemCount: 572, completedItemCount: 189, pendingItemCount: 383, failedItemCount: 0, reusedTagItemCount: 0, fetchedTagItemCount: 189, confirmedUntaggedItemCount: 0 },
+            wholeRun: { totalItemCount: 2_572, completedItemCount: 2_189, pendingItemCount: 383, failedItemCount: 0, reusedTagItemCount: 0, fetchedTagItemCount: 2_189, confirmedUntaggedItemCount: 0 }
+          }
+        },
+        overview: { available: true, completedSegmentCount: 1, totalSegmentCount: 2, sourceFolders: [], unavailableItemCount: 0, processedItemCount: 2_000, classifiedItemCount: 1_803, unmatchedItemCount: 197, waitingItemCount: 788, recommendationCounts: [], archiveTargets: [] }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByText('基础扫描已完成，标签补取已暂停：待补取 383 条。')).toBeInTheDocument()
+    expect(screen.queryByText('本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。')).not.toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '收藏扫描进度' }).parentElement).toHaveTextContent('基础扫描已完成')
+  })
+
   it('renders the four canonical inventory metrics with a completed scan total that stays independent from lifecycle projections', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

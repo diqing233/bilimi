@@ -86,7 +86,6 @@ export function OldFavoriteWholeRunOverview({
     <p>已处理 {overview.processedItemCount} 条 · 已分类 {overview.classifiedItemCount} 条 · 暂存 {overview.unmatchedItemCount} 条</p>
     {overview.deepSeekPendingItemCount ? <p>其中 DeepSeek 待整理 {overview.deepSeekPendingItemCount} 条</p> : null}
     {showTagProgress ? <p>标签补取中 {tagItemCount} 条 · 已补取 {completedTagItemCount} 条 · 待补取 {pendingTagItemCount} 条</p> : null}
-    {overview.unscannedItemCount ? <p>尚未扫描 {overview.unscannedItemCount} 条</p> : null}
     {overview.savedItemCount ? <p>已保存 {overview.savedItemCount} 条</p> : null}
     {showArchiveTargets ? <div className="favorite-ledger-panel__whole-run-targets" aria-label="本轮归档目标总览">
       {archiveTargets.map((target) => {

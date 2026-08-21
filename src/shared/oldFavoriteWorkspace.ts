@@ -361,7 +361,6 @@ export type OldFavoriteWorkspaceSnapshot = {
     unmatchedItemCount: number
     deepSeekPendingItemCount?: number
     waitingTagItemCount?: number
-    unscannedItemCount?: number
     savedItemCount?: number
     waitingItemCount: number
     recommendationCounts: Array<{ id: string; count: number }>

@@ -1808,9 +1808,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(snapshot.overview).toMatchObject({
       processedItemCount: 0,
       waitingTagItemCount: 500,
-      deepSeekPendingItemCount: 0,
-      unscannedItemCount: 4
+      deepSeekPendingItemCount: 0
     })
+    expect(snapshot.overview).not.toHaveProperty('unscannedItemCount')
   })
 
   it('keeps waiting batches out of unmatched counts and publishes completed unmatched videos as local inbox', async () => {

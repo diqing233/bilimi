@@ -6220,8 +6220,7 @@ export class OldFavoriteWorkspaceCoordinator {
     segments: OldFavoriteWorkspaceSnapshot['segments']
   ): OldFavoriteWorkspaceSnapshot['overview'] {
     const scan = this.scanOverviews.get(workspace.accountMid)?.scan
-    const unscannedItemCount = Math.max(0, (scan?.totalItemCount ?? 0) - (scan?.scannedItemCount ?? 0))
-    if (segments.length < 2 && !unscannedItemCount) return undefined
+    if (segments.length < 2 && scan?.phase === 'complete') return undefined
     const runtime = this.overviewRuntimes.get(workspace.accountMid)
     const completedSegmentIds = new Set(segments
       .filter((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
@@ -6303,7 +6302,6 @@ export class OldFavoriteWorkspaceCoordinator {
       unmatchedItemCount,
       deepSeekPendingItemCount,
       waitingTagItemCount,
-      unscannedItemCount,
       savedItemCount,
       waitingItemCount,
       recommendationCounts,

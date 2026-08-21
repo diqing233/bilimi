@@ -192,6 +192,14 @@ export function OldFavoriteScanOverviewStep({
   const fetchedTagItemCount = scopedTagEnrichment?.fetchedTagItemCount ?? tagEnrichment?.fetchedTagItemCount ?? taggedItemCount
   const tagTotalItemCount = scopedTagEnrichment?.totalItemCount ?? tagEnrichment?.totalItemCount ?? 0
   const tagCompletedItemCount = scopedTagEnrichment?.completedItemCount ?? tagEnrichment?.completedItemCount ?? 0
+  const tagPendingItemCount = tagEnrichment?.pendingItemCount ?? 0
+  const tagFailureItemCount = tagEnrichment?.failedItemCount ?? 0
+  const tagEnrichmentComplete = !tagEnrichment || (tagEnrichment.status === 'complete' &&
+    tagPendingItemCount === 0 && tagFailureItemCount === 0)
+  const tagOutstandingSummary = [
+    tagPendingItemCount > 0 ? `待补取 ${tagPendingItemCount} 条` : '',
+    tagFailureItemCount > 0 ? `读取失败 ${tagFailureItemCount} 条` : ''
+  ].filter(Boolean).join('，')
   const selectedAidCount = snapshot?.planReadiness?.selectedAidCount ?? scannedItemCount
   const plannedAidCount = inventoryMetrics?.plannedAidCount ?? selectedAidCount
   const currentSegmentPlannedAidCount = activeSnapshot?.currentSegmentMetrics?.plannedAidCount ?? currentSegmentSummary?.itemCount ?? plannedAidCount
@@ -236,7 +244,15 @@ export function OldFavoriteScanOverviewStep({
           ? '扫描已暂停，已保存的进度不会丢失。'
           : scanning
             ? '正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。'
-          : '本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。'
+          : tagEnrichmentComplete
+            ? '本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。'
+            : tagEnrichment?.status === 'paused'
+              ? `基础扫描已完成，标签补取已暂停：${tagOutstandingSummary || '等待状态更新'}。`
+              : tagEnrichment?.status === 'running'
+                ? `基础扫描已完成，标签补取进行中：${tagOutstandingSummary || '正在处理'}。`
+                : tagEnrichment?.status === 'accepted'
+                  ? `基础扫描已完成，已采用当前标签；${tagOutstandingSummary ? `${tagOutstandingSummary}，可稍后继续补取。` : '当前标签结果已采用。'}`
+                  : `基础扫描已完成，标签补取尚未完成：${tagOutstandingSummary || '请检查当前状态'}。`
 
   const overviewReadOnly = hasMultipleSegments && viewScope === 'all' && !overview
   const showWholeRunMetrics = isSingleRound || viewScope === 'all'
@@ -258,7 +274,7 @@ export function OldFavoriteScanOverviewStep({
         <span>扫描进度</span>
         <progress aria-label="收藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? scannedItemCount : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
         <span>{(scanning || scanFailed) && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
-        <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
+        <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '基础扫描已完成'}</strong>
       </div>
       {!scanning && !tagEnrichment && scannedItemCount ? <div>
         <span>已获取标签</span>

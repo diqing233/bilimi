@@ -230,7 +230,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       overview: {
         completedSegmentCount: 2, totalSegmentCount: 6, available: true, sourceFolders: [], unavailableItemCount: 0,
         processedItemCount: 1_000, classifiedItemCount: 892, unmatchedItemCount: 108,
-        deepSeekPendingItemCount: 360, waitingTagItemCount: 130, waitingItemCount: 1_052,
+        deepSeekPendingItemCount: 360, waitingTagItemCount: 130, unscannedItemCount: 100, waitingItemCount: 1_052,
         recommendationCounts: [], archiveTargets: []
       },
       history: { cursor: 0, length: 0 }
@@ -243,6 +243,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByText('标签补取中 2552 条 · 已补取 1370 条 · 待补取 1182 条')).toBeInTheDocument()
     expect(screen.queryByText('标签补取中 500 条 · 已补取 370 条 · 待补取 130 条')).not.toBeInTheDocument()
     expect(screen.queryByText('等待扫描 1052 条')).not.toBeInTheDocument()
+    expect(screen.queryByText('尚未扫描 100 条')).not.toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteWholeRunOverview snapshot={{
       ...snapshot,
