@@ -62,6 +62,8 @@ export type FavoriteLedger = {
   bindingState?: FavoriteLedgerBindingState
   /** The owner deleted the default bilimi folder and must explicitly choose a later recovery. */
   managedFolderDeletedByUser?: boolean
+  /** Exact remote IDs confirmed deleted during the current unbacked recovery; only suppresses stale list residues. */
+  confirmedDeletedRemoteFolderIds?: string[]
   /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
   pendingRemoteBinding?: boolean
   /** The pending shard came from this backup's create response, never a name-based candidate. */

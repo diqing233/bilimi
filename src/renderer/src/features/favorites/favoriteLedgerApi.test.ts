@@ -610,6 +610,67 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderIds')
   })
 
+  it('creates directly when the only same-name inventory residue is the exact folder already confirmed deleted', async () => {
+    installCookies()
+    const ledger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '42', bilibiliFolderIds: ['42'],
+      bindingState: 'unbacked' as const, managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: ['42']
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 42, title: 'bilimi·音乐', media_count: 0 }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 43 } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
+
+    expect(result).toMatchObject({ ok: true, missingTargets: [] })
+    expect(result).not.toHaveProperty('unboundCandidates')
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'music', bilibiliFolderId: '43', bindingState: 'bound'
+    })])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(true)
+  })
+
+  it('still requires confirmation for a different same-name folder after ignoring an exact confirmed-deleted residue', async () => {
+    installCookies()
+    const ledger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '42', bilibiliFolderIds: ['42'],
+      bindingState: 'unbacked' as const, managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: ['42']
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 42, title: 'bilimi·音乐', media_count: 0 },
+          { id: 43, title: 'bilimi·音乐', media_count: 3 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      unboundLedgerIds: ['music'],
+      unboundCandidates: [{
+        ledgerId: 'music',
+        candidates: [{ id: '43', title: 'bilimi·音乐', memberCount: 3 }]
+      }]
+    })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
   it('requires confirmation before creating a released work folder without a remote candidate', async () => {
     installCookies()
     const ledger: FavoriteLedger = {

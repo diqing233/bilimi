@@ -2102,9 +2102,10 @@ describe('FavoriteLedgerOverview', () => {
   })
 
   it('keeps a selected default card while deleting its actual Bilibili folder', async () => {
-    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue([
-      { logicalLedgerId: 'music', remoteFolderId: 'remote-music', title: 'bilimi·音乐', memberCount: 3, state: 'bound', requiresUnboundAcknowledgement: false }
-    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-music'], failedRemoteFolderIds: [],
+      unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
     const save = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
@@ -2133,7 +2134,10 @@ describe('FavoriteLedgerOverview', () => {
       '100', ['music'], false, { music: 'bilimi·音乐' }, { music: ['remote-music'] }
     ))
     await waitFor(() => expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'music', displayName: 'bilimi·音乐舞台', bindingState: 'unbacked' })
+      expect.objectContaining({
+        id: 'music', displayName: 'bilimi·音乐舞台', bindingState: 'unbacked',
+        confirmedDeletedRemoteFolderIds: ['remote-music']
+      })
     ], { deleteDisabled: false }))
     expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
   })

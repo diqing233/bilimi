@@ -141,9 +141,13 @@ function sharedScriptHelpers(): string {
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
+      const confirmedDeletedRemoteFolderIds = new Set((Array.isArray(ledger?.confirmedDeletedRemoteFolderIds)
+        ? ledger.confirmedDeletedRemoteFolderIds
+        : []).map((folderId) => String(folderId || '').trim()).filter(Boolean));
       const candidates = folders
         .filter((candidate) => isBilimiManagedFolder(candidate) &&
-          normalizeLogicalFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate))
+          normalizeLogicalFolderTitle(candidate?.title) === normalizedLedgerTitle && findFolderId(candidate) &&
+          !confirmedDeletedRemoteFolderIds.has(String(findFolderId(candidate))))
         .map((candidate) => ({
           id: String(findFolderId(candidate)),
           title: String(candidate.title || ''),
@@ -338,7 +342,12 @@ function sharedScriptHelpers(): string {
           for (const folderId of ledgerRemoteFolderIds(ledger)) remoteDraftIndexByFolderId.set(folderId, index);
         }
       });
-      const dismissedIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+      const dismissedIds = new Set([
+        ...(Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []),
+        ...ledgers.flatMap((ledger) => Array.isArray(ledger.confirmedDeletedRemoteFolderIds)
+          ? ledger.confirmedDeletedRemoteFolderIds
+          : [])
+      ].map((id) => String(id || '').trim()).filter(Boolean));
       const knownRemoteFolderIds = new Set(deduplicatedLedgers.flatMap(ledgerRemoteFolderIds));
       // A normal local rule with the same title is an explicit rebind
       // candidate, not a remote-only draft. A local bilimi-prefixed draft is

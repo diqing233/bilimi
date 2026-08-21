@@ -58,7 +58,14 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
       ...ledgerWithoutRemoteBinding
     } = ledger
     if (!ledger.isDefault) return { ...ledgerWithoutRemoteBinding, bindingState: 'unbacked' }
-    return { ...restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger), bindingState: 'unbacked' }
+    return {
+      ...restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger),
+      bindingState: 'unbacked',
+      confirmedDeletedRemoteFolderIds: [...new Set([
+        ...(ledger.confirmedDeletedRemoteFolderIds ?? []),
+        ...deleted
+      ].map((id) => id.trim()).filter(Boolean))]
+    }
   })
 }
 

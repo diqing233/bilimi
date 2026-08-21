@@ -1838,6 +1838,7 @@ export default function App() {
       // from restoring the stale marker.
       const {
         managedFolderDeletedByUser: _managedFolderDeletedByUser,
+        confirmedDeletedRemoteFolderIds: _confirmedDeletedRemoteFolderIds,
         pendingRemoteBinding: _pendingRemoteBinding,
         pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
         pendingRemoteFolderId: _pendingRemoteFolderId,

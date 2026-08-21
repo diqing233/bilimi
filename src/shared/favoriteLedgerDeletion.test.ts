@@ -20,7 +20,8 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
       {
         ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!,
         bindingState: 'unbacked',
-        managedFolderDeletedByUser: true
+        managedFolderDeletedByUser: true,
+        confirmedDeletedRemoteFolderIds: ['remote-music', 'remote-music-2']
       },
       {
         id: 'games', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 20, isDefault: false,

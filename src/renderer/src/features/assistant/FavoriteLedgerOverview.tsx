@@ -96,6 +96,7 @@ type ManagedDeletionPlan = {
   draftLedgerIds: string[]
   recommendationCancellationLedgerIds: string[]
   candidates: ManagedFolderDeletionCandidate[]
+  confirmedRemoteFolderIds?: string[]
 }
 
 type ManagedRemoteDeletionResult = {
@@ -220,6 +221,16 @@ function isManagedRemoteDeletionResult(result: unknown): result is ManagedRemote
     ['succeeded', 'partial-failed', 'failed', 'result-unknown'].includes(String((result as { status?: unknown }).status)) &&
     Array.isArray((result as { succeededRemoteFolderIds?: unknown }).succeededRemoteFolderIds) &&
     Array.isArray((result as { failures?: unknown }).failures))
+}
+
+function confirmedRemoteFolderIdsFromDeletionResult(result: unknown): string[] {
+  if (isManagedRemoteDeletionResult(result)) return result.succeededRemoteFolderIds
+  if (Array.isArray(result)) {
+    return result.flatMap((candidate) => typeof candidate === 'object' && candidate
+      ? [String((candidate as { remoteFolderId?: unknown }).remoteFolderId ?? '').trim()]
+      : []).filter(Boolean)
+  }
+  return []
 }
 
 function partialManagedRemoteDeletionMessage(result: ManagedRemoteDeletionResult, candidates: ManagedFolderDeletionCandidate[]) {
@@ -1030,9 +1041,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           : enableStore.isEnabled(ledger.id)
       }))
     const next = removeConfirmedRemoteBindings(retained, deletionScope === 'bilibili'
-      ? plan.candidates
-        .filter((candidate) => remotelyDeletedDefaultIds.has(candidate.logicalLedgerId) && candidate.remoteFolderId)
-        .map((candidate) => candidate.remoteFolderId!)
+      ? plan.confirmedRemoteFolderIds ?? []
       : []).map((ledger) => locallyResetDefaultIds.has(ledger.id)
       ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
       : ledger)
@@ -1099,8 +1108,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDeletionExecuting(true)
     setDeletionError(null)
     try {
+      let remoteDeletionResult: unknown
       if (deletionScope === 'bilibili' && remotePlanLedgerIds.size) {
-        const result = remoteDraftLedgerIds.size
+        remoteDeletionResult = remoteDraftLedgerIds.size
           ? await window.bilimiDesktop?.deleteManagedRemoteFolders?.(
               accountMid,
               [...remoteIds],
@@ -1116,13 +1126,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
               ledgerTitleHints,
               expectedRemoteFolderIds(remotePlanLedgerIds)
             )
-        if (isManagedRemoteDeletionResult(result) && result.status === 'partial-failed') {
-          const succeededIds = new Set(result.succeededRemoteFolderIds)
+        if (isManagedRemoteDeletionResult(remoteDeletionResult) && remoteDeletionResult.status === 'partial-failed') {
+          const succeededIds = new Set(remoteDeletionResult.succeededRemoteFolderIds)
           const succeededDraftLedgerIds = deletionPlan.candidates
             .filter((candidate) => remoteDraftLedgerIds.has(candidate.logicalLedgerId) && candidate.remoteFolderId && succeededIds.has(candidate.remoteFolderId))
             .map((candidate) => candidate.logicalLedgerId)
           await deletePersistedDraftLedgers(accountMid, succeededDraftLedgerIds)
-          const next = removeConfirmedRemoteBindings(draftLedgers, result.succeededRemoteFolderIds)
+          const next = removeConfirmedRemoteBindings(draftLedgers, remoteDeletionResult.succeededRemoteFolderIds)
             .filter((ledger) => !succeededDraftLedgerIds.includes(ledger.id))
           await onSaveLedgers(next, { deleteDisabled: false })
           setDraftLedgers(next)
@@ -1133,14 +1143,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             ...deletionPlan,
             candidates: deletionPlan.candidates.filter((candidate) => !candidate.remoteFolderId || !succeededIds.has(candidate.remoteFolderId))
           })
-          setDeletionError(partialManagedRemoteDeletionMessage(result, deletionPlan.candidates))
+          setDeletionError(partialManagedRemoteDeletionMessage(remoteDeletionResult, deletionPlan.candidates))
           return
         }
-        if (!managedFavoriteFolderDeletionSucceeded(result)) throw new Error('Remote folder deletion failed.')
+        if (!managedFavoriteFolderDeletionSucceeded(remoteDeletionResult)) throw new Error('Remote folder deletion failed.')
       }
       await deletePersistedDraftLedgers(accountMid, deletionPlan.draftLedgerIds)
       await deletePersistedCustomLedgers(accountMid, [...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.localCustomLedgerIds])
-      await finalizeManagedDeletionPlan(deletionPlan, accountMid)
+      const confirmedRemoteFolderIds = deletionScope === 'bilibili'
+        ? confirmedRemoteFolderIdsFromDeletionResult(remoteDeletionResult)
+        : []
+      await finalizeManagedDeletionPlan({ ...deletionPlan, confirmedRemoteFolderIds }, accountMid)
     } catch {
       setDeletionError('删除未成功，请稍后重试。')
     } finally {

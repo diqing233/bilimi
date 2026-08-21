@@ -1908,7 +1908,10 @@ describe('App runtime integration', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => ({
       ...ledger,
       ...(ledger.id === 'music'
-        ? { bilibiliFolderId: 'old-music', managedFolderDeletedByUser: true, bindingState: 'unbound' as const }
+        ? {
+            bilibiliFolderId: 'old-music', managedFolderDeletedByUser: true, bindingState: 'unbound' as const,
+            confirmedDeletedRemoteFolderIds: ['old-music']
+          }
         : {}),
       enabled: true
     }))
@@ -1956,6 +1959,7 @@ describe('App runtime integration', () => {
       bilibiliFolderId: 'new-music', bindingState: 'bound'
     })
     expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('confirmedDeletedRemoteFolderIds')
   })
 
   it('retains a newly created replacement id as pending when its formal binding inventory has not caught up', async () => {
