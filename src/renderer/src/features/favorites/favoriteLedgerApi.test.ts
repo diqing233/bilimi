@@ -1134,6 +1134,55 @@ describe('favorite ledger API scripts', () => {
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
   })
 
+  it('keeps every newly created default folder bound while later batch rechecks observe it', async () => {
+    installCookies()
+    const createdByTitle = new Map<string, { id: string; title: string }>()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: `deleted-bound-${ledger.id}`,
+      bilibiliFolderIds: [`deleted-bound-${ledger.id}`],
+      bindingState: 'unbacked' as const,
+      managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: [
+        `deleted-bound-${ledger.id}`,
+        `deleted-unbound-${ledger.id}`
+      ]
+    }))
+    const residualFolders = ledgers.flatMap((ledger) => [
+      { id: `deleted-bound-${ledger.id}`, title: ledger.displayName, media_count: 0 },
+      { id: `deleted-unbound-${ledger.id}`, title: ledger.displayName, media_count: 0 }
+    ])
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [...residualFolders, ...createdByTitle.values()].map((folder) => ({ ...folder, media_count: 0 })) }
+        })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        const title = new URLSearchParams(String(init?.body ?? '')).get('title') ?? ''
+        const ledger = ledgers.find((candidate) => candidate.displayName === title)
+        if (!ledger) throw new Error(`Unexpected create title: ${title}`)
+        const folder = { id: `created-${ledger.id}`, title }
+        createdByTitle.set(title, folder)
+        return Response.json({ code: 0, data: { id: folder.id } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript(ledgers, ledgers))
+
+    expect(result).toMatchObject({ ok: true, missingTargets: [] })
+    expect(result).not.toHaveProperty('unboundCandidates')
+    expect(result.ledgers).toEqual(ledgers.map((ledger) => expect.objectContaining({
+      id: ledger.id,
+      bilibiliFolderId: `created-${ledger.id}`,
+      bindingState: 'bound'
+    })))
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toHaveLength(ledgers.length)
+  })
+
   it('returns an explicit rebind candidate when a remote bilimi folder appears during creation recheck', async () => {
     installCookies()
     const ledger = createDefaultFavoriteLedgers()[0]

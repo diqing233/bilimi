@@ -1962,6 +1962,73 @@ describe('App runtime integration', () => {
     expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('confirmedDeletedRemoteFolderIds')
   })
 
+  it('creates and formally binds after deletion confirmed both the bound and same-name unbound folders', async () => {
+    const accountMid = '100'
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      ...(ledger.id === 'music'
+        ? {
+            bilibiliFolderId: 'bound-music',
+            bilibiliFolderIds: ['bound-music'],
+            managedFolderDeletedByUser: true,
+            bindingState: 'unbacked' as const,
+            confirmedDeletedRemoteFolderIds: ['bound-music', 'unbound-music']
+          }
+        : {}),
+      enabled: true
+    }))
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
+        }
+      })),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const returnedLedgers = ledgers.map((ledger, index) => ({
+      ...ledger,
+      ...(ledger.id === 'music'
+        ? { bilibiliFolderId: 'new-music', bilibiliFolderIds: ['new-music'] }
+        : { bilibiliFolderId: String(9_900 + index), bilibiliFolderIds: [String(9_900 + index)] }),
+      bindingState: 'bound' as const
+    }))
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          expect(script).toContain('bound-music')
+          expect(script).toContain('unbound-music')
+          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [], message: '收藏夹已备册。' }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({
+      id: 'backup-after-all-deletion-candidates-succeeded', type: 'save-ledgers',
+      ledgers: [ledgers.find((ledger) => ledger.id === 'music')!],
+      options: { backupTargetLedgerIds: ['music'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'music', remoteFolderId: 'new-music'
+    }))
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).toMatchObject({
+      bilibiliFolderId: 'new-music', bindingState: 'bound'
+    })
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('managedFolderDeletedByUser')
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')).not.toHaveProperty('confirmedDeletedRemoteFolderIds')
+  })
+
   it('retains a newly created replacement id as pending when its formal binding inventory has not caught up', async () => {
     const accountMid = '100'
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)

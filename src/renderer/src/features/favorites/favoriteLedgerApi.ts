@@ -600,6 +600,7 @@ export function buildEnsureFavoriteLedgersScript(
       );
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
+      const createdLedgerBindings = new Map();
        const unboundLedgerIds = nextLedgers
          .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
          .map((ledger) => ledger.id);
@@ -645,6 +646,12 @@ export function buildEnsureFavoriteLedgersScript(
         );
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
+        nextLedgers = nextLedgers.map((candidate) => {
+          const createdBinding = createdLedgerBindings.get(candidate.id);
+          return createdBinding
+            ? { ...candidate, ...createdBinding, bindingState: 'bound' }
+            : candidate;
+        });
         if (recheckedCandidates.length > 0) {
           return {
             ok: false,
@@ -674,7 +681,15 @@ export function buildEnsureFavoriteLedgersScript(
           const json = await ensureApiOk(response, 'favorite ledger create');
           const folderId = json.data?.id ?? json.data?.fid;
           if (folderId) {
-            nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
+            const createdLedger = {
+              ...ledger,
+              bilibiliFolderId: String(folderId),
+              bilibiliFolderIds: [String(folderId)],
+              bilibiliFolderTitle: ledger.displayName,
+              bindingState: 'bound'
+            };
+            createdLedgerBindings.set(ledger.id, createdLedger);
+            nextLedgers[index] = createdLedger;
           }
         } catch (error) {
           return {
@@ -756,6 +771,7 @@ export function buildSaveFavoriteLedgersScript(
       );
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
+      const createdLedgerBindings = new Map();
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
@@ -801,6 +817,12 @@ export function buildSaveFavoriteLedgersScript(
         );
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
+        nextLedgers = nextLedgers.map((candidate) => {
+          const createdBinding = createdLedgerBindings.get(candidate.id);
+          return createdBinding
+            ? { ...candidate, ...createdBinding, bindingState: 'bound' }
+            : candidate;
+        });
         if (recheckedCandidates.length > 0) {
           return {
             ok: false,
@@ -830,7 +852,15 @@ export function buildSaveFavoriteLedgersScript(
           const json = await ensureApiOk(response, 'favorite ledger create');
           const folderId = json.data?.id ?? json.data?.fid;
           if (folderId) {
-            nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId), bilibiliFolderTitle: ledger.displayName, bindingState: 'bound' };
+            const createdLedger = {
+              ...ledger,
+              bilibiliFolderId: String(folderId),
+              bilibiliFolderIds: [String(folderId)],
+              bilibiliFolderTitle: ledger.displayName,
+              bindingState: 'bound'
+            };
+            createdLedgerBindings.set(ledger.id, createdLedger);
+            nextLedgers[index] = createdLedger;
           }
         } catch (error) {
           return {
