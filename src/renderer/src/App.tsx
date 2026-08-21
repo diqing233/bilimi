@@ -1697,7 +1697,7 @@ export default function App() {
       // owner confirms it in the rebind dialog. Older successful create
       // responses may omit bindingState, so only an explicit unbound state is
       // excluded here.
-      if (ledger.bindingState === 'unbound') continue
+      if (ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup) continue
       const remoteFolderId = ledger.bilibiliFolderId?.trim()
       if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
@@ -1707,7 +1707,8 @@ export default function App() {
       // It must be registered in the same backup operation; otherwise the
       // next authoritative inventory projects it back as unbound.
       const knownInputRemoteFolderIds = inputRemoteFolderIds.get(ledger.id) ?? new Set<string>()
-      if (selectedFolders.length || explicitlySelectedFolderId === remoteFolderId || !knownInputRemoteFolderIds.has(remoteFolderId)) {
+      if (selectedFolders.length || explicitlySelectedFolderId === remoteFolderId ||
+        ledger.pendingRemoteBindingCreatedByBackup || !knownInputRemoteFolderIds.has(remoteFolderId)) {
         const folders = selectedFolders.length ? selectedFolders : [{ id: remoteFolderId, title: ledger.displayName }]
         const knownShardNumbers = trustedRemoteShardNumbers?.get(ledger.id) ?? new Map<string, number>()
         const occupiedShardNumbers = new Set(knownShardNumbers.values())
@@ -1791,6 +1792,31 @@ export default function App() {
       const successful = successfulBindingsByLedger.get(ledger.id)
       if (!successful?.length) {
         if (!bindingResult.failures.some((failure) => failure.ledgerId === ledger.id)) return ledger
+        const failure = bindingResult.failures.find((candidate) => candidate.ledgerId === ledger.id)!
+        const failedRemoteFolder = failure.candidates[0]
+        const formalLedger = formalLedgerById.get(ledger.id)
+        const inputRemoteFolderIds = new Set([
+          formalLedger?.bilibiliFolderId,
+          ...(formalLedger?.bilibiliFolderIds ?? [])
+        ].filter((folderId): folderId is string => Boolean(folderId?.trim())))
+        // The create response is authoritative for this exact ID. If the
+        // formal inventory is still lagging after bounded retries, retain it
+        // as a non-writable pending binding instead of collapsing it into a
+        // generic name-based unbound candidate.
+        if (failedRemoteFolder && formalLedger?.managedFolderDeletedByUser && !inputRemoteFolderIds.has(failedRemoteFolder.id)) {
+          return {
+            ...ledger,
+            bilibiliFolderId: failedRemoteFolder.id,
+            bilibiliFolderIds: [failedRemoteFolder.id],
+            bilibiliFolderTitle: failedRemoteFolder.title,
+            bilibiliFolderVideoCount: failedRemoteFolder.memberCount,
+            bindingState: 'unbound' as const,
+            pendingRemoteBinding: true,
+            pendingRemoteBindingCreatedByBackup: true,
+            pendingRemoteFolderId: failedRemoteFolder.id,
+            pendingRemoteFolderTitle: failedRemoteFolder.title
+          }
+        }
         const { bilibiliFolderId: _folderId, bilibiliFolderIds: _folderIds, bilibiliFolderTitle: _folderTitle, bilibiliFolderVideoCount: _videoCount, bindingState: _bindingState, ...unboundLedger } = ledger
         return { ...unboundLedger, bindingState: 'unbound' as const }
       }
@@ -1810,7 +1836,14 @@ export default function App() {
       // The main process clears this durable default-deletion marker after the
       // same formal adoption. Keep the renderer's subsequent preference save
       // from restoring the stale marker.
-      const { managedFolderDeletedByUser: _managedFolderDeletedByUser, ...ledgerWithoutDeletionMarker } = ledger
+      const {
+        managedFolderDeletedByUser: _managedFolderDeletedByUser,
+        pendingRemoteBinding: _pendingRemoteBinding,
+        pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
+        pendingRemoteFolderId: _pendingRemoteFolderId,
+        pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
+        ...ledgerWithoutDeletionMarker
+      } = ledger
       return {
         ...ledgerWithoutDeletionMarker,
         bilibiliFolderId: folderIds[0],
@@ -1821,6 +1854,14 @@ export default function App() {
         bindingState: 'bound' as const
       }
     })
+  }
+
+  function visibleBindingFailures(
+    bindingResult: FavoriteLedgerBindingRegistrationResult,
+    ledgers: FavoriteLedger[]
+  ) {
+    const ledgersById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+    return bindingResult.failures.filter((failure) => !ledgersById.get(failure.ledgerId)?.pendingRemoteBindingCreatedByBackup)
   }
 
   async function readFavoriteLedgerStatus(
@@ -1986,6 +2027,7 @@ export default function App() {
       )
       const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
       if (bindingResult.failures.length) {
+        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgers)
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
         })
@@ -2249,6 +2291,7 @@ export default function App() {
         ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
         : backupLedgers
       if (bindingResult.failures.length) {
+        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgers)
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
         })
@@ -2267,9 +2310,11 @@ export default function App() {
           ...result,
           ok: false,
           ledgers: persistedLedgers,
-          unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
-          unboundCandidates: bindingResult.failures,
-          message: '收藏夹规则已保存，但正式绑定未完成，请重新确认远端收藏夹。'
+          unboundLedgerIds: visibleFailures.map((failure) => failure.ledgerId),
+          unboundCandidates: visibleFailures,
+          message: visibleFailures.length
+            ? '收藏夹规则已保存，但正式绑定未完成，请重新确认远端收藏夹。'
+            : '收藏夹已创建，正在等待 B 站收藏夹清单刷新后完成正式绑定；不会重复创建或写入视频。'
         }
       }
       const nextPreferences = createInitialAssistantPreferences({

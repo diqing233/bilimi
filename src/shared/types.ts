@@ -64,6 +64,8 @@ export type FavoriteLedger = {
   managedFolderDeletedByUser?: boolean
   /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
   pendingRemoteBinding?: boolean
+  /** The pending shard came from this backup's create response, never a name-based candidate. */
+  pendingRemoteBindingCreatedByBackup?: boolean
   /** Exact remote ID of a created shard that is not formally bound yet. Never grants write access. */
   pendingRemoteFolderId?: string
   /** Last title returned with a pending remote shard creation response. */

@@ -1374,6 +1374,18 @@ describe('FavoriteLedgerOverview', () => {
     ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
   })
 
+  it('labels a backup-created exact id as awaiting formal confirmation instead of an ordinary unbound candidate', () => {
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'unbound', bilibiliFolderId: 'new-music',
+      pendingRemoteBinding: true, pendingRemoteBindingCreatedByBackup: true,
+      pendingRemoteFolderId: 'new-music'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已创建 · 待正式确认')
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('未绑定')
+  })
+
   it('keeps an unbound default ledger selected and locked while the default system is enabled', () => {
     render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled ledgers={[{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,

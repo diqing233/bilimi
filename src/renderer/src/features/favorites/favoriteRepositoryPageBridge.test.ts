@@ -102,6 +102,10 @@ describe('favorite repository page bridge', () => {
     })
     const script = executeJavaScript.mock.calls[0][0]
     expect(script).toContain('/x/v3/fav/folder/created/list-all')
+    // A newly-created folder can take a short time to appear in the remote
+    // inventory. The binding service retries that exact ID, so every retry
+    // must bypass a stale browser cache rather than reading the same list.
+    expect(script).toContain("cache: 'no-store'")
     expect(script).not.toContain('bili_jct')
   })
 

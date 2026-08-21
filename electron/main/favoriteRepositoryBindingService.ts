@@ -171,6 +171,7 @@ export class FavoriteRepositoryBindingService {
     repository: FavoriteRepositoryService
     now?: () => string
     newBindingToken?: () => string
+    waitForInventoryRetry?: (milliseconds: number) => Promise<void>
     pageBridgeManager?: FavoriteRepositoryPageBridgeManager
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
   }) {}
@@ -199,17 +200,30 @@ export class FavoriteRepositoryBindingService {
     await pageBridgeManager.bind(account, runId)
     try {
       const bridge = pageBridgeManager.pageBridge(account, runId)
-      let inventory
-      try {
-        inventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:inventory` })
-      } catch {
-        throw new Error('Favorite repository remote folder inventory is unavailable.')
-      }
-      if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
-        throw new Error('Favorite repository remote account mismatch.')
-      }
       // Adoption is deliberately ID-only: duplicate names must never affect the target.
-      const matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+      // A successful create response already gives the renderer the exact
+      // remote ID. Bilibili's folder list can lag that response briefly, so
+      // make bounded, condition-based reads for that ID before reporting a
+      // failed formal binding. This never falls back to a title match and
+      // never creates another folder.
+      let matches: FavoriteRepositoryRemoteFolderInventory[] = []
+      for (const [attempt, delayMs] of [0, 250, 750].entries()) {
+        if (attempt > 0) await this.waitForInventoryRetry(delayMs)
+        let inventory
+        try {
+          inventory = await bridge.readFolderInventory({
+            accountMid: account,
+            operationKey: `${runId}:inventory${attempt ? `-recheck-${attempt}` : ''}`
+          })
+        } catch {
+          throw new Error('Favorite repository remote folder inventory is unavailable.')
+        }
+        if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+          throw new Error('Favorite repository remote account mismatch.')
+        }
+        matches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+        if (matches.length === 1) break
+      }
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
       let remote = matches[0]
       const remoteTitleMatches = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
@@ -533,5 +547,13 @@ export class FavoriteRepositoryBindingService {
 
   private now() {
     return this.options.now?.() ?? new Date().toISOString()
+  }
+
+  private async waitForInventoryRetry(milliseconds: number) {
+    if (this.options.waitForInventoryRetry) {
+      await this.options.waitForInventoryRetry(milliseconds)
+      return
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
   }
 }

@@ -185,7 +185,7 @@ function sharedScriptHelpers(): string {
         // A user explicitly released this default work-folder binding. Its old
         // remote ID is only evidence for a later, explicitly selected rebind;
         // ordinary inventory polling must never silently restore authority.
-        if (ledger.managedFolderDeletedByUser) {
+        if (ledger.managedFolderDeletedByUser && !ledger.pendingRemoteBindingCreatedByBackup) {
           // A create confirmation authorizes creation only while the fresh
           // inventory is still empty. If a matching folder appeared in the
           // meantime, return to the existing explicit binding confirmation
@@ -217,6 +217,18 @@ function sharedScriptHelpers(): string {
         // local, unbacked rule and must pass the explicit create confirmation
         // before a future backup can create anything.
         if (ledger.pendingRemoteBinding && (ledger.pendingRemoteFolderId || ledger.bilibiliFolderId)) {
+          if (ledger.pendingRemoteBindingCreatedByBackup && candidates.length) {
+            const exactCreatedFolder = candidates[0];
+            return {
+              ...ledger,
+              bilibiliFolderId: exactCreatedFolder.id,
+              bilibiliFolderIds: [exactCreatedFolder.id],
+              bilibiliFolderTitle: exactCreatedFolder.title,
+              bilibiliFolderVideoCount: exactCreatedFolder.memberCount,
+              bindingState: 'bound'
+            };
+          }
+          if (ledger.pendingRemoteBindingCreatedByBackup) return ledger;
           if (candidates.length) return { ...ledger, bindingState: 'unbound' };
           const {
             bilibiliFolderId: _bilibiliFolderId,
@@ -260,7 +272,7 @@ function sharedScriptHelpers(): string {
       });
     };
     const collectUnboundCandidates = (ledgers, folders) => ledgers
-      .filter((ledger) => ledger.bindingState === 'unbound' && ledger.syncState !== 'local-draft')
+      .filter((ledger) => ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup && ledger.syncState !== 'local-draft')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
     const stableRemoteDraftLedgerId = (remoteFolderId) => {
       let hash = 2166136261;
@@ -413,7 +425,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[], dismi
       const nextLedgers = remoteDraftProjection.ledgers;
       const remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const unboundLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
       const unboundCandidates = collectUnboundCandidates(nextLedgers, folders);
 
@@ -580,7 +592,7 @@ export function buildEnsureFavoriteLedgersScript(
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
        const unboundLedgerIds = nextLedgers
-         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
          .map((ledger) => ledger.id);
        const unbackedLedgerIds = nextLedgers
          .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')
@@ -736,7 +748,7 @@ export function buildSaveFavoriteLedgersScript(
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const unboundLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound')
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
       const unbackedLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbacked')

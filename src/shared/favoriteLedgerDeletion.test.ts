@@ -29,4 +29,23 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
       { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 30, isDefault: true, bilibiliFolderId: 'remote-knowledge', syncState: 'bound' }
     ])
   })
+
+  it('clears every pending-created binding marker when that exact remote folder is confirmed deleted', () => {
+    const pendingLedger = {
+      id: 'custom-pending', displayName: 'bilimi·待确认', keywords: [], enabled: true, priority: 10, isDefault: false,
+      bilibiliFolderId: 'new-pending', bilibiliFolderIds: ['new-pending'], bindingState: 'unbound' as const,
+      pendingRemoteBinding: true, pendingRemoteBindingCreatedByBackup: true,
+      pendingRemoteFolderId: 'new-pending', pendingRemoteFolderTitle: 'bilimi·待确认'
+    }
+
+    const [next] = applyManagedFavoriteLedgerDeletion([pendingLedger], ['custom-pending'], ['custom-pending'])
+
+    expect(next).toEqual(expect.objectContaining({
+      id: 'custom-pending', bindingState: 'unbacked'
+    }))
+    expect(next).not.toHaveProperty('pendingRemoteBinding')
+    expect(next).not.toHaveProperty('pendingRemoteBindingCreatedByBackup')
+    expect(next).not.toHaveProperty('pendingRemoteFolderId')
+    expect(next).not.toHaveProperty('pendingRemoteFolderTitle')
+  })
 })

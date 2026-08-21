@@ -262,15 +262,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const isForcedEnabled = (ledger: FavoriteLedger) => ledger.id === 'inbox' || isDefaultSystemLocked(ledger)
-  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.bindingState === 'bound'
-    ? '已备册'
-    : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
-      ? '未绑定'
-      : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
-        ? '未备册'
-        : ledger.bilibiliFolderId
-          ? '已备册'
-          : ''
+  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.pendingRemoteBindingCreatedByBackup
+    ? '已创建 · 待正式确认'
+    : ledger.bindingState === 'bound'
+      ? '已备册'
+      : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
+        ? '未绑定'
+        : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
+          ? '未备册'
+          : ledger.bilibiliFolderId
+            ? '已备册'
+            : ''
   const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存')
     ? 'local-draft'
     : label.includes('未备册')

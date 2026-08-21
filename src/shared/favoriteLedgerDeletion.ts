@@ -52,6 +52,7 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
       bilibiliFolderTitle: _bilibiliFolderTitle,
       bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
       pendingRemoteBinding: _pendingRemoteBinding,
+      pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
       pendingRemoteFolderId: _pendingRemoteFolderId,
       pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
       ...ledgerWithoutRemoteBinding

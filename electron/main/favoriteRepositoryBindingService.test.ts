@@ -643,6 +643,72 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await repository.getSnapshot('100')).memberships['bilimi:inbox:001']).toEqual([])
   })
 
+  it('rechecks the exact returned folder id when a newly created folder is absent from the first inventory', async () => {
+    const repository = await createRepository()
+    const waitForInventoryRetry = vi.fn().mockResolvedValue(undefined)
+    const readFolderInventory = vi.fn()
+      .mockResolvedValueOnce({ observedAccountMid: '100', folders: [] })
+      .mockResolvedValueOnce({
+        observedAccountMid: '100',
+        folders: [{ id: 'new-music', title: 'bilimi·音乐舞台', memberCount: 0 }]
+      })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      waitForInventoryRetry,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(),
+          readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台',
+      remoteDisplayTitle: 'bilimi·音乐舞台', expectedRemoteTitle: 'bilimi·音乐舞台',
+      remoteFolderId: 'new-music', shardNumber: 1, memberAids: []
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({
+        logicalLedgerId: 'music', remoteFolderId: 'new-music', bindingState: 'bound'
+      })]
+    })
+
+    expect(readFolderInventory).toHaveBeenCalledTimes(2)
+    expect(waitForInventoryRetry).toHaveBeenCalledWith(250)
+  })
+
+  it('never adopts a name match when the exact returned folder id remains absent', async () => {
+    const repository = await createRepository()
+    const waitForInventoryRetry = vi.fn().mockResolvedValue(undefined)
+    const readFolderInventory = vi.fn().mockResolvedValue({
+      observedAccountMid: '100',
+      folders: [{ id: 'same-title-but-not-returned', title: 'bilimi·音乐舞台', memberCount: 0 }]
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      waitForInventoryRetry,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(),
+          readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台',
+      remoteDisplayTitle: 'bilimi·音乐舞台', expectedRemoteTitle: 'bilimi·音乐舞台',
+      remoteFolderId: 'new-music', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('absent')
+
+    expect(readFolderInventory).toHaveBeenCalledTimes(3)
+    expect(waitForInventoryRetry).toHaveBeenNthCalledWith(1, 250)
+    expect(waitForInventoryRetry).toHaveBeenNthCalledWith(2, 750)
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
+  })
+
   it('renames only the explicitly confirmed remote shard before binding its chosen shard number', async () => {
     const repository = await createRepository()
     let remoteTitle = 'bilimi·游戏专区'

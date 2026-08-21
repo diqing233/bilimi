@@ -91,7 +91,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
         const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
         if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim()) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
-        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2', { credentials: 'include' }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2', { credentials: 'include', cache: 'no-store' }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
         let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
         if (!response.ok || json?.code !== 0 || !Array.isArray(json?.data?.list)) return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
         const folders = json.data.list.map((folder) => ({ id: String(folder?.id ?? folder?.fid ?? ''), title: String(folder?.title ?? '').trim(), memberCount: Number(folder?.media_count ?? folder?.mediaCount ?? 0) })).filter((folder) => folder.id && folder.title && Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0);
