@@ -123,6 +123,7 @@ export function OldFavoriteScanOverviewStep({
   const overview = activeSnapshot?.overview
   const hasMultipleSegments = Boolean(activeSnapshot?.hasMultipleSegments || (activeSnapshot?.segments.length ?? 0) > 1)
   const isSingleRound = !hasMultipleSegments
+  const showSourceSelection = isSingleRound || viewScope === 'all'
   const inventoryMetrics = activeSnapshot?.inventoryMetrics
   const legacyProjectionConfirmed = activeSnapshot?.scan.phase === 'complete'
   const folders: SourceFolderProjection[] = inventoryMetrics?.sourceFolders ?? (activeSnapshot?.sourceFolders ?? []).map((folder) => ({
@@ -200,12 +201,12 @@ export function OldFavoriteScanOverviewStep({
   const totalUserSourceItemCount = userFolders.reduce((count, folder) => count + folder.relationshipCount, 0)
   const invalidSourceItemCount = userFolders.reduce((count, folder) => count + (folder.unavailableAidCount ?? 0), 0)
   const unavailableAidCount = inventoryMetrics?.unavailableAidCount ?? invalidSourceItemCount
-  const effectiveSourceCountMode: SourceCountMode = viewScope === 'current' ? 'planned' : sourceCountMode
+  const effectiveSourceCountMode: SourceCountMode = showSourceSelection ? sourceCountMode : 'planned'
   const sourceMode = SOURCE_COUNT_MODES[effectiveSourceCountMode]
-  const currentSegmentPlannedCounts = viewScope === 'current' && activeSnapshot?.currentSegmentMetrics
+  const currentSegmentPlannedCounts = !showSourceSelection && activeSnapshot?.currentSegmentMetrics
     ? new Map(activeSnapshot.currentSegmentMetrics.sourceFolders.map((folder) => [folder.id, folder.plannedAidCount]))
     : undefined
-  const sourceModeLabel = viewScope === 'current' ? '本批来源关系' : sourceMode.label
+  const sourceModeLabel = showSourceSelection ? sourceMode.label : '本批来源关系'
   const sourceModeValues = userFolders.map((folder) => sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts))
   const sourceModeSummary = sourceModeValues.some((value) => value === '待确认')
     ? '待确认'
@@ -323,12 +324,13 @@ export function OldFavoriteScanOverviewStep({
         ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后{resumableFailedScan ? '继续扫描' : '重新扫描'}</button>
         : null}
     </> : null}
-    <hr className="favorite-ledger-panel__scan-source-divider" aria-hidden="true" />
-    <p className="favorite-ledger-panel__scan-discovery">已发现 {folders.length} 个 B站收藏夹。</p>
-    {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
-      ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
-      : null}
-    {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="B站收藏夹">
+    {showSourceSelection ? <>
+      <hr className="favorite-ledger-panel__scan-source-divider" aria-hidden="true" />
+      <p className="favorite-ledger-panel__scan-discovery">已发现 {folders.length} 个 B站收藏夹。</p>
+      {snapshot?.mode === 'incremental' && lifecycleCountsConfirmed && protectedAidCount
+        ? <p role="status" className="favorite-ledger-panel__scan-discovery">增量扫描已跳过 {protectedAidCount} 条已保护视频。</p>
+        : null}
+      {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="B站收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-colspan={2} className="favorite-ledger-panel__source-heading favorite-ledger-panel__source-heading--select-only">
           <label className="favorite-ledger-panel__source-select-all"><input type="checkbox" aria-label="全选来源" checked={allUserSourcesSelected}
@@ -338,10 +340,10 @@ export function OldFavoriteScanOverviewStep({
         <span role="columnheader" aria-label={`总数（${totalUserSourceItemCount}）`} className="favorite-ledger-panel__source-metric-heading">
           <span>总数</span><small>（{totalUserSourceItemCount}）</small>
         </span>
-        <span role="columnheader" aria-label={viewScope === 'current' ? `${sourceModeLabel}（${sourceModeSummary}）` : undefined}
-          className={`favorite-ledger-panel__source-metric-heading${viewScope === 'all' ? ' favorite-ledger-panel__source-metric-heading--toggle' : ''}`}>
+        <span role="columnheader" aria-label={!showSourceSelection ? `${sourceModeLabel}（${sourceModeSummary}）` : undefined}
+          className={`favorite-ledger-panel__source-metric-heading${showSourceSelection ? ' favorite-ledger-panel__source-metric-heading--toggle' : ''}`}>
           <span>{sourceModeLabel}</span>
-          {viewScope === 'all' ? <button type="button" className="favorite-ledger-panel__source-count-toggle"
+          {showSourceSelection ? <button type="button" className="favorite-ledger-panel__source-count-toggle"
             aria-label={`${sourceModeLabel}（${sourceModeSummary}）`}
             title={`切换为${SOURCE_COUNT_MODES[sourceMode.next].label}`}
             onClick={() => setSourceCountMode(sourceMode.next)}>
@@ -364,7 +366,8 @@ export function OldFavoriteScanOverviewStep({
             <span role="cell" className="favorite-ledger-panel__source-count">{sourceProjectionValue(folder, effectiveSourceCountMode, currentSegmentPlannedCounts)}</span>
           </label>
         </li>)}
-      </ul>
-    </div> : null}
+        </ul>
+      </div> : null}
+    </> : null}
   </section>
 }

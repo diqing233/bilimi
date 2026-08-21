@@ -242,6 +242,12 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(sourceTable.querySelector('.favorite-ledger-panel__source-heading > small')).not.toBeInTheDocument()
     expect(within(sourceTable).getByText('总数')).toBeInTheDocument()
     expect(within(sourceTable).getByText('本轮待整理')).toBeInTheDocument()
+    fireEvent.click(within(sourceTable).getByRole('button', { name: /本轮待整理/ }))
+    expect(within(sourceTable).getByRole('button', { name: /已保护/ })).toBeInTheDocument()
+    fireEvent.click(within(sourceTable).getByRole('button', { name: /已保护/ }))
+    expect(within(sourceTable).getByRole('button', { name: /失效视频/ })).toBeInTheDocument()
+    fireEvent.click(within(sourceTable).getByRole('button', { name: /失效视频/ }))
+    expect(within(sourceTable).getByRole('button', { name: /本轮待整理/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
@@ -255,14 +261,19 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(currentMetrics).toHaveTextContent('本批待整理500')
     expect(within(currentMetrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(screen.getByText('标签补取进行中：已处理 498 / 500 条。')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
-    expect(screen.getByText('本轮待整理')).toBeInTheDocument()
+    expect(screen.queryByText('已发现 1 个 B站收藏夹。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '全选来源' })).not.toBeInTheDocument()
+    expect(screen.queryByText('默认收藏夹')).not.toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteScanOverviewStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} {...props} />)
     expect(screen.queryByRole('group', { name: '扫描概览视图' })).not.toBeInTheDocument()
+    const singleRoundSourceTable = screen.getByRole('table', { name: 'B站收藏夹' })
+    expect(within(singleRoundSourceTable).getByRole('checkbox', { name: '全选来源' })).toBeInTheDocument()
+    expect(within(singleRoundSourceTable).getByRole('button', { name: /本轮待整理/ })).toBeInTheDocument()
   })
 
-  it('shows unique current-batch video metrics while retaining duplicated source relationships', () => {
+  it('shows unique current-batch video metrics without a separate source-selection table', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -306,7 +317,10 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(within(metrics).queryByLabelText('扫描总数')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('已保护跳过')).not.toBeInTheDocument()
     expect(within(metrics).queryByText('失效视频')).not.toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'B站收藏夹' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'B站收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '全选来源' })).not.toBeInTheDocument()
+    expect(screen.queryByText('默认收藏夹')).not.toBeInTheDocument()
+    expect(screen.queryByText('重复来源')).not.toBeInTheDocument()
   })
 
   it('keeps the current multi-batch scan view to its two pending organization metrics', () => {
