@@ -284,7 +284,15 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(within(deepSeekGroup).queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
     fireEvent.click(startButton)
     const dialog = screen.getByRole('dialog', { name: 'DeepSeek 整理' })
-    expect(within(dialog).getByLabelText('整理不确定项和【未分类】（推荐）')).toBeChecked()
+    const organizeOptions = within(dialog).getAllByRole('radio').slice(0, 3)
+    expect(organizeOptions.map((option) => option.closest('label')?.textContent?.trim())).toEqual([
+      '只整理【未匹配到合适分类】',
+      '整理不确定项和【未分类】',
+      'DeepSeek重新检查全部'
+    ])
+    expect(within(dialog).getByLabelText('只整理【未匹配到合适分类】')).toBeChecked()
+    expect(within(dialog).getByLabelText('整理不确定项和【未分类】')).not.toHaveTextContent('推荐')
+    expect(within(dialog).queryByText('推荐')).not.toBeInTheDocument()
     expect(within(dialog).getByLabelText('当前批次')).toBeChecked()
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(organize).not.toHaveBeenCalled()

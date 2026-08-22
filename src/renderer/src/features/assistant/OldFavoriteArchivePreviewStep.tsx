@@ -70,8 +70,8 @@ function deepSeekFailureMessage(message: string, affectedVideoCount: number) {
 }
 
 const DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
-  { value: 'low-confidence-and-unclassified', label: '整理不确定项和【未分类】（推荐）' },
   { value: 'unclassified-only', label: '只整理【未匹配到合适分类】' },
+  { value: 'low-confidence-and-unclassified', label: '整理不确定项和【未分类】' },
   { value: 'all', label: 'DeepSeek重新检查全部' }
 ]
 
@@ -350,7 +350,7 @@ export function OldFavoriteArchivePreviewStep({
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('current')
   const viewScope = controlledViewScope ?? localViewScope
   const setViewScope = onViewScopeChange ?? setLocalViewScope
-  const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
+  const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('unclassified-only')
   const [deepSeekScope, setDeepSeekScope] = useState<DeepSeekArchiveScope>('current')
   const [deepSeekDialogOpen, setDeepSeekDialogOpen] = useState(false)
   const [deepSeekDetailsOpen, setDeepSeekDetailsOpen] = useState(false)
@@ -494,7 +494,7 @@ export function OldFavoriteArchivePreviewStep({
       !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
   }, [snapshot])
   const openDeepSeekDialog = () => {
-    setDeepSeekMode('low-confidence-and-unclassified')
+    setDeepSeekMode('unclassified-only')
     setDeepSeekScope(viewScope === 'all' ? 'all' : 'current')
     setDeepSeekDialogOpen(true)
   }
