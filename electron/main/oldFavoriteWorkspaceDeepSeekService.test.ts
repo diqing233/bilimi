@@ -216,7 +216,7 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
-  it('automatically adopts merge-latest once when DeepSeek sees recovery required', async () => {
+  it('automatically adopts merge-latest once when DeepSeek sees a stale recovery decision after restart', async () => {
     const recovery = {
       recovery: 'rebuild-required' as const,
       preserveCompletedLocalResults: true as const,
@@ -230,7 +230,9 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
       classifications: {}
     }
     const coordinator = {
-      getSnapshot: vi.fn().mockResolvedValueOnce(recovery).mockResolvedValue(snapshot),
+      getSnapshot: vi.fn()
+        .mockRejectedValueOnce(new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.'))
+        .mockResolvedValue(snapshot),
       getRecoverySummary: vi.fn().mockResolvedValue({
         accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', currentStep: 'previewing',
         baselineChangeEvidence: {
@@ -268,6 +270,47 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
       expectedRepositoryRevision: 5
     })
     expect(coordinator.getSnapshot).toHaveBeenCalledTimes(3)
+    expect(coordinator.selectRecoveryDecision.mock.invocationCallOrder[0]).toBeLessThan(generate.mock.invocationCallOrder[0])
+  })
+
+  it('recovers an expired decision before an all-batch DeepSeek request reaches the provider', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: true,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn()
+        .mockRejectedValueOnce(new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.'))
+        .mockResolvedValue(snapshot),
+      getRecoverySummary: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', currentStep: 'previewing',
+        baselineChangeEvidence: {
+          scope: 'account', workspaceBaselineRevision: 4, repositoryRevision: 5, changed: true,
+          direction: 'advanced', manualClassificationsRemainAuthoritative: true, changedDimensions: ['rules']
+        }, recoveryChoices: ['recover-draft', 'rescan', 'abandon']
+      }),
+      selectRecoveryDecision: vi.fn().mockResolvedValue({}),
+      selectSegment: vi.fn().mockResolvedValue(snapshot),
+      getDeepSeekRunCheckpoint: vi.fn().mockResolvedValue(null),
+      setDeepSeekRunCheckpoint: vi.fn().mockResolvedValue(undefined),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const generate = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize' as const,
+      results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+      keywordSuggestions: []
+    })
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await expect(service.organizeAllSegments('100')).resolves.toMatchObject({ progress: { successfulVideoCount: 1 } })
+    expect(coordinator.selectRecoveryDecision).toHaveBeenCalledWith('100', expect.objectContaining({ choice: 'merge-latest' }))
+    expect(coordinator.selectRecoveryDecision.mock.invocationCallOrder[0]).toBeLessThan(generate.mock.invocationCallOrder[0])
   })
 
   it('rejects DeepSeek organization for a batch whose tags are still being enriched', async () => {

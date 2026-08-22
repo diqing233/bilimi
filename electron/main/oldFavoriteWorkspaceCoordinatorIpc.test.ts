@@ -168,6 +168,36 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:prepare-recovery', 8, '100')).rejects.toThrow('untrusted')
   })
 
+  it('returns the existing recovery choices when preparation finds an expired recovery decision', async () => {
+    const ipcMain = new FakeIpcMain()
+    const summary = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, currentStep: 'previewing' as const,
+      baselineChangeEvidence: {
+        scope: 'account' as const, workspaceBaselineRevision: 4, repositoryRevision: 5, changed: true,
+        direction: 'advanced' as const, manualClassificationsRemainAuthoritative: true as const, changedDimensions: ['rules']
+      },
+      recoveryChoices: ['recover-draft', 'rescan', 'abandon'] as const
+    }
+    const coordinator = {
+      getRecoverySummary: vi.fn().mockResolvedValue(summary),
+      beginScan: vi.fn(),
+      executeFrozenBilibiliPlan: vi.fn()
+    }
+    const prepareRecovery = vi.fn().mockRejectedValue(
+      new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.')
+    )
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, prepareRecovery,
+      isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:prepare-recovery', 7, '100')).resolves.toEqual(summary)
+    expect(prepareRecovery).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.getRecoverySummary).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.beginScan).not.toHaveBeenCalled()
+    expect(coordinator.executeFrozenBilibiliPlan).not.toHaveBeenCalled()
+  })
+
   it('accepts only an explicit, revision-guarded recovery decision from the current trusted account', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

@@ -8,7 +8,11 @@ import type {
   FavoriteArchiveMultiMode,
   FavoriteLedger
 } from '../../src/shared/types'
-import { OldFavoriteWorkspaceCoordinator, type DeepSeekClassificationBatchApplyResult } from './oldFavoriteWorkspaceCoordinator'
+import {
+  OldFavoriteWorkspaceCoordinator,
+  isOldFavoriteWorkspaceRecoveryDecisionStaleError,
+  type DeepSeekClassificationBatchApplyResult
+} from './oldFavoriteWorkspaceCoordinator'
 import {
   oldFavoriteFolderIsScanEligible,
   type OldFavoriteWorkspaceDeepSeekFailure,
@@ -157,7 +161,16 @@ export class OldFavoriteWorkspaceDeepSeekService {
     run: ActiveDeepSeekRun
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     try {
-    const initialRead = await this.options.coordinator.getSnapshot(accountMid)
+    let initialRead
+    try {
+      initialRead = await this.options.coordinator.getSnapshot(accountMid)
+    } catch (error) {
+      if (!isOldFavoriteWorkspaceRecoveryDecisionStaleError(error)) throw error
+      initialRead = await this.recoverSnapshotForDeepSeek(accountMid, {
+        recovery: 'rebuild-required',
+        preserveCompletedLocalResults: true
+      })
+    }
     const initial = initialRead && 'recovery' in initialRead
       ? await this.recoverSnapshotForDeepSeek(accountMid, initialRead)
       : initialRead
@@ -851,7 +864,16 @@ export class OldFavoriteWorkspaceDeepSeekService {
   ): Promise<SegmentOrganizeResult> {
     const preferences = frozenPreferences ?? this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
-    const snapshotRead = await this.options.coordinator.getSnapshot(accountMid)
+    let snapshotRead
+    try {
+      snapshotRead = await this.options.coordinator.getSnapshot(accountMid)
+    } catch (error) {
+      if (!isOldFavoriteWorkspaceRecoveryDecisionStaleError(error)) throw error
+      snapshotRead = await this.recoverSnapshotForDeepSeek(accountMid, {
+        recovery: 'rebuild-required',
+        preserveCompletedLocalResults: true
+      })
+    }
     const snapshot = snapshotRead && 'recovery' in snapshotRead
       ? await this.recoverSnapshotForDeepSeek(accountMid, snapshotRead)
       : snapshotRead

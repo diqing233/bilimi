@@ -7,7 +7,8 @@ import {
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '../../src/shared/types'
 import {
   OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED,
-  OldFavoriteWorkspaceCoordinator
+  OldFavoriteWorkspaceCoordinator,
+  isOldFavoriteWorkspaceRecoveryDecisionStaleError
 } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import type { FavoriteLibraryScopeSelection } from './favoriteLibraryCommands'
@@ -369,7 +370,12 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (args.length !== 0) throw new Error('Old favorite workspace recovery preparation arguments are invalid.')
     const accountMid = await assertAccount(event, requestedAccountMid)
     if (!options.prepareRecovery) return options.coordinator.getRecoverySummary(accountMid) as Promise<WorkspaceRecoverySummary | null>
-    return options.prepareRecovery(accountMid)
+    try {
+      return await options.prepareRecovery(accountMid)
+    } catch (error) {
+      if (!isOldFavoriteWorkspaceRecoveryDecisionStaleError(error)) throw error
+      return options.coordinator.getRecoverySummary(accountMid) as Promise<WorkspaceRecoverySummary | null>
+    }
   })
   options.ipcMain.handle('old-favorite-workspace-v1:managed-folder-deletion-preview', async (event, requestedAccountMid: string, ledgerIds: string[], ledgerTitleHints?: Record<string, string>, remoteDraftTargets?: Record<string, { remoteFolderId: string; title: string }>, historicalBindingTargets?: Record<string, Array<{ remoteFolderId: string; title: string }>>) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
