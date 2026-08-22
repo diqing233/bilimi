@@ -80,7 +80,7 @@ export type FavoriteRepositorySnapshotSummary = {
   videoCount: number
   folderCount: number
   folders: FavoriteRepositoryFolder[]
-  physicalShards: import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard[]
+  physicalShards: Array<import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard & { localMemberCount?: number }>
   folderCounts: Record<string, number>
   workspaceVideoCount?: number
   otherFavoriteVideoCount?: number

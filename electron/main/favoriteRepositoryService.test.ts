@@ -2064,6 +2064,41 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('projects local physical shard member counts independently from remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-music-save', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'local-music-save', memberAidsByFolderId: { 'local:music': [1, 2, 3] },
+        folders: [{ id: 'local:music', title: '音乐', kind: 'local', syncState: 'local-only' }],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+    await service.commit('100', {
+      id: 'music-shard-1', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [1],
+        remoteTitle: 'bilimi·音乐', remoteFolderId: 'remote-music-1', remoteMemberCount: 0, bindingState: 'bound'
+      }
+    })
+    await service.commit('100', {
+      id: 'music-shard-2', accountMid: '100', issuedAt: '2026-07-23T00:00:02.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 2, memberAids: [2, 3],
+        remoteTitle: 'bilimi·音乐·2', remoteFolderId: 'remote-music-2', remoteMemberCount: 0, bindingState: 'bound'
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ shardNumber: 1, remoteMemberCount: 0, localMemberCount: 1 }),
+        expect.objectContaining({ shardNumber: 2, remoteMemberCount: 0, localMemberCount: 2 })
+      ]),
+      folderCounts: { 'bilimi-logical:music': 3 }
+    })
+  })
+
   it('does not merge a remote mirror bound to multiple logical ledgers', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })

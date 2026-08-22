@@ -470,6 +470,7 @@ export type FavoriteRepositoryLibrarySummary = {
   videoCount: number
   folderCount: number
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  physicalShards: Array<import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard & { localMemberCount?: number }>
   folderCounts: Record<string, number>
   /** Distinct videos across valid Bilimi logical work folders, not a sum of folder counts. */
   workspaceVideoCount?: number
@@ -642,6 +643,10 @@ export class FavoriteRepositoryService {
     ).size
     const stateCount = (state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) =>
       [...index.pendingStatesByAid].filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) && states.has(state)).length
+    const localPhysicalShardMemberCount = (shard: AccountFavoriteRepositorySnapshot['physicalShards'][number]) => new Set(
+      (snapshot.memberships[shard.folderId] ?? [])
+        .filter((aid) => Boolean(snapshot.videos[String(aid)]) && !isFavoriteRepositoryRecycled(snapshot, aid))
+    ).size
     return {
       version: 1,
       accountMid: snapshot.accountMid,
@@ -650,7 +655,11 @@ export class FavoriteRepositoryService {
       videoCount: index.allAids.length,
       folderCount: projectedFolders.length,
       folders: projectedFolders.map((folder) => ({ ...folder })),
-      physicalShards: snapshot.physicalShards.map((shard) => ({ ...shard, knownRemoteFolderIds: shard.knownRemoteFolderIds ? [...shard.knownRemoteFolderIds] : undefined })),
+      physicalShards: snapshot.physicalShards.map((shard) => ({
+        ...shard,
+        knownRemoteFolderIds: shard.knownRemoteFolderIds ? [...shard.knownRemoteFolderIds] : undefined,
+        localMemberCount: localPhysicalShardMemberCount(shard)
+      })),
       folderCounts: Object.fromEntries(projectedFolders.map((folder) => [folder.id, projectedFolderAids(folder.id).length])),
       workspaceVideoCount,
       otherFavoriteVideoCount,

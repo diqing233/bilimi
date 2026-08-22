@@ -280,6 +280,114 @@ function FavoriteLibraryMenuChevron() {
   return <svg className="favorite-library__chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
+type FavoriteLibraryPhysicalShard = FavoriteRepositorySnapshotSummary['physicalShards'][number]
+
+function shardLocalMemberLabel(shard: FavoriteLibraryPhysicalShard) {
+  return shard.localMemberCount === undefined ? '—' : String(shard.localMemberCount)
+}
+
+function shardShortLabel(shard: FavoriteLibraryPhysicalShard) {
+  return `分册 ${shard.shardNumber}（${shardLocalMemberLabel(shard)}）`
+}
+
+function shardFullLabel(shard: FavoriteLibraryPhysicalShard) {
+  return `分册 ${shard.shardNumber} · ${shard.remoteTitle}（${shardLocalMemberLabel(shard)}）`
+}
+
+function FavoriteLibraryShardSelector({
+  shards,
+  value,
+  onChange
+}: {
+  shards: FavoriteLibraryPhysicalShard[]
+  value: number | 'all'
+  onChange: (value: number | 'all') => void
+}) {
+  const [open, setOpen, menuScope] = useExclusiveMenu()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const options: Array<{ value: number | 'all'; label: string; shortLabel?: string }> = [
+    { value: 'all', label: '全部' },
+    ...shards.map((shard) => ({ value: shard.shardNumber, label: shardFullLabel(shard), shortLabel: shardShortLabel(shard) }))
+  ]
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value))
+  const [highlightedIndex, setHighlightedIndex] = useState(selectedIndex)
+  const close = useCallback((returnFocus = true) => {
+    setOpen(false)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [setOpen])
+  useEffect(() => {
+    if (!open) return
+    setHighlightedIndex(selectedIndex)
+    menuRef.current?.focus()
+  }, [open, selectedIndex])
+  const moveHighlight = useCallback((direction: 1 | -1) => {
+    setHighlightedIndex((current) => (current + direction + options.length) % options.length)
+  }, [options.length])
+  const selectOption = useCallback((option: { value: number | 'all' }) => {
+    onChange(option.value)
+    close()
+  }, [close, onChange])
+  const triggerLabel = value === 'all'
+    ? '全部'
+    : options.find((option) => option.value === value)?.shortLabel ?? '全部'
+  const activeOptionId = `favorite-library-shard-option-${highlightedIndex}`
+  return <span {...menuScope} className="favorite-library__shard-selector">
+    <button
+      ref={triggerRef}
+      type="button"
+      className="favorite-library__shard-trigger favorite-library__workspace-heading-control"
+      aria-label={triggerLabel}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={() => setOpen((current) => !current)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault()
+          if (!open) setOpen(true)
+          else moveHighlight(event.key === 'ArrowDown' ? 1 : -1)
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          setOpen((current) => !current)
+        } else if (event.key === 'Escape' && open) {
+          event.preventDefault()
+          close()
+        }
+      }}
+    >{triggerLabel}<FavoriteLibraryMenuChevron /></button>
+    {open ? <div
+      ref={menuRef}
+      role="listbox"
+      aria-label="分册视图"
+      aria-activedescendant={activeOptionId}
+      tabIndex={-1}
+      className="favorite-library__shard-menu"
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault()
+          moveHighlight(event.key === 'ArrowDown' ? 1 : -1)
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          const option = options[highlightedIndex]
+          if (option) selectOption(option)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          close()
+        }
+      }}
+    >{options.map((option, index) => <div
+      id={`favorite-library-shard-option-${index}`}
+      key={option.value}
+      role="option"
+      aria-selected={option.value === value}
+      tabIndex={-1}
+      className="favorite-library__shard-option"
+      onMouseEnter={() => setHighlightedIndex(index)}
+      onClick={() => selectOption(option)}
+    >{option.label}</div>)}</div> : null}
+  </span>
+}
+
 function FavoriteLibraryClassificationOwnershipMenu({
   classificationSources,
   sourceFilter,
@@ -2329,8 +2437,7 @@ export function FavoriteLibraryApp({
             </span> : null}
             {page && libraryLoadState === 'refreshing' ? <p className="sr-only" role="status" aria-label="正在刷新收藏库">正在刷新收藏库</p> : null}
             {shouldShowFilteredCount ? <small>{`总计 ${currentScopeTotal} 个 · 当前显示 ${displayedTotal} 个`}</small> : null}
-            {currentPhysicalShards.length >= 2 ? <label className="favorite-library__shard-selector"><span className="sr-only">分册视图</span><select aria-label="分册视图" value={selectedShardNumber === 'all' ? 'all' : String(selectedShardNumber)} onChange={(event) => {
-              const value = event.currentTarget.value === 'all' ? 'all' : Number(event.currentTarget.value)
+            {currentPhysicalShards.length >= 2 ? <FavoriteLibraryShardSelector shards={currentPhysicalShards} value={selectedShardNumber} onChange={(value) => {
               setSelectedShardNumber(value)
               selectionStore.clear()
               setSelected(undefined)
@@ -2341,9 +2448,9 @@ export function FavoriteLibraryApp({
                   ...(value === 'all' ? { physicalShard: undefined } : { physicalShard: { logicalLedgerId: currentFolder?.logicalLedgerId ?? '', shardNumber: value } })
                 }).catch(() => setError(text.cannotRead))
               }
-            }}><option value="all">全部</option>{currentPhysicalShards.map((shard) => <option key={shard.shardNumber} value={shard.shardNumber}>{`分册 ${shard.shardNumber} · ${shard.remoteTitle}（${shard.remoteMemberCount ?? 0}）`}</option>)}</select></label> : null}
+            }} /> : null}
             {currentLogicalFolderId && !currentDeletedRecord ? <span className="favorite-library__workspace-actions">
-              <button type="button" disabled={!accountMid} title="为当前分类创建并绑定对应的 B 站 bilimi 收藏夹，不会同步视频。视频需通过“同步到B站”另行同步。" onClick={() => void runAction(() => backupCurrentWorkspaceFolder(
+              <button type="button" className="favorite-library__workspace-heading-control" disabled={!accountMid} title="为当前分类创建并绑定对应的 B 站 bilimi 收藏夹，不会同步视频。视频需通过“同步到B站”另行同步。" onClick={() => void runAction(() => backupCurrentWorkspaceFolder(
                 currentLogicalFolderId,
                 currentFolder?.logicalLedgerId ?? currentLogicalFolderId.replace(/^bilimi-logical:/, ''),
                 currentFolder?.title ?? currentLogicalFolderId,

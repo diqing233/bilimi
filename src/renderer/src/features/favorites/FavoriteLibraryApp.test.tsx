@@ -214,6 +214,14 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__row { display: grid; box-sizing: border-box; align-items: center;')
   })
 
+  it('uses the same compact control metrics for workspace heading actions as batch actions', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'), 'utf8')
+
+    expect(source).toContain('className="favorite-library__shard-trigger favorite-library__workspace-heading-control"')
+    expect(source).toContain('className="favorite-library__workspace-heading-control"')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__workspace-heading-control { box-sizing: border-box; min-height: 30px; padding: 5px 8px; font-family: inherit; font-size: 13px; font-weight: 400; line-height: 1.2; }')
+  })
+
   it('shows an explicit library loading state instead of a false zero while summary and page are pending', async () => {
     let resolveSummary: ((value: Record<string, unknown>) => void) | undefined
     let resolvePage: ((value: Record<string, unknown>) => void) | undefined
@@ -389,8 +397,8 @@ describe('FavoriteLibraryApp', () => {
         version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 2, folderCount: 1,
         folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
         physicalShards: [
-          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '11', remoteTitle: '音乐', bindingState: 'bound', remoteMemberCount: 1 },
-          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteFolderId: '12', remoteTitle: '音乐·2', bindingState: 'bound', remoteMemberCount: 1 }
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '11', remoteTitle: '音乐', bindingState: 'bound', remoteMemberCount: 1, localMemberCount: 1 },
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:002', shardNumber: 2, remoteFolderId: '12', remoteTitle: '音乐·2', bindingState: 'bound', remoteMemberCount: 1, localMemberCount: 1 }
         ],
         physicalShardCount: 2, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
       }),
@@ -400,11 +408,13 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
-    const selector = await screen.findByRole('combobox', { name: '分册视图' })
-    expect(selector).toHaveValue('all')
-    expect(screen.getByRole('option', { name: '全部' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /分册 2/ })).toBeInTheDocument()
-    fireEvent.change(selector, { target: { value: '2' } })
+    const trigger = await screen.findByRole('button', { name: '全部' })
+    expect(trigger).toBeInTheDocument()
+    fireEvent.click(trigger)
+    expect(screen.getByRole('option', { name: '分册 1 · 音乐（1）' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '分册 2 · 音乐·2（1）' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: '分册 2 · 音乐·2（1）' }))
+    expect(await screen.findByRole('button', { name: '分册 2（1）' })).toBeInTheDocument()
     await waitFor(() => expect(getFavoriteRepositoryLibraryPage).toHaveBeenLastCalledWith('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, expect.objectContaining({ physicalShard: { logicalLedgerId: 'music', shardNumber: 2 } })))
     expect(await screen.findByText('分册二视频')).toBeInTheDocument()
   })
