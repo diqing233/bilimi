@@ -1648,6 +1648,7 @@ export default function App() {
         // Settings carry user preference only. Remote writes require the repository's formal binding.
         const {
           bilibiliFolderId: _bilibiliFolderId,
+          bilibiliFolderIds: _bilibiliFolderIds,
           bilibiliFolderTitle: _bilibiliFolderTitle,
           bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
           bindingState: _bindingState,
@@ -2340,10 +2341,23 @@ export default function App() {
       const persistedLedgers = options?.rediscoverDeletedRemoteDrafts || backupTargetLedgerIdSet.size
         ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
         : backupLedgers
+      const persistedLedgersWithHistory = persistedLedgers.map((ledger) => {
+        const historicalSource = ledgersWithFormalBindings.find((candidate) => candidate.id === ledger.id)
+        const hasRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
+        return !hasRemoteId && historicalSource?.historicalBilibiliFolderIds?.length
+          ? {
+              ...ledger,
+              historicalBilibiliFolderIds: [...historicalSource.historicalBilibiliFolderIds],
+              ...(historicalSource.historicalBilibiliFolderTitle
+                ? { historicalBilibiliFolderTitle: historicalSource.historicalBilibiliFolderTitle }
+                : {})
+            }
+          : ledger
+      })
       if (bindingResult.failures.length) {
-        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgers)
+        const visibleFailures = visibleBindingFailures(bindingResult, persistedLedgersWithHistory)
         const nextPreferences = createInitialAssistantPreferences({
-          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+          ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
         })
         preferencesRef.current = nextPreferences
         setPreferences(nextPreferences)
@@ -2359,7 +2373,7 @@ export default function App() {
         return {
           ...result,
           ok: false,
-          ledgers: persistedLedgers,
+          ledgers: persistedLedgersWithHistory,
           unboundLedgerIds: visibleFailures.map((failure) => failure.ledgerId),
           unboundCandidates: visibleFailures,
           message: visibleFailures.length
@@ -2368,7 +2382,7 @@ export default function App() {
         }
       }
       const nextPreferences = createInitialAssistantPreferences({
-        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
       })
       preferencesRef.current = nextPreferences
       setPreferences(nextPreferences)
@@ -2387,7 +2401,7 @@ export default function App() {
       // leaves the temporary suppression intact for the next explicit backup.
       await releaseObservedRemoteDraftRediscovery()
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-      return { ...result, ledgers: persistedLedgers }
+      return { ...result, ledgers: persistedLedgersWithHistory }
     }
 
     return Array.isArray(result.ledgers) && options?.rebindRemoteFolders

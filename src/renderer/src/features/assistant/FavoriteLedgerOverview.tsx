@@ -1378,7 +1378,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                   }} />
                   <span>{logicalTitle}（共 {defaultCandidates.reduce((count, candidate) => count + candidate.memberCount, 0)} 个视频）</span>
                 </label>}
-            {candidates.length > 1 || candidates.some((candidate) => candidate.bindingFailureReason) ? <div className="favorite-ledger-panel__rebind-candidates">
+            {candidates.length > 0 ? <div className="favorite-ledger-panel__rebind-candidates">
               {candidates.map((candidate, index) => {
                 const selectedIndex = selectedIds.indexOf(candidate.id)
                 const titleShardNumber = candidate.title.trim().match(/·([2-9]\d*)$/u)?.[1]
@@ -1391,7 +1391,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                     : selectedIds.filter((id) => id !== candidate.id)
                   setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
                   return { ...current, [entry.ledgerId]: nextIds }
-                })} />分册 {displayedShardNumber}：{candidate.title}（{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>{selectedIndex >= 0 && selectedIds.length > 1 ? <span className="favorite-ledger-panel__rebind-order"><button type="button" aria-label={`将分册 ${displayedShardNumber} 上移`} title="上移" disabled={selectedIndex === 0} onClick={() => moveSelectedCandidate(candidate.id, -1)}>↑</button><button type="button" aria-label={`将分册 ${displayedShardNumber} 下移`} title="下移" disabled={selectedIndex === selectedIds.length - 1} onClick={() => moveSelectedCandidate(candidate.id, 1)}>↓</button></span> : null}</div>
+                })} />分册 {displayedShardNumber}：{candidate.title}（ID：{candidate.id}，{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>{selectedIndex >= 0 && selectedIds.length > 1 ? <span className="favorite-ledger-panel__rebind-order"><button type="button" aria-label={`将分册 ${displayedShardNumber} 上移`} title="上移" disabled={selectedIndex === 0} onClick={() => moveSelectedCandidate(candidate.id, -1)}>↑</button><button type="button" aria-label={`将分册 ${displayedShardNumber} 下移`} title="下移" disabled={selectedIndex === selectedIds.length - 1} onClick={() => moveSelectedCandidate(candidate.id, 1)}>↓</button></span> : null}</div>
               })}
             </div> : null}
           </div>
