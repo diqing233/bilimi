@@ -2216,6 +2216,34 @@ describe('FavoriteLedgerOverview', () => {
     )
   })
 
+  it('groups same-title bound and unbound shards under one logical deletion group with one acknowledgement', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'game', remoteFolderId: 'bound-game-1', title: 'bilimi·游戏专区', memberCount: 311, state: 'bound', requiresUnboundAcknowledgement: false },
+      { logicalLedgerId: 'game', remoteFolderId: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000, state: 'unbound-historical-id', requiresUnboundAcknowledgement: true }
+    ])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bilibiliFolderId: 'bound-game-1', bilibiliFolderIds: ['bound-game-1'], bindingState: 'bound'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏专区' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    const group = within(dialog).getByTestId('managed-deletion-group-game')
+    expect(group).toHaveTextContent('bilimi·游戏专区')
+    expect(group).toHaveTextContent('bilimi·游戏专区·2')
+    expect(within(dialog).getAllByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ })).toHaveLength(1)
+  })
+
   it('passes explicit acknowledgement when deleting an unbound name-matched default folder', async () => {
     const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
       status: 'succeeded', succeededRemoteFolderIds: ['remote-music'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []

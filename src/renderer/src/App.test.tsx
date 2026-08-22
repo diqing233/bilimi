@@ -2216,6 +2216,104 @@ describe('App runtime integration', () => {
     expect(savedLedger).toMatchObject({ bindingState: 'unbound', historicalBilibiliFolderIds: ['9000'] })
   })
 
+  it('preserves an unbound physical shard id as deletion-only history without making backup treat it as bound', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bindingState: 'unbound' as const
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [game]
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-08-23T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [{ id: 'bilimi-logical:game', title: '游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'pending-reconcile' }],
+        folderCounts: {}, scopeCounts: {}, physicalShardCount: 1, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0,
+        remoteReconciliations: [], physicalShards: [{ logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: 'unbound-game-2', remoteTitle: 'bilimi·游戏专区·2', bindingState: 'pending-reconcile' }]
+      }),
+      adoptFavoriteRepositoryLedgerBinding: vi.fn()
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        expect(script).not.toContain('unbound-game-2')
+        return {
+          ok: false,
+          ledgers: [{ ...game, bindingState: 'unbound' }],
+          steps: ['api:ledger:list'], missingTargets: ['game'], unboundLedgerIds: ['game'],
+          unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }] }],
+          message: '发现未绑定的 bilimi 收藏夹。'
+        }
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'preserve-unbound-shard-history', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['game'] })
+    const savedLedger = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers?.find((ledger) => ledger.id === 'game')
+    expect(savedLedger).toMatchObject({ bindingState: 'unbound', historicalBilibiliFolderIds: ['unbound-game-2'], historicalBilibiliFolderTitle: 'bilimi·游戏专区·2' })
+  })
+
+  it('preserves a physical shard id when status projects the rule as unbacked', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bindingState: 'unbacked' as const
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [game]
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-08-23T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [{ id: 'bilimi-logical:game', title: '游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'pending-reconcile' }],
+        folderCounts: {}, scopeCounts: {}, physicalShardCount: 1, syncRecordCount: 0, pendingAidCount: 0,
+        remoteReconciliations: [], physicalShards: [{ logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: 'unbound-game-2', remoteTitle: 'bilimi·游戏专区·2', bindingState: 'pending-reconcile' }]
+      }),
+      adoptFavoriteRepositoryLedgerBinding: vi.fn()
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        expect(script).not.toContain('unbound-game-2')
+        return {
+          ok: false,
+          ledgers: [{ ...game, bindingState: 'unbacked' as const }], steps: ['api:ledger:list'],
+          missingTargets: ['game'], unboundLedgerIds: ['game'],
+          unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }] }],
+          message: '发现未绑定的 bilimi 收藏夹。'
+        }
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'preserve-unbacked-shard-history', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['game'] })
+    const savedLedger = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers?.find((ledger) => ledger.id === 'game')
+    expect(savedLedger).toMatchObject({ bindingState: 'unbacked', historicalBilibiliFolderIds: ['unbound-game-2'], historicalBilibiliFolderTitle: 'bilimi·游戏专区·2' })
+  })
+
   it('returns an observed shard as an explicit rebind candidate when no formal shard exists', async () => {
     const accountMid = '100'
     const game = {

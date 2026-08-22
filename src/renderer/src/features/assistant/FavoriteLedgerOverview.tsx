@@ -1243,6 +1243,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return counts
     }, new Map<string, number>())
     : new Map<string, number>()
+  const deletionCandidateGroups = deletionPlan
+    ? [...deletionPlan.candidates.reduce((groups, candidate) => {
+      const group = groups.get(candidate.logicalLedgerId) ?? []
+      group.push(candidate)
+      groups.set(candidate.logicalLedgerId, group)
+      return groups
+    }, new Map<string, ManagedFolderDeletionCandidate[]>())]
+    : []
   const duplicateLedgerTitleCounts = draftLedgers.reduce((counts, ledger) => {
     const title = displayTitle(ledger.displayName) || ledger.displayName
     counts.set(title, (counts.get(title) ?? 0) + 1)
@@ -1322,16 +1330,22 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       {deletionPlan ? <OldFavoriteModal danger title="删除 bilimi 收藏夹" confirmLabel={deletionExecuting ? '删除中…' : '删除'} confirmDisabled={!deletionPlan.candidates.length || !deletionConfirmed || deletionExecuting || (deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound)} onCancel={() => { if (deletionExecuting) return; setDeletionPlan(null); setDeletionConfirmed(false); setDeletionAcknowledgedUnbound(false); setDeletionScope('local-only'); setDeletionError(null) }} onConfirm={() => void confirmManagedDeletion()}>
         <p>以下 {deletionPlan.candidates.length} 个右侧 bilimi 收藏夹将被删除或移除：</p>
         <fieldset className="favorite-ledger-panel__deletion-scope"><legend>删除范围</legend><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'local-only'} onChange={() => setDeletionScope('local-only')} /><span>仅删除右侧 bilimi 收藏夹（保留收藏库和 B 站收藏夹）</span></label><label className="favorite-ledger-panel__deletion-scope-option"><input type="radio" name="managed-deletion-scope" checked={deletionScope === 'bilibili'} onChange={() => setDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹（保留收藏库）</span></label></fieldset>
-        <ul className="favorite-ledger-panel__deletion-list">{deletionPlan.candidates.map((candidate) => {
-          const remoteDeletionCount = remoteDeletionCounts.get(candidate.logicalLedgerId) ?? 0
-          const isRemoteDraftCandidate = Boolean(deletionPlan.remoteDraftTargets[candidate.logicalLedgerId])
-          const isHistoricalCandidate = candidate.state === 'unbound-historical-id'
-          const remoteSummary = deletionScope === 'local-only'
-            ? 'B站：保留'
-            : remoteDeletionCount
-              ? `B站：删除 ${remoteDeletionCount} 个实际收藏夹`
-              : 'B站：无绑定，不会删除'
-          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}{isRemoteDraftCandidate ? '（未保存 · 未绑定 / 仅名称识别）' : isHistoricalCandidate ? '（历史分册 / 精确 ID 核验）' : ''}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
+        <ul className="favorite-ledger-panel__deletion-list">{deletionCandidateGroups.map(([logicalLedgerId, candidates]) => {
+          const groupTitle = displayTitle(draftLedgers.find((ledger) => ledger.id === logicalLedgerId)?.displayName ?? candidates[0]?.title ?? logicalLedgerId)
+          return <li key={logicalLedgerId} data-testid={`managed-deletion-group-${logicalLedgerId}`} className="favorite-ledger-panel__deletion-group">
+            {candidates.length > 1 ? <strong>{groupTitle}（{candidates.length} 个分册）</strong> : null}
+            <ul>{candidates.map((candidate) => {
+              const remoteDeletionCount = remoteDeletionCounts.get(candidate.logicalLedgerId) ?? 0
+              const isRemoteDraftCandidate = Boolean(deletionPlan.remoteDraftTargets[candidate.logicalLedgerId])
+              const isHistoricalCandidate = candidate.state === 'unbound-historical-id'
+              const remoteSummary = deletionScope === 'local-only'
+                ? 'B站：保留'
+                : remoteDeletionCount
+                  ? `B站：删除 ${remoteDeletionCount} 个实际收藏夹`
+                  : 'B站：无绑定，不会删除'
+              return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{candidate.title}{isRemoteDraftCandidate ? '（未保存 · 未绑定 / 仅名称识别）' : isHistoricalCandidate ? '（历史分册 / 精确 ID 核验）' : ''}（当前 {candidate.memberCount} 个视频）{remoteSummary}</li>
+            })}</ul>
+          </li>
         })}</ul>
         <p>{deletionScope === 'local-only'
           ? '只移除右侧规则或草稿；收藏库和 B 站保留。'

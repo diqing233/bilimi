@@ -1554,9 +1554,18 @@ export default function App() {
       : null
     const trustedRemoteFolderIds = new Map<string, string[]>()
     const trustedRemoteShardNumbers = new Map<string, Map<string, number>>()
+    const deletionOnlyHistoricalRemoteFolderIds = new Map<string, Array<{ id: string; title: string }>>()
     const repositoryShards = repositorySummary?.physicalShards ?? []
     for (const shard of repositoryShards) {
-      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+      if (shard.bindingState !== 'bound' && shard.remoteFolderId) {
+        const entries = deletionOnlyHistoricalRemoteFolderIds.get(shard.logicalLedgerId) ?? []
+        if (!entries.some((entry) => entry.id === shard.remoteFolderId)) {
+          entries.push({ id: shard.remoteFolderId, title: shard.remoteTitle })
+        }
+        deletionOnlyHistoricalRemoteFolderIds.set(shard.logicalLedgerId, entries)
+        continue
+      }
+      if (!shard.remoteFolderId) continue
       const ids = trustedRemoteFolderIds.get(shard.logicalLedgerId) ?? []
       if (!ids.includes(shard.remoteFolderId)) ids.push(shard.remoteFolderId)
       trustedRemoteFolderIds.set(shard.logicalLedgerId, ids)
@@ -1601,6 +1610,20 @@ export default function App() {
               pendingRemoteFolderId: legacyPendingRemoteFolderId,
               pendingRemoteFolderTitle: ledger.bilibiliFolderTitle
             } : {})
+          }
+        }
+        const deletionOnlyHistorical = deletionOnlyHistoricalRemoteFolderIds.get(ledger.id) ?? []
+        if (deletionOnlyHistorical.length && ledger.bindingState !== 'bound' && ledger.syncState !== 'local-draft') {
+          const historicalIds = [...new Set([
+            ...(ledger.historicalBilibiliFolderIds ?? []),
+            ...deletionOnlyHistorical.map((entry) => entry.id)
+          ])]
+          return {
+            ...ledger,
+            historicalBilibiliFolderIds: historicalIds,
+            ...(ledger.historicalBilibiliFolderTitle || deletionOnlyHistorical[0]?.title
+              ? { historicalBilibiliFolderTitle: ledger.historicalBilibiliFolderTitle ?? deletionOnlyHistorical[0]?.title }
+              : {})
           }
         }
         const legacyRemoteFolderIds = [...new Set([

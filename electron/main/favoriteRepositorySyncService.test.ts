@@ -672,7 +672,7 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
-  it('refuses managed deletion while a logical ledger has both bound and pending shards', async () => {
+  it('includes a pending shard with one known remote id beside its bound sibling', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
       id: 'music-bound', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
@@ -682,23 +682,23 @@ describe('FavoriteRepositorySyncService', () => {
       id: 'music-pending', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
       payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 2, memberAids: [], remoteTitle: 'bilimi·Music·2', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['remote-music-2'] }
     })
-    const deleteFolder = vi.fn()
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
     const service = new FavoriteRepositorySyncService({
       repository,
       pageBridge: {
         append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
-        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 0 }] })
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'remote-music', title: 'bilimi·Music', memberCount: 0 },
+          { id: 'remote-music-2', title: 'bilimi·Music·2', memberCount: 0 }
+        ] })
       }
     })
 
-    await expect(service.deleteManagedFolders('100', ['music'])).rejects.toThrow('requires every shard to be reconciled')
-    expect(deleteFolder).not.toHaveBeenCalled()
-    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      physicalShards: expect.arrayContaining([
-        expect.objectContaining({ remoteFolderId: 'remote-music', bindingState: 'bound' }),
-        expect.objectContaining({ bindingState: 'pending-reconcile' })
-      ])
+    await expect(service.deleteManagedFolders('100', ['music'], true)).resolves.toMatchObject({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-music', 'remote-music-2']
     })
+    expect(deleteFolder).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ physicalShards: [] })
   })
 
   it('reports a same-title bilimi folder as an unbound deletion candidate instead of silently ignoring it', async () => {
@@ -782,6 +782,63 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(service.previewManagedFolderDeletion('100', ['music'], { music: 'bilimi·Music' })).resolves.toEqual([
       expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'bound-music', state: 'bound', requiresUnboundAcknowledgement: false }),
       expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'unbound-music', state: 'unbound-name-match', requiresUnboundAcknowledgement: true })
+    ])
+  })
+
+  it('includes an unbound physical shard by its exact remote id instead of requiring reconciliation first', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'game-shard-2-pending', accountMid: '100', issuedAt: '2026-08-21T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: '游戏专区', shardNumber: 2, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区·2', bindingState: 'pending-reconcile', remoteFolderId: 'unbound-game-2', knownRemoteFolderIds: ['unbound-game-2']
+      }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }
+        ] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['game'], { game: '游戏专区' })).resolves.toEqual([
+      expect.objectContaining({
+        logicalLedgerId: 'game', remoteFolderId: 'unbound-game-2', title: 'bilimi·游戏专区·2',
+        state: 'unbound-historical-id', requiresUnboundAcknowledgement: true
+      })
+    ])
+  })
+
+  it('keeps bound and unbound same-title shards in one deletion preview without throwing', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'game-shard-1-bound', accountMid: '100', issuedAt: '2026-08-21T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'game', logicalTitle: '游戏专区', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'bound-game-1' }
+    })
+    await repository.commit('100', {
+      id: 'game-shard-2-pending', accountMid: '100', issuedAt: '2026-08-21T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: '游戏专区', shardNumber: 2, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区·2', bindingState: 'pending-reconcile', remoteFolderId: 'unbound-game-2', knownRemoteFolderIds: ['unbound-game-2']
+      }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'bound-game-1', title: 'bilimi·游戏专区', memberCount: 311 },
+          { id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }
+        ] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['game'], { game: '游戏专区' })).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'game', remoteFolderId: 'bound-game-1', state: 'bound', requiresUnboundAcknowledgement: false }),
+      expect.objectContaining({ logicalLedgerId: 'game', remoteFolderId: 'unbound-game-2', state: 'unbound-historical-id', requiresUnboundAcknowledgement: true })
     ])
   })
 

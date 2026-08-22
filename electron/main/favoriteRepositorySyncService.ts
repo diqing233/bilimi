@@ -144,6 +144,13 @@ function isBilimiRemoteFolder(title: string) {
   return /^bilimi\s*[·.：:-]/iu.test(title.trim())
 }
 
+function matchesManagedRemoteFolderTitle(title: string, expectedTitle: string) {
+  const normalizedTitle = normalizedRemoteFolderTitle(title)
+  const normalizedExpectedTitle = normalizedRemoteFolderTitle(expectedTitle)
+  return normalizedTitle === normalizedExpectedTitle ||
+    new RegExp(`^${normalizedExpectedTitle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}·\\d+$`, 'u').test(normalizedTitle)
+}
+
 function normalizedRemoteDraftDeletionTargets(
   targets: ManagedFavoriteRemoteDraftDeletionTargets | undefined
 ) {
@@ -1236,12 +1243,16 @@ export class FavoriteRepositorySyncService {
       const logicalFolder = snapshot.folders.find((folder) =>
         folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
       const shards = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
-      const bound = shards.filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
-      if (bound.length > 0) {
-        if (bound.length !== shards.length) {
-          throw new Error(`Managed folder deletion requires every shard to be reconciled: ${logicalLedgerId}`)
-        }
-        for (const shard of bound) {
+      const physicalTargets = shards.flatMap((shard) => {
+        const knownRemoteFolderIds = shard.remoteFolderId
+          ? [shard.remoteFolderId]
+          : [...new Set((shard.knownRemoteFolderIds ?? []).map((id) => id.trim()).filter(Boolean))]
+        return knownRemoteFolderIds.length === 1
+          ? [{ ...shard, remoteFolderId: knownRemoteFolderIds[0] }]
+          : []
+      })
+      if (physicalTargets.length > 0) {
+        for (const shard of physicalTargets) {
           const folder = foldersById.get(shard.remoteFolderId!)
           if (!folder) {
             results.push({
@@ -1260,16 +1271,16 @@ export class FavoriteRepositorySyncService {
             remoteFolderId: folder.id,
             title: folder.title,
             memberCount: folder.memberCount,
-            state: 'bound',
-            requiresUnboundAcknowledgement: false
+            state: shard.bindingState === 'bound' ? 'bound' : 'unbound-historical-id',
+            requiresUnboundAcknowledgement: shard.bindingState !== 'bound'
           })
         }
-        const expectedTitle = logicalFolder?.title ?? ledgerTitleHints?.[logicalLedgerId]?.trim() ?? bound[0]?.remoteTitle
-        const boundRemoteFolderIds = new Set(bound.map((shard) => shard.remoteFolderId!))
+        const expectedTitle = logicalFolder?.title ?? ledgerTitleHints?.[logicalLedgerId]?.trim() ?? physicalTargets[0]?.remoteTitle
+        const claimedPhysicalFolderIds = new Set(physicalTargets.map((shard) => shard.remoteFolderId!))
         const unboundMatches = expectedTitle
           ? inventory.folders.filter((folder) => isBilimiRemoteFolder(folder.title) &&
-            normalizedRemoteFolderTitle(folder.title) === normalizedRemoteFolderTitle(expectedTitle) &&
-            !boundRemoteFolderIds.has(folder.id))
+            matchesManagedRemoteFolderTitle(folder.title, expectedTitle) &&
+            !claimedPhysicalFolderIds.has(folder.id))
           : []
         for (const folder of unboundMatches) {
           results.push({
@@ -1316,7 +1327,7 @@ export class FavoriteRepositorySyncService {
       const expectedTitle = logicalFolder?.title ?? ledgerTitleHints?.[logicalLedgerId]?.trim() ?? shards[0]?.remoteTitle
       const matches = expectedTitle
         ? inventory.folders.filter((folder) => isBilimiRemoteFolder(folder.title) &&
-          normalizedRemoteFolderTitle(folder.title) === normalizedRemoteFolderTitle(expectedTitle))
+          matchesManagedRemoteFolderTitle(folder.title, expectedTitle))
         : []
       if (matches.length > 0) {
         for (const folder of matches) {
