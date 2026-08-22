@@ -318,7 +318,7 @@ export function OldFavoriteScanOverviewStep({
       <p className="favorite-ledger-panel__scan-explanation">先读取各收藏夹中的视频，确定本轮整理范围；只有待整理的视频会继续获取标签。</p>
     </> : null}
     {tagEnrichment && !scanning ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
-      <p className="favorite-ledger-panel__scan-enrichment-summary">标签补取{currentSegmentHasUnacceptedTagChanges ? '发现新增或变化标签，待采用' : tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
+      <p className="favorite-ledger-panel__scan-enrichment-summary">标签补取{currentSegmentHasUnacceptedTagChanges ? '发现新增或变化标签，待采用' : tagEnrichment.status === 'accepted' ? '已采用当前结果，可稍后继续' : tagEnrichment.status === 'paused' ? '已暂停' : tagEnrichment.pendingItemCount > 0 ? '进行中' : tagEnrichment.failedItemCount > 0 ? '读取失败，待继续补取' : '已完成'}：已处理 {tagCompletedItemCount} / {tagTotalItemCount} 条。</p>
       <div className="favorite-ledger-panel__tag-result-metrics" aria-label="标签补取结果">
         <span><small>沿用历史标签</small><strong>{reusedTagItemCount}</strong></span>
         <span><small>本轮获取标签</small><strong>{fetchedTagItemCount}</strong></span>

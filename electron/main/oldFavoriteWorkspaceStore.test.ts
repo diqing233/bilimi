@@ -822,9 +822,43 @@ describe('OldFavoriteWorkspaceStore', () => {
       currentSegmentId: 'segment-1', kind: 'resume-segment', segmentId: 'segment-1', requeuedAids: [1]
     } as never)
 
-    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
-      tagEnrichment: { status: 'running', pendingAids: [1], acceptedSegmentIds: [] }
+    const recovered = await new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')
+    if ('recovery' in recovered || !recovered.tagEnrichment) throw new Error('tag enrichment recovery unexpectedly unavailable')
+    expect(recovered.tagEnrichment).toMatchObject({ status: 'running', pendingAids: [1], acceptedSegmentIds: [] })
+    expect(recovered.tagEnrichment.acceptedTagVersionsBySegment).toEqual({})
+  })
+
+  it('clears every accepted cutoff when a whole-run tag resume starts, including across multiple segments', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [
+        { id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }
+      ]
     })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'accepted', totalItemCount: 2, completedItemCount: 1,
+        pendingAids: [2], failedAids: [], reusedTagItemCount: 0, taggedAids: [1],
+        acceptedSegmentIds: ['segment-1', 'segment-2'],
+        tagVersionsBySegment: { 'segment-1': 3, 'segment-2': 5 },
+        acceptedTagVersionsBySegment: { 'segment-1': 3, 'segment-2': 5 }
+      }
+    })
+    for (const segmentId of ['segment-1', 'segment-2']) {
+      await store.appendTagEnrichmentDelta('100', 'workspace-1', {
+        currentSegmentId: segmentId, kind: 'resume-segment', segmentId, status: 'running'
+      })
+    }
+
+    const recovered = await new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')
+    if ('recovery' in recovered || !recovered.tagEnrichment) throw new Error('tag enrichment recovery unexpectedly unavailable')
+    expect(recovered.tagEnrichment).toMatchObject({
+      status: 'running', acceptedSegmentIds: [], tagVersionsBySegment: { 'segment-1': 3, 'segment-2': 5 }
+    })
+    expect(recovered.tagEnrichment.acceptedTagVersionsBySegment).toEqual({})
   })
 
   it('reads a legacy accepted tag segment as version zero without forcing another adoption', async () => {

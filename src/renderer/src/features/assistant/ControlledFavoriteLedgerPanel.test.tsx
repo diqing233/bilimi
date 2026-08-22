@@ -2419,7 +2419,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
-    expect(await screen.findByText('标签补取已完成：已处理 2 / 2 条。')).toBeInTheDocument()
+    expect(await screen.findByText('标签补取读取失败，待继续补取：已处理 2 / 2 条。')).toBeInTheDocument()
     const tagResults = screen.getByLabelText('标签补取结果')
     expect(tagResults).toHaveTextContent('本轮获取标签1')
     expect(tagResults).toHaveTextContent('本轮确认无标签0')
@@ -2886,7 +2886,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(dialog).getByLabelText('本轮所有批次')).not.toBeChecked()
     fireEvent.click(within(dialog).getByLabelText('本轮所有批次'))
     fireEvent.click(within(dialog).getByRole('button', { name: '开始 DeepSeek 整理' }))
-    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'low-confidence-and-unclassified', 'all'))
+    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only', 'all'))
     expect(onDeepSeekTaskStart).toHaveBeenCalledWith('收藏整理：本轮所有批次')
     expect(screen.getByRole('combobox', { name: '整理批次' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '扫描概览' })).toBeEnabled()

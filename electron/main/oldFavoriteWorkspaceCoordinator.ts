@@ -33,6 +33,7 @@ import {
 } from '../../src/shared/oldFavoriteWorkspace'
 import { MAX_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE } from '../../src/shared/oldFavoriteWorkspace'
 import {
+  createFavoriteRepositoryPositionKey,
   isFavoriteRepositoryMetadataStale,
   isFavoriteRepositoryScanVisible,
   type FavoriteRepositoryClassificationSource,
@@ -56,6 +57,13 @@ import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
 export const OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED = Symbol('old-favorite-workspace-tag-adoption-failure-persisted')
+const OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE = 'Old favorite workspace recovery decision is stale; read a new recovery summary first.'
+const LOCAL_RESULT_PREPARATION_BATCH_SIZE = 128
+
+/** A persisted preview needs a new recovery choice, but is not itself corrupt. */
+export function isOldFavoriteWorkspaceRecoveryDecisionStaleError(error: unknown) {
+  return error instanceof Error && error.message === OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE
+}
 
 type SegmentDescriptor = { id: string; index: number; itemCount: number }
 type StreamingScanRuntime = {
@@ -366,13 +374,13 @@ function recoveryBaselineVector(
   const normalizedAids = normalizeAids(aids)
   const stable = (value: unknown) => JSON.stringify(value)
   const aidFingerprint = stable(normalizedAids.map((aid) => ({ aid,
-    positionRevision: snapshot.positions[String(aid)]?.revision ?? 0,
+    positionRevision: snapshot.positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]?.revision ?? 0,
     metadataRevision: snapshot.libraryMirrors[String(aid)]?.metadataRevision ?? 0,
     videoUpdatedAt: snapshot.videos[String(aid)]?.updatedAt ?? ''
   })))
   const mirrorFingerprint = stable(normalizedAids.map((aid) => ({ aid,
-    physical: snapshot.positions[String(aid)]?.remoteObservedPhysicalFolderIds ?? [],
-    logical: snapshot.positions[String(aid)]?.remoteObservedLogicalFolderIds ?? []
+    physical: snapshot.positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]?.remoteObservedPhysicalFolderIds ?? [],
+    logical: snapshot.positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, aid)]?.remoteObservedLogicalFolderIds ?? []
   })))
   const bindingFingerprint = stable(snapshot.physicalShards.map((shard) => ({
     logicalLedgerId: shard.logicalLedgerId, folderId: shard.folderId, shardNumber: shard.shardNumber,
@@ -385,6 +393,33 @@ function recoveryBaselineVector(
   return { aids: normalizedAids, aidFingerprint, mirrorFingerprint, bindingFingerprint,
     metadataFingerprint, rulesFingerprint, keywordsFingerprint, defaultSettingsFingerprint,
     fingerprint: stable({ aidFingerprint, mirrorFingerprint, bindingFingerprint, metadataFingerprint, rulesFingerprint, keywordsFingerprint, defaultSettingsFingerprint }) }
+}
+
+/** Keeps unconfirmed external facts guarded while accepting a just-saved local rule configuration. */
+function recoveryBaselineWithAcceptedConfiguration(
+  baseline: ReturnType<typeof recoveryBaselineVector>,
+  current: ReturnType<typeof recoveryBaselineVector>
+) {
+  const metadataFingerprint = current.metadataFingerprint
+  const rulesFingerprint = current.rulesFingerprint
+  const keywordsFingerprint = current.keywordsFingerprint
+  const defaultSettingsFingerprint = current.defaultSettingsFingerprint
+  return {
+    ...baseline,
+    metadataFingerprint,
+    rulesFingerprint,
+    keywordsFingerprint,
+    defaultSettingsFingerprint,
+    fingerprint: JSON.stringify({
+      aidFingerprint: baseline.aidFingerprint,
+      mirrorFingerprint: baseline.mirrorFingerprint,
+      bindingFingerprint: baseline.bindingFingerprint,
+      metadataFingerprint,
+      rulesFingerprint,
+      keywordsFingerprint,
+      defaultSettingsFingerprint
+    })
+  }
 }
 
 function changedRecoverySystemAids(
@@ -946,6 +981,7 @@ export class OldFavoriteWorkspaceCoordinator {
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
     onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
+    yieldToEventLoop?: () => void | Promise<void>
     now?: () => string
   }) {}
 
@@ -2507,6 +2543,7 @@ export class OldFavoriteWorkspaceCoordinator {
         planReadiness: readiness,
         ruleAnalysisCheckpoint: null
       })
+      await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
       this.updateOverviewClassifications(workspace.accountMid, newEntries)
       const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
       const visibleEntries = newEntries.filter(({ segmentId }) => segmentId === this.currentSegment(workspace)).map(({ entry }) => ({
@@ -3495,9 +3532,10 @@ export class OldFavoriteWorkspaceCoordinator {
   async reclassifyForFavoriteConfiguration(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
-      return workspace.status === 'previewing'
-        ? this.autoClassifyAllSegmentsUnsafe(workspace, true, true)
-        : clone(workspace)
+      if (workspace.status !== 'previewing') return clone(workspace)
+      const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true)
+      await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
+      return reclassified
     })
   }
 
@@ -4350,6 +4388,22 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Records only the explicit local configuration the user just saved, never unrelated remote facts. */
+  private async advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace: OldFavoriteWorkspace) {
+    const recovery = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
+    if ('recovery' in recovery || !recovery.recoveryDecision || !recovery.recoveryBaseline) return
+    const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+    const current = recoveryBaselineVector(repository, recovery.recoveryBaseline.aids,
+      await this.options.resolveRecoveryConfiguration?.(workspace.accountMid))
+    const accepted = recoveryBaselineWithAcceptedConfiguration(recovery.recoveryBaseline, current)
+    await this.options.workspaceStore.setRecoveryBaseline(workspace.accountMid, workspace.id, accepted)
+    await this.options.workspaceStore.setRecoveryDecision(workspace.accountMid, workspace.id, {
+      ...recovery.recoveryDecision,
+      evidenceFingerprint: accepted.fingerprint,
+      recordedAt: this.now()
+    })
+  }
+
   async getPendingTagEnrichmentAids(accountMid: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -4630,11 +4684,10 @@ export class OldFavoriteWorkspaceCoordinator {
     if (!enrichment) return true
     const segmentIds = this.tagEnrichmentSegmentIds(workspace)
     if (!segmentIds.length) return true
-    // A naturally completed tag run has no adoption step. Once a cutoff was
-    // accepted, however, a late result must still match every accepted version
-    // even when it clears the pending queue.
-    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0 && enrichment.failedAids.length === 0 &&
-      Object.keys(enrichment.acceptedTagVersionsBySegment).length === 0) return true
+    // A naturally completed tag run has no adoption step. Legacy journals can
+    // retain an orphaned cutoff version after resume; it must not turn a fully
+    // finished run back into an adoption-blocked state.
+    if (enrichment.status === 'complete' && enrichment.pendingAids.length === 0 && enrichment.failedAids.length === 0) return true
     const accepted = new Set(enrichment.acceptedSegmentIds)
     return segmentIds.every((segmentId) =>
       accepted.has(segmentId) &&
@@ -4695,7 +4748,14 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.options.workspaceStore.appendTagEnrichmentDelta(workspace.accountMid, workspace.id, {
           currentSegmentId: acceptedSegmentId, kind: 'resume-segment', segmentId: acceptedSegmentId, status: 'running'
         })
-        next = { ...next, acceptedSegmentIds: next.acceptedSegmentIds.filter((id) => id !== acceptedSegmentId), status: 'running' }
+        const acceptedTagVersionsBySegment = { ...next.acceptedTagVersionsBySegment }
+        delete acceptedTagVersionsBySegment[acceptedSegmentId]
+        next = {
+          ...next,
+          acceptedSegmentIds: next.acceptedSegmentIds.filter((id) => id !== acceptedSegmentId),
+          acceptedTagVersionsBySegment,
+          status: 'running'
+        }
         this.tagEnrichments.set(workspace.accountMid, next)
       }
       return working.acceptedSegmentIds.length > 0 || failedWasRequeued
@@ -4833,7 +4893,6 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /** Claims a frozen plan synchronously, then drives Bilibili in one main-process background task. */
   async beginBilibiliExecution(accountMid: string, options: { includeInbox?: boolean } = {}): Promise<OldFavoriteWorkspaceSnapshot> {
-    await this.commitCompleteLocalResultForRemoteExecution(accountMid)
     const frozen = await this.freezeForBilibiliExecution(accountMid, options)
     if (!frozen.frozenSyncPlan || !this.options.syncService) {
       throw new Error('Old favorite workspace sync service is unavailable.')
@@ -4898,8 +4957,15 @@ export class OldFavoriteWorkspaceCoordinator {
         const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
         items.push(...(segment.items ?? []))
       }
-      const selectedItems = items.filter((item) => !isUnavailableScanItem(item) &&
-        (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
+      const selectedItems: CurrentSegmentItem[] = []
+      for (let index = 0; index < items.length; index += 1) {
+        await this.yieldLocalResultPreparation(index)
+        const item = items[index]
+        if (!isUnavailableScanItem(item) &&
+          (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))) {
+          selectedItems.push(item)
+        }
+      }
       // A user may intentionally deselect every ordinary source. There is no
       // local result to commit in that case, but the remote plan may still be
       // frozen as an empty no-op for the confirmation flow.
@@ -4912,23 +4978,47 @@ export class OldFavoriteWorkspaceCoordinator {
         ? `bilimi-logical:${logicalLedgerId}`
         : `local:${logicalLedgerId}`
       const organizationRecordAids = new Set(repository.organizationRecords.map((record) => record.aid))
-      const localResultAlreadyComplete = selectedItems.every((item) => {
+      let localResultAlreadyComplete = true
+      for (let index = 0; index < selectedItems.length; index += 1) {
+        await this.yieldLocalResultPreparation(index)
+        const item = selectedItems[index]
         const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
         const desired = targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort()
         const position = repository.positions[`${workspace.accountMid}:${item.aid}`]
-        if (!position || JSON.stringify([...position.localDesiredFolderIds].sort()) !== JSON.stringify(desired)) return false
-        if (!targets.length) return repository.memberships['local:inbox']?.includes(item.aid) ?? false
-        return organizationRecordAids.has(item.aid) && desired.every((folderId) => repository.memberships[folderId]?.includes(item.aid))
-      })
+        if (!position || JSON.stringify([...position.localDesiredFolderIds].sort()) !== JSON.stringify(desired) ||
+          (!targets.length && !(repository.memberships['local:inbox']?.includes(item.aid) ?? false)) ||
+          (targets.length > 0 && (!organizationRecordAids.has(item.aid) || !desired.every((folderId) => repository.memberships[folderId]?.includes(item.aid))))) {
+          localResultAlreadyComplete = false
+          break
+        }
+      }
       if (localResultAlreadyComplete) return
       const memberAidsByFolderId: Record<string, number[]> = { 'local:inbox': [] }
       const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string; classificationSource: FavoriteRepositoryClassificationSource }> = []
-      for (const item of selectedItems) {
+      const placements: Array<{
+        aid: number
+        localDesiredFolderIds: string[]
+        remoteObservedPhysicalFolderIds: string[]
+        remoteObservedLogicalFolderIds: string[]
+        updatedAt: string
+        reason: string
+      }> = []
+      const videos: Array<{
+        aid: number
+        title: string
+        author?: string
+        description?: string
+        tags: string[]
+        updatedAt: string
+      }> = []
+      for (let index = 0; index < selectedItems.length; index += 1) {
+        await this.yieldLocalResultPreparation(index)
+        const item = selectedItems[index]
         const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
         if (!targets.length) memberAidsByFolderId['local:inbox'].push(item.aid)
         else {
           const targetFolderIds = targets.map(localFolderIdForLedger)
-          for (const folderId of targetFolderIds) memberAidsByFolderId[folderId] = [...(memberAidsByFolderId[folderId] ?? []), item.aid]
+          for (const folderId of targetFolderIds) (memberAidsByFolderId[folderId] ??= []).push(item.aid)
           organizationRecords.push({
             accountMid: workspace.accountMid,
             aid: item.aid,
@@ -4937,6 +5027,23 @@ export class OldFavoriteWorkspaceCoordinator {
             classificationSource: repositoryClassificationSource(assignmentsByAid.get(item.aid)?.source ?? 'system-low')
           })
         }
+        const prior = repository.positions[`${workspace.accountMid}:${item.aid}`]
+        placements.push({
+          aid: item.aid,
+          localDesiredFolderIds: targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort(),
+          remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
+          remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
+          updatedAt: this.now(),
+          reason: 'old-favorite-local-first'
+        })
+        videos.push({
+          aid: item.aid,
+          title: item.title?.trim() || `Video ${item.aid}`,
+          ...(item.author?.trim() ? { author: item.author.trim() } : {}),
+          ...(item.description?.trim() ? { description: item.description.trim() } : {}),
+          tags: [...(item.tags ?? [])],
+          updatedAt: this.now()
+        })
       }
       const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
         .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
@@ -4952,18 +5059,6 @@ export class OldFavoriteWorkspaceCoordinator {
           syncState: 'local-only' as const
         }
       }))
-      const placements = selectedItems.map((item) => {
-        const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
-        const prior = repository.positions[`${workspace.accountMid}:${item.aid}`]
-        return {
-          aid: item.aid,
-          localDesiredFolderIds: targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort(),
-          remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
-          remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
-          updatedAt: this.now(),
-          reason: 'old-favorite-local-first'
-        }
-      })
       await this.options.repository.commit(workspace.accountMid, {
         id: `old-favorite-workspace:remote-local:${workspace.id}:${randomUUID()}`,
         accountMid: workspace.accountMid,
@@ -4974,19 +5069,17 @@ export class OldFavoriteWorkspaceCoordinator {
           memberAidsByFolderId: Object.fromEntries(Object.entries(memberAidsByFolderId)
             .map(([folderId, aids]) => [folderId, [...new Set(aids)].sort((left, right) => left - right)])),
           folders,
-          videos: selectedItems.map((item) => ({
-            aid: item.aid,
-            title: item.title?.trim() || `Video ${item.aid}`,
-            ...(item.author?.trim() ? { author: item.author.trim() } : {}),
-            ...(item.description?.trim() ? { description: item.description.trim() } : {}),
-            tags: [...(item.tags ?? [])],
-            updatedAt: this.now()
-          })),
+          videos,
           organizationRecords,
           placements,
           audit: { operation: 'organize-favorites' }
         }
       })
+  }
+
+  private async yieldLocalResultPreparation(index: number) {
+    if (index === 0 || index % LOCAL_RESULT_PREPARATION_BATCH_SIZE !== 0) return
+    await (this.options.yieldToEventLoop?.() ?? new Promise<void>((resolve) => setImmediate(resolve)))
   }
 
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
@@ -5124,7 +5217,7 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.options.resolveRecoveryConfiguration?.(marker.accountMid))
       if (recovered.recoveryDecision.evidenceFingerprint &&
         recovered.recoveryDecision.evidenceFingerprint !== current.fingerprint) {
-        throw new Error('Old favorite workspace recovery decision is stale; read a new recovery summary first.')
+        throw new Error(OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE)
       }
     }
 

@@ -761,6 +761,9 @@ export class OldFavoriteWorkspaceStore {
               }
             } else {
               acceptedSegmentIds.delete(delta.segmentId)
+              const acceptedTagVersionsBySegment = normalizeTagVersions(tagEnrichment.acceptedTagVersionsBySegment)
+              delete acceptedTagVersionsBySegment[delta.segmentId]
+              tagEnrichment.acceptedTagVersionsBySegment = acceptedTagVersionsBySegment
               const requeuedAids = [...new Set(delta.requeuedAids ?? [])]
               if (requeuedAids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
                 throw new Error('tag enrichment resume delta is invalid')

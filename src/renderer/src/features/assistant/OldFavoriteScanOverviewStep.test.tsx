@@ -809,6 +809,31 @@ describe('OldFavoriteScanOverviewStep', () => {
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeDisabled()
   })
 
+  it('does not describe a failed tag retrieval as completed', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 2, scannedItemCount: 2, taggedItemCount: 1, untaggedItemCount: 1 },
+        continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'complete', totalItemCount: 2, completedItemCount: 2, pendingItemCount: 0, failedItemCount: 1,
+          currentSegmentCanResumeTagEnrichment: false, currentSegmentHasUnacceptedTagChanges: false
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onRetryFailedTagEnrichment={vi.fn()}
+    />)
+
+    expect(screen.getByText('基础扫描已完成，标签补取尚未完成：读取失败 1 条。')).toBeInTheDocument()
+    expect(screen.getByText('标签补取读取失败，待继续补取：已处理 2 / 2 条。')).toBeInTheDocument()
+    expect(screen.queryByText('本轮扫描与标签补取已完成。请在「推荐收藏夹」选择或新建要参与分类的收藏夹；随后到「归档预览」检查并调整结果，最后确认保存或同步。')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeDisabled()
+  })
+
   it('keeps classified source folders selectable and makes the header control select all only', () => {
     const selectSourceFolders = vi.fn()
     render(<OldFavoriteScanOverviewStep

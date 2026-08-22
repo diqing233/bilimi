@@ -3279,7 +3279,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('refreshes recommendations after a resumed tag batch completes while the adopted cutoff stays stale', async () => {
+  it('treats a resumed tag batch that naturally completes as complete without re-adoption', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3311,8 +3311,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        wholeRunTagCutoffAccepted: false,
-        currentSegmentHasUnacceptedTagChanges: true
+        status: 'complete', pendingItemCount: 0, failedItemCount: 0,
+        wholeRunTagCutoffAccepted: true,
+        currentSegmentHasUnacceptedTagChanges: false
       }
     })
     expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAccepting)
@@ -3378,7 +3379,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('blocks a changed tag cutoff before dispatching a whole-run local save', async () => {
+  it('allows a whole-run local save after resumed tags naturally complete', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -3399,14 +3400,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const save = vi.spyOn(coordinator, 'saveWholeRunToLocalLibrary')
 
     await coordinator.setExecutionIntent('100', 'local')
-    await expect(coordinator.continueExecutionIntent('100')).rejects.toThrow(
-      'Old favorite workspace whole-run tag enrichment is not complete.'
-    )
+    await expect(coordinator.continueExecutionIntent('100')).resolves.toBe(true)
 
-    expect(save).not.toHaveBeenCalled()
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      executionIntent: { mode: 'local', status: 'blocked', failureCode: 'tag-cutoff-changed' }
-    })
+    expect(save).toHaveBeenCalledOnce()
   })
 
   it('does not resume tag enrichment after a whole-run execution has been claimed', async () => {
@@ -3549,7 +3545,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountBeforeAcceptance)
   })
 
-  it('requires explicit re-adoption after the user resumes tag enrichment', async () => {
+  it('does not require explicit re-adoption after resumed tags naturally complete', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -3573,13 +3569,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        wholeRunTagCutoffAccepted: false,
-        currentSegmentHasUnacceptedTagChanges: true
+        status: 'complete', pendingItemCount: 0, failedItemCount: 0,
+        wholeRunTagCutoffAccepted: true,
+        currentSegmentHasUnacceptedTagChanges: false
       }
     })
     expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAcceptance)
+    const classificationCountAfterNaturalCompletion = classifyCurrentItem.mock.calls.length
     await coordinator.acceptCurrentTags('100')
-    expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(classificationCountAfterAcceptance)
+    expect(classifyCurrentItem.mock.calls.length).toBe(classificationCountAfterNaturalCompletion)
   })
 
   it('keeps manual classifications and adopted recommendations when resumed tags are adopted again', async () => {
@@ -3615,7 +3613,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('restores a resumed tag result as awaiting explicit adoption after restart', async () => {
+  it('treats a resumed tag run that naturally completes as complete after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -3638,17 +3636,46 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
         currentSegmentCanContinueTagEnrichment: false,
-        currentSegmentHasUnacceptedTagChanges: true,
-        wholeRunTagCutoffAccepted: false
+        currentSegmentHasUnacceptedTagChanges: false,
+        wholeRunTagCutoffAccepted: true,
+        status: 'complete', pendingItemCount: 0, failedItemCount: 0
+      }
+    })
+  })
+
+  it('ignores an orphaned adopted tag version when a restored run is already complete', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, workspaceStore, { initializeOnOpen: false })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Tagged', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Completed later', sourceFolderIds: ['source'] }
+      ]
+    })
+    await first.finishScan('100')
+    const created = requireSnapshot(await first.getSnapshot('100'))
+    await first.recordTagEnrichment('100', 1, ['TypeScript'], created.workspaceId)
+    await first.recordTagEnrichment('100', 2, ['React'], created.workspaceId)
+
+    await workspaceStore.appendOverlay('100', created.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      tagEnrichment: {
+        status: 'complete', totalItemCount: 2, completedItemCount: 2, pendingAids: [], failedAids: [],
+        reusedTagItemCount: 0, taggedAids: [1, 2], confirmedUntaggedAids: [], acceptedSegmentIds: [],
+        tagVersionsBySegment: { 'segment-1': 2 }, acceptedTagVersionsBySegment: { 'segment-1': 1 }
       }
     })
 
-    await restarted.acceptCurrentTags('100')
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: {
-        status: 'accepted',
-        currentSegmentCanContinueTagEnrichment: false,
-        currentSegmentHasUnacceptedTagChanges: false
+        status: 'complete', pendingItemCount: 0, failedItemCount: 0,
+        wholeRunTagCutoffAccepted: true, currentSegmentHasUnacceptedTagChanges: false
       }
     })
   })
@@ -3673,6 +3700,31 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0 }
     })
     expect(await coordinator.getPendingTagEnrichmentAids('100')).toEqual([2])
+  })
+
+  it('clears an adopted cutoff when the compatibility failed-tag retry resumes the whole run', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'Tagged', sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Failed', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.resumeTagEnrichment('100')
+    await coordinator.recordTagEnrichmentFailure('100', 2, 'network-failure', workspaceId)
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { wholeRunTagCutoffAccepted: false, failedItemCount: 1 }
+    })
+    await expect(coordinator.retryFailedTagEnrichment('100')).resolves.toBe(true)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'running', pendingItemCount: 1, failedItemCount: 0, wholeRunTagCutoffAccepted: false }
+    })
   })
 
   it('resumes pending and failed tag reads through the single resume action', async () => {
@@ -10234,6 +10286,131 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root })).open('100'))
       .rejects.toThrow('recovery decision is stale')
+  })
+
+  it('advances only accepted local rule configuration after reclassification, while later remote facts still require recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let configuration = { metadata: 'metadata-v1', rules: 'rules-v1', keywords: 'keywords-v1', defaultSettings: 'defaults-v1' }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItem: (item) => ({ targetLedgerIds: [`system-${item.aid}`], confidence: 'high' as const })
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+
+    configuration = { ...configuration, rules: 'rules-v2', keywords: 'keywords-v2' }
+    await coordinator.reclassifyForFavoriteConfiguration('100')
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItem: (item) => ({ targetLedgerIds: [`system-${item.aid}`], confidence: 'high' as const })
+    }).getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', classifications: { '1': { targetLedgerIds: ['system-1'], source: 'system-high' } }
+    })
+
+    await repository.commit('100', {
+      id: 'external-fact-after-rule-save', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'remote metadata changed', author: 'up', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+    })
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItem: (item) => ({ targetLedgerIds: [`system-${item.aid}`], confidence: 'high' as const })
+    }).getSnapshot('100')).rejects.toThrow('recovery decision is stale')
+  })
+
+  it('advances accepted configuration after a saved preview rule while later mirror and binding facts still require recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let configuration = { metadata: 'metadata-v1', rules: 'rules-v1', keywords: 'keywords-v1', defaultSettings: 'defaults-v1' }
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, workspaceStore, {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: ['custom-music'], confidence: 'high' as const }))
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Music match', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const summary = await coordinator.getRecoverySummary('100')
+    if (!summary) throw new Error('missing summary')
+    await coordinator.selectRecoveryDecision('100', {
+      workspaceId: summary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: summary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: summary.baselineChangeEvidence.repositoryRevision
+    })
+
+    configuration = { ...configuration, rules: 'rules-v2', keywords: 'keywords-v2' }
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-accepted-config', ledgerId: 'custom-music', title: '音乐', keywords: ['Music'], ruleType: 'keyword'
+    })
+
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: ['custom-music'], confidence: 'high' as const }))
+    }).getSnapshot('100')).resolves.toMatchObject({ status: 'previewing' })
+
+    await repository.commit('100', {
+      id: 'external-mirror-after-rule-save', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1,
+        localDesiredFolderIds: [],
+        remoteObservedPhysicalFolderIds: ['remote-mirror-changed'],
+        remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-07-20T00:00:01.000Z'
+      }
+    })
+    await expect(createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      resolveRecoveryConfiguration: () => configuration
+    }).getSnapshot('100')).rejects.toThrow('recovery decision is stale')
+
+    const freshRoot = await createRoot()
+    const bindingRepository = new FavoriteRepositoryService({ root: freshRoot, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindingCoordinator = createCoordinator(bindingRepository, new OldFavoriteWorkspaceStore({ root: freshRoot }), {
+      resolveRecoveryConfiguration: () => configuration,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: ['custom-music'], confidence: 'high' as const }))
+    })
+    await bindingCoordinator.beginScan('100', 'incremental')
+    await bindingCoordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Music match', sourceFolderIds: ['source'] }]
+    })
+    await bindingCoordinator.finishScan('100')
+    const bindingSummary = await bindingCoordinator.getRecoverySummary('100')
+    if (!bindingSummary) throw new Error('missing binding summary')
+    await bindingCoordinator.selectRecoveryDecision('100', {
+      workspaceId: bindingSummary.workspaceId, choice: 'merge-latest',
+      expectedBaselineRevision: bindingSummary.baselineChangeEvidence.workspaceBaselineRevision,
+      expectedRepositoryRevision: bindingSummary.baselineChangeEvidence.repositoryRevision
+    })
+    configuration = { ...configuration, rules: 'rules-v3', keywords: 'keywords-v3' }
+    await bindingCoordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-accepted-config-binding', ledgerId: 'custom-music', title: '音乐', keywords: ['Music'], ruleType: 'keyword'
+    })
+    await bindingRepository.commit('100', {
+      id: 'external-binding-after-rule-save', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'custom-music',
+        logicalTitle: 'bilimi·音乐',
+        shardNumber: 1,
+        memberAids: [],
+        remoteTitle: 'bilimi·音乐',
+        bindingState: 'bound',
+        remoteFolderId: 'remote-binding-changed'
+      }
+    })
+    await expect(createCoordinator(bindingRepository, new OldFavoriteWorkspaceStore({ root: freshRoot }), {
+      resolveRecoveryConfiguration: () => configuration
+    }).getSnapshot('100')).rejects.toThrow('recovery decision is stale')
   })
 
   it('restores a result-unknown sync workspace without revalidating its preview recovery decision', async () => {
