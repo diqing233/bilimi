@@ -1786,12 +1786,19 @@ export function applyFavoriteRepositoryCommand(
     occurredAt: string,
     operation = classificationAdjustmentOperation(kind),
     bilibiliSync: FavoriteRepositoryClassificationAdjustment['bilibiliSync'] = { attempted: false }
-  ) => {
+  ): number[] => {
     const timestamp = normalizedTimestamp(occurredAt)
+    const recordedAids: number[] = []
     for (const placement of placements) {
       const beforeFolderIds = normalizeFolderIds(positions[createFavoriteRepositoryPositionKey(snapshot.accountMid, placement.aid)]?.localDesiredFolderIds ?? [])
       const afterFolderIds = normalizeFolderIds(placement.localDesiredFolderIds)
-      if (beforeFolderIds.length === afterFolderIds.length && beforeFolderIds.every((id, index) => id === afterFolderIds[index]) && !isClassificationSource(kind)) continue
+      const targetUnchanged = beforeFolderIds.length === afterFolderIds.length && beforeFolderIds.every((id, index) => id === afterFolderIds[index])
+      const latestClassification = [...classificationAdjustments].reverse().find((record) => record.aid === placement.aid && record.classificationSource)
+      const repeatsLatestAutomaticClassification = isClassificationSource(kind) && kind !== 'manual' &&
+        latestClassification?.classificationSource === kind &&
+        latestClassification.afterFolderIds.length === afterFolderIds.length &&
+        latestClassification.afterFolderIds.every((id, index) => id === afterFolderIds[index])
+      if (repeatsLatestAutomaticClassification || (targetUnchanged && (!isClassificationSource(kind) || latestClassification?.classificationSource === kind))) continue
       const id = `${command.id}:${placement.aid}`
       if (classificationAdjustments.some((record) => record.id === id)) continue
       classificationAdjustments.push({
@@ -1800,8 +1807,10 @@ export function applyFavoriteRepositoryCommand(
         addedToLibrary: afterFolderIds.length > 0,
         bilibiliSync: { ...bilibiliSync }
       })
+      recordedAids.push(placement.aid)
     }
     classificationAdjustments.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
+    return recordedAids
   }
   const applyPhysicalShardBinding = (payload: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>['payload']) => {
     const logicalLedgerId = payload.logicalLedgerId.trim()
@@ -1907,15 +1916,16 @@ export function applyFavoriteRepositoryCommand(
           })
         }
         organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+        const adjustedAids: number[] = []
         for (const record of command.payload.organizationRecords) {
           if (!record.classificationSource) continue
-          recordClassificationAdjustments([{
+          adjustedAids.push(...recordClassificationAdjustments([{
             aid: record.aid,
             localDesiredFolderIds: record.targetFolderIds
-          }], record.classificationSource, record.completedAt, command.payload.audit?.operation ?? 'organize-favorites', command.payload.audit?.bilibiliSync)
+          }], record.classificationSource, record.completedAt, command.payload.audit?.operation ?? 'organize-favorites', command.payload.audit?.bilibiliSync))
         }
         for (const record of command.payload.organizationRecords) {
-          if (record.classificationSource) recordLastAdjustment([record.aid], record.classificationSource, record.completedAt)
+          if (record.classificationSource && adjustedAids.includes(record.aid)) recordLastAdjustment([record.aid], record.classificationSource, record.completedAt)
         }
       }
       for (const placement of command.payload.placements ?? []) applyPlacement(placement)
@@ -2322,21 +2332,21 @@ export function applyFavoriteRepositoryCommand(
     }
     case 'set-favorite-position':
     case 'set-favorite-placement': {
-      if (command.payload.adjustmentKind) recordClassificationAdjustments(
+      const adjustedAids = command.payload.adjustmentKind ? recordClassificationAdjustments(
         [command.payload], command.payload.adjustmentKind, command.issuedAt,
         command.payload.audit?.operation, command.payload.audit?.bilibiliSync
-      )
+      ) : []
       applyPlacement(command.payload)
-      if (command.payload.adjustmentKind) recordLastAdjustment([command.payload.aid], command.payload.adjustmentKind, command.issuedAt)
+      if (command.payload.adjustmentKind && adjustedAids.length) recordLastAdjustment(adjustedAids, command.payload.adjustmentKind, command.issuedAt)
       break
     }
     case 'set-favorite-placements': {
-      if (command.payload.adjustmentKind) recordClassificationAdjustments(
+      const adjustedAids = command.payload.adjustmentKind ? recordClassificationAdjustments(
         command.payload.placements, command.payload.adjustmentKind, command.issuedAt,
         command.payload.audit?.operation, command.payload.audit?.bilibiliSync
-      )
+      ) : []
       for (const placement of command.payload.placements) applyPlacement(placement)
-      if (command.payload.adjustmentKind) recordLastAdjustment(command.payload.placements.map((placement) => placement.aid), command.payload.adjustmentKind, command.issuedAt)
+      if (command.payload.adjustmentKind && adjustedAids.length) recordLastAdjustment(adjustedAids, command.payload.adjustmentKind, command.issuedAt)
       break
     }
     case 'reconcile-scan-lifecycle': {

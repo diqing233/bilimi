@@ -7020,7 +7020,7 @@ export class OldFavoriteWorkspaceCoordinator {
             issuedAt: timestamp,
             expectedRevision: snapshot.revision,
             type: 'set-favorite-placements',
-            payload: { adjustmentKind: 'manual', placements }
+            payload: { placements }
           })
           committed = true
         } catch (error) {

@@ -3137,6 +3137,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
       observedAt: '2026-07-19T00:00:00.000Z'
     })
+    expect(snapshot.classificationAdjustments).toEqual([])
   })
 
   it('repairs an empty stale placement from existing logical membership when the remote folder still matches', async () => {
@@ -8796,7 +8797,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('backfills the complete local result before continuing a legacy frozen plan', async () => {
+  it('backfills the complete local result without duplicating its original automatic classification audit', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     let localSnapshotAtFirstWrite: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>> | undefined
@@ -8817,7 +8818,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.beginScan('100', 'incremental')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
     await coordinator.applyClassificationBatch('100', {
-      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+      source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
     await bindings.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
@@ -8826,6 +8827,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const frozen = await coordinator.freezeForBilibiliExecution('100')
     await syncService.claimFrozenPlan('100', frozen.frozenSyncPlan!)
+    await repository.commit('100', {
+      id: 'simulate-legacy-missing-local-projection', accountMid: '100', issuedAt: '2026-07-20T00:00:30.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        updatedAt: '2026-07-20T00:00:30.000Z'
+      }
+    })
 
     await coordinator.executeFrozenBilibiliPlan('100')
     await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
@@ -8837,6 +8845,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
       }
     })
+    expect((await repository.getSnapshot('100')).classificationAdjustments.filter((record) =>
+      record.aid === 1 && record.operation === 'organize-favorites'
+    )).toHaveLength(1)
   })
 
   it('keeps the complete archive result when abandoning a legacy frozen plan', async () => {

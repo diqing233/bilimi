@@ -86,6 +86,31 @@ describe('account favorite repository contracts', () => {
     })])
   })
 
+  it('does not append a second automatic classification audit when the target is unchanged', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: 'Reviewed video', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
+    const classified = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'first-organize', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, adjustmentKind: 'system-high', localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T01:00:00.000Z',
+        audit: { operation: 'organize-favorites' }
+      }
+    } as never, '2026-08-14T01:00:00.000Z')
+
+    const recovered = applyFavoriteRepositoryCommand(classified, {
+      id: 'recovered-organize', accountMid: '100', issuedAt: '2026-08-14T01:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, adjustmentKind: 'system-high', localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T01:01:00.000Z',
+        audit: { operation: 'organize-favorites' }
+      }
+    } as never, '2026-08-14T01:01:00.000Z')
+
+    expect(recovered.classificationAdjustments).toHaveLength(1)
+    expect(recovered.videos['1'].lastAdjustment).toEqual({ kind: 'system-high', occurredAt: '2026-08-14T01:00:00.000Z' })
+  })
+
   it('removes classification audit records when a recycled video is permanently cleared', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-14T00:00:00.000Z' })
     snapshot.videos = { '1': { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } }
