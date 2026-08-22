@@ -8572,6 +8572,70 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('commits the complete local result once before starting a Bilibili run', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+    const commitCompleteLocalResult = vi.spyOn(coordinator as never, 'commitCompleteLocalResultForRemoteExecution')
+
+    await expect(coordinator.beginBilibiliExecution('100')).rejects.toThrow('Old favorite workspace sync service is unavailable.')
+
+    expect(commitCompleteLocalResult).toHaveBeenCalledTimes(1)
+  })
+
+  it('yields while preparing a 2,001-item local result before freezing its Bilibili plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const yieldToEventLoop = vi.fn().mockResolvedValue(undefined)
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      segmentSize: () => 2_000,
+      now: () => '2026-07-20T00:00:00.000Z',
+      yieldToEventLoop
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 2_001 }, (_unused, index) => index + 1)
+    })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual',
+      assignments: Array.from({ length: 2_000 }, (_unused, index) => ({
+        aid: index + 1, targetLedgerIds: index < 1_000 ? ['music'] : ['inbox']
+      }))
+    })
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['inbox'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
+
+    expect(yieldToEventLoop).toHaveBeenCalled()
+  }, 15_000)
+
   it('commits the local result before provisioning a missing Bilibili target', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

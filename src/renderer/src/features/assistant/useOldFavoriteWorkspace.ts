@@ -282,7 +282,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       } : current)
       return
     }
-    if (!snapshot.deepSeekRun && observedDeepSeekCheckpointRef.current && deepSeekFeedback?.status === 'waiting') {
+    if (!snapshot.deepSeekRun && observedDeepSeekCheckpointRef.current &&
+      (deepSeekFeedback?.status === 'waiting' || deepSeekFeedback?.status === 'running')) {
       setDeepSeekFeedback((current) => current ? {
         ...current,
         status: 'completed',

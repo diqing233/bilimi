@@ -883,6 +883,32 @@ describe('useOldFavoriteWorkspace', () => {
     })
   })
 
+  it('clears stale running feedback when a completed DeepSeek snapshot has no checkpoint', async () => {
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 2, waitingSegmentCount: 0
+      }
+    }
+    const completedSnapshot = { ...workspace('100'), status: 'previewing' as const }
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(completedSnapshot)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh(true) })
+
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'completed',
+      message: expect.stringContaining('本轮所有批次已在后台整理完成')
+    }))
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+  })
+
   it('maps a restarted durable plan to running and restores cancellation immediately', async () => {
     const restarted = {
       ...workspace('100'),
