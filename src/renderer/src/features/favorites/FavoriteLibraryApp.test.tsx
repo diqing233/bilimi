@@ -222,6 +222,11 @@ describe('FavoriteLibraryApp', () => {
     expect(favoriteLibraryStyles).toContain('.favorite-library__workspace-heading-control { box-sizing: border-box; min-height: 30px; padding: 5px 8px; font-family: inherit; font-size: 13px; font-weight: 400; line-height: 1.2; }')
   })
 
+  it('keeps complete shard menu labels on one line', () => {
+    expect(favoriteLibraryStyles).toContain('width: max-content;')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__shard-option { padding: 6px 8px; border-radius: 4px; color: #334155; cursor: pointer; white-space: nowrap;')
+  })
+
   it('shows an explicit library loading state instead of a false zero while summary and page are pending', async () => {
     let resolveSummary: ((value: Record<string, unknown>) => void) | undefined
     let resolvePage: ((value: Record<string, unknown>) => void) | undefined
