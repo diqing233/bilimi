@@ -1700,6 +1700,78 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(checkpoint).toBeNull()
   })
 
+  it('rebuilds canceled pending retry ownership from the durable checkpoint after a service restart', async () => {
+    let checkpoint: any = {
+      version: 1, workspaceId: 'workspace-1', mode: 'all', scope: 'all', sourceFolderRevision: 'source',
+      segmentWork: [{ segmentId: 'segment-1', index: 0, aids: [1] }], totalVideoCount: 1,
+      originalTargetLedgerIdsByAid: { '1': ['music'] }, requestGroups: [], successfulAids: [], pendingAids: [1], failedAids: [],
+      completedSegmentIds: [], waitingSegmentIds: [], canceled: true, failed: false
+    }
+    const coordinator = {
+      getSnapshot: vi.fn(async () => ({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: false,
+        sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+        segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+        currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } }
+      })),
+      selectSegment: vi.fn(), applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: any) => { checkpoint = structuredClone(next) })
+    }
+    const generate = vi.fn(async (request) => ({
+      kind: 'favorite-archive-organize' as const,
+      results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })),
+      keywordSuggestions: []
+    }))
+    const restarted = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await restarted.retryFailedChunks('100')
+
+    expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1]])
+    expect(checkpoint).toBeNull()
+  })
+
+  it('rebuilds a current-batch failed retry from the durable checkpoint after a service restart', async () => {
+    let checkpoint: any = {
+      version: 1, workspaceId: 'workspace-1', mode: 'all', scope: 'current', sourceFolderRevision: 'source',
+      segmentWork: [{ segmentId: 'segment-1', index: 0, aids: [1] }], totalVideoCount: 1,
+      originalTargetLedgerIdsByAid: { '1': ['music'] }, requestGroups: [], successfulAids: [], pendingAids: [], failedAids: [1],
+      completedSegmentIds: [], waitingSegmentIds: [], canceled: false, failed: true
+    }
+    const coordinator = {
+      getSnapshot: vi.fn(async () => ({
+        accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: false,
+        sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+        segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+        currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video 1', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } }
+      })),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: any) => { checkpoint = structuredClone(next) })
+    }
+    const generate = vi.fn(async (request) => ({
+      kind: 'favorite-archive-organize' as const,
+      results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })),
+      keywordSuggestions: []
+    }))
+    const restarted = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await restarted.retryFailedChunks('100')
+
+    expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1]])
+    expect(checkpoint).toBeNull()
+  })
+
   it('persists a successful request group before starting the next group', async () => {
     const items = Array.from({ length: 21 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
     let checkpoint: any

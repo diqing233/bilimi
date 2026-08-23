@@ -1465,7 +1465,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private assertDeepSeekExecutionReady(workspace: OldFavoriteWorkspace) {
     const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
-    if (!checkpoint || checkpoint.workspaceId !== workspace.id || checkpoint.paused) return
+    if (!checkpoint || checkpoint.workspaceId !== workspace.id || checkpoint.paused || checkpoint.canceled || checkpoint.failed) return
     throw new Error('DeepSeek organization must be completed or explicitly resolved before saving or syncing.')
   }
 
@@ -1514,15 +1514,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const snapshot = this.createSnapshot(workspace)
       const waitingForSegments = snapshot.segments.some((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting')
       const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
-      if (checkpoint?.workspaceId === workspace.id && (checkpoint.canceled || checkpoint.failed)) {
-        const blocked = { ...intent, status: 'blocked' as const, failureCode: 'deepseek-unresolved' as const }
-        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-          currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], executionIntent: blocked
-        })
-        this.executionIntents.set(workspace.accountMid, blocked)
-        return null
-      }
-      const waitingForDeepSeek = Boolean(checkpoint && !checkpoint.paused)
+      const waitingForDeepSeek = Boolean(checkpoint && !checkpoint.paused && !checkpoint.canceled && !checkpoint.failed)
       if (waitingForSegments || waitingForDeepSeek) return null
       try {
         this.assertWholeRunTagCutoffAccepted(workspace)

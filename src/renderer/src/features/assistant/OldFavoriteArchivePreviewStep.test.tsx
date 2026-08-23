@@ -944,6 +944,35 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByText('129 / 129')).not.toBeInTheDocument()
   })
 
+  it.each([
+    { status: 'failed' as const, failedVideoCount: 1, pendingVideoCount: 0, label: '重试失败 1 条' },
+    { status: 'canceled' as const, failedVideoCount: 0, pendingVideoCount: 1, label: '重试未完成 1 条' }
+  ])('offers $label from the persisted $status checkpoint after a refresh', ({ status, failedVideoCount, pendingVideoCount, label }) => {
+    const onRetryFailedDeepSeekChunks = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], segments: [],
+        currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        deepSeekRun: {
+          mode: 'unclassified-only', scope: 'current', status, completedSegmentCount: 0, waitingSegmentCount: 0,
+          totalVideoCount: 1, successfulVideoCount: 0, failedVideoCount, pendingVideoCount
+        }
+      }}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }]}
+      loading={false} deepSeekAvailable deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={onRetryFailedDeepSeekChunks}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    expect(onRetryFailedDeepSeekChunks).toHaveBeenCalledOnce()
+  })
+
   it('replaces the DeepSeek run action with a cancellable current-batch action while running', () => {
     const onCancelDeepSeek = vi.fn()
     const { rerender } = render(<OldFavoriteArchivePreviewStep
@@ -995,7 +1024,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
     expect(canceledRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).toBeNull()
-    expect(screen.getByRole('button', { name: '重试失败批次' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试失败 3 条' })).toBeInTheDocument()
     canceledRender.unmount()
 
     const completedRender = render(<OldFavoriteArchivePreviewStep
@@ -1011,7 +1040,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
     />)
     expect(completedRender.container.querySelector('[aria-label="DeepSeek 整理反馈"]')).toBeNull()
-    expect(screen.queryByRole('button', { name: '重试失败批次' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重试失败 3 条' })).not.toBeInTheDocument()
     completedRender.unmount()
     expect(screen.queryByRole('button', { name: 'DeepSeek 整理中' })).not.toBeInTheDocument()
   })

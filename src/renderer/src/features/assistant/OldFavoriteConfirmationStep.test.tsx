@@ -305,9 +305,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('目标收藏夹')
   })
 
-  it('offers original-classification recovery when a whole-run DeepSeek task was canceled', () => {
-    const fallback = vi.fn()
-    vi.stubGlobal('confirm', vi.fn(() => true))
+  it('does not offer original-classification recovery for a canceled whole-run DeepSeek task', () => {
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
@@ -321,12 +319,11 @@ describe('OldFavoriteConfirmationStep', () => {
         }
       } as never}
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onCancelExecutionIntent={vi.fn()}
-      onUseOriginalClassifications={fallback} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '沿用 1 条视频的原自动分类' }))
-    expect(fallback).toHaveBeenCalledOnce()
-    vi.unstubAllGlobals()
+    expect(screen.queryByRole('button', { name: /沿用.*原自动分类/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/DeepSeek 整理被取消或仍有失败结果/)).not.toBeInTheDocument()
   })
 
   it('uses the current batch unmatched count and blue informational copy', () => {
@@ -933,28 +930,25 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(within(dialog).getByText('其中 1 条未匹配到合适分类，会先保存到收藏库的 bilimi·暂存；如需一并同步到 B 站，请勾选下方选项。')).toBeInTheDocument()
   })
 
-  it('shows the exact failed DeepSeek count, blocks execution, and requires explicit fallback confirmation', () => {
-    const fallback = vi.fn()
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it.each([
+    { status: 'failed' as const, failedVideoCount: 3, pendingVideoCount: 0 },
+    { status: 'canceled' as const, failedVideoCount: 0, pendingVideoCount: 3 }
+  ])('keeps save and sync available without fallback confirmation when DeepSeek is $status', ({ status, failedVideoCount, pendingVideoCount }) => {
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
         segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
-        deepSeekRun: { mode: 'all', scope: 'all', status: 'failed', completedSegmentCount: 0, waitingSegmentCount: 0,
-          totalVideoCount: 12, successfulVideoCount: 9, pendingVideoCount: 0, failedVideoCount: 3 },
+        deepSeekRun: { mode: 'all', scope: 'all', status, completedSegmentCount: 0, waitingSegmentCount: 0,
+          totalVideoCount: 12, successfulVideoCount: 9, pendingVideoCount, failedVideoCount },
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
         planReadiness: { selectedAidCount: 12, classifiedAidCount: 12, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
       }}
-      loading={false} onUseOriginalClassifications={fallback}
-      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('3 条视频的 DeepSeek 整理失败')
-    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '沿用 3 条视频的原自动分类' }))
-    expect(confirm).toHaveBeenCalledWith('确认让 3 条 DeepSeek 失败视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。')
-    expect(fallback).toHaveBeenCalledOnce()
-    confirm.mockRestore()
+    expect(screen.queryByText(/重试或明确沿用原自动分类后才能保存或同步/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /沿用.*原自动分类/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 })

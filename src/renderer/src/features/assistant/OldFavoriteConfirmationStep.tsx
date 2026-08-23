@@ -20,8 +20,9 @@ type OldFavoriteConfirmationStepProps = {
   onCloseCurrentWorkspace?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
-  onConfirmAndSync: (includeInbox?: boolean) => void
+  /** @deprecated Kept until the parent preflight branch removes its obsolete prop. */
   onUseOriginalClassifications?: () => void
+  onConfirmAndSync: (includeInbox?: boolean) => void
   onExecuteFrozenPlan: () => void
   onPauseBilibiliSync?: () => Promise<boolean> | void
   onStopSyncAndFinish?: () => Promise<boolean> | void
@@ -66,7 +67,7 @@ function blockedExecutionIntentMessage(
 ) {
   switch (code) {
     case 'deepseek-unresolved':
-      return '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+      return '自动执行已停止：旧版 DeepSeek 状态需重新确认本轮执行。'
     case 'tag-cutoff-changed':
       return '自动执行已停止：标签结果已有新变化，请重新采用当前标签后再保存或同步。'
     case 'remote-inventory-unavailable':
@@ -87,7 +88,7 @@ function blockedExecutionIntentMessage(
       return '自动执行已停止：无法生成本轮 B 站同步计划，请检查目标收藏夹后重试。'
     default:
       return waitingForDeepSeek
-        ? '自动执行已停止：DeepSeek 整理被取消或仍有失败结果。'
+        ? '自动执行已停止：DeepSeek 整理仍在运行。'
         : '自动执行已停止：无法生成本轮 B 站同步计划，请检查目标收藏夹后重试。'
   }
 }
@@ -109,7 +110,6 @@ export function OldFavoriteConfirmationStep({
   onAbandonCurrentWorkspace = () => undefined,
   onAcknowledgeCompletion = () => undefined,
   onConfirmAndSync,
-  onUseOriginalClassifications = () => undefined,
   onExecuteFrozenPlan,
   onPauseBilibiliSync = () => undefined,
   onStopSyncAndFinish = () => undefined,
@@ -152,19 +152,7 @@ export function OldFavoriteConfirmationStep({
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const userPausedBilibiliSync = snapshot.executionProgress?.syncPaused === true
-  const failedDeepSeekCount = snapshot.deepSeekRun?.failedVideoCount ?? 0
-  const canceledDeepSeekPendingCount = snapshot.deepSeekRun?.status === 'canceled'
-    ? snapshot.deepSeekRun.pendingVideoCount ?? 0
-    : 0
-  const deepSeekFallbackCount = failedDeepSeekCount + canceledDeepSeekPendingCount
-  const deepSeekBlocksExecution = snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting' ||
-    snapshot.deepSeekRun?.status === 'failed' || snapshot.deepSeekRun?.status === 'canceled'
-  const confirmOriginalClassifications = () => {
-    const statusLabel = canceledDeepSeekPendingCount ? '未完成' : '失败'
-    if (window.confirm(`确认让 ${deepSeekFallbackCount} 条 DeepSeek ${statusLabel}视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。`)) {
-      onUseOriginalClassifications()
-    }
-  }
+  const deepSeekBlocksExecution = snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting'
   const requestPauseBilibiliSync = () => {
     setPauseRequested(true)
     void Promise.resolve(onPauseBilibiliSync()).then((paused) => {
@@ -328,9 +316,6 @@ export function OldFavoriteConfirmationStep({
         {waiting.waitingForDeepSeek ? <p>DeepSeek 全轮整理完成后会自动继续。</p> : null}
         <p>{waiting.mode === 'local' ? '完成后会保存本轮到收藏库。' : '完成后会保存暂存内容并开始同步到 B 站。'}</p>
       </div>
-      {waiting.status === 'blocked' && waiting.failureCode === 'deepseek-unresolved' && deepSeekFallbackCount > 0
-        ? <button type="button" disabled={loading} onClick={confirmOriginalClassifications}>沿用 {deepSeekFallbackCount} 条视频的原自动分类</button>
-        : null}
       {waiting.status !== 'running'
         ? <button type="button" disabled={loading} onClick={onCancelExecutionIntent}>取消等待执行</button>
         : null}
@@ -399,12 +384,6 @@ export function OldFavoriteConfirmationStep({
     {unmatchedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{unmatchedMessage}</p> : null}
     {executionBlockedMessage ? <p className="favorite-ledger-panel__confirm-warning favorite-ledger-panel__confirm-info" role="alert">{executionBlockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
-    {deepSeekFallbackCount ? <div className="favorite-ledger-panel__confirm-warning" role="alert">
-      <p>{canceledDeepSeekPendingCount
-        ? `${deepSeekFallbackCount} 条视频的 DeepSeek 整理未完成，重试或明确沿用原自动分类后才能保存或同步。`
-        : `${deepSeekFallbackCount} 条视频的 DeepSeek 整理失败，重试或明确沿用原自动分类后才能保存或同步。`}</p>
-      <button type="button" disabled={loading} onClick={confirmOriginalClassifications}>沿用 {deepSeekFallbackCount} 条视频的原自动分类</button>
-    </div> : null}
     <div className="favorite-ledger-panel__confirm-action-groups">
       {isMultiSegment && viewScope === 'current' ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本批操作">
         <strong>本批操作</strong>

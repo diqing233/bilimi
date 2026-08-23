@@ -596,13 +596,18 @@ export class OldFavoriteWorkspaceDeepSeekService {
     let failedRun = this.failedRuns.get(accountMid)
     if (!failedRun?.segments.some((segment) => segment.aids.length)) {
       const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
-      if (checkpoint?.version === 1 && checkpoint.scope === 'all' && checkpoint.segmentWork && checkpoint.failedAids?.length) {
-        const failedAids = new Set(checkpoint.failedAids)
+      const retryAids = checkpoint?.failedAids?.length
+        ? checkpoint.failedAids
+        : checkpoint?.canceled && checkpoint.pendingAids?.length
+          ? checkpoint.pendingAids
+          : []
+      if (checkpoint?.version === 1 && checkpoint.segmentWork && retryAids.length) {
+        const failedAids = new Set(retryAids)
         const segments = checkpoint.segmentWork
           .map((segment) => ({ segmentId: segment.segmentId, aids: segment.aids.filter((aid) => failedAids.has(aid)) }))
           .filter((segment) => segment.aids.length)
         if (segments.length) {
-          failedRun = { workspaceId: checkpoint.workspaceId, mode: checkpoint.mode, scope: 'all', segments }
+          failedRun = { workspaceId: checkpoint.workspaceId, mode: checkpoint.mode, scope: checkpoint.scope, segments }
           this.failedRuns.set(accountMid, failedRun)
         }
       }
@@ -611,12 +616,19 @@ export class OldFavoriteWorkspaceDeepSeekService {
     if (failedRun.scope === 'all') return this.retryFailedSegments(accountMid, failedRun, onProgress)
     const [segment] = failedRun.segments
     if (!segment) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
-    return this.runOrganize(accountMid, failedRun.mode, {
+    const result = await this.runOrganize(accountMid, failedRun.mode, {
       workspaceId: failedRun.workspaceId,
       segmentId: segment.segmentId,
       mode: failedRun.mode,
       aids: segment.aids
     }, onProgress)
+    if (!result.canceled && !result.failures.length) {
+      const checkpoint = await this.options.coordinator.getDeepSeekRunCheckpoint?.(accountMid)
+      if (checkpoint?.workspaceId === failedRun.workspaceId && checkpoint.scope === 'current') {
+        await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, null)
+      }
+    }
+    return result
   }
 
   cancelCurrentSegment(accountMid: string) {

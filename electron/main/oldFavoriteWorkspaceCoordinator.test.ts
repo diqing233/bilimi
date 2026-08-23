@@ -1701,7 +1701,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(continuing).resolves.toBe(true)
   })
 
-  it('blocks a queued whole-run execution after DeepSeek cancellation until the user cancels it', async () => {
+  it('does not treat a canceled DeepSeek checkpoint as a whole-run execution blocker', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -1720,19 +1720,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setDeepSeekRunCheckpoint('100', {
       workspaceId, mode: 'all', scope: 'all', completedSegmentIds: ['segment-1'], waitingSegmentIds: [], canceled: true
     })
-    await coordinator.setExecutionIntent('100', 'bilibili')
+    await coordinator.setExecutionIntent('100', 'local')
 
-    await expect(coordinator.continueExecutionIntent('100')).resolves.toBe(false)
+    await expect(coordinator.continueExecutionIntent('100')).resolves.toBe(true)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      executionIntent: { mode: 'bilibili', status: 'blocked', waitingForDeepSeek: false }
+      deepSeekRun: { status: 'canceled' }
     })
+    expect(requireSnapshot(await coordinator.getSnapshot('100')).executionIntent).toBeUndefined()
 
     const restarted = createCoordinator(repository, store, { initializeOnOpen: false, segmentSize: () => 500 })
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
-      executionIntent: { mode: 'bilibili', status: 'blocked' }
+      deepSeekRun: { status: 'canceled' }
     })
-    await restarted.setExecutionIntent('100', null)
-    expect(requireSnapshot(await restarted.getSnapshot('100')).executionIntent).toBeUndefined()
   })
 
   it('persists the Bilibili binding failure reason instead of marking it as a DeepSeek failure', async () => {
@@ -9783,9 +9782,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
   it.each([
     { label: 'running', checkpoint: { canceled: false, failed: false, pendingAids: [1], failedAids: [] } },
-    { label: 'waiting', checkpoint: { canceled: false, failed: false, pendingAids: [], failedAids: [], waitingSegmentIds: ['segment-2'] } },
-    { label: 'canceled', checkpoint: { canceled: true, failed: false, pendingAids: [1], failedAids: [] } },
-    { label: 'failed', checkpoint: { canceled: false, failed: true, pendingAids: [], failedAids: [1] } }
+    { label: 'waiting', checkpoint: { canceled: false, failed: false, pendingAids: [], failedAids: [], waitingSegmentIds: ['segment-2'] } }
   ])('blocks local save and Bilibili freeze while DeepSeek is $label', async ({ checkpoint }) => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
@@ -9917,6 +9914,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['original-music'], source: 'fallback' } }
     })
+  it.each([
+    { label: 'canceled', checkpoint: { canceled: true, failed: false, pendingAids: [1], failedAids: [] } },
+    { label: 'failed', checkpoint: { canceled: false, failed: true, pendingAids: [], failedAids: [1] } }
+  ])('keeps the current classification and allows local save when DeepSeek is $label', async ({ checkpoint }) => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', { source: 'system-high', assignments: [{ aid: 1, targetLedgerIds: ['music'] }] })
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: snapshot.workspaceId, mode: 'all', scope: 'all',
+      segmentWork: [{ segmentId: snapshot.currentSegment!.id, index: 0, aids: [1] }], totalVideoCount: 1,
+      requestGroups: [], successfulAids: [], completedSegmentIds: [], waitingSegmentIds: [],
+      ...checkpoint
+    })
+
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'previewing' })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      deepSeekRun: expect.objectContaining({ status: checkpoint.canceled ? 'canceled' : 'failed' }),
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'system-high' } },
+      history: { entries: expect.not.arrayContaining([expect.objectContaining({ source: 'fallback' })]) }
+    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.not.toThrow(/DeepSeek/i)
+  })
+
     await expect(coordinator.getDeepSeekRunCheckpoint('100')).resolves.toBeNull()
   })
 

@@ -361,6 +361,14 @@ export function OldFavoriteArchivePreviewStep({
   const deepSeekFeedbackView = deepSeekFeedback
     ? toDeepSeekFeedbackView(deepSeekFeedback, deepSeekCancelRequested)
     : null
+  const persistedDeepSeekRetry = snapshot.deepSeekRun?.status === 'failed' && (snapshot.deepSeekRun.failedVideoCount ?? 0) > 0
+    ? { label: `重试失败 ${snapshot.deepSeekRun.failedVideoCount} 条`, count: snapshot.deepSeekRun.failedVideoCount }
+    : snapshot.deepSeekRun?.status === 'canceled' && (snapshot.deepSeekRun.pendingVideoCount ?? 0) > 0
+      ? { label: `重试未完成 ${snapshot.deepSeekRun.pendingVideoCount} 条`, count: snapshot.deepSeekRun.pendingVideoCount }
+      : null
+  const retryLabel = persistedDeepSeekRetry?.label ?? (deepSeekFeedbackView?.action === 'retry' && deepSeekFeedbackView.failures.length
+    ? `重试失败 ${deepSeekFeedbackView.failures.reduce((total, failure) => total + failure.affectedVideoCount, 0)} 条`
+    : null)
   const deepSeekCancellationAction = deepSeekFeedbackView?.action === 'cancel' || deepSeekFeedbackView?.action === 'cancelling'
   const historySourceLabels = {
     manual: '人工调整',
@@ -544,7 +552,7 @@ export function OldFavoriteArchivePreviewStep({
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled favorite-ledger-panel__deepseek-archive-disabled--warning">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
           {otherBatchOrganizationSummary ? <p className="favorite-ledger-panel__deepseek-archive-hint">{otherBatchOrganizationSummary}</p> : null}
-          {deepSeekFeedbackView || deepSeekDetails.length ? <div className="favorite-ledger-panel__deepseek-result"
+          {deepSeekFeedbackView || deepSeekDetails.length || retryLabel ? <div className="favorite-ledger-panel__deepseek-result"
             role={deepSeekFeedbackView ? deepSeekFeedbackView.kind === 'failed' ? 'alert' : 'status' : undefined}>
             {deepSeekFeedbackView ? <>
               <p className="favorite-ledger-panel__deepseek-feedback-copy">{deepSeekFeedbackView.summary}</p>
@@ -576,7 +584,7 @@ export function OldFavoriteArchivePreviewStep({
                   : `保持原分类（${detailTargetLabel(detail.afterTargetLedgerIds)}）`}
               </p>) : null}
             </details> : null}
-            {deepSeekFeedbackView?.action === 'retry' ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
+            {retryLabel ? <button type="button" disabled={loading || mutationLocked} onClick={onRetryFailedDeepSeekChunks}>{retryLabel}</button> : null}
           </div> : null}
         </div>
         <div className="favorite-ledger-panel__archive-tool-divider favorite-ledger-panel__archive-tool-divider--full-width" aria-hidden="true" />
