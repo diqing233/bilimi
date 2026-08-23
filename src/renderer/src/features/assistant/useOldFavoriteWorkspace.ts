@@ -172,6 +172,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [draftRuleAnalysisError, setDraftRuleAnalysisError] = useState<string | null>(null)
   const activeDeepSeekWorkspaceId = useRef<string | null>(null)
   const observedDeepSeekCheckpointRef = useRef(false)
+  const terminalDeepSeekWorkspaceId = useRef<string | null>(null)
   const activeDraftRuleAnalysisRef = useRef<ActiveDraftLedgerRuleAnalysis | null>(null)
   const pendingDraftLedgerRuleRef = useRef(new Map<string, DraftLedgerRuleInput>())
   const requestVersion = useRef(0)
@@ -228,6 +229,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     recommendationQueueIdleResolversRef.current.splice(0).forEach((resolve) => resolve())
     activeDeepSeekWorkspaceId.current = null
     observedDeepSeekCheckpointRef.current = false
+    terminalDeepSeekWorkspaceId.current = null
   }, [accountMid])
 
   useEffect(() => {
@@ -243,8 +245,11 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !subscribe) return
     return subscribe((progress) => {
       if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid) ||
-        progress.workspaceId !== activeDeepSeekWorkspaceId.current) return
-      setDeepSeekFeedback((current) => ({
+        progress.workspaceId !== activeDeepSeekWorkspaceId.current ||
+        terminalDeepSeekWorkspaceId.current === progress.workspaceId) return
+      setDeepSeekFeedback((current) => {
+        if (!current || (current.status !== 'running' && current.status !== 'waiting')) return current
+        return {
         status: 'running',
         message: 'DeepSeek 正在整理当前分段…',
         progress: mergeDeepSeekProgress(current?.progress, {
@@ -256,30 +261,68 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           processedItems: progress.processedItems
         }),
         failures: current?.failures
-      }))
+        }
+      })
     })
   }, [accountMid])
 
   useEffect(() => {
     if (!snapshot || 'recovery' in snapshot) return
-    if (snapshot.deepSeekRun?.status === 'running' && (
-      activeDeepSeekWorkspaceId.current !== snapshot.workspaceId || deepSeekFeedback?.status !== 'running'
+    const status = snapshot.deepSeekRun?.status
+    const active = status === 'running' || status === 'waiting'
+    const terminalStatus = deepSeekFeedback?.status
+    const terminalAllowsExplicitResume = terminalStatus === 'canceled' || terminalStatus === 'failed'
+    if (active && (terminalDeepSeekWorkspaceId.current !== snapshot.workspaceId || terminalAllowsExplicitResume) && (
+      activeDeepSeekWorkspaceId.current !== snapshot.workspaceId || terminalStatus !== status
     )) {
       activeDeepSeekWorkspaceId.current = snapshot.workspaceId
       observedDeepSeekCheckpointRef.current = true
+      terminalDeepSeekWorkspaceId.current = null
       setDeepSeekCancelRequested(false)
-      setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在依次整理本轮所有批次…' })
+      setDeepSeekFeedback({
+        status,
+        message: status === 'waiting'
+          ? 'DeepSeek 正在等待后续批次的标签补取完成…'
+          : 'DeepSeek 正在依次整理本轮所有批次…'
+      })
       return
     }
     if (activeDeepSeekWorkspaceId.current !== snapshot.workspaceId) return
-    if (snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'canceled') observedDeepSeekCheckpointRef.current = true
-    if (observedDeepSeekCheckpointRef.current && snapshot.deepSeekRun?.status === 'canceled' &&
+    if (status === 'failed' && observedDeepSeekCheckpointRef.current) {
+      setDeepSeekFeedback((current) => current ? {
+        ...current,
+        status: 'failed',
+        message: 'DeepSeek 整理失败，请重试失败项或确认沿用原自动分类。'
+      } : { status: 'failed', message: 'DeepSeek 整理失败，请重试失败项或确认沿用原自动分类。' })
+      setDeepSeekCancelRequested(false)
+      activeDeepSeekWorkspaceId.current = null
+      observedDeepSeekCheckpointRef.current = false
+      terminalDeepSeekWorkspaceId.current = snapshot.workspaceId
+      return
+    }
+    if (status === 'paused' && observedDeepSeekCheckpointRef.current) {
+      setDeepSeekFeedback((current) => current ? {
+        ...current,
+        status: 'completed',
+        message: 'DeepSeek 整理已暂停；恢复草稿后可重新开始。'
+      } : { status: 'completed', message: 'DeepSeek 整理已暂停；恢复草稿后可重新开始。' })
+      setDeepSeekCancelRequested(false)
+      activeDeepSeekWorkspaceId.current = null
+      observedDeepSeekCheckpointRef.current = false
+      terminalDeepSeekWorkspaceId.current = snapshot.workspaceId
+      return
+    }
+    if (observedDeepSeekCheckpointRef.current && status === 'canceled' &&
       (deepSeekFeedback?.status === 'waiting' || deepSeekFeedback?.status === 'running')) {
       setDeepSeekFeedback((current) => current ? {
         ...current,
         status: 'canceled',
         message: 'DeepSeek 已停止；已完成批次结果会保留，再次开始时将从剩余批次继续。'
       } : current)
+      setDeepSeekCancelRequested(false)
+      activeDeepSeekWorkspaceId.current = null
+      observedDeepSeekCheckpointRef.current = false
+      terminalDeepSeekWorkspaceId.current = snapshot.workspaceId
       return
     }
     if (!snapshot.deepSeekRun && observedDeepSeekCheckpointRef.current &&
@@ -291,6 +334,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       } : current)
       activeDeepSeekWorkspaceId.current = null
       observedDeepSeekCheckpointRef.current = false
+      terminalDeepSeekWorkspaceId.current = snapshot.workspaceId
     }
   }, [deepSeekFeedback?.status, snapshot])
 
@@ -360,6 +404,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (mode === 'full') {
       activeDeepSeekWorkspaceId.current = null
       observedDeepSeekCheckpointRef.current = false
+      terminalDeepSeekWorkspaceId.current = null
       setDeepSeekFeedback(null)
       setDeepSeekCancelRequested(false)
     }
@@ -394,6 +439,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !command || (Array.isArray(selection) && (normalizedAids.length === 0 || normalizedAids.length > 2_000))) return null
 
     activeDeepSeekWorkspaceId.current = null
+    terminalDeepSeekWorkspaceId.current = null
     setDeepSeekFeedback(null)
     setDeepSeekCancelRequested(false)
     setLoading(true)
@@ -553,6 +599,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setDeepSeekCancelRequested(false)
     activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
     observedDeepSeekCheckpointRef.current = false
+    terminalDeepSeekWorkspaceId.current = null
     setDeepSeekFeedback({ status: 'running', message: scope === 'all' ? 'DeepSeek 正在依次整理本轮所有批次…' : 'DeepSeek 正在整理当前批次…' })
     try {
       const result = scope ? await organize(accountMid, mode, scope) : await organize(accountMid, mode)
@@ -581,6 +628,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
                 ? { status: 'waiting', message: `DeepSeek 已完成当前可整理批次；${deferredSegments}${referencedConstraints}`, progress, failures: [] }
                 : { status: 'completed', message: `DeepSeek 整理完成，已更新${scope === 'all' ? '本轮所有可整理批次' : '当前批次'}。${deferredSegments}${referencedConstraints}`, progress, failures: [] }
         })
+        if (!result.deferredSegmentCount && !next.deepSeekRun) terminalDeepSeekWorkspaceId.current = next.workspaceId
       }
       return next
     } catch (error) {
@@ -639,6 +687,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setLoading(true)
     foregroundRequestCount.current += 1
     activeDeepSeekWorkspaceId.current = snapshot?.workspaceId ?? null
+    terminalDeepSeekWorkspaceId.current = null
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在重试失败批次…' })
     try {
       const result = await retry(accountMid)
@@ -1026,14 +1075,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const hasActiveWork = snapshot && (
       ['scanning', 'executing', 'reconciling'].includes(snapshot.status) ||
       snapshot.tagEnrichment?.status === 'running' ||
-      Boolean(snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'canceled')
+      Boolean(snapshot.deepSeekRun && ['running', 'waiting'].includes(snapshot.deepSeekRun.status))
     )
     if (!hasActiveWork) return
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh(true)
     }, 4_000)
     return () => window.clearInterval(timer)
-  }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined])
+  }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.deepSeekRun?.status : undefined])
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,

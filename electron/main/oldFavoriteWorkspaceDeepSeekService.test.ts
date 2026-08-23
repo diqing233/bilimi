@@ -1207,6 +1207,41 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     ])
   })
 
+  it('returns the authoritative snapshot after clearing a naturally completed all-batch checkpoint', async () => {
+    let checkpoint: any = null
+    const snapshot = () => ({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, hasMultipleSegments: false,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+      classifications: {},
+      ...(checkpoint ? {
+        deepSeekRun: { mode: 'all' as const, scope: 'all' as const, status: 'running' as const, completedSegmentCount: 0, waitingSegmentCount: 0 }
+      } : {})
+    })
+    const coordinator = {
+      getSnapshot: vi.fn(async () => snapshot()),
+      getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
+      setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: any) => { checkpoint = next ? structuredClone(next) : null }),
+      selectSegment: vi.fn(),
+      applyDeepSeekClassificationBatch: vi.fn(async () => snapshot())
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate: vi.fn(async () => ({
+        kind: 'favorite-archive-organize' as const,
+        results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }],
+        keywordSuggestions: []
+      }))
+    })
+
+    const result = await service.organizeAllSegments('100')
+
+    expect(coordinator.setDeepSeekRunCheckpoint).toHaveBeenLastCalledWith('100', null)
+    expect(result.snapshot).not.toHaveProperty('deepSeekRun')
+  })
+
   it('persists the complete immutable all-segment work plan before the first provider request', async () => {
     let currentSegmentId = 'segment-1'
     let checkpoint: any = null
@@ -1500,14 +1535,18 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
         segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, readiness: 'ready' as const }],
         currentSegment: { id: 'segment-1', items: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] })) },
         classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' } },
-        deepSeekRun: checkpoint.canceled ? { mode: 'all', scope: 'all', status: 'canceled', completedSegmentCount: 0, waitingSegmentCount: 0 } : { mode: 'all', scope: 'all', status: 'running', completedSegmentCount: 0, waitingSegmentCount: 0 }
+        ...(checkpoint ? {
+          deepSeekRun: checkpoint.canceled
+            ? { mode: 'all', scope: 'all', status: 'canceled', completedSegmentCount: 0, waitingSegmentCount: 0 }
+            : { mode: 'all', scope: 'all', status: 'running', completedSegmentCount: 0, waitingSegmentCount: 0 }
+        } : {})
       })),
       selectSegment: vi.fn(), applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({}),
       getDeepSeekRunCheckpoint: vi.fn(async () => checkpoint),
       setDeepSeekRunCheckpoint: vi.fn(async (_accountMid: string, next: any) => { checkpoint = structuredClone(next) })
     }
     const generate = vi.fn(async (request) => {
-      expect(checkpoint.canceled).toBe(false)
+      expect(checkpoint?.canceled).toBe(false)
       return { kind: 'favorite-archive-organize' as const, results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })), keywordSuggestions: [] }
     })
     const service = new OldFavoriteWorkspaceDeepSeekService({

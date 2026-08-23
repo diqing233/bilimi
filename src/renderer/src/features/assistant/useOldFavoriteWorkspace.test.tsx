@@ -716,6 +716,7 @@ describe('useOldFavoriteWorkspace', () => {
 
     await act(async () => { polling.resolve(workspace('100')) })
     expect(result.current.backgroundRefreshing).toBe(false)
+    vi.useRealTimers()
   })
 
   it('does not let background polling strand a foreground command in loading', async () => {
@@ -899,13 +900,220 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
-    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await vi.waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
     await act(async () => { await result.current.refresh(true) })
 
     await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
       status: 'completed',
       message: expect.stringContaining('本轮所有批次已在后台整理完成')
     }))
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+  })
+
+  it('stops the active all-batch feedback when an automatic continuation publishes an authoritative failure', async () => {
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 1, waitingSegmentCount: 0
+      }
+    }
+    const failedSnapshot = {
+      ...runningSnapshot,
+      deepSeekRun: {
+        ...runningSnapshot.deepSeekRun,
+        status: 'failed' as const,
+        waitingSegmentCount: 0,
+        pendingVideoCount: 0,
+        failedVideoCount: 1
+      }
+    }
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(failedSnapshot)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await vi.waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh(true) })
+
+    await waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'failed',
+      message: expect.stringContaining('失败')
+    }))
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+  })
+
+  it('ends active feedback and polling when recovery exposes a paused DeepSeek checkpoint', async () => {
+    vi.useFakeTimers()
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 1, waitingSegmentCount: 0
+      }
+    }
+    const pausedSnapshot = {
+      ...runningSnapshot,
+      deepSeekRun: { ...runningSnapshot.deepSeekRun, status: 'paused' as const }
+    }
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(pausedSnapshot)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await vi.waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh(true) })
+    await vi.waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('completed'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000) })
+
+    expect(open).toHaveBeenCalledTimes(2)
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+    vi.useRealTimers()
+  })
+
+  it('keeps polling after a foreground all-batch result returns an older running snapshot until the cleared checkpoint is observed', async () => {
+    vi.useFakeTimers()
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 2, waitingSegmentCount: 0
+      }
+    }
+    const completedSnapshot = { ...workspace('100'), status: 'previewing' as const }
+    const organize = vi.fn().mockResolvedValue({
+      snapshot: runningSnapshot,
+      progress: { totalChunks: 2, completedChunks: 2, totalVideoCount: 2, successfulVideoCount: 2, failedVideoCount: 0 },
+      referencedConstraintLedgerNames: [], failures: []
+    })
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(completedSnapshot)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await vi.waitFor(() => expect(result.current.snapshot).toEqual(runningSnapshot))
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all', 'all') })
+    expect(result.current.deepSeekFeedback?.status).toBe('running')
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
+
+    await vi.waitFor(() => expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'completed',
+      message: expect.stringContaining('本轮所有批次已在后台整理完成')
+    }))
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+    vi.useRealTimers()
+  })
+
+  it('does not let a late progress event revive a completed all-batch run', async () => {
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 2, waitingSegmentCount: 0
+      }
+    }
+    const completedSnapshot = { ...workspace('100'), status: 'previewing' as const }
+    let publishProgress: ((progress: {
+      accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number;
+      totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number
+    }) => void) | undefined
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(completedSnapshot)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh(true) })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('completed'))
+
+    act(() => publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', totalChunks: 2, completedChunks: 2,
+      totalVideoCount: 2, successfulVideoCount: 2, failedVideoCount: 0
+    }))
+
+    expect(result.current.deepSeekFeedback?.status).toBe('completed')
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+  })
+
+  it('does not let a late progress event revive a foreground all-batch completion', async () => {
+    const completedSnapshot = { ...workspace('100'), status: 'previewing' as const }
+    let publishProgress: ((progress: {
+      accountMid: string; workspaceId: string; totalChunks: number; completedChunks: number;
+      totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number
+    }) => void) | undefined
+    window.bilimiDesktop = {
+      organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockResolvedValue({
+        snapshot: completedSnapshot,
+        progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0 },
+        referencedConstraintLedgerNames: [], failures: []
+      }),
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback: NonNullable<typeof publishProgress>) => {
+        publishProgress = callback
+        return vi.fn()
+      }
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('all', 'all') })
+    expect(result.current.deepSeekFeedback?.status).toBe('completed')
+
+    act(() => publishProgress?.({
+      accountMid: '100', workspaceId: 'workspace-100', totalChunks: 1, completedChunks: 1,
+      totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0
+    }))
+
+    expect(result.current.deepSeekFeedback?.status).toBe('completed')
+    expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
+  })
+
+  it('does not reactivate a completed all-batch run from a later same-workspace running snapshot', async () => {
+    const runningSnapshot = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      deepSeekRun: {
+        mode: 'all' as const, scope: 'all' as const, status: 'running' as const,
+        completedSegmentCount: 1, waitingSegmentCount: 0
+      }
+    }
+    const completedSnapshot = { ...workspace('100'), status: 'previewing' as const }
+    const restartedSnapshot = {
+      ...runningSnapshot,
+      deepSeekRun: { ...runningSnapshot.deepSeekRun, completedSegmentCount: 0, waitingSegmentCount: 1 }
+    }
+    const open = vi.fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(completedSnapshot)
+      .mockResolvedValueOnce(restartedSnapshot)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('running'))
+    await act(async () => { await result.current.refresh(true) })
+    await waitFor(() => expect(result.current.deepSeekFeedback?.status).toBe('completed'))
+    await act(async () => { await result.current.refresh(true) })
+
+    expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'completed',
+      message: expect.stringContaining('本轮所有批次已在后台整理完成')
+    })
     expect(toDeepSeekFeedbackView(result.current.deepSeekFeedback!, false).action).toBe('none')
   })
 

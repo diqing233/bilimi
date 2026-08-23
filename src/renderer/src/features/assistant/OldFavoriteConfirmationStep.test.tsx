@@ -168,6 +168,24 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 整理仍在运行')
   })
 
+  it('does not present a recovered paused DeepSeek checkpoint as running or retain its execution lock', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        deepSeekRun: { mode: 'all', scope: 'all', status: 'paused', completedSegmentCount: 1, waitingSegmentCount: 0, pendingVideoCount: 1 },
+        sourceFolders: [], segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 1, readiness: 'ready' }],
+        currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
+    expect(screen.queryByText('DeepSeek 整理仍在运行，完成或取消并收束后才能保存或同步。')).not.toBeInTheDocument()
+  })
+
   it('lets the user acknowledge a completed Bilibili sync', () => {
     const acknowledge = vi.fn()
     render(<OldFavoriteConfirmationStep

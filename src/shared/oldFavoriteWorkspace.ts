@@ -284,7 +284,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   deepSeekRun?: {
     mode: DeepSeekArchiveMode
     scope: 'all'
-    status: 'running' | 'waiting' | 'failed' | 'canceled' | 'completed'
+    status: 'running' | 'waiting' | 'failed' | 'canceled' | 'paused' | 'completed'
     completedSegmentCount: number
     waitingSegmentCount: number
     totalVideoCount?: number

@@ -1202,6 +1202,30 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.not.toHaveProperty('deepSeekRun')
   })
 
+  it('projects a recovered paused DeepSeek checkpoint as non-running and does not keep execution waiting', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Ready', tags: ['existing'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const workspaceId = requireSnapshot(await coordinator.getSnapshot('100')).workspaceId
+
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      workspaceId, mode: 'all', scope: 'all', completedSegmentIds: [],
+      waitingSegmentIds: [], canceled: false, paused: true
+    })
+    await coordinator.setExecutionIntent('100', 'local')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      deepSeekRun: { status: 'paused' },
+      executionIntent: { mode: 'local', status: 'waiting', waitingForDeepSeek: false }
+    })
+  })
+
   it('recalculates a restored DeepSeek checkpoint from ready batches only', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

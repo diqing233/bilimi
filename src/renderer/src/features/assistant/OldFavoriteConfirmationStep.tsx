@@ -144,7 +144,8 @@ export function OldFavoriteConfirmationStep({
     ? snapshot.deepSeekRun.pendingVideoCount ?? 0
     : 0
   const deepSeekFallbackCount = failedDeepSeekCount + canceledDeepSeekPendingCount
-  const deepSeekBlocksExecution = Boolean(snapshot.deepSeekRun && snapshot.deepSeekRun.status !== 'completed')
+  const deepSeekBlocksExecution = snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting' ||
+    snapshot.deepSeekRun?.status === 'failed' || snapshot.deepSeekRun?.status === 'canceled'
   const confirmOriginalClassifications = () => {
     const statusLabel = canceledDeepSeekPendingCount ? '未完成' : '失败'
     if (window.confirm(`确认让 ${deepSeekFallbackCount} 条 DeepSeek ${statusLabel}视频沿用整理前的自动分类吗？此选择会写入本轮改动记录。`)) {

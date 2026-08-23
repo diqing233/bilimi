@@ -1465,7 +1465,7 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private assertDeepSeekExecutionReady(workspace: OldFavoriteWorkspace) {
     const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
-    if (!checkpoint || checkpoint.workspaceId !== workspace.id) return
+    if (!checkpoint || checkpoint.workspaceId !== workspace.id || checkpoint.paused) return
     throw new Error('DeepSeek organization must be completed or explicitly resolved before saving or syncing.')
   }
 
@@ -1522,7 +1522,7 @@ export class OldFavoriteWorkspaceCoordinator {
         this.executionIntents.set(workspace.accountMid, blocked)
         return null
       }
-      const waitingForDeepSeek = Boolean(checkpoint)
+      const waitingForDeepSeek = Boolean(checkpoint && !checkpoint.paused)
       if (waitingForSegments || waitingForDeepSeek) return null
       try {
         this.assertWholeRunTagCutoffAccepted(workspace)
@@ -6758,7 +6758,9 @@ export class OldFavoriteWorkspaceCoordinator {
         deepSeekRun: {
           mode: deepSeekRunCheckpoint.mode,
           scope: deepSeekRunCheckpoint.scope,
-          status: deepSeekRunCheckpoint.canceled
+          status: deepSeekRunCheckpoint.paused
+            ? 'paused' as const
+            : deepSeekRunCheckpoint.canceled
             ? 'canceled' as const
             : deepSeekRunCheckpoint.failed
               ? 'failed' as const
@@ -6786,7 +6788,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ...(executionIntent.failureCode ? { failureCode: executionIntent.failureCode } : {}),
           ...(executionIntent.failureDetail ? { failureDetail: executionIntent.failureDetail } : {}),
           waitingSegmentCount: projectedSegments.filter((segment) => segment.readiness === 'tagging' || segment.readiness === 'waiting').length,
-          waitingForDeepSeek: Boolean(deepSeekRunCheckpoint && !deepSeekRunCheckpoint.canceled && !deepSeekRunCheckpoint.failed)
+          waitingForDeepSeek: Boolean(deepSeekRunCheckpoint && !deepSeekRunCheckpoint.canceled && !deepSeekRunCheckpoint.failed && !deepSeekRunCheckpoint.paused)
         }
       } : {}),
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),

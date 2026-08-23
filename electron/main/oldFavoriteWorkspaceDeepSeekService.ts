@@ -380,6 +380,10 @@ export class OldFavoriteWorkspaceDeepSeekService {
     else {
       await this.options.coordinator.setDeepSeekRunCheckpoint?.(accountMid, null)
       this.pendingAllRuns.delete(accountMid)
+      const authoritative = await this.options.coordinator.getSnapshot(accountMid)
+      if (authoritative && !('recovery' in authoritative) && authoritative.workspaceId === initial.workspaceId) {
+        final = authoritative
+      }
     }
     this.rememberFailedRun(accountMid, initial.workspaceId, mode, 'all', failedSegments)
     return {
