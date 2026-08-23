@@ -47,6 +47,19 @@ function retryWaitLabel(remainingMs: number) {
   return seconds < 60 ? `${seconds} 秒` : `${Math.ceil(seconds / 60)} 分钟`
 }
 
+function deepSeekModeLabel(mode: NonNullable<OldFavoriteWorkspaceSnapshot['deepSeekRun']>['mode']) {
+  switch (mode) {
+    case 'unclassified-only':
+      return '只整理【未匹配到合适分类】'
+    case 'low-confidence-and-unclassified':
+      return '整理不确定项和【未分类】'
+    case 'classified-only':
+      return '只整理已匹配分类'
+    case 'all':
+      return 'DeepSeek重新检查全部'
+  }
+}
+
 function blockedExecutionIntentMessage(
   code: OldFavoriteWorkspaceExecutionFailureCode | undefined,
   waitingForDeepSeek: boolean
@@ -161,6 +174,10 @@ export function OldFavoriteConfirmationStep({
   const isMultiSegment = snapshot.hasMultipleSegments
   const currentSegmentSummary = snapshot.currentSegment
     ? snapshot.segments.find((segment) => segment.id === snapshot.currentSegment?.id)
+    : undefined
+  const deepSeekCandidateCount = snapshot.deepSeekRun?.totalVideoCount
+  const currentSegmentDeepSeekCandidateCount = currentSegmentSummary
+    ? snapshot.deepSeekRun?.candidateVideoCountBySegment?.[currentSegmentSummary.id]
     : undefined
   const currentSegmentSaved = Boolean(currentSegmentSummary && (
     currentSegmentSummary.status === 'frozen' || currentSegmentSummary.readiness === 'saved'
@@ -367,6 +384,12 @@ export function OldFavoriteConfirmationStep({
     {isMultiSegment && viewScope === 'current' && currentSegmentSummary
       ? <p className="favorite-ledger-panel__current-segment-summary">当前批次：第 {currentSegmentSummary.index + 1}/{snapshot.segments.length} 批 · {currentSegmentSummary.itemCount} 条</p>
       : null}
+    {snapshot.deepSeekRun && deepSeekCandidateCount !== undefined ? <div className="favorite-ledger-panel__deepseek-run-context">
+      <p>本次 DeepSeek：{deepSeekModeLabel(snapshot.deepSeekRun.mode)} · 本轮所有批次。</p>
+      {isMultiSegment && viewScope === 'current' && currentSegmentDeepSeekCandidateCount !== undefined
+        ? <p>当前批候选 {currentSegmentDeepSeekCandidateCount} 条；本轮候选 {deepSeekCandidateCount} 条。</p>
+        : <p>本轮候选 {deepSeekCandidateCount} 条。</p>}
+    </div> : null}
     <p>{isMultiSegment && viewScope === 'current'
       ? '确认当前批次的分类结果并保存到收藏库。'
       : '确认本轮分类结果，并选择保存到收藏库、同步到 B 站或结束本轮整理。'}</p>

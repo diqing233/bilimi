@@ -6774,6 +6774,19 @@ export class OldFavoriteWorkspaceCoordinator {
           completedSegmentCount: deepSeekRunCheckpoint.completedSegmentIds.length,
           waitingSegmentCount: deepSeekRunCheckpoint.waitingSegmentIds.length,
           ...(deepSeekRunCheckpoint.totalVideoCount !== undefined ? { totalVideoCount: deepSeekRunCheckpoint.totalVideoCount } : {}),
+          ...(deepSeekRunCheckpoint.segmentWork ? {
+            candidateVideoCountBySegment: (() => {
+              const assignedAids = new Set<number>()
+              return Object.fromEntries(deepSeekRunCheckpoint.segmentWork.map((segment) => {
+                const count = segment.aids.filter((aid) => {
+                  if (assignedAids.has(aid)) return false
+                  assignedAids.add(aid)
+                  return true
+                }).length
+                return [segment.segmentId, count]
+              }))
+            })()
+          } : {}),
           ...(deepSeekRunCheckpoint.successfulAids ? { successfulVideoCount: deepSeekRunCheckpoint.successfulAids.length } : {}),
           ...(deepSeekRunCheckpoint.pendingAids ? { pendingVideoCount: deepSeekRunCheckpoint.pendingAids.length } : {}),
           ...(deepSeekRunCheckpoint.failedAids ? { failedVideoCount: deepSeekRunCheckpoint.failedAids.length } : {})

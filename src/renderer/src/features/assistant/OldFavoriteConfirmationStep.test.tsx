@@ -24,6 +24,12 @@ describe('OldFavoriteConfirmationStep', () => {
       ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {}, recommendations: {
         candidates: [{ id: 'knowledge', displayName: '知识学习', kind: 'tag' as const, count: 499, currentSegmentCount: 499, reason: 'test' }], adoptedCandidateIds: ['knowledge']
       },
+      deepSeekRun: {
+        mode: 'unclassified-only' as const, scope: 'all' as const, status: 'failed' as const,
+        completedSegmentCount: 2, waitingSegmentCount: 0, totalVideoCount: 243,
+        successfulVideoCount: 223, pendingVideoCount: 0, failedVideoCount: 20,
+        candidateVideoCountBySegment: { 'segment-1': 196, 'segment-2': 47 }
+      },
       planReadiness: { selectedAidCount: 501, classifiedAidCount: 500, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] },
       overview: {
         available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 1, sourceFolders: [], recommendationCounts: [],
@@ -44,13 +50,24 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(within(screen.getByRole('group', { name: '确认执行视图' }))
       .getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('当前批次：第 1/2 批 · 500 条')).toBeInTheDocument()
+    expect(screen.getByText('本次 DeepSeek：只整理【未匹配到合适分类】 · 本轮所有批次。')).toBeInTheDocument()
+    expect(screen.getByText('当前批候选 196 条；本轮候选 243 条。')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '本批操作' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '本轮操作' })).not.toBeInTheDocument()
     expect(screen.queryByText('已汇总 1/2 批')).not.toBeInTheDocument()
 
+    rendered.rerender(<OldFavoriteConfirmationStep snapshot={{
+      ...snapshot,
+      deepSeekRun: { ...snapshot.deepSeekRun, candidateVideoCountBySegment: undefined }
+    }} ledgers={ledgers} {...props} viewScope="current" />)
+    expect(screen.getByText('本轮候选 243 条。')).toBeInTheDocument()
+    expect(screen.queryByText('当前批候选 196 条；本轮候选 243 条。')).not.toBeInTheDocument()
+
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} {...props} viewScope="all" />)
     expect(within(screen.getByRole('group', { name: '确认执行视图' }))
       .getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('本轮候选 243 条。')).toBeInTheDocument()
+    expect(screen.queryByText('当前批候选 196 条；本轮候选 243 条。')).not.toBeInTheDocument()
     expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
     expect(screen.getByText('已处理 500 条 · 已分类 499 条 · 暂存 1 条')).toBeInTheDocument()
     expect(screen.queryByText('等待扫描 1 条')).not.toBeInTheDocument()
@@ -72,6 +89,8 @@ describe('OldFavoriteConfirmationStep', () => {
 
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} ledgers={ledgers} {...props} />)
     expect(screen.queryByRole('group', { name: '确认执行视图' })).not.toBeInTheDocument()
+    expect(screen.getByText('本轮候选 243 条。')).toBeInTheDocument()
+    expect(screen.queryByText('当前批候选 196 条；本轮候选 243 条。')).not.toBeInTheDocument()
   })
 
   it('enables complete-round save and sync after the accepted tag cutoff while retaining pending tag facts', () => {

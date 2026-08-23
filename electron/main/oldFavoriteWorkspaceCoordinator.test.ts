@@ -1276,6 +1276,49 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('projects DeepSeek candidate counts from the authoritative per-batch work plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }]
+    })
+    for (let offset = 0; offset < 501; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: Math.min(50, 501 - offset) }, (_unused, index) => {
+          const aid = offset + index + 1
+          return { aid, title: `Video ${aid}`, tags: ['ready'], sourceFolderIds: ['source'] }
+        })
+      })
+    }
+    await coordinator.finishScan('100')
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    await coordinator.setDeepSeekRunCheckpoint('100', {
+      version: 1, workspaceId: snapshot.workspaceId, mode: 'unclassified-only', scope: 'all', sourceFolderRevision: 'source',
+      segmentWork: [
+        { segmentId: 'segment-1', index: 0, aids: [1, 2] },
+        // Legacy/corrupted journals may duplicate an AID across batches. The
+        // snapshot must keep one stable first-batch attribution so its per-
+        // batch candidates agree with the whole-run unique candidate count.
+        { segmentId: 'segment-2', index: 1, aids: [2, 501] }
+      ],
+      requestGroups: [], originalTargetLedgerIdsByAid: { '1': [], '2': [], '501': [] }, totalVideoCount: 3,
+      successfulAids: [], pendingAids: [1, 2, 501], failedAids: [], completedSegmentIds: [], waitingSegmentIds: [], canceled: false
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      deepSeekRun: {
+        mode: 'unclassified-only', scope: 'all', totalVideoCount: 3,
+        candidateVideoCountBySegment: { 'segment-1': 2, 'segment-2': 1 }
+      }
+    })
+  })
+
   it('normalizes a legacy DeepSeek checkpoint during direct restart recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

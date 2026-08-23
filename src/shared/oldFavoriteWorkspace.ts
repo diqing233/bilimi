@@ -288,6 +288,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     completedSegmentCount: number
     waitingSegmentCount: number
     totalVideoCount?: number
+    /** Per-batch candidate counts from the authoritative DeepSeek work plan, when available. */
+    candidateVideoCountBySegment?: Record<string, number>
     successfulVideoCount?: number
     pendingVideoCount?: number
     failedVideoCount?: number
