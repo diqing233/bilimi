@@ -150,6 +150,35 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'honker233' })).not.toBeInTheDocument())
   })
 
+  it('reloads the authoritative workspace after a saved local rule is deleted from the upper ledger panel', async () => {
+    const workspace = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn().mockResolvedValue(workspace)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-tech'] })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      deleteFavoriteLedgersLocal,
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+      ledgers={[{ id: 'local-tech', displayName: 'bilimi·本地技术', keywords: ['技术'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false }]} />)
+
+    await waitFor(() => expect(open).toHaveBeenCalled())
+    const readsBeforeDeletion = open.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '本地技术' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['local-tech']))
+    await waitFor(() => expect(open.mock.calls.length).toBeGreaterThan(readsBeforeDeletion))
+  })
+
   it('does not project a candidate-only local draft as a saved recommendation', () => {
     const projection = createRecommendationProjection([
       { id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,

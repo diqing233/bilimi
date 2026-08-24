@@ -5331,6 +5331,104 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     } })
   })
 
+  it('withdraws an adopted recommendation by the deleted saved rule semantics before reclassifying the preview', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(true)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      saveRecommendedLedgers: saved,
+      classifyCurrentItem: (_item, recommendedLedgers = []) => recommendedLedgers.some((ledger) =>
+        ledger.id === 'custom-author-up-alpha'
+      )
+        ? { targetLedgerIds: ['custom-author-up-alpha'], confidence: 'high' as const }
+        : { targetLedgerIds: ['remaining-ledger'], confidence: 'high' as const }
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+
+    await coordinator.reconcileDeletedFavoriteLedgerRules('100', [{
+      id: 'saved-up-alpha', ruleType: 'author', keywords: [' UP Alpha ']
+    }])
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.recommendations.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-author-up-alpha', kind: 'author', keywords: ['UP Alpha'], count: 2 })
+    ]))
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain('custom-author-up-alpha')
+    expect(snapshot.classifications).toEqual({
+      '1': { aid: 1, targetLedgerIds: ['remaining-ledger'], source: 'system-high' },
+      '2': { aid: 2, targetLedgerIds: ['remaining-ledger'], source: 'system-high' }
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'alpha1' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'remaining-ledger', logicalTitle: 'Remaining ledger', shardNumber: 1, memberAids: [],
+      observedAccountMid: '100', remoteFolderId: 'remote-remaining-1', inventory: [{
+        id: 'remote-remaining-1', title: favoriteRepositoryManagedShardTitle('remaining-ledger', 1, 'alpha1'), memberCount: 0, memberAids: []
+      }]
+    })
+    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
+      missingLedgers: [], requiredPhysicalShards: []
+    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: {
+        operations: [
+          { aid: 1, folderIds: ['remote-remaining-1'] },
+          { aid: 2, folderIds: ['remote-remaining-1'] }
+        ]
+      }
+    })
+    expect(saved).toHaveBeenLastCalledWith('100', [
+      expect.objectContaining({ id: 'custom-author-up-alpha', ruleType: 'author', keywords: ['UP Alpha'] })
+    ], [])
+  })
+
+  it('keeps the preview recommendation and classifications when deleted-rule reconciliation cannot reclassify', async () => {
+    const root = await createRoot()
+    let failReclassification = false
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItem: (_item, recommendedLedgers = []) => {
+        if (failReclassification) throw new Error('simulated reclassification failure')
+        return recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+          ? { targetLedgerIds: ['custom-author-up-alpha'], confidence: 'high' as const }
+          : { targetLedgerIds: ['remaining-ledger'], confidence: 'high' as const }
+      }
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const before = requireSnapshot(await coordinator.getSnapshot('100'))
+    failReclassification = true
+
+    await expect(coordinator.reconcileDeletedFavoriteLedgerRules('100', [{
+      id: 'saved-up-alpha', ruleType: 'author', keywords: ['UP Alpha']
+    }])).rejects.toThrow('simulated reclassification failure')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
+      classifications: before.classifications
+    })
+  })
+
   it('lets a completed saved-rule analysis replace an affected manual classification across the current round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

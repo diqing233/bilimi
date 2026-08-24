@@ -1389,8 +1389,19 @@ function registerAssistantPreferenceHandlers() {
       favoriteLedgers,
       ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
     })
+    try {
+      if (oldFavoriteWorkspaceCoordinator) {
+        await oldFavoriteWorkspaceCoordinator.reconcileDeletedFavoriteLedgerRules(accountMid, removedLedgers)
+      } else {
+        await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+      }
+    } catch (error) {
+      // The directory and preview are one user-visible rule change. Restore
+      // the exact pre-delete directory before reporting a failed reclassify.
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, current)
+      throw error
+    }
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
-    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }

@@ -168,6 +168,7 @@ type StoredRecommendation = {
   reason: string
 }
 type RecommendationState = { initialized: boolean; candidates: StoredRecommendation[]; adoptedCandidateIds: string[] }
+type DeletedFavoriteLedgerRule = Pick<FavoriteLedger, 'id' | 'keywords' | 'ruleType'>
 type RecommendationIndex = {
   workspaceId: string
   authorAids: Map<string, Set<number>>
@@ -760,6 +761,27 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
     bindingState: 'unbacked',
     isDefault: false
   }
+}
+
+function normalizedFavoriteRuleSemantics(rule: Pick<FavoriteLedger, 'keywords' | 'ruleType'>) {
+  const ruleType = rule.ruleType ?? 'keyword'
+  if (ruleType === 'deepseek') return null
+  const keywords = [...new Set(parseFavoriteLedgerRules(rule).localKeywords
+    .map((keyword) => keyword.trim().normalize('NFKC').replace(/\s+/gu, ' ').toLocaleLowerCase('zh-Hans-CN'))
+    .filter(Boolean))].sort()
+  return keywords.length ? { ruleType, keywords } : null
+}
+
+function recommendationMatchesDeletedFavoriteRule(candidate: StoredRecommendation, deletedRule: DeletedFavoriteLedgerRule) {
+  const candidateRuleType = candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const
+  const candidateSemantics = normalizedFavoriteRuleSemantics({
+    ruleType: candidateRuleType,
+    keywords: candidate.keywords
+  })
+  const deletedSemantics = normalizedFavoriteRuleSemantics(deletedRule)
+  return Boolean(candidateSemantics && deletedSemantics &&
+    candidateSemantics.ruleType === deletedSemantics.ruleType &&
+    JSON.stringify(candidateSemantics.keywords) === JSON.stringify(deletedSemantics.keywords))
 }
 
 function isStagingBilimiFolder(title: string) {
@@ -3584,6 +3606,44 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /**
+   * A saved-rule deletion must withdraw any adopted scan recommendation with
+   * the same rule semantics before the next complete-round classification.
+   * The caller owns restoring the preference directory if this transaction
+   * fails, so no stale recommendation can repopulate a deleted rule.
+   */
+  async reconcileDeletedFavoriteLedgerRules(accountMid: string, deletedRules: DeletedFavoriteLedgerRule[]): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') return clone(workspace)
+      const prior = await this.ensureRecommendations(workspace)
+      const deleted = deletedRules.filter((rule) => Boolean(rule.id.trim()) && normalizedFavoriteRuleSemantics(rule))
+      const adoptedCandidateIds = prior.adoptedCandidateIds.filter((candidateId) => {
+        const candidate = prior.candidates.find((item) => item.id === candidateId)
+        return !candidate || !deleted.some((rule) => recommendationMatchesDeletedFavoriteRule(candidate, rule))
+      })
+      const next: RecommendationState = {
+        initialized: true,
+        candidates: prior.candidates.map(clone),
+        adoptedCandidateIds
+      }
+      const recommendationsChanged = JSON.stringify(next.adoptedCandidateIds) !== JSON.stringify(prior.adoptedCandidateIds)
+      let persistedRecommendations = false
+      try {
+        if (recommendationsChanged) {
+          persistedRecommendations = await this.persistRecommendedLedgersUnsafe(workspace, next, false)
+        }
+        const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true, next)
+        await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
+        if (persistedRecommendations) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
+        return reclassified
+      } catch (error) {
+        this.recommendations.set(workspace.accountMid, clone(prior))
+        throw error
+      }
+    })
+  }
+
   async previewManagedFolderDeletion(
     accountMid: string,
     logicalLedgerIds: string[],
@@ -3802,14 +3862,15 @@ export class OldFavoriteWorkspaceCoordinator {
     workspace: OldFavoriteWorkspace,
     replaceSystem: boolean,
     replaceDeepSeek = false,
-    replaceManual = false
+    replaceManual = false,
+    recommendationState?: RecommendationState
   ) {
     return this.autoClassifySegmentsUnsafe(
       workspace,
       workspace.segments.map((segment) => segment.id),
       replaceSystem,
       undefined,
-      undefined,
+      recommendationState,
       replaceDeepSeek,
       replaceManual
     )
@@ -3933,7 +3994,17 @@ export class OldFavoriteWorkspaceCoordinator {
         })))
       }
     }
-    if (!newEntries.length) return clone(workspace)
+    if (!newEntries.length) {
+      if (!recommendationState) return clone(workspace)
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: visibleSegmentId,
+        classifications: [],
+        history: [],
+        recommendations: clone(recommendationState)
+      })
+      this.recommendations.set(workspace.accountMid, clone(recommendationState))
+      return clone(workspace)
+    }
     const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: visibleSegmentId,
@@ -3943,8 +4014,10 @@ export class OldFavoriteWorkspaceCoordinator {
       history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
         type: 'classification', segmentId, entry: clone(entry), historyCursor
       })),
+      ...(recommendationState ? { recommendations: clone(recommendationState) } : {}),
       planReadiness: readiness
     })
+    if (recommendationState) this.recommendations.set(workspace.accountMid, clone(recommendationState))
     this.updateOverviewClassifications(workspace.accountMid, newEntries)
     this.planReadiness.set(workspace.accountMid, readiness)
     const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
@@ -6313,14 +6386,15 @@ export class OldFavoriteWorkspaceCoordinator {
     return clone(state)
   }
 
-  private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState) {
-    if (!this.options.saveRecommendedLedgers || !state.candidates.length) return
+  private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState, notify = true) {
+    if (!this.options.saveRecommendedLedgers || !state.candidates.length) return false
     const saved = await this.options.saveRecommendedLedgers(
       workspace.accountMid,
       state.candidates.map((candidate, index) => asLocalRecommendedLedger(candidate, 10_000 + index)),
       state.adoptedCandidateIds
     )
-    if (saved !== false) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
+    if (saved !== false && notify) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
+    return saved !== false
   }
 
   private initializeOverviewRuntime(
