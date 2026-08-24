@@ -377,12 +377,14 @@ export function OldFavoriteArchivePreviewStep({
     'system-high': '高置信度自动分类',
     'system-low': '低置信度自动分类'
   } as const
-  const ledgerNames = new Map(ledgers.filter((ledger) => enabledLedgerIds?.has(ledger.id) ?? ledger.enabled).map((ledger) => [ledger.id, ledger.displayName]))
+  const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
   const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
   const historyTargetLabel = (targetLedgerIds: string[]) =>
-    targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'
+    targetLedgerIds.map((id) => id === 'inbox'
+      ? 'bilimi·暂存'
+      : ledgerNames.get(id) ?? '已删除的本地收藏夹').join('、') || '未分类'
   const detailTargetLabel = (targetLedgerIds: string[]) =>
-    targetLedgerIds.map((id) => id === 'inbox' ? '暂存' : ledgerNames.get(id) ?? id).join('、') || '未分类'
+    targetLedgerIds.map((id) => id === 'inbox' ? '暂存' : ledgerNames.get(id) ?? '已删除的本地收藏夹').join('、') || '未分类'
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
@@ -599,12 +601,12 @@ export function OldFavoriteArchivePreviewStep({
                 <span className="disclosure-arrow favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
               {historyOpen ? createPortal(<div {...historyMenuScope} ref={historyMenuRef} className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
-                <div className="favorite-ledger-panel__archive-history-current">当前记录：{currentHistoryLabel}</div>
+                <div className="favorite-ledger-panel__archive-history-current" title={`当前记录：${currentHistoryLabel}`}>当前记录：{currentHistoryLabel}</div>
                 {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
                   disabled={loading || mutationLocked} onClick={() => {
                     setHistoryOpen(false)
                     onMoveHistoryCursor(entry.cursor)
-                  }}>{historyLabel(entry)}</button>)}
+                  }} title={historyLabel(entry)}>{historyLabel(entry)}</button>)}
                 <div className="favorite-ledger-panel__archive-history-divider" aria-hidden="true" />
                 <button type="button" role="menuitem" className="favorite-ledger-panel__archive-history-restore"
                   disabled={loading || mutationLocked || snapshot.history.cursor <= historyBaselineCursor} onClick={() => {

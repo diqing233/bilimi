@@ -124,6 +124,21 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     ])
   })
 
+  it('keeps a persisted unbacked rule classifiable when its adopted recommendation has the same id', () => {
+    const [ledger] = mergeOldFavoriteWorkspaceLedgers([{
+      id: 'custom-author-honker', displayName: 'bilimi·honker233', keywords: ['honker233'],
+      ruleType: 'author', enabled: true, priority: 8, syncState: 'unbacked', bindingState: 'unbacked', isDefault: false
+    }], [{
+      id: 'custom-author-honker', displayName: 'bilimi·honker233', keywords: ['honker233'],
+      ruleType: 'author', enabled: true, priority: 0, syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+    }])
+
+    expect(ledger).toEqual(expect.objectContaining({
+      id: 'custom-author-honker', enabled: true, priority: 0,
+      syncState: 'unbacked', bindingState: 'unbacked'
+    }))
+  })
+
   it('reuses a saved author ledger with the same complete UP rule instead of duplicating it', () => {
     expect(mergeOldFavoriteWorkspaceLedgers([{
       id: 'saved-honker', displayName: 'bilimi·我的追更', keywords: ['honker233-小王爱马枪'],

@@ -3,6 +3,50 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('uses readable names and complete native titles for change history without leaking deleted rule ids', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: {
+          cursor: 2, length: 3, entries: [
+            {
+              cursor: 2, source: 'manual', changeCount: 1, targetLedgerIds: ['disabled-ledger'],
+              summary: {
+                title: '一段很长很长的视频标题', movedCount: 1, reason: '人工调整',
+                beforeTargetLedgerIds: ['custom-new-ledger-deleted'], afterTargetLedgerIds: ['disabled-ledger']
+              }
+            },
+            {
+              cursor: 3, source: 'manual', changeCount: 2, targetLedgerIds: ['inbox'],
+              summary: {
+                movedCount: 2, reason: '人工调整', beforeTargetLedgerIds: ['disabled-ledger'], afterTargetLedgerIds: ['inbox']
+              }
+            }
+          ]
+        }
+      }}
+      ledgers={[{ id: 'disabled-ledger', displayName: '已停用收藏夹', keywords: [], ruleType: 'keyword', enabled: false, priority: 0, isDefault: false }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
+    const menu = screen.getByRole('menu', { name: '改动记录' })
+    expect(menu).toHaveTextContent('已删除的本地收藏夹')
+    expect(menu).toHaveTextContent('已停用收藏夹')
+    expect(menu).toHaveTextContent('bilimi·暂存')
+    expect(menu).not.toHaveTextContent('custom-new-ledger-deleted')
+    const current = menu.querySelector('.favorite-ledger-panel__archive-history-current')
+    expect(current).toHaveAttribute('title', expect.stringContaining('一段很长很长的视频标题'))
+    expect(current).toHaveAttribute('title', expect.stringContaining('已删除的本地收藏夹'))
+    const restore = within(menu).getByRole('menuitem', { name: /人工调整 2 条/ })
+    expect(restore).toHaveAttribute('title', expect.stringContaining('已停用收藏夹'))
+    expect(restore).toHaveAttribute('title', expect.stringContaining('bilimi·暂存'))
+  })
+
   it('includes a reselected remote source after its managed relationship is cleared', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
@@ -420,7 +464,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     const history = screen.getByRole('button', { name: '查看改动记录' })
     expect(history).toBeEnabled()
     fireEvent.click(history)
-    expect(screen.getByRole('menuitem', { name: 'DeepSeek：1 条 → inbox' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'DeepSeek：1 条 → bilimi·暂存' })).toBeDisabled()
   })
 
   it('expands a group for batch transfer and submits one replacement while preserving other targets', () => {

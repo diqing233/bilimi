@@ -10,8 +10,25 @@ function handlerSource(handlerName: string) {
   return mainSource.slice(handlerStart, nextHandler === -1 ? mainSource.length : nextHandler)
 }
 
+function coordinatorOptionSource(optionName: string) {
+  const start = mainSource.indexOf(`    ${optionName}:`)
+  const nextOption = mainSource.indexOf('\n    onSegmentsReady:', start + 1)
+  return mainSource.slice(start, nextOption === -1 ? mainSource.length : nextOption)
+}
+
 describe('favorite ledger configuration refresh IPC', () => {
-  it('reclassifies an existing preview workspace after local saved-rule deletion or recovery', () => {
+  it('restores only exact deleted local rules for a history position without invoking rule reclassification or remote services', () => {
+    const coordinatorSource = coordinatorOptionSource('restoreDeletedFavoriteLedgerRulesForHistory')
+
+    expect(coordinatorSource).toContain('restoreDeletedFavoriteLedgerRulesForHistory')
+    expect(coordinatorSource).toContain('requestedIds.includes(record.logicalLedgerId)')
+    expect(coordinatorSource).toContain('deletedFavoriteLedgerRecords: records.filter')
+    expect(coordinatorSource).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
+    expect(coordinatorSource).not.toContain('favoriteRepositoryBindingService')
+    expect(coordinatorSource).not.toContain('favoriteRepositorySyncService')
+  })
+
+  it('schedules an existing preview workspace reclassification after local saved-rule deletion or recovery without awaiting its full scan', () => {
     expect(handlerSource('assistant:delete-favorite-ledgers-local')).toContain(
       'reclassifyFavoriteWorkspaceIfPreviewing(accountMid)'
     )
@@ -27,6 +44,13 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handlerSource('assistant:write-default-favorite-system-enabled')).toContain(
       'reclassifyFavoriteWorkspaceIfPreviewing(accountMid)'
     )
+  })
+
+  it('returns the running configuration snapshot immediately instead of awaiting the complete reclassification in a rule IPC', () => {
+    const helperStart = mainSource.indexOf('async function reclassifyFavoriteWorkspaceIfPreviewing')
+    const helper = mainSource.slice(helperStart, mainSource.indexOf('\n}\n', helperStart) + 2)
+    expect(helper).toContain('scheduleFavoriteConfigurationReclassification(accountMid)')
+    expect(helper).not.toContain('reclassifyForFavoriteConfiguration(accountMid)')
   })
 
   it('refreshes only relationship projection after a remote-only draft is removed', () => {

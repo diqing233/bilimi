@@ -145,6 +145,15 @@ type CurrentSegmentItem = {
 type DeepSeekOrganizationProjection = NonNullable<OldFavoriteWorkspaceSnapshot['deepSeekOrganization']>
 type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' | 'low' }
 
+type FavoriteConfigurationUpdate = {
+  workspaceId: string
+  version: number
+  status: 'running' | 'failed'
+  failureDetail?: string
+}
+
+const FAVORITE_CONFIGURATION_RECLASSIFICATION_SUPERSEDED = 'Old favorite workspace favorite configuration reclassification superseded.'
+
 function repositoryClassificationSource(source: OldFavoriteWorkspaceClassificationSource): FavoriteRepositoryClassificationSource {
   if (source === 'manual') return 'manual'
   if (source === 'deepseek') return 'deepseek'
@@ -958,6 +967,9 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly executionIntentRuns = new Map<string, Promise<boolean>>()
   private readonly recommendationPreviewGenerations = new Map<string, number>()
   private readonly draftLedgerRuleAnalysisIds = new Map<string, string>()
+  /** A transient, authoritative write barrier while a saved-rule change is reclassified in the background. */
+  private readonly favoriteConfigurationUpdates = new Map<string, FavoriteConfigurationUpdate>()
+  private readonly favoriteConfigurationUpdateRuns = new Map<string, Promise<void>>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -1019,6 +1031,8 @@ export class OldFavoriteWorkspaceCoordinator {
       ruleType: Exclude<FavoriteLedgerRuleType, 'deepseek'>
       enabled: boolean
     } | undefined>
+    /** Restores only exact deleted local rule snapshots needed by a history position; never performs a remote action. */
+    restoreDeletedFavoriteLedgerRulesForHistory?: (accountMid: string, logicalLedgerIds: string[]) => Promise<string[]>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
     onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
@@ -1053,6 +1067,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.executionIntentRuns.clear()
     this.recommendationPreviewGenerations.clear()
     this.draftLedgerRuleAnalysisIds.clear()
+    this.favoriteConfigurationUpdates.clear()
+    this.favoriteConfigurationUpdateRuns.clear()
   }
 
   resetAfterAccountLocalDataClear(accountMid: string): void {
@@ -1509,6 +1525,13 @@ export class OldFavoriteWorkspaceCoordinator {
     const checkpoint = this.deepSeekRunCheckpoints.get(workspace.accountMid)
     if (!checkpoint || checkpoint.workspaceId !== workspace.id || checkpoint.paused || checkpoint.canceled || checkpoint.failed) return
     throw new Error('DeepSeek organization must be completed or explicitly resolved before saving or syncing.')
+  }
+
+  private assertFavoriteConfigurationExecutionReady(workspace: OldFavoriteWorkspace) {
+    const update = this.favoriteConfigurationUpdates.get(workspace.accountMid)
+    if (!update || update.workspaceId !== workspace.id) return
+    if (update.status === 'running') throw new Error('Old favorite workspace is updating favorite rules before saving or syncing.')
+    throw new Error('Old favorite workspace favorite rule update failed; retry the rule change before saving or syncing.')
   }
 
   private async assertDeepSeekExecutionReadyForAccount(accountMid: string) {
@@ -2077,7 +2100,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace recommendations are not ready.')
       this.assertCurrentSegmentTagReady(workspace)
-      const state = await this.ensureRecommendations(workspace)
+      const state = await this.loadAuthoritativeRecommendationStateUnsafe(workspace)
       const knownIds = new Set(state.candidates.map((candidate) => candidate.id))
       const adoptedCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter(Boolean))].sort()
       if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
@@ -2090,10 +2113,6 @@ export class OldFavoriteWorkspaceCoordinator {
         adoptedCandidateIds,
         next
       )
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
-      })
-      this.recommendations.set(workspace.accountMid, next)
       await this.persistRecommendedLedgersUnsafe(workspace, next)
       return updated
     })
@@ -3607,6 +3626,79 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   /**
+   * Starts a full configuration reclassification without holding the main
+   * command queue. The returned snapshot is the authority that prevents a
+   * save or sync from using the old rule projection while work continues.
+   */
+  async scheduleFavoriteConfigurationReclassification(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    const scheduled = await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') return { workspace: null, version: 0, snapshot: this.createSnapshot(workspace) }
+      const version = (this.favoriteConfigurationUpdates.get(workspace.accountMid)?.version ?? 0) + 1
+      this.favoriteConfigurationUpdates.set(workspace.accountMid, {
+        workspaceId: workspace.id,
+        version,
+        status: 'running'
+      })
+      return { workspace: clone(workspace), version, snapshot: this.createSnapshot(workspace) }
+    })
+    if (scheduled.workspace && scheduled.version > 0) {
+      const run = this.runScheduledFavoriteConfigurationReclassification(scheduled.workspace, scheduled.version)
+      this.favoriteConfigurationUpdateRuns.set(scheduled.workspace.accountMid, run)
+      void run.finally(() => {
+        if (this.favoriteConfigurationUpdateRuns.get(scheduled.workspace!.accountMid) === run) {
+          this.favoriteConfigurationUpdateRuns.delete(scheduled.workspace!.accountMid)
+        }
+      })
+    }
+    return scheduled.snapshot
+  }
+
+  /** Waits only for the latest background rule projection; useful to safely close local test/workspace scopes. */
+  async waitForFavoriteConfigurationReclassification(accountMid: string): Promise<void> {
+    await this.favoriteConfigurationUpdateRuns.get(accountMid)
+  }
+
+  private isFavoriteConfigurationUpdateCurrent(workspace: OldFavoriteWorkspace, version: number) {
+    const update = this.favoriteConfigurationUpdates.get(workspace.accountMid)
+    return update?.workspaceId === workspace.id && update.version === version && update.status === 'running'
+  }
+
+  private assertFavoriteConfigurationUpdateCurrent(workspace: OldFavoriteWorkspace, version: number) {
+    if (!this.isFavoriteConfigurationUpdateCurrent(workspace, version)) {
+      throw new Error(FAVORITE_CONFIGURATION_RECLASSIFICATION_SUPERSEDED)
+    }
+  }
+
+  private async runScheduledFavoriteConfigurationReclassification(workspace: OldFavoriteWorkspace, version: number) {
+    const stillCurrent = () => this.isFavoriteConfigurationUpdateCurrent(workspace, version)
+    try {
+      await this.yieldToEventLoop()
+      this.assertFavoriteConfigurationUpdateCurrent(workspace, version)
+      const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true, undefined, stillCurrent)
+      this.assertFavoriteConfigurationUpdateCurrent(workspace, version)
+      await this.yieldToEventLoop()
+      await this.queue(async () => {
+        this.assertFavoriteConfigurationUpdateCurrent(workspace, version)
+        await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(reclassified)
+        this.assertFavoriteConfigurationUpdateCurrent(workspace, version)
+        this.favoriteConfigurationUpdates.delete(workspace.accountMid)
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === FAVORITE_CONFIGURATION_RECLASSIFICATION_SUPERSEDED) return
+      await this.queue(async () => {
+        if (!this.isFavoriteConfigurationUpdateCurrent(workspace, version)) return
+        this.favoriteConfigurationUpdates.set(workspace.accountMid, {
+          workspaceId: workspace.id,
+          version,
+          status: 'failed',
+          ...(error instanceof Error && error.message ? { failureDetail: error.message } : {})
+        })
+      })
+    }
+  }
+
+  /**
    * A saved-rule deletion must withdraw any adopted scan recommendation with
    * the same rule semantics before the next complete-round classification.
    * The caller owns restoring the preference directory if this transaction
@@ -3727,7 +3819,15 @@ export class OldFavoriteWorkspaceCoordinator {
       ...beforeIds.filter((id) => !afterIds.includes(id)),
       ...afterIds.filter((id) => !beforeIds.includes(id))
     ])
-    if (!changedIds.size || (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems)) {
+    if (!changedIds.size) return clone(workspace)
+    const persistRecommendationState = async () => {
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: clone(nextState)
+      })
+      this.recommendations.set(workspace.accountMid, clone(nextState))
+    }
+    if (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems) {
+      await persistRecommendationState()
       return clone(workspace)
     }
     const affectedAids = new Set<number>()
@@ -3739,11 +3839,17 @@ export class OldFavoriteWorkspaceCoordinator {
         for (const aid of aids) affectedAids.add(aid)
       }
     }
-    if (!affectedAids.size) return clone(workspace)
+    if (!affectedAids.size) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
     const descriptors = (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments
       .map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
       .filter((segment) => affectedSegmentIds.has(segment.id))
-    if (!descriptors.length) return clone(workspace)
+    if (!descriptors.length) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
 
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
@@ -3817,7 +3923,10 @@ export class OldFavoriteWorkspaceCoordinator {
         segmentWorkspace = classified
       }
     }
-    if (!newEntries.length) return clone(workspace)
+    if (!newEntries.length) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
 
     const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -3830,8 +3939,10 @@ export class OldFavoriteWorkspaceCoordinator {
       history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
         type: 'classification', segmentId, entry: clone(entry), historyCursor
       })),
+      recommendations: clone(nextState),
       planReadiness: readiness
     })
+    this.recommendations.set(workspace.accountMid, clone(nextState))
     this.updateOverviewClassifications(workspace.accountMid, newEntries)
     this.planReadiness.set(workspace.accountMid, readiness)
     const visibleSegmentId = this.currentSegment(workspace)
@@ -3863,7 +3974,8 @@ export class OldFavoriteWorkspaceCoordinator {
     replaceSystem: boolean,
     replaceDeepSeek = false,
     replaceManual = false,
-    recommendationState?: RecommendationState
+    recommendationState?: RecommendationState,
+    shouldContinue?: () => boolean
   ) {
     return this.autoClassifySegmentsUnsafe(
       workspace,
@@ -3872,7 +3984,8 @@ export class OldFavoriteWorkspaceCoordinator {
       undefined,
       recommendationState,
       replaceDeepSeek,
-      replaceManual
+      replaceManual,
+      shouldContinue
     )
   }
 
@@ -3898,8 +4011,13 @@ export class OldFavoriteWorkspaceCoordinator {
     onlyAids?: ReadonlySet<number>,
     recommendationState?: RecommendationState,
     replaceDeepSeek = false,
-    replaceManual = false
+    replaceManual = false,
+    shouldContinue?: () => boolean
   ) {
+    const assertCurrent = () => {
+      if (shouldContinue && !shouldContinue()) throw new Error(FAVORITE_CONFIGURATION_RECLASSIFICATION_SUPERSEDED)
+    }
+    assertCurrent()
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
@@ -3929,6 +4047,9 @@ export class OldFavoriteWorkspaceCoordinator {
     const newEntries: Array<{ segmentId: string; entry: OldFavoriteWorkspaceHistoryEntry; historyCursor: number }> = []
     try {
       for (const segmentId of segmentIds) {
+        assertCurrent()
+        await this.yieldToEventLoop()
+        assertCurrent()
         const segment = classificationSegments.find((candidate) => candidate.id === segmentId)
         if (!segment) throw new Error('Old favorite workspace segment is unavailable.')
         const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
@@ -3944,7 +4065,8 @@ export class OldFavoriteWorkspaceCoordinator {
           })
         const classifications = classifyMany
           ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
-              excludedRecommendedLedgers: clone(excludedRecommendedLedgers)
+              excludedRecommendedLedgers: clone(excludedRecommendedLedgers),
+              shouldCancel: () => Boolean(shouldContinue && !shouldContinue())
             })
           : await Promise.all(candidates.map((item) => recommendedLedgers.length
             ? classify!(clone(item), clone(recommendedLedgers))
@@ -3952,6 +4074,7 @@ export class OldFavoriteWorkspaceCoordinator {
         if (classifications.length !== candidates.length) {
           throw new Error('Old favorite workspace automatic classification result is invalid.')
         }
+        assertCurrent()
         const proposed = candidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
         const segmentAids = [...stored.aids]
         let segmentWorkspace: OldFavoriteWorkspace = {
@@ -3984,6 +4107,8 @@ export class OldFavoriteWorkspaceCoordinator {
           globalClassifications = classified.classifications
           segmentWorkspace = classified
         }
+        await this.yieldToEventLoop()
+        assertCurrent()
       }
     } finally {
       if (visibleItems) this.currentSegmentItems.set(workspace.accountMid, visibleItems)
@@ -3995,6 +4120,7 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     if (!newEntries.length) {
+      assertCurrent()
       if (!recommendationState) return clone(workspace)
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: visibleSegmentId,
@@ -4006,6 +4132,8 @@ export class OldFavoriteWorkspaceCoordinator {
       return clone(workspace)
     }
     const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
+    await this.yieldToEventLoop()
+    assertCurrent()
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: visibleSegmentId,
       classifications: newEntries.flatMap(({ entry }) => entry.changes.flatMap((change) => change.after ? [{
@@ -4017,6 +4145,7 @@ export class OldFavoriteWorkspaceCoordinator {
       ...(recommendationState ? { recommendations: clone(recommendationState) } : {}),
       planReadiness: readiness
     })
+    assertCurrent()
     if (recommendationState) this.recommendations.set(workspace.accountMid, clone(recommendationState))
     this.updateOverviewClassifications(workspace.accountMid, newEntries)
     this.planReadiness.set(workspace.accountMid, readiness)
@@ -4097,6 +4226,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async saveCurrentSegmentToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertFavoriteConfigurationExecutionReady(workspace)
       this.assertDeepSeekExecutionReady(workspace)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
       this.assertCurrentSegmentTagReady(workspace)
@@ -4218,6 +4348,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async saveWholeRunToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
     await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertFavoriteConfigurationExecutionReady(workspace)
       this.assertDeepSeekExecutionReady(workspace)
       this.assertWholeRunTagCutoffAccepted(workspace)
     })
@@ -4278,6 +4409,7 @@ export class OldFavoriteWorkspaceCoordinator {
   ): Promise<OldFavoriteWorkspaceBilibiliSyncPreflight> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      this.assertFavoriteConfigurationExecutionReady(workspace)
       this.assertDeepSeekExecutionReady(workspace)
       this.assertWholeRunTagCutoffAccepted(workspace)
       if (workspace.status !== 'previewing' || !workspace.baseline) {
@@ -4317,6 +4449,25 @@ export class OldFavoriteWorkspaceCoordinator {
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)
       ] as const)))
+      const comparableShardTitle = (title: string) => title.trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*·\s*/gu, '·')
+        .replace(/·0*(\d+)$/u, '·$1')
+      const bindingCandidatesFor = async (logicalLedgerId: string, expectedRemoteTitle: string, shardNumber?: number) => {
+        const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
+          ledgerId: logicalLedgerId,
+          title: expectedRemoteTitle
+        }]) ?? []
+        const candidates = preview.find((entry) => entry.ledgerId === logicalLedgerId)?.candidates ?? []
+        return candidates
+          .filter((candidate) => comparableShardTitle(candidate.title) === comparableShardTitle(expectedRemoteTitle))
+          .map((candidate) => ({
+            remoteFolderId: candidate.id,
+            remoteTitle: candidate.title,
+            memberCount: candidate.memberCount,
+            ...(shardNumber === undefined ? {} : { shardNumber })
+          }))
+      }
       const missingLedgers: OldFavoriteWorkspaceBilibiliSyncPreflight['missingLedgers'] = []
       const blockedLogicalLedgerIds = new Set<string>()
 
@@ -4325,13 +4476,28 @@ export class OldFavoriteWorkspaceCoordinator {
         const formalShards = physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
         const hasIncompleteShard = physicalShards.some((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
         if (physicalShards.length === 0) {
-          missingLedgers.push({ logicalLedgerId, logicalTitle: logicalTitles.get(logicalLedgerId)!, reason: 'unbacked' })
-          blockedLogicalLedgerIds.add(logicalLedgerId)
-        } else if (hasIncompleteShard || formalShards.length === 0) {
+          const logicalTitle = logicalTitles.get(logicalLedgerId)!
           missingLedgers.push({
             logicalLedgerId,
-            logicalTitle: logicalTitles.get(logicalLedgerId)!,
-            reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound'
+            logicalTitle,
+            reason: 'unbacked',
+            bindingCandidates: await bindingCandidatesFor(logicalLedgerId, logicalTitle, 1)
+          })
+          blockedLogicalLedgerIds.add(logicalLedgerId)
+        } else if (hasIncompleteShard || formalShards.length === 0) {
+          const logicalTitle = logicalTitles.get(logicalLedgerId)!
+          const incompleteShardCandidates = (await Promise.all(physicalShards
+            .filter((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
+            .map((shard) => bindingCandidatesFor(
+              logicalLedgerId,
+              favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shard.shardNumber, 'backup-preflight', logicalTitle),
+              shard.shardNumber
+            )))).flat()
+          missingLedgers.push({
+            logicalLedgerId,
+            logicalTitle,
+            reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound',
+            bindingCandidates: incompleteShardCandidates
           })
           blockedLogicalLedgerIds.add(logicalLedgerId)
         }
@@ -4382,28 +4548,13 @@ export class OldFavoriteWorkspaceCoordinator {
           })
         }
       }
-      const comparableShardTitle = (title: string) => title.trim()
-        .replace(/\s+/g, ' ')
-        .replace(/\s*·\s*/gu, '·')
-        .replace(/·0*(\d+)$/u, '·$1')
       const requiredPhysicalShardsWithCandidates = await Promise.all(requiredPhysicalShards.map(async (shard) => {
         const expectedRemoteTitle = favoriteRepositoryManagedShardTitleForDisplay(
           shard.logicalLedgerId, shard.shardNumber, 'backup-preflight', shard.logicalTitle
         )
-        const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
-          ledgerId: shard.logicalLedgerId,
-          title: expectedRemoteTitle
-        }]) ?? []
-        const candidates = preview.find((entry) => entry.ledgerId === shard.logicalLedgerId)?.candidates ?? []
         return {
           ...shard,
-          bindingCandidates: candidates
-            .filter((candidate) => comparableShardTitle(candidate.title) === comparableShardTitle(expectedRemoteTitle))
-            .map((candidate) => ({
-              remoteFolderId: candidate.id,
-              remoteTitle: candidate.title,
-              memberCount: candidate.memberCount
-            }))
+          bindingCandidates: await bindingCandidatesFor(shard.logicalLedgerId, expectedRemoteTitle)
         }
       }))
       return {
@@ -5058,11 +5209,32 @@ export class OldFavoriteWorkspaceCoordinator {
       while (updated.historyCursor > targetCursor) updated = undoWorkspaceChange(updated)
       while (updated.historyCursor < targetCursor) updated = redoWorkspaceChange(updated)
       if (updated === workspace) return clone(workspace)
+      const referencedLedgerIds = [...new Set(Object.values(updated.classifications)
+        .flatMap((classification) => classification.targetLedgerIds)
+        .map((ledgerId) => ledgerId.trim())
+        .filter((ledgerId) => ledgerId && ledgerId !== 'inbox'))].sort()
+      const restoredLedgerIds = referencedLedgerIds.length
+        ? await this.options.restoreDeletedFavoriteLedgerRulesForHistory?.(updated.accountMid, referencedLedgerIds) ?? []
+        : []
+      const priorExcludedLedgerIds = this.roundExcludedLedgerIdsByAccount.get(updated.accountMid) ?? []
+      const restoredSet = new Set(restoredLedgerIds.map((ledgerId) => ledgerId.trim()).filter(Boolean))
+      const excludedLedgerIds = restoredSet.size
+        ? priorExcludedLedgerIds.filter((ledgerId) => !restoredSet.has(ledgerId))
+        : priorExcludedLedgerIds
       const readiness = await this.calculatePlanReadiness(updated)
-      await this.appendEvents(updated, this.currentSegment(workspace), [{
-        type: 'history-cursor', historyCursor: updated.historyCursor
-      }], readiness)
+      await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+        currentSegmentId: this.currentSegment(workspace),
+        classifications: [],
+        history: [encodeJournalEvent({ type: 'history-cursor', historyCursor: updated.historyCursor })],
+        planReadiness: readiness,
+        ...(restoredSet.size ? { excludedLedgerIds } : {})
+      })
       this.planReadiness.set(updated.accountMid, readiness)
+      if (restoredSet.size) this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, excludedLedgerIds)
+      const overviewEntries = updated.history.slice(0, updated.historyCursor).map((entry) => ({
+        segmentId: this.currentSegment(updated), entry
+      }))
+      this.updateOverviewClassifications(updated.accountMid, overviewEntries)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -5198,6 +5370,7 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private async commitCompleteLocalResultForRemoteExecutionUnsafe(workspace: OldFavoriteWorkspace) {
+      this.assertFavoriteConfigurationExecutionReady(workspace)
       this.assertDeepSeekExecutionReady(workspace)
       this.assertWholeRunTagCutoffAccepted(workspace)
       if (!['previewing', 'frozen', 'executing', 'reconciling'].includes(workspace.status)) {
@@ -5337,6 +5510,10 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private async yieldLocalResultPreparation(index: number) {
     if (index === 0 || index % LOCAL_RESULT_PREPARATION_BATCH_SIZE !== 0) return
+    await this.yieldToEventLoop()
+  }
+
+  private async yieldToEventLoop() {
     await (this.options.yieldToEventLoop?.() ?? new Promise<void>((resolve) => setImmediate(resolve)))
   }
 
@@ -6386,6 +6563,16 @@ export class OldFavoriteWorkspaceCoordinator {
     return clone(state)
   }
 
+  /** Recommendation mutations always diff against the durable overlay, never a stale renderer-era cache. */
+  private async loadAuthoritativeRecommendationStateUnsafe(workspace: OldFavoriteWorkspace): Promise<RecommendationState> {
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    if (!recovered.recommendations.initialized) return this.ensureRecommendations(workspace)
+    const state = clone(recovered.recommendations)
+    this.recommendations.set(workspace.accountMid, clone(state))
+    return state
+  }
+
   private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState, notify = true) {
     if (!this.options.saveRecommendedLedgers || !state.candidates.length) return false
     const saved = await this.options.saveRecommendedLedgers(
@@ -7110,6 +7297,12 @@ export class OldFavoriteWorkspaceCoordinator {
         const readiness = this.planReadiness.get(workspace.accountMid) ?? { selectedAidCount: 0, classifiedAidCount: 0 }
         return { ...readiness, unclassifiedAidCount: readiness.selectedAidCount - readiness.classifiedAidCount }
       })(),
+      ...(this.favoriteConfigurationUpdates.get(workspace.accountMid)?.workspaceId === workspace.id ? {
+        configurationUpdate: (() => {
+          const update = this.favoriteConfigurationUpdates.get(workspace.accountMid)!
+          return { version: update.version, status: update.status }
+        })()
+      } : {}),
       history: {
         cursor: workspace.historyCursor,
         length: workspace.history.length,

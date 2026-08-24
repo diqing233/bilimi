@@ -551,7 +551,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     }
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
-    if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)
+    if (requested.type === 'reclassify-favorite-configuration') return options.coordinator.scheduleFavoriteConfigurationReclassification(accountMid)
     if (requested.type === 'set-recommended-candidates') {
       await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
       return options.coordinator.getSnapshot(accountMid)

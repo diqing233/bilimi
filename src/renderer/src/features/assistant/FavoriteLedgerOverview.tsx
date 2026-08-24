@@ -69,7 +69,11 @@ type FavoriteLedgerOverviewProps = {
 }
 
 export type FavoriteLedgerOverviewHandle = {
-  requestBackup: (options?: { targetLedgerIds?: readonly string[] }) => Promise<unknown>
+  requestBackup: (options?: {
+    targetLedgerIds?: readonly string[]
+    confirmedBackupOptions?: Pick<FavoriteLedgerSaveOptions, 'confirmCreateAndBind' | 'rebindRemoteFolderIds' | 'rebindRemoteFolders'>
+    suppressConfirmationDialog?: boolean
+  }) => Promise<unknown>
 }
 
 type RebindCandidateEntry = {
@@ -844,7 +848,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setActiveLedgerId((current) => current === savingLedgerId ? null : current)
     setNewLedger(false)
   }
-  const requestBackup = async (options?: { targetLedgerIds?: readonly string[] }) => {
+  const requestBackup = async (options?: {
+    targetLedgerIds?: readonly string[]
+    confirmedBackupOptions?: Pick<FavoriteLedgerSaveOptions, 'confirmCreateAndBind' | 'rebindRemoteFolderIds' | 'rebindRemoteFolders'>
+    suppressConfirmationDialog?: boolean
+  }) => {
     if (destructiveActionLocked) return { ok: false, message: '当前收藏夹规则分析尚未完成，暂不能备册。' }
     if (backupInFlightRef.current) return backupInFlightRef.current
     const operation = (async () => {
@@ -869,12 +877,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       const result = await onSyncLedgers(eligibleLedgers, {
         deleteDisabled: false,
         backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
-        rediscoverDeletedRemoteDrafts: true
+        rediscoverDeletedRemoteDrafts: true,
+        ...options?.confirmedBackupOptions
       }) as {
         ok?: boolean
         unboundCandidates?: RebindCandidateEntry[]
       } | undefined
       if (result?.unboundCandidates?.length) {
+        if (options?.suppressConfirmationDialog) return result
         setRebindCandidates(result.unboundCandidates)
         setRebindSelections(Object.fromEntries(result.unboundCandidates
           .filter((entry) => entry.candidates.length)

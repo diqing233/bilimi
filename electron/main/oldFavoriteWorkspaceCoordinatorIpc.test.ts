@@ -344,7 +344,7 @@ describe('old favorite workspace coordinator IPC', () => {
   it('routes explicit saved favorite configuration reclassification through the trusted coordinator', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
-      reclassifyForFavoriteConfiguration: vi.fn().mockResolvedValue({}),
+      scheduleFavoriteConfigurationReclassification: vi.fn().mockResolvedValue(snapshot),
       getSnapshot: vi.fn().mockResolvedValue(snapshot)
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
@@ -352,8 +352,10 @@ describe('old favorite workspace coordinator IPC', () => {
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
-    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'reclassify-favorite-configuration' })
-    expect(coordinator.reclassifyForFavoriteConfiguration).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'reclassify-favorite-configuration'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.scheduleFavoriteConfigurationReclassification).toHaveBeenCalledWith('100')
   })
 
   it('accepts only a small start-scan command and returns its immediate scanning snapshot', async () => {
